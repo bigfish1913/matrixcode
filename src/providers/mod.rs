@@ -88,6 +88,11 @@ pub enum StreamEvent {
     TextDelta(String),
     /// A new tool_use block started.
     ToolUseStart { id: String, name: String },
+    /// Incremental progress for the current tool_use block's JSON input.
+    /// `bytes_so_far` is the total accumulated size of the partial JSON
+    /// received for this block — useful for driving progress indicators
+    /// while the model streams large arguments (e.g. a full file body).
+    ToolInputDelta { bytes_so_far: usize },
     /// Final turn result — includes the full assembled content blocks.
     Done(ChatResponse),
     /// Fatal error during streaming.

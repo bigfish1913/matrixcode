@@ -17,6 +17,8 @@ glob = "0.3"
 regex = "1"
 indicatif = "0.17"
 rustyline = "14"
+termimad = "0.34"
+is-terminal = "0.4"
 
 [dev-dependencies]
 mockito = "1"

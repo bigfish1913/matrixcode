@@ -1,16 +1,30 @@
 use std::io::{Write as _, stdout};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
+use crate::markdown;
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, StopReason,
     StreamEvent,
 };
+use crate::skills::{self, Skill};
 use crate::tools::{self, Tool};
+use termimad::MadSkin;
 
-const SYSTEM_PROMPT: &str = r#"You are a helpful code agent. You can read, write, edit, and search files, as well as fetch web content.
+const BASE_SYSTEM_PROMPT: &str = r#"You are a helpful code agent with tool use.
+
+Available tools:
+- read / write / edit / multi_edit: file I/O. Prefer edit or multi_edit over write for changes to existing files.
+- ls: list a directory (non-recursive).
+- glob: find files by name pattern (e.g. **/*.rs).
+- search: grep for a regex pattern inside files.
+- bash: run shell commands (builds, tests, git, package managers).
+- todo_write: maintain a structured todo list for multi-step tasks (3+ steps). Update status as you progress.
+- webfetch: fetch a URL.
+- skill: load the full instructions for one of the skills listed below. Prefer this over guessing when a skill name matches the task.
 
 When using tools, think step by step:
 1. Understand what the user wants
@@ -20,7 +34,7 @@ When using tools, think step by step:
 
 Always explain what you're doing before using a tool."#;
 
-const MAX_ITERATIONS: usize = 20;
+const MAX_ITERATIONS: usize = 200;
 
 // ANSI dim italic for thinking, reset at end. Kept minimal to avoid pulling in a color crate.
 const DIM: &str = "\x1b[2;3m";
@@ -31,6 +45,12 @@ pub struct Agent {
     tools: Vec<Box<dyn Tool>>,
     think: bool,
     messages: Vec<Message>,
+    /// Whether to re-render assistant text as markdown when a text block ends.
+    markdown_enabled: bool,
+    /// Cached skin; cheap to build but we only need one per agent.
+    skin: MadSkin,
+    /// Final system prompt with any skills catalogue already appended.
+    system_prompt: String,
 }
 
 impl Agent {
@@ -39,12 +59,50 @@ impl Agent {
     }
 
     pub fn with_options(provider: Box<dyn Provider>, think: bool) -> Self {
+        Self::with_full_options(provider, think, true)
+    }
+
+    pub fn with_full_options(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+    ) -> Self {
+        Self::with_skills(provider, think, markdown_enabled, Vec::new())
+    }
+
+    /// Full constructor. The `skills` list is advertised in the system
+    /// prompt and bound to the `skill` tool so the model can pull any
+    /// one of them into the conversation on demand.
+    pub fn with_skills(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+        skills: Vec<Skill>,
+    ) -> Self {
+        let mut system_prompt = String::from(BASE_SYSTEM_PROMPT);
+        if let Some(cat) = skills::format_catalogue(&skills) {
+            system_prompt.push_str(&cat);
+        }
+        let skills_arc = Arc::new(skills);
         Self {
             provider,
-            tools: tools::all_tools(),
+            tools: tools::all_tools_with_skills(skills_arc),
             think,
             messages: Vec::new(),
+            markdown_enabled: markdown::should_render(markdown_enabled),
+            skin: markdown::default_skin(),
+            system_prompt,
         }
+    }
+
+    /// Borrow the accumulated conversation for persistence.
+    pub fn messages(&self) -> &[Message] {
+        &self.messages
+    }
+
+    /// Replace the accumulated conversation, e.g. when resuming a session.
+    pub fn set_messages(&mut self, messages: Vec<Message>) {
+        self.messages = messages;
     }
 
     /// Run a single user turn, re-using accumulated conversation history.
@@ -62,7 +120,7 @@ impl Agent {
             let request = ChatRequest {
                 messages: self.messages.clone(),
                 tools: tool_defs.clone(),
-                system: Some(SYSTEM_PROMPT.to_string()),
+                system: Some(self.system_prompt.clone()),
                 think: self.think,
             };
 
@@ -109,6 +167,11 @@ impl Agent {
 
         let mut in_thinking = false;
         let mut in_text = false;
+        // Raw markdown accumulated for the current text block. Re-rendered
+        // over the printed plaintext when the block closes.
+        let mut text_buffer = String::new();
+        let mut tool_spinner: Option<(ProgressBar, String)> = None;
+        let mut last_shown_bytes: usize = 0;
         let mut final_response: Option<ChatResponse> = None;
 
         while let Some(event) = rx.recv().await {
@@ -119,7 +182,7 @@ impl Agent {
                 StreamEvent::ThinkingDelta(t) => {
                     if in_text {
                         // thinking can resume between text blocks; add a gap
-                        println!();
+                        self.flush_text_block(&mut text_buffer);
                         in_text = false;
                     }
                     if !in_thinking {
@@ -135,6 +198,7 @@ impl Agent {
                         in_thinking = false;
                     }
                     in_text = true;
+                    text_buffer.push_str(&t);
                     print!("{}", t);
                     let _ = stdout().flush();
                 }
@@ -144,20 +208,52 @@ impl Agent {
                         in_thinking = false;
                     }
                     if in_text {
-                        println!();
+                        self.flush_text_block(&mut text_buffer);
                         in_text = false;
                     }
+                    if let Some((sp, _)) = tool_spinner.take() {
+                        sp.finish_and_clear();
+                    }
                     println!("[tool: {}]", name);
+                    let sp = make_spinner(&format!("streaming {} input (0 B)", name));
+                    tool_spinner = Some((sp, name));
+                    last_shown_bytes = 0;
+                }
+                StreamEvent::ToolInputDelta { bytes_so_far } => {
+                    // Throttle: only refresh the spinner label when the size
+                    // has grown by at least ~1 KB, to avoid noisy redraws
+                    // when the model streams many small partial_json chunks.
+                    const REFRESH_STEP: usize = 1024;
+                    if bytes_so_far >= last_shown_bytes + REFRESH_STEP {
+                        if let Some((sp, name)) = tool_spinner.as_ref() {
+                            sp.set_message(format!(
+                                "streaming {} input ({})",
+                                name,
+                                format_bytes(bytes_so_far)
+                            ));
+                            last_shown_bytes = bytes_so_far;
+                        }
+                    }
                 }
                 StreamEvent::Done(resp) => {
+                    if let Some((sp, _)) = tool_spinner.take() {
+                        sp.finish_and_clear();
+                    }
                     if in_thinking {
                         print!("{}", RESET);
                     }
-                    println!();
+                    if in_text {
+                        self.flush_text_block(&mut text_buffer);
+                    } else {
+                        println!();
+                    }
                     final_response = Some(resp);
                     break;
                 }
                 StreamEvent::Error(e) => {
+                    if let Some((sp, _)) = tool_spinner.take() {
+                        sp.finish_and_clear();
+                    }
                     if in_thinking {
                         print!("{}", RESET);
                     }
@@ -168,6 +264,24 @@ impl Agent {
         }
 
         final_response.ok_or_else(|| anyhow::anyhow!("stream ended without Done event"))
+    }
+
+    /// Close the current text block. If markdown rendering is active, erase
+    /// the raw text we printed during streaming and redraw it through the
+    /// markdown skin. Otherwise just emit a trailing newline so the next
+    /// section starts on a fresh row.
+    fn flush_text_block(&self, buffer: &mut String) {
+        if buffer.is_empty() {
+            println!();
+            return;
+        }
+        if self.markdown_enabled {
+            let width = markdown::term_width();
+            markdown::rerender_over(buffer, &self.skin, width);
+        } else {
+            println!();
+        }
+        buffer.clear();
     }
 
     async fn execute_tool_calls(&self, content: &[ContentBlock]) -> Vec<ContentBlock> {
@@ -240,6 +354,18 @@ fn truncate(s: &str, max: usize) -> &str {
         end -= 1;
     }
     &s[..end]
+}
+
+fn format_bytes(n: usize) -> String {
+    const KB: usize = 1024;
+    const MB: usize = 1024 * 1024;
+    if n < KB {
+        format!("{} B", n)
+    } else if n < MB {
+        format!("{:.1} KB", n as f64 / KB as f64)
+    } else {
+        format!("{:.2} MB", n as f64 / MB as f64)
+    }
 }
 
 #[cfg(test)]

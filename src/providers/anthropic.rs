@@ -318,6 +318,10 @@ impl Provider for AnthropicProvider {
                                 ) => {
                                     if let Some(p) = delta["partial_json"].as_str() {
                                         input_json.push_str(p);
+                                        send(StreamEvent::ToolInputDelta {
+                                            bytes_so_far: input_json.len(),
+                                        })
+                                        .await;
                                     }
                                 }
                                 _ => {}
