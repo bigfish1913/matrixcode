@@ -6,6 +6,7 @@ use crate::tools::ToolDefinition;
 
 use super::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, StopReason,
+    Usage,
 };
 
 pub struct OpenAIProvider {
@@ -164,6 +165,16 @@ impl Provider for OpenAIProvider {
 
         let mut content = Vec::new();
 
+        let usage_blob = &response_body["usage"];
+        let usage = Usage {
+            input_tokens: usage_blob["prompt_tokens"].as_u64().unwrap_or(0) as u32,
+            output_tokens: usage_blob["completion_tokens"].as_u64().unwrap_or(0) as u32,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: usage_blob["prompt_tokens_details"]["cached_tokens"]
+                .as_u64()
+                .unwrap_or(0) as u32,
+        };
+
         if let Some(text) = message["content"].as_str() {
             if !text.is_empty() {
                 content.push(ContentBlock::Text { text: text.to_string() });
@@ -184,6 +195,7 @@ impl Provider for OpenAIProvider {
                 return Ok(ChatResponse {
                     content,
                     stop_reason: StopReason::ToolUse,
+                    usage: usage.clone(),
                 });
             }
         }
@@ -191,6 +203,7 @@ impl Provider for OpenAIProvider {
         Ok(ChatResponse {
             content,
             stop_reason,
+            usage,
         })
     }
 }

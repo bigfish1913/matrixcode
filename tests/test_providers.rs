@@ -1,5 +1,5 @@
 use code_agent::providers::{
-    ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Role, StopReason,
+    ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Role, StopReason, Usage,
 };
 use code_agent::tools::ToolDefinition;
 use serde_json::json;
@@ -91,6 +91,7 @@ fn test_chat_response_creation() {
             text: "Hello!".to_string(),
         }],
         stop_reason: StopReason::EndTurn,
+        usage: Usage::default(),
     };
 
     assert_eq!(response.content.len(), 1);

@@ -8,7 +8,7 @@ use crate::tools::ToolDefinition;
 
 use super::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, StopReason,
-    StreamEvent,
+    StreamEvent, Usage,
 };
 
 pub struct AnthropicProvider {
@@ -122,6 +122,10 @@ fn thinking_config(model: &str) -> Value {
 
 #[async_trait]
 impl Provider for AnthropicProvider {
+    fn context_size(&self) -> Option<u32> {
+        context_window_for(&self.model)
+    }
+
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
         let body = self.build_body(&request);
 
@@ -176,6 +180,7 @@ impl Provider for AnthropicProvider {
         Ok(ChatResponse {
             content,
             stop_reason,
+            usage: parse_usage(&response_body["usage"]),
         })
     }
 
@@ -216,6 +221,7 @@ impl Provider for AnthropicProvider {
             // In-flight block assembly: index → partial data
             let mut blocks: Vec<AssembledBlock> = Vec::new();
             let mut stop_reason = StopReason::EndTurn;
+            let mut usage = Usage::default();
 
             while let Some(chunk) = stream.next().await {
                 let chunk = match chunk {
@@ -254,6 +260,13 @@ impl Provider for AnthropicProvider {
                     };
 
                     match evt["type"].as_str().unwrap_or("") {
+                        "message_start" => {
+                            // Initial usage payload — `input_tokens` is final
+                            // (they don't grow during streaming) but
+                            // `output_tokens` starts near 0 and is updated by
+                            // subsequent `message_delta` events.
+                            usage = merge_usage(usage, &evt["message"]["usage"]);
+                        }
                         "content_block_start" => {
                             let idx = evt["index"].as_u64().unwrap_or(0) as usize;
                             let block = &evt["content_block"];
@@ -335,6 +348,10 @@ impl Provider for AnthropicProvider {
                                     _ => StopReason::EndTurn,
                                 };
                             }
+                            // `usage` on message_delta reflects cumulative
+                            // counts for the current message — most notably
+                            // the final `output_tokens`.
+                            usage = merge_usage(usage, &evt["usage"]);
                         }
                         "message_stop" => {
                             let content: Vec<ContentBlock> = blocks
@@ -344,6 +361,7 @@ impl Provider for AnthropicProvider {
                             send(StreamEvent::Done(ChatResponse {
                                 content,
                                 stop_reason,
+                                usage,
                             }))
                             .await;
                             return;
@@ -405,4 +423,64 @@ impl AssembledBlock {
             }
         }
     }
+}
+
+/// Parse the provider's `usage` blob (non-streaming response) into our
+/// internal `Usage` struct. Missing fields default to 0.
+fn parse_usage(u: &Value) -> Usage {
+    Usage {
+        input_tokens: u["input_tokens"].as_u64().unwrap_or(0) as u32,
+        output_tokens: u["output_tokens"].as_u64().unwrap_or(0) as u32,
+        cache_creation_input_tokens: u["cache_creation_input_tokens"].as_u64().unwrap_or(0) as u32,
+        cache_read_input_tokens: u["cache_read_input_tokens"].as_u64().unwrap_or(0) as u32,
+    }
+}
+
+/// Merge a fresh usage payload into the accumulated one. Non-zero new values
+/// override prior ones — this matches the streaming protocol where
+/// `message_start` gives input counts and `message_delta` updates output.
+fn merge_usage(mut acc: Usage, u: &Value) -> Usage {
+    let fresh = parse_usage(u);
+    if fresh.input_tokens > 0 {
+        acc.input_tokens = fresh.input_tokens;
+    }
+    if fresh.output_tokens > 0 {
+        acc.output_tokens = fresh.output_tokens;
+    }
+    if fresh.cache_creation_input_tokens > 0 {
+        acc.cache_creation_input_tokens = fresh.cache_creation_input_tokens;
+    }
+    if fresh.cache_read_input_tokens > 0 {
+        acc.cache_read_input_tokens = fresh.cache_read_input_tokens;
+    }
+    acc
+}
+
+/// Best-effort mapping from an Anthropic-ish model name to its context
+/// window size. Honours the `CONTEXT_SIZE` env variable first so users
+/// can pin a value when running through a proxy gateway (e.g. Kimi via
+/// an Anthropic-shaped endpoint). Returns `None` only when we truly
+/// cannot infer; callers treat that as "hide the fullness bar".
+fn context_window_for(model: &str) -> Option<u32> {
+    if let Ok(raw) = std::env::var("CONTEXT_SIZE") {
+        if let Ok(n) = raw.trim().parse::<u32>() {
+            if n > 0 {
+                return Some(n);
+            }
+        }
+    }
+    let m = model.to_ascii_lowercase();
+    // Claude Opus 4.7 and the 1M-context variants expose a 1M window.
+    if m.contains("[1m]") || m.contains("opus-4-7") || m.contains("opus-4.7") {
+        return Some(1_000_000);
+    }
+    // Kimi K2 / K2.5 ship with a 128K window on the public endpoint.
+    if m.contains("kimi") {
+        return Some(128_000);
+    }
+    // Other Claude 3.x/4.x models: 200K standard window.
+    if m.contains("claude") {
+        return Some(200_000);
+    }
+    None
 }

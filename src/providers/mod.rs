@@ -68,6 +68,18 @@ pub struct ChatRequest {
 pub struct ChatResponse {
     pub content: Vec<ContentBlock>,
     pub stop_reason: StopReason,
+    pub usage: Usage,
+}
+
+/// Token accounting for one provider turn. `input_tokens` already includes
+/// cached/uncached portions combined — when providers expose cache details
+/// separately we capture them here so callers can report cache effectiveness.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Usage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cache_creation_input_tokens: u32,
+    pub cache_read_input_tokens: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -102,6 +114,13 @@ pub enum StreamEvent {
 #[async_trait]
 pub trait Provider: Send + Sync {
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse>;
+
+    /// Best-effort context window size (in tokens) for the configured model.
+    /// `None` if the provider cannot infer it; callers should treat that as
+    /// "don't render a fullness bar".
+    fn context_size(&self) -> Option<u32> {
+        None
+    }
 
     /// Stream a chat turn. Default impl wraps `chat` and emits one `Done` event,
     /// so providers without native streaming still work (no incremental thinking).

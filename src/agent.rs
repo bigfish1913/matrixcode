@@ -8,7 +8,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::markdown;
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, StopReason,
-    StreamEvent,
+    StreamEvent, Usage,
 };
 use crate::skills::{self, Skill};
 use crate::tools::{self, Tool};
@@ -34,7 +34,7 @@ When using tools, think step by step:
 
 Always explain what you're doing before using a tool."#;
 
-const MAX_ITERATIONS: usize = 200;
+const MAX_ITERATIONS: usize = 20;
 
 // ANSI dim italic for thinking, reset at end. Kept minimal to avoid pulling in a color crate.
 const DIM: &str = "\x1b[2;3m";
@@ -51,6 +51,14 @@ pub struct Agent {
     skin: MadSkin,
     /// Final system prompt with any skills catalogue already appended.
     system_prompt: String,
+    /// Cumulative output tokens across the whole session. (Input tokens for
+    /// the next turn include prior output already — they are reported
+    /// directly by the provider — so we track input via "latest turn" and
+    /// output via running sum.)
+    total_output_tokens: u64,
+    /// Latest `input_tokens` reported by the provider, which equals the
+    /// number of tokens currently resident in the context window.
+    last_input_tokens: u32,
 }
 
 impl Agent {
@@ -92,6 +100,8 @@ impl Agent {
             markdown_enabled: markdown::should_render(markdown_enabled),
             skin: markdown::default_skin(),
             system_prompt,
+            total_output_tokens: 0,
+            last_input_tokens: 0,
         }
     }
 
@@ -125,6 +135,9 @@ impl Agent {
             };
 
             let response = self.stream_one_turn(request).await?;
+
+            self.record_usage(&response.usage);
+            self.print_usage_line(&response.usage);
 
             self.messages.push(Message {
                 role: Role::Assistant,
@@ -329,6 +342,71 @@ impl Agent {
             .ok_or_else(|| anyhow::anyhow!("Unknown tool: {}", name))?;
 
         tool.execute(input.clone()).await
+    }
+
+    fn record_usage(&mut self, usage: &Usage) {
+        self.last_input_tokens = usage.input_tokens;
+        self.total_output_tokens = self.total_output_tokens.saturating_add(usage.output_tokens as u64);
+    }
+
+    /// Print a compact one-liner summarising this turn's token usage and the
+    /// current context-window fullness. Silent when the provider returned
+    /// nothing usable (e.g. a proxied endpoint that strips `usage`).
+    fn print_usage_line(&self, usage: &Usage) {
+        if usage.input_tokens == 0 && usage.output_tokens == 0 {
+            return;
+        }
+
+        let mut parts: Vec<String> = Vec::with_capacity(4);
+        parts.push(format!(
+            "in {} / out {} (session out: {})",
+            format_tokens(usage.input_tokens as u64),
+            format_tokens(usage.output_tokens as u64),
+            format_tokens(self.total_output_tokens),
+        ));
+        if usage.cache_read_input_tokens > 0 || usage.cache_creation_input_tokens > 0 {
+            parts.push(format!(
+                "cache r/w {}/{}",
+                format_tokens(usage.cache_read_input_tokens as u64),
+                format_tokens(usage.cache_creation_input_tokens as u64),
+            ));
+        }
+        if let Some(ctx) = self.provider.context_size() {
+            let used = usage.input_tokens;
+            let pct = (used as f64 / ctx as f64 * 100.0).min(100.0);
+            parts.push(format!(
+                "ctx {} / {} ({:.1}%) {}",
+                format_tokens(used as u64),
+                format_tokens(ctx as u64),
+                pct,
+                bar(pct, 20),
+            ));
+        }
+
+        println!("{}{}{}", DIM, parts.join(" | "), RESET);
+    }
+}
+
+/// Render a 0–100 percentage into a 20-char unicode progress bar.
+fn bar(pct: f64, width: usize) -> String {
+    let filled = ((pct / 100.0) * width as f64).round() as usize;
+    let filled = filled.min(width);
+    let mut s = String::with_capacity(width + 2);
+    s.push('[');
+    for i in 0..width {
+        s.push(if i < filled { '█' } else { '░' });
+    }
+    s.push(']');
+    s
+}
+
+fn format_tokens(n: u64) -> String {
+    if n < 1_000 {
+        n.to_string()
+    } else if n < 1_000_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        format!("{:.2}M", n as f64 / 1_000_000.0)
     }
 }
 
