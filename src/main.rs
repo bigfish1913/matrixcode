@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use code_agent::{
     agent,
+    prompt,
     providers::{self, Message},
     skills,
 };
@@ -49,6 +50,10 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     no_default_skills: bool,
 
+    /// Prompt profile: default, safe, fast, review.
+    #[arg(long, env = "PROMPT_PROFILE", default_value = "default")]
+    profile: String,
+
     /// One-shot prompt. If omitted, enters interactive REPL mode.
     prompt: Vec<String>,
 }
@@ -85,10 +90,16 @@ async fn main() -> Result<()> {
         other => anyhow::bail!("Unknown provider: {other}. Use 'openai' or 'anthropic'"),
     };
 
-    let mut agent = agent::Agent::with_skills(
+    let profile = cli
+        .profile
+        .parse::<prompt::PromptProfile>()
+        .map_err(anyhow::Error::msg)?;
+
+    let mut agent = agent::Agent::with_profile_and_skills(
         provider,
         cli.think,
         cli.markdown,
+        profile,
         load_skills(&cli.skills_dir, cli.no_default_skills),
     );
 

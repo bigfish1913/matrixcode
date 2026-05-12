@@ -206,7 +206,7 @@ fn unquote(s: &str) -> String {
     s.to_string()
 }
 
-/// Render the skills catalogue that gets appended to the system prompt.
+/// Render the skills catalogue body for insertion into a prompt section.
 /// Returns `None` if there are no skills, so callers can skip injection
 /// entirely rather than bolting on an empty section.
 pub fn format_catalogue(skills: &[Skill]) -> Option<String> {
@@ -214,10 +214,12 @@ pub fn format_catalogue(skills: &[Skill]) -> Option<String> {
         return None;
     }
     let mut s = String::from(
-        "\n\nAvailable skills (use the `skill` tool with the skill's name to load its full instructions):\n",
+        "Use the `skill` tool with the skill's name to load its full instructions:
+",
     );
     for sk in skills {
-        s.push_str(&format!("- {}: {}\n", sk.name, sk.description));
+        s.push_str(&format!("- {}: {}
+", sk.name, sk.description));
     }
     Some(s)
 }
@@ -348,6 +350,8 @@ mod tests {
             body: String::new(),
         };
         let cat = format_catalogue(&[s]).unwrap();
+        assert!(cat.contains("Use the `skill` tool"));
         assert!(cat.contains("demo: does stuff"));
+        assert!(!cat.contains("Available skills"));
     }
 }

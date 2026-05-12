@@ -6,6 +6,7 @@ use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::markdown;
+use crate::prompt::{PromptContext, SystemPromptBuilder};
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, StopReason,
     StreamEvent, Usage,
@@ -14,25 +15,7 @@ use crate::skills::{self, Skill};
 use crate::tools::{self, Tool};
 use termimad::MadSkin;
 
-const BASE_SYSTEM_PROMPT: &str = r#"You are a helpful code agent with tool use.
-
-Available tools:
-- read / write / edit / multi_edit: file I/O. Prefer edit or multi_edit over write for changes to existing files.
-- ls: list a directory (non-recursive).
-- glob: find files by name pattern (e.g. **/*.rs).
-- search: grep for a regex pattern inside files.
-- bash: run shell commands (builds, tests, git, package managers).
-- todo_write: maintain a structured todo list for multi-step tasks (3+ steps). Update status as you progress.
-- webfetch: fetch a URL.
-- skill: load the full instructions for one of the skills listed below. Prefer this over guessing when a skill name matches the task.
-
-When using tools, think step by step:
-1. Understand what the user wants
-2. Decide which tool(s) to use
-3. Execute the tool(s) and observe results
-4. Continue until the task is complete
-
-Always explain what you're doing before using a tool."#;
+pub use crate::prompt::PromptProfile;
 
 const MAX_ITERATIONS: usize = 20;
 
@@ -75,7 +58,16 @@ impl Agent {
         think: bool,
         markdown_enabled: bool,
     ) -> Self {
-        Self::with_skills(provider, think, markdown_enabled, Vec::new())
+        Self::with_profile(provider, think, markdown_enabled, PromptProfile::Default)
+    }
+
+    pub fn with_profile(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+        profile: PromptProfile,
+    ) -> Self {
+        Self::with_profile_and_skills(provider, think, markdown_enabled, profile, Vec::new())
     }
 
     /// Full constructor. The `skills` list is advertised in the system
@@ -87,10 +79,28 @@ impl Agent {
         markdown_enabled: bool,
         skills: Vec<Skill>,
     ) -> Self {
-        let mut system_prompt = String::from(BASE_SYSTEM_PROMPT);
-        if let Some(cat) = skills::format_catalogue(&skills) {
-            system_prompt.push_str(&cat);
-        }
+        Self::with_profile_and_skills(
+            provider,
+            think,
+            markdown_enabled,
+            PromptProfile::Default,
+            skills,
+        )
+    }
+
+    /// Full constructor with an explicit prompt profile.
+    pub fn with_profile_and_skills(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+        profile: PromptProfile,
+        skills: Vec<Skill>,
+    ) -> Self {
+        let prompt_context = PromptContext::new()
+            .with_available_skills(skills::format_catalogue(&skills).unwrap_or_default());
+        let system_prompt = SystemPromptBuilder::new(profile)
+            .with_context(prompt_context)
+            .build();
         let skills_arc = Arc::new(skills);
         Self {
             provider,
@@ -472,4 +482,5 @@ mod tests {
     fn truncate_zero_max() {
         assert_eq!(truncate("中", 0), "");
     }
+
 }
