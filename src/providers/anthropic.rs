@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use log::debug;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
@@ -16,15 +17,19 @@ pub struct AnthropicProvider {
     model: String,
     base_url: String,
     client: reqwest::Client,
+    /// Whether this is an Aliyun DashScope endpoint (requires special headers).
+    is_dashscope: bool,
 }
 
 impl AnthropicProvider {
     pub fn new(api_key: String, model: String, base_url: String) -> Self {
+        let is_dashscope = base_url.contains("dashscope.aliyuncs.com");
         Self {
             api_key,
             model,
             base_url,
             client: reqwest::Client::new(),
+            is_dashscope,
         }
     }
 
@@ -95,11 +100,14 @@ impl AnthropicProvider {
             body["system"] = json!(system);
         }
 
-        if !request.tools.is_empty() {
+        // DashScope does not support tools or extended thinking without special access
+        // (tools trigger "Coding Plan" error, thinking triggers similar restrictions)
+        if !self.is_dashscope && !request.tools.is_empty() {
             body["tools"] = json!(self.convert_tools(&request.tools));
         }
 
-        if request.think {
+        // DashScope does not support Anthropic's extended thinking feature
+        if request.think && !self.is_dashscope {
             body["thinking"] = thinking_config(&self.model);
         }
 
@@ -130,15 +138,21 @@ impl Provider for AnthropicProvider {
         let body = self.build_body(&request);
 
         let url = format!("{}/v1/messages", self.base_url);
-        let response = self
+        let mut req = self
             .client
             .post(&url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+            .header("User-Agent", "curl/8.0")
+            .json(&body);
+
+        // DashScope uses Bearer auth
+        if self.is_dashscope {
+            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+        } else {
+            req = req.header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01");
+        }
+
+        let response = req.send().await?;
 
         let status = response.status();
         let response_body: Value = response.json().await?;
@@ -189,15 +203,23 @@ impl Provider for AnthropicProvider {
         body["stream"] = json!(true);
 
         let url = format!("{}/v1/messages", self.base_url);
-        let response = self
+        let mut req = self
             .client
             .post(&url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+            .header("User-Agent", "curl/8.0")
+            .json(&body);
+
+        // DashScope uses Bearer auth and requires SSE header for streaming
+        if self.is_dashscope {
+            req = req
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("X-DashScope-SSE", "enable");
+        } else {
+            req = req.header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01");
+        }
+
+        let response = req.send().await?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -245,7 +267,12 @@ impl Provider for AnthropicProvider {
 
                     let mut data_line = String::new();
                     for line in event_text.lines() {
+                        // Support both "data: " (Anthropic) and "data:" (DashScope)
                         if let Some(rest) = line.strip_prefix("data: ") {
+                            data_line = rest.to_string();
+                            break;
+                        }
+                        if let Some(rest) = line.strip_prefix("data:") {
                             data_line = rest.to_string();
                             break;
                         }
@@ -354,6 +381,14 @@ impl Provider for AnthropicProvider {
                             usage = merge_usage(usage, &evt["usage"]);
                         }
                         "message_stop" => {
+                            debug!("Message completed: stop_reason={}, usage={}",
+                                match stop_reason {
+                                    StopReason::EndTurn => "end_turn",
+                                    StopReason::ToolUse => "tool_use",
+                                    StopReason::MaxTokens => "max_tokens",
+                                },
+                                usage.output_tokens
+                            );
                             let content: Vec<ContentBlock> = blocks
                                 .into_iter()
                                 .filter_map(|b| b.finish())

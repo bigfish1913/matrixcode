@@ -2,3 +2,9 @@
 .env
 *.html
 ah-spa/
+target/
+.idea/
+.vscode/
+.gitignore
+.git/
+target-test
