@@ -9,4 +9,5 @@ target/
 .git/
 target-test
 code-run.exe
-human-evolution-game/
+.claude/
+.claude/
