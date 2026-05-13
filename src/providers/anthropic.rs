@@ -100,15 +100,7 @@ impl AnthropicProvider {
             body["system"] = json!(system);
         }
 
-        // DashScope can enable tools via the "Coding Plan" feature when the
-        // DASHSCOPE_ENABLE_TOOLS environment variable is set to "true" or "1".
-        // Without this flag, tool requests would trigger a "Coding Plan" error.
-        let enable_dashscope_tools = self.is_dashscope
-            && std::env::var("DASHSCOPE_ENABLE_TOOLS")
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(false);
-
-        if (!self.is_dashscope || enable_dashscope_tools) && !request.tools.is_empty() {
+        if !request.tools.is_empty() {
             body["tools"] = json!(self.convert_tools(&request.tools));
         }
 
