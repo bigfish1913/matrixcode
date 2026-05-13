@@ -8,8 +8,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::markdown;
 use crate::prompt::{PromptContext, SystemPromptBuilder};
 use crate::providers::{
-    ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, StopReason,
-    StreamEvent, Usage,
+    ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, ServerTool,
+    StopReason, StreamEvent, Usage,
 };
 use crate::skills::{self, Skill};
 use crate::tools::{self, Tool};
@@ -17,7 +17,7 @@ use termimad::MadSkin;
 
 pub use crate::prompt::PromptProfile;
 
-const MAX_ITERATIONS: usize = 20;
+const MAX_ITERATIONS: usize = 200;
 
 // ANSI dim italic for thinking, reset at end. Kept minimal to avoid pulling in a color crate.
 const DIM: &str = "\x1b[2;3m";
@@ -26,6 +26,8 @@ const RESET: &str = "\x1b[0m";
 pub struct Agent {
     provider: Box<dyn Provider>,
     tools: Vec<Box<dyn Tool>>,
+    /// Server-side tools that are executed by the API provider (e.g., web_search).
+    server_tools: Vec<ServerTool>,
     think: bool,
     messages: Vec<Message>,
     /// Whether to re-render assistant text as markdown when a text block ends.
@@ -105,6 +107,7 @@ impl Agent {
         Self {
             provider,
             tools: tools::all_tools_with_skills(skills_arc),
+            server_tools: Vec::new(),
             think,
             messages: Vec::new(),
             markdown_enabled: markdown::should_render(markdown_enabled),
@@ -113,6 +116,18 @@ impl Agent {
             total_output_tokens: 0,
             last_input_tokens: 0,
         }
+    }
+
+    /// Enable server-side web search tool. This allows the model to perform
+    /// web searches directly via the API provider without client intervention.
+    pub fn with_web_search(mut self, max_uses: Option<u32>) -> Self {
+        self.server_tools.push(ServerTool::web_search(max_uses));
+        self
+    }
+
+    /// Set server tools explicitly.
+    pub fn set_server_tools(&mut self, server_tools: Vec<ServerTool>) {
+        self.server_tools = server_tools;
     }
 
     /// Borrow the accumulated conversation for persistence.
@@ -142,6 +157,7 @@ impl Agent {
                 tools: tool_defs.clone(),
                 system: Some(self.system_prompt.clone()),
                 think: self.think,
+                server_tools: self.server_tools.clone(),
             };
 
             let response = self.stream_one_turn(request).await?;
@@ -311,33 +327,61 @@ impl Agent {
         let mut results = Vec::new();
 
         for block in content {
-            if let ContentBlock::ToolUse { id, name, input } = block {
-                println!(
-                    "[tool-input: {}] {}",
-                    name,
-                    serde_json::to_string_pretty(input).unwrap_or_default()
-                );
-                let spinner = make_spinner(&format!("running {}", name));
+            match block {
+                ContentBlock::ToolUse { id, name, input } => {
+                    println!(
+                        "[tool-input: {}] {}",
+                        name,
+                        serde_json::to_string_pretty(input).unwrap_or_default()
+                    );
+                    let spinner = make_spinner(&format!("running {}", name));
 
-                let result = self.execute_single_tool(name, input).await;
-                spinner.finish_and_clear();
+                    let result = self.execute_single_tool(name, input).await;
+                    spinner.finish_and_clear();
 
-                let output = match result {
-                    Ok(output) => {
-                        println!("[result: {}] {}", name, truncate(&output, 500));
-                        output
+                    let output = match result {
+                        Ok(output) => {
+                            println!("[result: {}] {}", name, truncate(&output, 500));
+                            output
+                        }
+                        Err(e) => {
+                            let err_msg = format!("Error: {}", e);
+                            println!("[error: {}] {}", name, err_msg);
+                            err_msg
+                        }
+                    };
+
+                    results.push(ContentBlock::ToolResult {
+                        tool_use_id: id.clone(),
+                        content: output,
+                    });
+                }
+                ContentBlock::ServerToolUse { id: _, name, input } => {
+                    // Server tool use is just informational - the server executes it.
+                    println!(
+                        "[server-tool: {}] {}",
+                        name,
+                        serde_json::to_string_pretty(input).unwrap_or_default()
+                    );
+                    // Server tools don't need client-side execution or result blocks
+                    // The server will return web_search_tool_result directly.
+                }
+                ContentBlock::WebSearchResult { tool_use_id: _, content } => {
+                    // Web search result from the server - display it.
+                    println!("[web-search-result: {} results]", content.results.len());
+                    for result in &content.results {
+                        println!(
+                            "  - {}",
+                            result.title.as_deref().unwrap_or("(no title)")
+                        );
+                        println!("    {}", result.url);
+                        if let Some(snippet) = &result.snippet {
+                            println!("    {}", truncate(snippet, 200));
+                        }
                     }
-                    Err(e) => {
-                        let err_msg = format!("Error: {}", e);
-                        println!("[error: {}] {}", name, err_msg);
-                        err_msg
-                    }
-                };
-
-                results.push(ContentBlock::ToolResult {
-                    tool_use_id: id.clone(),
-                    content: output,
-                });
+                    // Web search results are already in the message, no need to add tool_result
+                }
+                _ => {}
             }
         }
 
@@ -356,7 +400,9 @@ impl Agent {
 
     fn record_usage(&mut self, usage: &Usage) {
         self.last_input_tokens = usage.input_tokens;
-        self.total_output_tokens = self.total_output_tokens.saturating_add(usage.output_tokens as u64);
+        self.total_output_tokens = self
+            .total_output_tokens
+            .saturating_add(usage.output_tokens as u64);
     }
 
     /// Print a compact one-liner summarising this turn's token usage and the
@@ -482,5 +528,4 @@ mod tests {
     fn truncate_zero_max() {
         assert_eq!(truncate("中", 0), "");
     }
-
 }

@@ -64,6 +64,12 @@ impl AnthropicProvider {
                                     }
                                     obj
                                 }
+                                ContentBlock::ServerToolUse { id, name, input } => {
+                                    json!({"type": "server_tool_use", "id": id, "name": name, "input": input})
+                                }
+                                ContentBlock::WebSearchResult { tool_use_id, content } => {
+                                    json!({"type": "web_search_tool_result", "tool_use_id": tool_use_id, "content": content})
+                                }
                             })
                             .collect();
                         json!(converted)
@@ -102,6 +108,19 @@ impl AnthropicProvider {
 
         if !request.tools.is_empty() {
             body["tools"] = json!(self.convert_tools(&request.tools));
+        }
+
+        if !request.server_tools.is_empty() {
+            body["tools"] = json!(body["tools"]
+                .as_array()
+                .map(|t| {
+                    let mut tools = t.clone();
+                    for st in &request.server_tools {
+                        tools.push(serde_json::to_value(st).unwrap_or_default());
+                    }
+                    tools
+                })
+                .unwrap_or_else(|| request.server_tools.iter().map(|st| serde_json::to_value(st).unwrap_or_default()).collect()));
         }
 
         // DashScope does not support Anthropic's extended thinking feature
@@ -185,6 +204,19 @@ impl Provider for AnthropicProvider {
                     thinking: block["thinking"].as_str()?.to_string(),
                     signature: block["signature"].as_str().map(String::from),
                 }),
+                "server_tool_use" => Some(ContentBlock::ServerToolUse {
+                    id: block["id"].as_str()?.to_string(),
+                    name: block["name"].as_str()?.to_string(),
+                    input: block["input"].clone(),
+                }),
+                "web_search_tool_result" => {
+                    let tool_use_id = block["tool_use_id"].as_str()?.to_string();
+                    let content = parse_web_search_content(&block["content"]);
+                    Some(ContentBlock::WebSearchResult {
+                        tool_use_id,
+                        content,
+                    })
+                }
                 _ => None,
             })
             .collect();
@@ -405,6 +437,23 @@ async fn handle_sse_event(
                     };
                     let _ = tx.send(StreamEvent::ToolUseStart { id, name }).await;
                 }
+                "server_tool_use" => {
+                    let id = block["id"].as_str().unwrap_or("").to_string();
+                    let name = block["name"].as_str().unwrap_or("").to_string();
+                    blocks[idx] = AssembledBlock::ServerToolUse {
+                        id: id.clone(),
+                        name: name.clone(),
+                        input_json: String::new(),
+                    };
+                    let _ = tx.send(StreamEvent::ToolUseStart { id, name }).await;
+                }
+                "web_search_tool_result" => {
+                    let tool_use_id = block["tool_use_id"].as_str().unwrap_or("").to_string();
+                    blocks[idx] = AssembledBlock::WebSearchResult {
+                        tool_use_id,
+                        content_json: String::new(),
+                    };
+                }
                 _ => {}
             }
         }
@@ -434,6 +483,16 @@ async fn handle_sse_event(
                     }
                 }
                 ("input_json_delta", AssembledBlock::ToolUse { input_json, .. }) => {
+                    if let Some(p) = delta["partial_json"].as_str() {
+                        input_json.push_str(p);
+                        let _ = tx
+                            .send(StreamEvent::ToolInputDelta {
+                                bytes_so_far: input_json.len(),
+                            })
+                            .await;
+                    }
+                }
+                ("input_json_delta", AssembledBlock::ServerToolUse { input_json, .. }) => {
                     if let Some(p) = delta["partial_json"].as_str() {
                         input_json.push_str(p);
                         let _ = tx
@@ -527,6 +586,15 @@ enum AssembledBlock {
         name: String,
         input_json: String,
     },
+    ServerToolUse {
+        id: String,
+        name: String,
+        input_json: String,
+    },
+    WebSearchResult {
+        tool_use_id: String,
+        content_json: String,
+    },
 }
 
 impl AssembledBlock {
@@ -549,6 +617,32 @@ impl AssembledBlock {
                     serde_json::from_str(&input_json).unwrap_or(json!({}))
                 };
                 Some(ContentBlock::ToolUse { id, name, input })
+            }
+            AssembledBlock::ServerToolUse {
+                id,
+                name,
+                input_json,
+            } => {
+                let input: Value = if input_json.is_empty() {
+                    json!({})
+                } else {
+                    serde_json::from_str(&input_json).unwrap_or(json!({}))
+                };
+                Some(ContentBlock::ServerToolUse { id, name, input })
+            }
+            AssembledBlock::WebSearchResult {
+                tool_use_id,
+                content_json,
+            } => {
+                let content: Value = if content_json.is_empty() {
+                    json!({"results": []})
+                } else {
+                    serde_json::from_str(&content_json).unwrap_or(json!({"results": []}))
+                };
+                Some(ContentBlock::WebSearchResult {
+                    tool_use_id,
+                    content: parse_web_search_content(&content),
+                })
             }
         }
     }
@@ -583,6 +677,27 @@ fn merge_usage(mut acc: Usage, u: &Value) -> Usage {
         acc.cache_read_input_tokens = fresh.cache_read_input_tokens;
     }
     acc
+}
+
+/// Parse web search content from the API response.
+fn parse_web_search_content(value: &serde_json::Value) -> crate::providers::WebSearchContent {
+    let results = value["results"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    Some(crate::providers::WebSearchResultItem {
+                        title: item["title"].as_str().map(String::from),
+                        url: item["url"].as_str()?.to_string(),
+                        encrypted_content: item["encrypted_content"].as_str().map(String::from),
+                        snippet: item["snippet"].as_str().map(String::from),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    crate::providers::WebSearchContent { results }
 }
 
 /// Best-effort mapping from an Anthropic-ish model name to its context

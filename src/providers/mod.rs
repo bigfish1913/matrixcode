@@ -54,6 +54,56 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
+    /// Server-side tool use (e.g., web_search_tool). The server executes
+    /// the tool and returns results directly without client intervention.
+    #[serde(rename = "server_tool_use")]
+    ServerToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    /// Result from a server-side web search tool.
+    #[serde(rename = "web_search_tool_result")]
+    WebSearchResult {
+        tool_use_id: String,
+        content: WebSearchContent,
+    },
+}
+
+/// Content returned by the server-side web search tool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchContent {
+    pub results: Vec<WebSearchResultItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchResultItem {
+    pub title: Option<String>,
+    pub url: String,
+    pub encrypted_content: Option<String>,
+    pub snippet: Option<String>,
+}
+
+/// Server-side tool definition. These tools are executed by the API provider
+/// rather than by the client. Currently only web_search_tool is supported.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerTool {
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<u32>,
+}
+
+impl ServerTool {
+    /// Create a new web search server tool.
+    pub fn web_search(max_uses: Option<u32>) -> Self {
+        Self {
+            tool_type: "web_search_tool".to_string(),
+            name: "web_search".to_string(),
+            max_uses,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +112,8 @@ pub struct ChatRequest {
     pub tools: Vec<ToolDefinition>,
     pub system: Option<String>,
     pub think: bool,
+    /// Server-side tools that are executed by the API provider.
+    pub server_tools: Vec<ServerTool>,
 }
 
 #[derive(Debug, Clone)]

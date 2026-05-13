@@ -77,6 +77,7 @@ fn test_chat_request_creation() {
         }],
         system: Some("You are helpful".to_string()),
         think: false,
+        server_tools: vec![],
     };
 
     assert_eq!(request.messages.len(), 1);

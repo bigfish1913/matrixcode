@@ -5,7 +5,8 @@
       "Bash(findstr /i \"code-agent\")",
       "Bash(cargo run *)",
       "WebSearch",
-      "WebFetch(domain:help.aliyun.com)"
+      "WebFetch(domain:help.aliyun.com)",
+      "Bash(openmatrix debug *)"
     ]
   }
 }
