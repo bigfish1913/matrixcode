@@ -5,7 +5,7 @@
 //! is loaded and injected into the system prompt, avoiding the need to
 //! re-scan the project each time.
 //!
-//! The overview file is stored at `.code-agent/OVERVIEW.md` in the project root.
+//! The overview file is stored at `.matrixcode/matrix.md` in the project root.
 
 use std::path::{Path, PathBuf};
 use std::fs;
@@ -13,8 +13,8 @@ use anyhow::{Context, Result};
 
 /// Default filename for the cached project overview.
 pub const OVERVIEW_FILENAME: &str = "matrix.md";
-/// Directory name for code-agent metadata.
-pub const CODE_AGENT_DIR: &str = ".code-agent";
+/// Directory name for matrixcode metadata.
+pub const MATRIXCODE_DIR: &str = ".matrixcode";
 
 /// Project overview containing the generated summary.
 #[derive(Debug, Clone)]
@@ -42,7 +42,7 @@ impl ProjectOverview {
     /// Returns the generated overview content.
     pub fn generate(project_root: &Path) -> Result<Self> {
         let content = generate_overview_content(project_root)?;
-        let dir = project_root.join(CODE_AGENT_DIR);
+        let dir = project_root.join(MATRIXCODE_DIR);
         fs::create_dir_all(&dir)
             .with_context(|| format!("creating directory {}", dir.display()))?;
         let path = overview_path(project_root);
@@ -74,7 +74,7 @@ impl ProjectOverview {
 
 /// Get the path to the overview file.
 fn overview_path(project_root: &Path) -> PathBuf {
-    project_root.join(CODE_AGENT_DIR).join(OVERVIEW_FILENAME)
+    project_root.join(MATRIXCODE_DIR).join(OVERVIEW_FILENAME)
 }
 
 /// Patterns to ignore when scanning the project.
@@ -108,8 +108,8 @@ const IGNORE_PATTERNS: &[&str] = &[
     "package-lock.json",
     "yarn.lock",
     "pnpm-lock.yaml",
-    // Code-agent metadata
-    CODE_AGENT_DIR,
+    // matrixcode metadata
+    MATRIXCODE_DIR,
 ];
 
 /// Check if a path component should be ignored.

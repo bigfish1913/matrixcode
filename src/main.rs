@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use code_agent::{
+use matrixcode::{
     agent,
     overview::ProjectOverview,
     prompt,
@@ -43,12 +43,12 @@ struct Cli {
     resume: bool,
 
     /// Extra directory to scan for skills. May be passed multiple times.
-    /// The defaults `./skills` and `~/.code-agent/skills` are always
+    /// The defaults `./skills` and `~/.matrixcode/skills` are always
     /// scanned first unless `--no-default-skills` is set.
     #[arg(long = "skills-dir", env = "SKILLS_DIR", value_delimiter = ':')]
     skills_dir: Vec<PathBuf>,
 
-    /// Skip the default skills roots (`./skills`, `~/.code-agent/skills`).
+    /// Skip the default skills roots (`./skills`, `~/.matrixcode/skills`).
     #[arg(long, default_value_t = false)]
     no_default_skills: bool,
 
@@ -279,7 +279,7 @@ fn load_skills(extra: &[PathBuf], skip_defaults: bool) -> Vec<skills::Skill> {
         roots.push(PathBuf::from("skills"));
         if let Some(home) = std::env::var_os("HOME") {
             let mut p = PathBuf::from(home);
-            p.push(".code-agent");
+            p.push(".matrixcode");
             p.push("skills");
             roots.push(p);
         }
@@ -295,14 +295,14 @@ fn load_skills(extra: &[PathBuf], skip_defaults: bool) -> Vec<skills::Skill> {
 fn dirs_history_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let mut p = PathBuf::from(home);
-    p.push(".code-agent_history");
+    p.push(".matrixcode_history");
     Some(p)
 }
 
 fn dirs_session_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let mut p = PathBuf::from(home);
-    p.push(".code-agent_session.json");
+    p.push(".matrixcode_session.json");
     Some(p)
 }
 
