@@ -112,6 +112,8 @@ pub struct ChatRequest {
     pub tools: Vec<ToolDefinition>,
     pub system: Option<String>,
     pub think: bool,
+    /// Maximum output tokens for the response.
+    pub max_tokens: u32,
     /// Server-side tools that are executed by the API provider.
     pub server_tools: Vec<ServerTool>,
 }

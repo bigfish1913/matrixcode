@@ -1,11 +1,11 @@
 use code_agent::tools;
 
 #[test]
-fn test_all_tools_returns_ten() {
+fn test_all_tools_returns_twelve() {
     // `all_tools()` includes the `skill` tool bound to an empty skills
-    // catalogue, giving the full set of eleven.
+    // catalogue, giving the full set of twelve.
     let all = tools::all_tools();
-    assert_eq!(all.len(), 11);
+    assert_eq!(all.len(), 12);
 }
 
 #[test]
@@ -50,6 +50,7 @@ fn test_expected_tool_names() {
     assert!(names.contains(&"bash".to_string()));
     assert!(names.contains(&"multi_edit".to_string()));
     assert!(names.contains(&"todo_write".to_string()));
+    assert!(names.contains(&"websearch".to_string()));
     assert!(names.contains(&"webfetch".to_string()));
     assert!(names.contains(&"skill".to_string()));
 }

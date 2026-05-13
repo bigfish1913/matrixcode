@@ -98,7 +98,7 @@ impl AnthropicProvider {
     fn build_body(&self, request: &ChatRequest) -> Value {
         let mut body = json!({
             "model": self.model,
-            "max_tokens": 8192,
+            "max_tokens": request.max_tokens,
             "messages": self.convert_messages(&request.messages),
         });
 

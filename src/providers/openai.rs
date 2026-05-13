@@ -127,6 +127,7 @@ impl Provider for OpenAIProvider {
         let mut body = json!({
             "model": self.model,
             "messages": messages,
+            "max_completion_tokens": request.max_tokens,
         });
 
         if !request.tools.is_empty() {

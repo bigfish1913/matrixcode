@@ -64,6 +64,10 @@ struct Cli {
     #[arg(long, env = "WEB_SEARCH_MAX_USES", default_value = "5")]
     web_search_max_uses: u32,
 
+    /// Maximum output tokens per response (default: 16384).
+    #[arg(long, env = "MAX_TOKENS", default_value = "16384")]
+    max_tokens: u32,
+
     /// One-shot prompt. If omitted, enters interactive REPL mode.
     prompt: Vec<String>,
 }
@@ -105,12 +109,13 @@ async fn main() -> Result<()> {
         .parse::<prompt::PromptProfile>()
         .map_err(anyhow::Error::msg)?;
 
-    let mut agent = agent::Agent::with_profile_and_skills(
+    let mut agent = agent::Agent::with_profile_and_skills_and_max_tokens(
         provider,
         cli.think,
         cli.markdown,
         profile,
         load_skills(&cli.skills_dir, cli.no_default_skills),
+        cli.max_tokens,
     );
 
     // Enable server-side web search by default for Anthropic provider
@@ -154,7 +159,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>) -> Result<()> {
-    println!("code-agent — type your message and press Enter. Ctrl+D or /exit to quit.");
+    println!("code-agent — type your message and press Enter. /help for commands.");
 
     let mut rl = DefaultEditor::new()?;
     let history_path = dirs_history_path();
@@ -182,6 +187,26 @@ async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>) -> Resu
         }
         if matches!(trimmed, "/exit" | "/quit" | ":q") {
             break;
+        }
+        if trimmed == "/clear" {
+            agent.clear_messages();
+            if let Some(p) = session_path {
+                let _ = std::fs::remove_file(p);
+            }
+            println!("[context cleared]");
+            continue;
+        }
+        if trimmed == "/help" {
+            print_help();
+            continue;
+        }
+        if trimmed == "/status" {
+            print_status(agent);
+            continue;
+        }
+        if trimmed == "/history" {
+            print_history(agent);
+            continue;
         }
 
         let _ = rl.add_history_entry(trimmed);
@@ -267,4 +292,96 @@ fn save_session(path: &Path, messages: &[Message]) -> Result<()> {
     std::fs::rename(&tmp, path)
         .with_context(|| format!("renaming tmp session file to {}", path.display()))?;
     Ok(())
+}
+
+/// Print available commands and usage.
+fn print_help() {
+    println!("Available commands:");
+    println!("  /help     - Show this help message");
+    println!("  /status   - Show session status (messages, token usage)");
+    println!("  /history  - Show conversation history summary");
+    println!("  /clear    - Clear conversation context");
+    println!("  /exit     - Exit the REPL (also /quit or :q)");
+    println!();
+    println!("Keyboard shortcuts:");
+    println!("  Ctrl+C    - Cancel current input");
+    println!("  Ctrl+D    - Exit the REPL");
+}
+
+/// Print current session status.
+fn print_status(agent: &agent::Agent) {
+    let stats = agent.token_stats();
+    println!("Session status:");
+    println!("  Messages: {}", agent.message_count());
+    println!(
+        "  Last input tokens: {}",
+        format_tokens(stats.last_input_tokens as u64)
+    );
+    println!(
+        "  Total output tokens: {}",
+        format_tokens(stats.total_output_tokens)
+    );
+    if let Some(ctx) = stats.context_size {
+        let used = stats.last_input_tokens;
+        let pct = (used as f64 / ctx as f64 * 100.0).min(100.0);
+        println!(
+            "  Context window: {} / {} ({:.1}%)",
+            format_tokens(used as u64),
+            format_tokens(ctx as u64),
+            pct
+        );
+    }
+}
+
+/// Print conversation history summary.
+fn print_history(agent: &agent::Agent) {
+    let messages = agent.messages();
+    if messages.is_empty() {
+        println!("[no conversation history]");
+        return;
+    }
+    println!("Conversation history ({} messages):", messages.len());
+    for (i, msg) in messages.iter().enumerate() {
+        let role = match msg.role {
+            providers::Role::User => "User",
+            providers::Role::Assistant => "Assistant",
+            providers::Role::Tool => "Tool",
+            providers::Role::System => "System",
+        };
+        let preview = match &msg.content {
+            providers::MessageContent::Text(t) => {
+                let s = t.trim();
+                let first_line = s.lines().next().unwrap_or("");
+                truncate_str(first_line, 60)
+            }
+            providers::MessageContent::Blocks(blocks) => {
+                format!("[{} blocks]", blocks.len())
+            }
+        };
+        println!("  {}. {}: {}", i + 1, role, preview);
+    }
+}
+
+/// Truncate a string for display.
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        let mut end = max;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &s[..end])
+    }
+}
+
+/// Format a number of tokens for display.
+fn format_tokens(n: u64) -> String {
+    if n < 1_000 {
+        n.to_string()
+    } else if n < 1_000_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        format!("{:.2}M", n as f64 / 1_000_000.0)
+    }
 }

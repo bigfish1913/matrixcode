@@ -19,6 +19,13 @@ pub use crate::prompt::PromptProfile;
 
 const MAX_ITERATIONS: usize = 200;
 
+/// Token usage statistics for the current session.
+pub struct TokenStats {
+    pub last_input_tokens: u32,
+    pub total_output_tokens: u64,
+    pub context_size: Option<u32>,
+}
+
 // ANSI dim italic for thinking, reset at end. Kept minimal to avoid pulling in a color crate.
 const DIM: &str = "\x1b[2;3m";
 const RESET: &str = "\x1b[0m";
@@ -29,6 +36,7 @@ pub struct Agent {
     /// Server-side tools that are executed by the API provider (e.g., web_search).
     server_tools: Vec<ServerTool>,
     think: bool,
+    max_tokens: u32,
     messages: Vec<Message>,
     /// Whether to re-render assistant text as markdown when a text block ends.
     markdown_enabled: bool,
@@ -98,6 +106,25 @@ impl Agent {
         profile: PromptProfile,
         skills: Vec<Skill>,
     ) -> Self {
+        Self::with_profile_and_skills_and_max_tokens(
+            provider,
+            think,
+            markdown_enabled,
+            profile,
+            skills,
+            16384, // default max_tokens
+        )
+    }
+
+    /// Full constructor with all options including max_tokens.
+    pub fn with_profile_and_skills_and_max_tokens(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+        profile: PromptProfile,
+        skills: Vec<Skill>,
+        max_tokens: u32,
+    ) -> Self {
         let prompt_context = PromptContext::new()
             .with_available_skills(skills::format_catalogue(&skills).unwrap_or_default());
         let system_prompt = SystemPromptBuilder::new(profile)
@@ -109,6 +136,7 @@ impl Agent {
             tools: tools::all_tools_with_skills(skills_arc),
             server_tools: Vec::new(),
             think,
+            max_tokens,
             messages: Vec::new(),
             markdown_enabled: markdown::should_render(markdown_enabled),
             skin: markdown::default_skin(),
@@ -140,6 +168,25 @@ impl Agent {
         self.messages = messages;
     }
 
+    /// Clear the conversation history.
+    pub fn clear_messages(&mut self) {
+        self.messages.clear();
+    }
+
+    /// Get the number of messages in the conversation.
+    pub fn message_count(&self) -> usize {
+        self.messages.len()
+    }
+
+    /// Get token usage statistics.
+    pub fn token_stats(&self) -> TokenStats {
+        TokenStats {
+            last_input_tokens: self.last_input_tokens,
+            total_output_tokens: self.total_output_tokens,
+            context_size: self.provider.context_size(),
+        }
+    }
+
     /// Run a single user turn, re-using accumulated conversation history.
     /// The agent keeps looping through tool_use turns internally until it
     /// produces a non-tool-use response, then returns control to the caller.
@@ -151,12 +198,17 @@ impl Agent {
 
         let tool_defs: Vec<_> = self.tools.iter().map(|t| t.definition()).collect();
 
+        // Track max_tokens continuation count to avoid infinite loops
+        let mut continuation_count = 0;
+        const MAX_CONTINUATIONS: usize = 5;
+
         for iteration in 0..MAX_ITERATIONS {
             let request = ChatRequest {
                 messages: self.messages.clone(),
                 tools: tool_defs.clone(),
                 system: Some(self.system_prompt.clone()),
                 think: self.think,
+                max_tokens: self.max_tokens,
                 server_tools: self.server_tools.clone(),
             };
 
@@ -170,23 +222,42 @@ impl Agent {
                 content: MessageContent::Blocks(response.content.clone()),
             });
 
-            if response.stop_reason != StopReason::ToolUse {
-                return Ok(());
+            if response.stop_reason == StopReason::ToolUse {
+                let tool_results = self.execute_tool_calls(&response.content).await;
+
+                self.messages.push(Message {
+                    role: Role::Tool,
+                    content: MessageContent::Blocks(tool_results),
+                });
+
+                if iteration + 1 == MAX_ITERATIONS {
+                    eprintln!(
+                        "\n[warn] reached MAX_ITERATIONS ({}), stopping without a final reply",
+                        MAX_ITERATIONS
+                    );
+                }
+                continue;
             }
 
-            let tool_results = self.execute_tool_calls(&response.content).await;
-
-            self.messages.push(Message {
-                role: Role::Tool,
-                content: MessageContent::Blocks(tool_results),
-            });
-
-            if iteration + 1 == MAX_ITERATIONS {
-                eprintln!(
-                    "\n[warn] reached MAX_ITERATIONS ({}), stopping without a final reply",
-                    MAX_ITERATIONS
-                );
+            // Handle max_tokens truncation: ask model to continue
+            if response.stop_reason == StopReason::MaxTokens {
+                if continuation_count >= MAX_CONTINUATIONS {
+                    eprintln!(
+                        "\n[warn] reached max continuation limit ({}), output may be incomplete",
+                        MAX_CONTINUATIONS
+                    );
+                    return Ok(());
+                }
+                continuation_count += 1;
+                println!("\n[output truncated, auto-continuing ({}/{})...]", continuation_count, MAX_CONTINUATIONS);
+                self.messages.push(Message {
+                    role: Role::User,
+                    content: MessageContent::Text("请继续完成你的回复。".to_string()),
+                });
+                continue;
             }
+
+            return Ok(());
         }
 
         Ok(())
