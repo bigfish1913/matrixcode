@@ -8,6 +8,7 @@ pub mod search;
 pub mod skill;
 pub mod todo_write;
 pub mod webfetch;
+pub mod websearch;
 pub mod write;
 
 use std::sync::Arc;
@@ -52,6 +53,7 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(ls::LsTool),
         Box::new(bash::BashTool),
         Box::new(todo_write::TodoWriteTool),
+        Box::new(websearch::WebSearchTool),
         Box::new(webfetch::WebFetchTool),
         Box::new(skill::SkillTool::new(skills)),
     ]

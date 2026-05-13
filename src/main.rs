@@ -54,11 +54,11 @@ struct Cli {
     #[arg(long, env = "PROMPT_PROFILE", default_value = "default")]
     profile: String,
 
-    /// Enable server-side web search tool. The model can perform web searches
-    /// directly via the API provider without client intervention.
-    /// Only supported by Anthropic Claude models (claude-sonnet-4, claude-opus-4).
-    #[arg(long, env = "WEB_SEARCH", default_value_t = false)]
-    web_search: bool,
+    /// Enable server-side web search tool (default on for Anthropic provider).
+    /// The model can perform web searches directly via the API provider.
+    /// Pass --no-web-search to disable.
+    #[arg(long, env = "NO_WEB_SEARCH", default_value_t = false, action = clap::ArgAction::SetTrue)]
+    no_web_search: bool,
 
     /// Maximum number of web searches per turn when --web-search is enabled.
     #[arg(long, env = "WEB_SEARCH_MAX_USES", default_value = "5")]
@@ -113,14 +113,10 @@ async fn main() -> Result<()> {
         load_skills(&cli.skills_dir, cli.no_default_skills),
     );
 
-    // Enable server-side web search if requested (only works with Anthropic provider)
-    if cli.web_search {
-        if cli.provider != "anthropic" {
-            eprintln!("[warn] --web-search is only supported with Anthropic provider. Ignoring.");
-        } else {
-            agent = agent.with_web_search(Some(cli.web_search_max_uses));
-            println!("[web search enabled, max {} uses per turn]", cli.web_search_max_uses);
-        }
+    // Enable server-side web search by default for Anthropic provider
+    if cli.provider == "anthropic" && !cli.no_web_search {
+        agent = agent.with_web_search(Some(cli.web_search_max_uses));
+        println!("[server web search enabled, max {} uses per turn]", cli.web_search_max_uses);
     }
 
     let session_path = dirs_session_path();

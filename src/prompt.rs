@@ -15,8 +15,15 @@ const SYSTEM_PROMPT_TOOLS: &str = r#"可用工具：
 - search：按正则搜索文件内容。
 - bash：执行构建、测试、lint、git 检查等 shell 命令。
 - todo_write：用于维护非简单任务的待办列表；始终保持且仅保持一个 in_progress。
-- webfetch：仅在确有必要时获取外部信息。
-- skill：当任务匹配某项技能时，优先加载技能说明，而不是自行猜测。"#;
+- websearch：客户端网页搜索工具，使用 DuckDuckGo 搜索并返回结果列表。
+- web_search：服务端网页搜索工具（仅 Anthropic），由 API 直接执行搜索，结果更精准。
+- webfetch：获取指定 URL 的页面内容。
+- skill：当任务匹配某项技能时，优先加载技能说明，而不是自行猜测。
+
+工具选择建议：
+- 需要搜索网页信息时，优先使用 web_search（服务端搜索，结果更精准）。
+- 如果 web_search 不可用或需要更多控制，可使用 websearch（客户端搜索）。
+- 要获取具体网页内容时，使用 webfetch。"#;
 
 const SYSTEM_PROMPT_WORKFLOW: &str = r#"工作方式：
 1. 先理解需求，再查看相关代码和文件。
