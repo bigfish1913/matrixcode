@@ -100,9 +100,15 @@ impl AnthropicProvider {
             body["system"] = json!(system);
         }
 
-        // DashScope does not support tools or extended thinking without special access
-        // (tools trigger "Coding Plan" error, thinking triggers similar restrictions)
-        if !self.is_dashscope && !request.tools.is_empty() {
+        // DashScope can enable tools via the "Coding Plan" feature when the
+        // DASHSCOPE_ENABLE_TOOLS environment variable is set to "true" or "1".
+        // Without this flag, tool requests would trigger a "Coding Plan" error.
+        let enable_dashscope_tools = self.is_dashscope
+            && std::env::var("DASHSCOPE_ENABLE_TOOLS")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(false);
+
+        if (!self.is_dashscope || enable_dashscope_tools) && !request.tools.is_empty() {
             body["tools"] = json!(self.convert_tools(&request.tools));
         }
 
@@ -229,13 +235,6 @@ impl Provider for AnthropicProvider {
 
         let (tx, rx) = mpsc::channel(64);
         tokio::spawn(async move {
-            let send = |ev: StreamEvent| {
-                let tx = tx.clone();
-                async move {
-                    let _ = tx.send(ev).await;
-                }
-            };
-
             let mut stream = response.bytes_stream();
             let mut buffer = String::new();
             let mut sent_first_byte = false;
@@ -249,174 +248,277 @@ impl Provider for AnthropicProvider {
                 let chunk = match chunk {
                     Ok(c) => c,
                     Err(e) => {
-                        send(StreamEvent::Error(format!("stream read error: {}", e))).await;
+                        let _ = tx
+                            .send(StreamEvent::Error(format!("stream read error: {}", e)))
+                            .await;
                         return;
                     }
                 };
 
                 if !sent_first_byte {
                     sent_first_byte = true;
-                    send(StreamEvent::FirstByte).await;
+                    let _ = tx.send(StreamEvent::FirstByte).await;
                 }
 
                 buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-                while let Some(pos) = buffer.find("\n\n") {
-                    let event_text = buffer[..pos].to_string();
-                    buffer.drain(..pos + 2);
-
-                    let mut data_line = String::new();
-                    for line in event_text.lines() {
-                        // Support both "data: " (Anthropic) and "data:" (DashScope)
-                        if let Some(rest) = line.strip_prefix("data: ") {
-                            data_line = rest.to_string();
-                            break;
-                        }
-                        if let Some(rest) = line.strip_prefix("data:") {
-                            data_line = rest.to_string();
-                            break;
-                        }
-                    }
-                    if data_line.is_empty() {
-                        continue;
-                    }
-
-                    let evt: Value = match serde_json::from_str(&data_line) {
-                        Ok(v) => v,
-                        Err(_) => continue,
-                    };
-
-                    match evt["type"].as_str().unwrap_or("") {
-                        "message_start" => {
-                            // Initial usage payload — `input_tokens` is final
-                            // (they don't grow during streaming) but
-                            // `output_tokens` starts near 0 and is updated by
-                            // subsequent `message_delta` events.
-                            usage = merge_usage(usage, &evt["message"]["usage"]);
-                        }
-                        "content_block_start" => {
-                            let idx = evt["index"].as_u64().unwrap_or(0) as usize;
-                            let block = &evt["content_block"];
-                            let kind = block["type"].as_str().unwrap_or("");
-                            while blocks.len() <= idx {
-                                blocks.push(AssembledBlock::default());
-                            }
-                            match kind {
-                                "text" => {
-                                    blocks[idx] = AssembledBlock::Text(String::new());
-                                }
-                                "thinking" => {
-                                    blocks[idx] = AssembledBlock::Thinking {
-                                        text: String::new(),
-                                        signature: None,
-                                    };
-                                }
-                                "tool_use" => {
-                                    let id = block["id"].as_str().unwrap_or("").to_string();
-                                    let name = block["name"].as_str().unwrap_or("").to_string();
-                                    blocks[idx] = AssembledBlock::ToolUse {
-                                        id: id.clone(),
-                                        name: name.clone(),
-                                        input_json: String::new(),
-                                    };
-                                    send(StreamEvent::ToolUseStart { id, name }).await;
-                                }
-                                _ => {}
-                            }
-                        }
-                        "content_block_delta" => {
-                            let idx = evt["index"].as_u64().unwrap_or(0) as usize;
-                            let delta = &evt["delta"];
-                            let dt = delta["type"].as_str().unwrap_or("");
-                            if idx >= blocks.len() {
-                                continue;
-                            }
-                            match (dt, &mut blocks[idx]) {
-                                ("text_delta", AssembledBlock::Text(buf)) => {
-                                    if let Some(t) = delta["text"].as_str() {
-                                        buf.push_str(t);
-                                        send(StreamEvent::TextDelta(t.to_string())).await;
-                                    }
-                                }
-                                ("thinking_delta", AssembledBlock::Thinking { text, .. }) => {
-                                    if let Some(t) = delta["thinking"].as_str() {
-                                        text.push_str(t);
-                                        send(StreamEvent::ThinkingDelta(t.to_string())).await;
-                                    }
-                                }
-                                (
-                                    "signature_delta",
-                                    AssembledBlock::Thinking { signature, .. },
-                                ) => {
-                                    if let Some(s) = delta["signature"].as_str() {
-                                        signature.get_or_insert_with(String::new).push_str(s);
-                                    }
-                                }
-                                (
-                                    "input_json_delta",
-                                    AssembledBlock::ToolUse { input_json, .. },
-                                ) => {
-                                    if let Some(p) = delta["partial_json"].as_str() {
-                                        input_json.push_str(p);
-                                        send(StreamEvent::ToolInputDelta {
-                                            bytes_so_far: input_json.len(),
-                                        })
-                                        .await;
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        "message_delta" => {
-                            if let Some(sr) = evt["delta"]["stop_reason"].as_str() {
-                                stop_reason = match sr {
-                                    "tool_use" => StopReason::ToolUse,
-                                    "max_tokens" => StopReason::MaxTokens,
-                                    _ => StopReason::EndTurn,
-                                };
-                            }
-                            // `usage` on message_delta reflects cumulative
-                            // counts for the current message — most notably
-                            // the final `output_tokens`.
-                            usage = merge_usage(usage, &evt["usage"]);
-                        }
-                        "message_stop" => {
-                            debug!("Message completed: stop_reason={}, usage={}",
-                                match stop_reason {
-                                    StopReason::EndTurn => "end_turn",
-                                    StopReason::ToolUse => "tool_use",
-                                    StopReason::MaxTokens => "max_tokens",
-                                },
-                                usage.output_tokens
-                            );
-                            let content: Vec<ContentBlock> = blocks
-                                .into_iter()
-                                .filter_map(|b| b.finish())
-                                .collect();
-                            send(StreamEvent::Done(ChatResponse {
-                                content,
-                                stop_reason,
-                                usage,
-                            }))
-                            .await;
-                            return;
-                        }
-                        "error" => {
-                            let msg = evt["error"]["message"]
-                                .as_str()
-                                .unwrap_or("unknown stream error")
-                                .to_string();
-                            send(StreamEvent::Error(msg)).await;
-                            return;
-                        }
-                        _ => {}
+                while let Some(frame) = take_next_sse_frame(&mut buffer) {
+                    if handle_sse_frame(
+                        &frame,
+                        &mut blocks,
+                        &mut stop_reason,
+                        &mut usage,
+                        &tx,
+                    )
+                    .await
+                    {
+                        return;
                     }
                 }
+            }
+
+            if let Some(frame) = take_trailing_sse_frame(&mut buffer) {
+                if handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx).await {
+                    return;
+                }
+            }
+
+            if sent_first_byte {
+                debug!(
+                    "stream ended without explicit message_stop; finalizing best-effort"
+                );
+                let _ = tx
+                    .send(StreamEvent::Done(finalize_incomplete_stream(
+                        std::mem::take(&mut blocks),
+                        stop_reason,
+                        usage,
+                    )))
+                    .await;
+            } else {
+                let _ = tx
+                    .send(StreamEvent::Error(
+                        "stream ended before any events were received".to_string(),
+                    ))
+                    .await;
             }
         });
 
         Ok(rx)
     }
+}
+
+fn take_next_sse_frame(buffer: &mut String) -> Option<String> {
+    let lf = buffer.find("\n\n").map(|pos| (pos, 2usize));
+    let crlf = buffer.find("\r\n\r\n").map(|pos| (pos, 4usize));
+    let (pos, delim_len) = match (lf, crlf) {
+        (Some(a), Some(b)) => {
+            if a.0 <= b.0 {
+                a
+            } else {
+                b
+            }
+        }
+        (Some(a), None) => a,
+        (None, Some(b)) => b,
+        (None, None) => return None,
+    };
+
+    let frame = buffer[..pos].to_string();
+    buffer.drain(..pos + delim_len);
+    Some(frame)
+}
+
+fn take_trailing_sse_frame(buffer: &mut String) -> Option<String> {
+    let frame = buffer.trim().trim_end_matches('\r').to_string();
+    buffer.clear();
+    if frame.is_empty() {
+        None
+    } else {
+        Some(frame)
+    }
+}
+
+fn extract_sse_data_line(frame: &str) -> Option<String> {
+    for line in frame.lines() {
+        let line = line.trim_end_matches('\r');
+        // Support both "data: " (Anthropic) and "data:" (DashScope)
+        if let Some(rest) = line.strip_prefix("data: ") {
+            return Some(rest.to_string());
+        }
+        if let Some(rest) = line.strip_prefix("data:") {
+            return Some(rest.to_string());
+        }
+    }
+    None
+}
+
+async fn handle_sse_frame(
+    frame: &str,
+    blocks: &mut Vec<AssembledBlock>,
+    stop_reason: &mut StopReason,
+    usage: &mut Usage,
+    tx: &mpsc::Sender<StreamEvent>,
+) -> bool {
+    let Some(data_line) = extract_sse_data_line(frame) else {
+        return false;
+    };
+
+    let evt: Value = match serde_json::from_str(&data_line) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+
+    handle_sse_event(evt, blocks, stop_reason, usage, tx).await
+}
+
+async fn handle_sse_event(
+    evt: Value,
+    blocks: &mut Vec<AssembledBlock>,
+    stop_reason: &mut StopReason,
+    usage: &mut Usage,
+    tx: &mpsc::Sender<StreamEvent>,
+) -> bool {
+    match evt["type"].as_str().unwrap_or("") {
+        "message_start" => {
+            // Initial usage payload — `input_tokens` is final
+            // (they don't grow during streaming) but
+            // `output_tokens` starts near 0 and is updated by
+            // subsequent `message_delta` events.
+            *usage = merge_usage(usage.clone(), &evt["message"]["usage"]);
+        }
+        "content_block_start" => {
+            let idx = evt["index"].as_u64().unwrap_or(0) as usize;
+            let block = &evt["content_block"];
+            let kind = block["type"].as_str().unwrap_or("");
+            while blocks.len() <= idx {
+                blocks.push(AssembledBlock::default());
+            }
+            match kind {
+                "text" => {
+                    blocks[idx] = AssembledBlock::Text(String::new());
+                }
+                "thinking" => {
+                    blocks[idx] = AssembledBlock::Thinking {
+                        text: String::new(),
+                        signature: None,
+                    };
+                }
+                "tool_use" => {
+                    let id = block["id"].as_str().unwrap_or("").to_string();
+                    let name = block["name"].as_str().unwrap_or("").to_string();
+                    blocks[idx] = AssembledBlock::ToolUse {
+                        id: id.clone(),
+                        name: name.clone(),
+                        input_json: String::new(),
+                    };
+                    let _ = tx.send(StreamEvent::ToolUseStart { id, name }).await;
+                }
+                _ => {}
+            }
+        }
+        "content_block_delta" => {
+            let idx = evt["index"].as_u64().unwrap_or(0) as usize;
+            let delta = &evt["delta"];
+            let dt = delta["type"].as_str().unwrap_or("");
+            if idx >= blocks.len() {
+                return false;
+            }
+            match (dt, &mut blocks[idx]) {
+                ("text_delta", AssembledBlock::Text(buf)) => {
+                    if let Some(t) = delta["text"].as_str() {
+                        buf.push_str(t);
+                        let _ = tx.send(StreamEvent::TextDelta(t.to_string())).await;
+                    }
+                }
+                ("thinking_delta", AssembledBlock::Thinking { text, .. }) => {
+                    if let Some(t) = delta["thinking"].as_str() {
+                        text.push_str(t);
+                        let _ = tx.send(StreamEvent::ThinkingDelta(t.to_string())).await;
+                    }
+                }
+                ("signature_delta", AssembledBlock::Thinking { signature, .. }) => {
+                    if let Some(s) = delta["signature"].as_str() {
+                        signature.get_or_insert_with(String::new).push_str(s);
+                    }
+                }
+                ("input_json_delta", AssembledBlock::ToolUse { input_json, .. }) => {
+                    if let Some(p) = delta["partial_json"].as_str() {
+                        input_json.push_str(p);
+                        let _ = tx
+                            .send(StreamEvent::ToolInputDelta {
+                                bytes_so_far: input_json.len(),
+                            })
+                            .await;
+                    }
+                }
+                _ => {}
+            }
+        }
+        "message_delta" => {
+            if let Some(sr) = evt["delta"]["stop_reason"].as_str() {
+                *stop_reason = match sr {
+                    "tool_use" => StopReason::ToolUse,
+                    "max_tokens" => StopReason::MaxTokens,
+                    _ => StopReason::EndTurn,
+                };
+            }
+            // `usage` on message_delta reflects cumulative
+            // counts for the current message — most notably
+            // the final `output_tokens`.
+            *usage = merge_usage(usage.clone(), &evt["usage"]);
+        }
+        "message_stop" => {
+            debug!(
+                "Message completed: stop_reason={}, usage={}",
+                match *stop_reason {
+                    StopReason::EndTurn => "end_turn",
+                    StopReason::ToolUse => "tool_use",
+                    StopReason::MaxTokens => "max_tokens",
+                },
+                usage.output_tokens
+            );
+            let _ = tx
+                .send(StreamEvent::Done(finalize_incomplete_stream(
+                    std::mem::take(blocks),
+                    stop_reason.clone(),
+                    usage.clone(),
+                )))
+                .await;
+            return true;
+        }
+        "error" => {
+            let msg = evt["error"]["message"]
+                .as_str()
+                .unwrap_or("unknown stream error")
+                .to_string();
+            let _ = tx.send(StreamEvent::Error(msg)).await;
+            return true;
+        }
+        _ => {}
+    }
+
+    false
+}
+
+fn build_chat_response(
+    blocks: Vec<AssembledBlock>,
+    stop_reason: StopReason,
+    usage: Usage,
+) -> ChatResponse {
+    let content: Vec<ContentBlock> = blocks.into_iter().filter_map(|b| b.finish()).collect();
+    ChatResponse {
+        content,
+        stop_reason,
+        usage,
+    }
+}
+
+fn finalize_incomplete_stream(
+    blocks: Vec<AssembledBlock>,
+    stop_reason: StopReason,
+    usage: Usage,
+) -> ChatResponse {
+    build_chat_response(blocks, stop_reason, usage)
 }
 
 #[derive(Default)]
@@ -519,3 +621,62 @@ fn context_window_for(model: &str) -> Option<u32> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn take_next_sse_frame_supports_crlf_delimiter() {
+        let mut buffer = concat!(
+            "event: message_start\r\n",
+            "data: {\"type\":\"message_start\"}\r\n\r\n",
+            "data: {\"type\":\"message_stop\"}\r\n\r\n"
+        )
+        .to_string();
+
+        let first = take_next_sse_frame(&mut buffer).expect("first frame");
+        assert!(first.contains("message_start"));
+
+        let second = take_next_sse_frame(&mut buffer).expect("second frame");
+        assert!(second.contains("message_stop"));
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn take_trailing_sse_frame_returns_unterminated_event() {
+        let mut buffer = "data: {\"type\":\"message_stop\"}\r\n".to_string();
+        let frame = take_trailing_sse_frame(&mut buffer).expect("trailing frame");
+        assert_eq!(frame, "data: {\"type\":\"message_stop\"}");
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn extract_sse_data_line_supports_optional_space() {
+        assert_eq!(
+            extract_sse_data_line("event: x\r\ndata: {\"k\":1}\r"),
+            Some("{\"k\":1}".to_string())
+        );
+        assert_eq!(
+            extract_sse_data_line("event: x\r\ndata:{\"k\":2}\r"),
+            Some("{\"k\":2}".to_string())
+        );
+    }
+
+    #[test]
+    fn finalize_incomplete_stream_keeps_accumulated_content() {
+        let response = finalize_incomplete_stream(
+            vec![AssembledBlock::Text("partial reply".to_string())],
+            StopReason::EndTurn,
+            Usage::default(),
+        );
+
+        assert_eq!(response.stop_reason, StopReason::EndTurn);
+        assert_eq!(response.content.len(), 1);
+        match &response.content[0] {
+            ContentBlock::Text { text } => assert_eq!(text, "partial reply"),
+            other => panic!("unexpected block: {other:?}"),
+        }
+    }
+}
+
