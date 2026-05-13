@@ -2,16 +2,18 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use code_agent::{
     agent,
+    overview::ProjectOverview,
     prompt,
     providers::{self, Message},
     skills,
+    workspace::Workspace,
 };
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(name = "code-agent", about = "A simple code agent with tool use")]
+#[command(name = "matrixcode", about = "A simple code agent with tool use")]
 struct Cli {
     #[arg(short, long, env = "PROVIDER", default_value = "anthropic")]
     provider: String,
@@ -70,6 +72,10 @@ struct Cli {
 
     /// One-shot prompt. If omitted, enters interactive REPL mode.
     prompt: Vec<String>,
+
+    /// Skip loading project overview on startup.
+    #[arg(long, default_value_t = false)]
+    no_overview: bool,
 }
 
 #[tokio::main]
@@ -109,13 +115,39 @@ async fn main() -> Result<()> {
         .parse::<prompt::PromptProfile>()
         .map_err(anyhow::Error::msg)?;
 
-    let mut agent = agent::Agent::with_profile_and_skills_and_max_tokens(
+    // Detect workspace root for overview loading
+    let workspace = Workspace::detect(None).ok();
+    let project_root = workspace.as_ref().map(|w| w.root().to_path_buf());
+
+    // Load project overview if available
+    let overview = if !cli.no_overview {
+        if let Some(ref root) = project_root {
+            match ProjectOverview::load(root) {
+                Ok(Some(ov)) => {
+                    println!("[loaded project overview from {}]", ov.path.display());
+                    Some(ov)
+                }
+                Ok(None) => None,
+                Err(e) => {
+                    eprintln!("[warn] could not load overview: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut agent = agent::Agent::with_profile_and_skills_and_max_tokens_and_overview(
         provider,
         cli.think,
         cli.markdown,
         profile,
         load_skills(&cli.skills_dir, cli.no_default_skills),
         cli.max_tokens,
+        overview.as_ref().map(|o| o.content.as_str()),
     );
 
     // Enable server-side web search by default for Anthropic provider
@@ -155,11 +187,11 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    run_repl(&mut agent, session_path.as_deref()).await
+    run_repl(&mut agent, session_path.as_deref(), project_root.as_deref()).await
 }
 
-async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>) -> Result<()> {
-    println!("code-agent — type your message and press Enter. /help for commands.");
+async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>, project_root: Option<&Path>) -> Result<()> {
+    println!("matrixcode — type your message and press Enter. /help for commands.");
 
     let mut rl = DefaultEditor::new()?;
     let history_path = dirs_history_path();
@@ -206,6 +238,14 @@ async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>) -> Resu
         }
         if trimmed == "/history" {
             print_history(agent);
+            continue;
+        }
+        if trimmed == "/init" {
+            handle_init(project_root, agent);
+            continue;
+        }
+        if trimmed == "/overview" {
+            handle_overview(project_root);
             continue;
         }
 
@@ -300,6 +340,8 @@ fn print_help() {
     println!("  /help     - Show this help message");
     println!("  /status   - Show session status (messages, token usage)");
     println!("  /history  - Show conversation history summary");
+    println!("  /init     - Generate/update project overview");
+    println!("  /overview - Show current project overview status");
     println!("  /clear    - Clear conversation context");
     println!("  /exit     - Exit the REPL (also /quit or :q)");
     println!();
@@ -383,5 +425,60 @@ fn format_tokens(n: u64) -> String {
         format!("{:.1}K", n as f64 / 1_000.0)
     } else {
         format!("{:.2}M", n as f64 / 1_000_000.0)
+    }
+}
+
+/// Handle /init command: generate/update project overview.
+fn handle_init(project_root: Option<&Path>, agent: &mut agent::Agent) {
+    let root = match project_root {
+        Some(r) => r,
+        None => {
+            println!("[error] no project root detected (not in a git repo?)");
+            return;
+        }
+    };
+
+    println!("[generating project overview...]");
+    match ProjectOverview::generate(root) {
+        Ok(overview) => {
+            println!("[saved overview to {}]", overview.path.display());
+            // Update agent's system prompt with new overview
+            agent.set_project_overview(&overview.content);
+            println!("[overview injected into context]");
+        }
+        Err(e) => {
+            eprintln!("[error] could not generate overview: {e}");
+        }
+    }
+}
+
+/// Handle /overview command: show current overview status.
+fn handle_overview(project_root: Option<&Path>) {
+    let root = match project_root {
+        Some(r) => r,
+        None => {
+            println!("[no project root detected]");
+            return;
+        }
+    };
+
+    if ProjectOverview::exists(root) {
+        let path = ProjectOverview::path(root);
+        println!("[overview exists at {}]", path.display());
+        match ProjectOverview::load(root) {
+            Ok(Some(overview)) => {
+                println!("[content preview:]");
+                for line in overview.content.lines().take(20) {
+                    println!("  {}", line);
+                }
+                if overview.content.lines().count() > 20 {
+                    println!("  ... (more lines)");
+                }
+            }
+            Ok(None) => println!("[unexpected: file exists but load returned None]"),
+            Err(e) => eprintln!("[error loading overview: {e}]"),
+        }
+    } else {
+        println!("[no overview found. use /init to generate one]");
     }
 }

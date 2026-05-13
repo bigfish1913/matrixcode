@@ -6,7 +6,6 @@ use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::markdown;
-use crate::prompt::{PromptContext, SystemPromptBuilder};
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, ServerTool,
     StopReason, StreamEvent, Usage,
@@ -44,6 +43,12 @@ pub struct Agent {
     skin: MadSkin,
     /// Final system prompt with any skills catalogue already appended.
     system_prompt: String,
+    /// Project overview content, injected into system prompt when present.
+    project_overview: Option<String>,
+    /// Profile used to build the static system prompt.
+    profile: PromptProfile,
+    /// Skills catalogue for the skill tool.
+    skills: Arc<Vec<Skill>>,
     /// Cumulative output tokens across the whole session. (Input tokens for
     /// the next turn include prior output already — they are reported
     /// directly by the provider — so we track input via "latest turn" and
@@ -125,15 +130,32 @@ impl Agent {
         skills: Vec<Skill>,
         max_tokens: u32,
     ) -> Self {
-        let prompt_context = PromptContext::new()
-            .with_available_skills(skills::format_catalogue(&skills).unwrap_or_default());
-        let system_prompt = SystemPromptBuilder::new(profile)
-            .with_context(prompt_context)
-            .build();
+        Self::with_profile_and_skills_and_max_tokens_and_overview(
+            provider,
+            think,
+            markdown_enabled,
+            profile,
+            skills,
+            max_tokens,
+            None,
+        )
+    }
+
+    /// Full constructor with all options including project overview.
+    pub fn with_profile_and_skills_and_max_tokens_and_overview(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+        profile: PromptProfile,
+        skills: Vec<Skill>,
+        max_tokens: u32,
+        project_overview: Option<&str>,
+    ) -> Self {
         let skills_arc = Arc::new(skills);
+        let system_prompt = build_system_prompt(profile, &skills_arc, project_overview);
         Self {
             provider,
-            tools: tools::all_tools_with_skills(skills_arc),
+            tools: tools::all_tools_with_skills(skills_arc.clone()),
             server_tools: Vec::new(),
             think,
             max_tokens,
@@ -141,6 +163,9 @@ impl Agent {
             markdown_enabled: markdown::should_render(markdown_enabled),
             skin: markdown::default_skin(),
             system_prompt,
+            project_overview: project_overview.map(|s| s.to_string()),
+            profile,
+            skills: skills_arc,
             total_output_tokens: 0,
             last_input_tokens: 0,
         }
@@ -156,6 +181,18 @@ impl Agent {
     /// Set server tools explicitly.
     pub fn set_server_tools(&mut self, server_tools: Vec<ServerTool>) {
         self.server_tools = server_tools;
+    }
+
+    /// Set or update the project overview and rebuild system prompt.
+    pub fn set_project_overview(&mut self, overview: &str) {
+        self.project_overview = Some(overview.to_string());
+        self.system_prompt = build_system_prompt(self.profile, &self.skills, Some(overview));
+    }
+
+    /// Clear the project overview and rebuild system prompt.
+    pub fn clear_project_overview(&mut self) {
+        self.project_overview = None;
+        self.system_prompt = build_system_prompt(self.profile, &self.skills, None);
     }
 
     /// Borrow the accumulated conversation for persistence.
@@ -571,6 +608,26 @@ fn format_bytes(n: usize) -> String {
     } else {
         format!("{:.2} MB", n as f64 / MB as f64)
     }
+}
+
+/// Build the system prompt with optional project overview section.
+fn build_system_prompt(
+    profile: PromptProfile,
+    skills: &Arc<Vec<Skill>>,
+    project_overview: Option<&str>,
+) -> String {
+    use crate::prompt::{PromptContext, SystemPromptBuilder, SECTION_PROJECT_CONTEXT};
+
+    let mut prompt_context = PromptContext::new()
+        .with_available_skills(skills::format_catalogue(skills).unwrap_or_default());
+
+    if let Some(overview) = project_overview {
+        prompt_context = prompt_context.with_section(SECTION_PROJECT_CONTEXT, overview);
+    }
+
+    SystemPromptBuilder::new(profile)
+        .with_context(prompt_context)
+        .build()
 }
 
 #[cfg(test)]
