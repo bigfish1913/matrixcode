@@ -43,7 +43,7 @@ struct Cli {
 
     /// Continue the last session (most common resume case).
     /// Equivalent to --resume with the most recently used session.
-    #[arg(short = 'C', long)]
+    #[arg(short = 'c', long)]
     continue_: bool,
 
     /// Resume a specific session by ID or name, or show interactive picker.
@@ -410,7 +410,7 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
                 .map(|id| format!("session-{}", &id[..8]))
                 .unwrap_or_else(|| "new".to_string())
         });
-    println!("matrixcode — session: '{}' | /help for commands. | ESC to interrupt output.", session_name);
+    println!("matrixcode — session: '{}' | /help for commands. | Ctrl+C to interrupt.", session_name);
 
     let mut rl = DefaultEditor::new()?;
     let history_path = session_manager.history_path();
@@ -418,26 +418,16 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         let _ = rl.load_history(&history_path);
     }
 
-    // Create cancellation token for ESC key interrupt
+    // Create cancellation token for Ctrl+C interrupt during streaming
     let cancel_token = CancellationToken::new();
     let cancel_token_clone = cancel_token.clone();
-    
-    // Start ESC key listener thread
-    let _esc_thread = std::thread::spawn(move || {
-        use std::io::{stdin, Read};
-        let mut stdin = stdin();
-        let mut buf = [0u8; 1];
-        
-        loop {
-            // Read single byte
-            if stdin.read_exact(&mut buf).is_ok() {
-                // ESC key sends 27 (ASCII)
-                if buf[0] == 27 {
-                    cancel_token_clone.cancel();
-                }
-            }
-        }
-    });
+
+    // Use Ctrl+C handler for cancellation during streaming output.
+    // rustyline handles Ctrl+C at the prompt (ReadlineError::Interrupted),
+    // so this only fires when the agent is actively streaming.
+    ctrlc::set_handler(move || {
+        cancel_token_clone.cancel();
+    }).ok();
 
     loop {
         let line = match rl.readline("\n> ") {
@@ -692,8 +682,7 @@ fn print_help() {
     println!("  /exit       - Exit the REPL (also /quit or :q)");
     println!();
     println!("Keyboard shortcuts:");
-    println!("  ESC         - Interrupt current output");
-    println!("  Ctrl+C      - Cancel current input");
+    println!("  Ctrl+C      - Interrupt current output (at prompt: cancel input)");
     println!("  Ctrl+D      - Exit the REPL");
 }
 
