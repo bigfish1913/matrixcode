@@ -75,9 +75,10 @@ jobs:
           cd target/${{ matrix.target }}/release
           mkdir -p staging
           cp matrixcode staging/ 2>/dev/null || true
-          cp ../../README.md staging/ 2>/dev/null || true
-          cp ../../LICENSE staging/ 2>/dev/null || true
-          tar -czvf ../../../matrixcode-${{ matrix.target }}.tar.gz -C staging .
+          cp ${{ github.workspace }}/README.md staging/ 2>/dev/null || true
+          cp ${{ github.workspace }}/LICENSE staging/ 2>/dev/null || true
+          cd ${{ github.workspace }}
+          tar -czvf matrixcode-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release/staging .
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
@@ -85,10 +86,10 @@ jobs:
           cd target/${{ matrix.target }}/release
           mkdir staging
           copy matrixcode.exe staging/ 2>$null
-          copy ..\..\README.md staging/ 2>$null
-          copy ..\..\LICENSE staging/ 2>$null
-          cd ..\..
-          7z a matrixcode-${{ matrix.target }}.zip staging
+          copy ${{ github.workspace }}\README.md staging/ 2>$null
+          copy ${{ github.workspace }}\LICENSE staging/ 2>$null
+          cd ${{ github.workspace }}
+          7z a matrixcode-${{ matrix.target }}.zip target\${{ matrix.target }}\release\staging
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
