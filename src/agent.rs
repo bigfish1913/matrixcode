@@ -5,7 +5,9 @@ use std::time::Duration;
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 
+use crate::compress::{CompressionConfig, CompressionStrategy, should_compress};
 use crate::markdown;
+use crate::models::{MultiModelConfig, Planner, TaskPlan, TaskComplexity};
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, ServerTool,
     StopReason, StreamEvent, Usage,
@@ -31,6 +33,11 @@ const RESET: &str = "\x1b[0m";
 
 pub struct Agent {
     provider: Box<dyn Provider>,
+    /// Optional secondary providers for specific tasks.
+    compress_provider: Option<Box<dyn Provider>>,
+    plan_provider: Option<Box<dyn Provider>>,
+    /// Multi-model configuration.
+    model_config: MultiModelConfig,
     tools: Vec<Box<dyn Tool>>,
     /// Server-side tools that are executed by the API provider (e.g., web_search).
     server_tools: Vec<ServerTool>,
@@ -57,6 +64,14 @@ pub struct Agent {
     /// Latest `input_tokens` reported by the provider, which equals the
     /// number of tokens currently resident in the context window.
     last_input_tokens: u32,
+    /// Compression configuration for context management.
+    compression_config: CompressionConfig,
+    /// Enable prompt caching (Anthropic-specific).
+    enable_caching: bool,
+    /// Last compression result (if any), for session recording.
+    last_compression_result: Option<crate::compress::CompressionResult>,
+    /// Last task plan (if any), for tracking execution.
+    last_plan: Option<TaskPlan>,
 }
 
 impl Agent {
@@ -155,6 +170,9 @@ impl Agent {
         let system_prompt = build_system_prompt(profile, &skills_arc, project_overview);
         Self {
             provider,
+            compress_provider: None,
+            plan_provider: None,
+            model_config: MultiModelConfig::default(),
             tools: tools::all_tools_with_skills(skills_arc.clone()),
             server_tools: Vec::new(),
             think,
@@ -168,7 +186,34 @@ impl Agent {
             skills: skills_arc,
             total_output_tokens: 0,
             last_input_tokens: 0,
+            compression_config: CompressionConfig::default(),
+            enable_caching: true,
+            last_compression_result: None,
+            last_plan: None,
         }
+    }
+
+    /// Set compress provider for AI summarization.
+    pub fn with_compress_provider(mut self, provider: Box<dyn Provider>) -> Self {
+        self.compress_provider = Some(provider);
+        self
+    }
+
+    /// Set plan provider for task planning.
+    pub fn with_plan_provider(mut self, provider: Box<dyn Provider>) -> Self {
+        self.plan_provider = Some(provider);
+        self
+    }
+
+    /// Set multi-model configuration.
+    pub fn with_model_config(mut self, config: MultiModelConfig) -> Self {
+        self.model_config = config;
+        self
+    }
+
+    /// Get model configuration.
+    pub fn model_config(&self) -> &MultiModelConfig {
+        &self.model_config
     }
 
     /// Enable server-side web search tool. This allows the model to perform
@@ -176,6 +221,17 @@ impl Agent {
     pub fn with_web_search(mut self, max_uses: Option<u32>) -> Self {
         self.server_tools.push(ServerTool::web_search(max_uses));
         self
+    }
+
+    /// Enable or disable prompt caching.
+    pub fn with_caching(mut self, enable: bool) -> Self {
+        self.enable_caching = enable;
+        self
+    }
+
+    /// Set caching flag.
+    pub fn set_caching(&mut self, enable: bool) {
+        self.enable_caching = enable;
     }
 
     /// Set server tools explicitly.
@@ -193,6 +249,16 @@ impl Agent {
     pub fn clear_project_overview(&mut self) {
         self.project_overview = None;
         self.system_prompt = build_system_prompt(self.profile, &self.skills, None);
+    }
+
+    /// Set compression configuration.
+    pub fn set_compression_config(&mut self, config: CompressionConfig) {
+        self.compression_config = config;
+    }
+
+    /// Get compression configuration.
+    pub fn compression_config(&self) -> &CompressionConfig {
+        &self.compression_config
     }
 
     /// Borrow the accumulated conversation for persistence.
@@ -238,6 +304,9 @@ impl Agent {
             content: MessageContent::Text(user_input.to_string()),
         });
 
+        // Check if context compression is needed before sending request
+        self.check_and_compress();
+
         let tool_defs: Vec<_> = self.tools.iter().map(|t| t.definition()).collect();
 
         // Track max_tokens continuation count to avoid infinite loops
@@ -252,6 +321,7 @@ impl Agent {
                 think: self.think,
                 max_tokens: self.max_tokens,
                 server_tools: self.server_tools.clone(),
+                enable_caching: self.enable_caching,
             };
 
             let response = self.stream_one_turn(request).await?;
@@ -303,6 +373,194 @@ impl Agent {
         }
 
         Ok(())
+    }
+
+    /// Check if context compression is needed and perform it.
+    /// Returns compression result if compression was performed.
+    fn check_and_compress(&mut self) {
+        use crate::compress::{CompressionResult, compress_messages};
+        
+        // Clear previous compression result
+        self.last_compression_result = None;
+        
+        let context_size = self.provider.context_size();
+        let current_tokens = self.last_input_tokens;
+        
+        if should_compress(current_tokens, context_size, &self.compression_config) {
+            let original_count = self.messages.len();
+            let original_tokens = crate::compress::estimate_total_tokens(&self.messages);
+            
+            println!(
+                "\n[compressing context: {} tokens / {} max ({:.0}%)]",
+                current_tokens,
+                context_size.unwrap_or(0),
+                (current_tokens as f64 / context_size.unwrap_or(1) as f64 * 100.0)
+            );
+            
+            let strategy = if self.compression_config.use_summarization {
+                CompressionStrategy::SlidingWindow
+            } else {
+                CompressionStrategy::Truncate
+            };
+            
+            match compress_messages(&self.messages, strategy, &self.compression_config) {
+                Ok(compressed) => {
+                    let new_count = compressed.len();
+                    let new_tokens = crate::compress::estimate_total_tokens(&compressed);
+                    let tokens_saved = original_tokens.saturating_sub(new_tokens);
+                    
+                    self.messages = compressed;
+                    
+                    println!(
+                        "[compressed: {} messages → {} messages (~{} tokens saved)]",
+                        original_count, new_count, tokens_saved
+                    );
+                    
+                    self.last_compression_result = Some(CompressionResult::new(
+                        original_count,
+                        new_count,
+                        tokens_saved,
+                        None,
+                        strategy,
+                    ));
+                }
+                Err(e) => {
+                    eprintln!("[warn] compression failed: {}", e);
+                }
+            }
+        }
+    }
+
+    /// Get the last compression result (if any).
+    pub fn last_compression_result(&self) -> Option<&crate::compress::CompressionResult> {
+        self.last_compression_result.as_ref()
+    }
+
+    /// Get the last task plan (if any).
+    pub fn last_plan(&self) -> Option<&TaskPlan> {
+        self.last_plan.as_ref()
+    }
+
+    /// Generate a task plan using the plan model.
+    /// Returns the plan if a plan provider is available.
+    pub async fn plan_task(&mut self, request: &str) -> Result<Option<TaskPlan>> {
+        if let Some(ref plan_provider) = self.plan_provider {
+            let planner = Planner::new(
+                plan_provider.clone_box(),
+                self.model_config.plan.clone(),
+            );
+            
+            // Get available tool names
+            let tool_names: Vec<String> = self.tools.iter()
+                .map(|t| t.definition().name.clone())
+                .collect();
+            let tool_names_refs: Vec<&str> = tool_names.iter().map(|s| s.as_str()).collect();
+            
+            println!("[planning task with {}...]", self.model_config.plan.display_name());
+            
+            let plan = planner.plan(request, &tool_names_refs).await?;
+            
+            println!("[plan generated: {} steps, complexity: {}]", 
+                plan.steps.len(), 
+                plan.complexity.display()
+            );
+            
+            self.last_plan = Some(plan.clone());
+            Ok(Some(plan))
+        } else {
+            // No plan provider, return None
+            Ok(None)
+        }
+    }
+
+    /// Quick complexity assessment using fast model.
+    pub async fn assess_complexity(&self, request: &str) -> Result<TaskComplexity> {
+        // Use main provider if no plan provider
+        let provider = self.plan_provider.as_ref()
+            .map(|p| p.as_ref())
+            .unwrap_or(self.provider.as_ref());
+        
+        let planner = Planner::new(
+            provider.clone_box(),
+            self.model_config.fast.clone(),
+        );
+        
+        planner.assess_complexity(request).await
+    }
+
+    /// Get suggested next action based on current plan.
+    pub fn get_next_step(&self) -> Option<&crate::models::PlanStep> {
+        self.last_plan.as_ref()
+            .and_then(|plan| {
+                // Find the first pending step (assuming we track progress)
+                plan.steps.first()
+            })
+    }
+
+    /// Manually compress context with specified bias.
+    /// Returns compression result if compression was performed.
+    pub fn compress_with_bias(&mut self, bias_spec: Option<&str>) -> Result<Option<crate::compress::CompressionResult>> {
+        use crate::compress::{CompressionBias, CompressionResult, CompressionStrategy, compress_messages};
+        
+        // Parse bias specification
+        let bias = if let Some(spec) = bias_spec {
+            CompressionBias::parse(spec)?
+        } else {
+            self.compression_config.bias.clone()
+        };
+
+        // Update config with new bias temporarily
+        let mut config = self.compression_config.clone();
+        config.bias = bias.clone();
+
+        let original_count = self.messages.len();
+        if original_count <= config.min_preserve_messages {
+            println!("[no need to compress: only {} messages]", original_count);
+            return Ok(None);
+        }
+
+        let original_tokens = crate::compress::estimate_total_tokens(&self.messages);
+
+        println!(
+            "\n[manual compression: {} messages, ~{} tokens]",
+            original_count,
+            crate::compress::format_tokens(original_tokens)
+        );
+        println!("[bias: {}]", bias.format());
+
+        let strategy = CompressionStrategy::BiasBased;
+
+        match compress_messages(&self.messages, strategy, &config) {
+            Ok(compressed) => {
+                let new_count = compressed.len();
+                let new_tokens = crate::compress::estimate_total_tokens(&compressed);
+                let tokens_saved = original_tokens.saturating_sub(new_tokens);
+
+                self.messages = compressed;
+                self.compression_config.bias = bias; // Persist the bias
+
+                println!(
+                    "[compressed: {} → {} messages (~{} tokens saved)]",
+                    original_count, new_count,
+                    crate::compress::format_tokens(tokens_saved)
+                );
+
+                let result = CompressionResult::new(
+                    original_count,
+                    new_count,
+                    tokens_saved,
+                    None,
+                    strategy,
+                );
+                self.last_compression_result = Some(result.clone());
+
+                Ok(Some(result))
+            }
+            Err(e) => {
+                eprintln!("[error] compression failed: {}", e);
+                Err(e)
+            }
+        }
     }
 
     /// One-shot convenience: run a single prompt and discard agent state.

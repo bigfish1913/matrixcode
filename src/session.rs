@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use crate::compress::CompressionHistoryEntry;
 use crate::providers::Message;
 
 /// Session metadata stored in the index.
@@ -25,6 +26,9 @@ pub struct SessionMetadata {
     pub last_input_tokens: u64,
     /// Cumulative output tokens.
     pub total_output_tokens: u64,
+    /// Compression history entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub compression_history: Vec<CompressionHistoryEntry>,
 }
 
 impl SessionMetadata {
@@ -40,7 +44,27 @@ impl SessionMetadata {
             message_count: 0,
             last_input_tokens: 0,
             total_output_tokens: 0,
+            compression_history: Vec::new(),
         }
+    }
+
+    /// Add a compression entry to history.
+    pub fn add_compression_entry(&mut self, entry: CompressionHistoryEntry) {
+        self.compression_history.push(entry);
+        // Keep only last 10 entries to avoid bloat
+        if self.compression_history.len() > 10 {
+            self.compression_history.remove(0);
+        }
+    }
+
+    /// Get total tokens saved across all compressions.
+    pub fn total_tokens_saved(&self) -> u32 {
+        self.compression_history.iter().map(|e| e.tokens_saved).sum()
+    }
+
+    /// Get compression count.
+    pub fn compression_count(&self) -> usize {
+        self.compression_history.len()
     }
 
     /// Get a display name for the session.
@@ -71,7 +95,14 @@ impl SessionMetadata {
             })
             .unwrap_or_else(|| "-".to_string());
         
-        format!("{} {}  [{}]  {} msgs  {}", marker, name, time, msgs, project)
+        // Add compression info if any
+        let compression_info = if self.compression_count() > 0 {
+            format!("  💾 {} comps", self.compression_count())
+        } else {
+            "".to_string()
+        };
+        
+        format!("{} {}  [{}]  {} msgs  {}{}", marker, name, time, msgs, project, compression_info)
     }
 }
 
@@ -350,6 +381,13 @@ impl SessionManager {
     pub fn update_stats(&mut self, last_input_tokens: u32, total_output_tokens: u64) {
         if let Some(ref mut session) = self.current_session {
             session.update_stats(last_input_tokens, total_output_tokens);
+        }
+    }
+
+    /// Record a compression event in the session history.
+    pub fn record_compression(&mut self, entry: crate::compress::CompressionHistoryEntry) {
+        if let Some(ref mut session) = self.current_session {
+            session.metadata.add_compression_entry(entry);
         }
     }
 

@@ -23,14 +23,14 @@ pub enum Role {
     Tool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum MessageContent {
     Text(String),
     Blocks(Vec<ContentBlock>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum ContentBlock {
     #[serde(rename = "text")]
@@ -71,12 +71,12 @@ pub enum ContentBlock {
 }
 
 /// Content returned by the server-side web search tool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebSearchContent {
     pub results: Vec<WebSearchResultItem>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebSearchResultItem {
     pub title: Option<String>,
     pub url: String,
@@ -116,6 +116,8 @@ pub struct ChatRequest {
     pub max_tokens: u32,
     /// Server-side tools that are executed by the API provider.
     pub server_tools: Vec<ServerTool>,
+    /// Enable prompt caching for Anthropic provider.
+    pub enable_caching: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -189,5 +191,14 @@ pub trait Provider: Send + Sync {
         }
         let _ = tx.send(StreamEvent::Done(response)).await;
         Ok(rx)
+    }
+
+    /// Clone the provider into a boxed type.
+    fn clone_box(&self) -> Box<dyn Provider>;
+}
+
+impl Clone for Box<dyn Provider> {
+    fn clone(&self) -> Self {
+        self.clone_box()
     }
 }

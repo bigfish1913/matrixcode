@@ -81,8 +81,9 @@ impl AnthropicProvider {
             .collect()
     }
 
-    fn convert_tools(&self, tools: &[ToolDefinition]) -> Vec<Value> {
-        tools
+    /// Convert tools with caching control for Anthropic prompt caching.
+    fn convert_tools_with_caching(&self, tools: &[ToolDefinition], enable_caching: bool) -> Vec<Value> {
+        let mut converted: Vec<Value> = tools
             .iter()
             .map(|t| {
                 json!({
@@ -91,7 +92,17 @@ impl AnthropicProvider {
                     "input_schema": t.parameters,
                 })
             })
-            .collect()
+            .collect();
+        
+        // Add cache_control to the last tool definition for tools caching
+        if enable_caching && !converted.is_empty() {
+            let last_idx = converted.len() - 1;
+            if let Some(obj) = converted[last_idx].as_object_mut() {
+                obj.insert("cache_control".to_string(), json!({"type": "ephemeral"}));
+            }
+        }
+        
+        converted
     }
 
     /// Build the base JSON body shared by streaming and non-streaming requests.
@@ -102,12 +113,25 @@ impl AnthropicProvider {
             "messages": self.convert_messages(&request.messages),
         });
 
-        if let Some(system) = &request.system {
+        // Add prompt caching for system prompt (Anthropic-specific)
+        if request.enable_caching && !self.is_dashscope {
+            if let Some(system) = &request.system {
+                // System prompt caching: add cache_control to enable caching
+                body["system"] = json!([
+                    {
+                        "type": "text",
+                        "text": system,
+                        "cache_control": {"type": "ephemeral"}
+                    }
+                ]);
+            }
+        } else if let Some(system) = &request.system {
             body["system"] = json!(system);
         }
 
         if !request.tools.is_empty() {
-            body["tools"] = json!(self.convert_tools(&request.tools));
+            let tools = self.convert_tools_with_caching(&request.tools, request.enable_caching && !self.is_dashscope);
+            body["tools"] = json!(tools);
         }
 
         if !request.server_tools.is_empty() {
@@ -149,6 +173,16 @@ fn thinking_config(model: &str) -> Value {
 impl Provider for AnthropicProvider {
     fn context_size(&self) -> Option<u32> {
         context_window_for(&self.model)
+    }
+
+    fn clone_box(&self) -> Box<dyn Provider> {
+        Box::new(Self {
+            api_key: self.api_key.clone(),
+            model: self.model.clone(),
+            base_url: self.base_url.clone(),
+            client: reqwest::Client::new(),
+            is_dashscope: self.is_dashscope,
+        })
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
@@ -714,17 +748,30 @@ fn context_window_for(model: &str) -> Option<u32> {
         }
     }
     let m = model.to_ascii_lowercase();
+    
     // Claude Opus 4.7 and the 1M-context variants expose a 1M window.
     if m.contains("[1m]") || m.contains("opus-4-7") || m.contains("opus-4.7") {
         return Some(1_000_000);
+    }
+    // Claude 3.5/4 series: 200K standard window
+    if m.contains("claude-3") || m.contains("claude-4") || m.contains("claude-opus") || m.contains("claude-sonnet") {
+        return Some(200_000);
+    }
+    // Claude 2: 100K
+    if m.contains("claude-2") {
+        return Some(100_000);
+    }
+    // Claude Instant: 100K
+    if m.contains("claude-instant") {
+        return Some(100_000);
     }
     // Kimi K2 / K2.5 ship with a 128K window on the public endpoint.
     if m.contains("kimi") {
         return Some(128_000);
     }
-    // Other Claude 3.x/4.x models: 200K standard window.
-    if m.contains("claude") {
-        return Some(200_000);
+    // DeepSeek via Anthropic endpoint
+    if m.contains("deepseek") {
+        return Some(128_000);
     }
     None
 }

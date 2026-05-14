@@ -2,6 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 use matrixcode::{
     agent,
+    compress::CompressionConfig,
+    models::{MultiModelConfig, ModelConfig, ModelRole},
     overview::ProjectOverview,
     prompt,
     providers,
@@ -90,6 +92,47 @@ struct Cli {
     /// Generate project overview using AI and exit.
     #[arg(long, default_value_t = false)]
     init: bool,
+
+    /// Context compression threshold (0.0-1.0). When context usage exceeds this ratio,
+    /// old messages will be compressed. Default: 0.75.
+    #[arg(long, env = "COMPRESSION_THRESHOLD", default_value = "0.75")]
+    compression_threshold: f64,
+
+    /// Disable automatic context compression.
+    #[arg(long, env = "NO_COMPRESSION", default_value_t = false, action = clap::ArgAction::SetTrue)]
+    no_compression: bool,
+
+    /// Minimum messages to preserve when compressing context.
+    #[arg(long, env = "MIN_PRESERVE_MESSAGES", default_value = "6")]
+    min_preserve_messages: usize,
+
+    /// Override context window size (in tokens). Useful for proxy endpoints.
+    #[arg(long, env = "CONTEXT_SIZE")]
+    context_size: Option<u32>,
+
+    /// Enable prompt caching for Anthropic provider (default on).
+    /// Pass --no-caching to disable.
+    #[arg(long, env = "NO_CACHING", default_value_t = false, action = clap::ArgAction::SetTrue)]
+    no_caching: bool,
+
+    /// Model for planning tasks (defaults to same as main model).
+    /// Use a capable model like claude-sonnet-4 for better planning.
+    #[arg(long, env = "PLAN_MODEL")]
+    plan_model: Option<String>,
+
+    /// Model for compression/summarization (defaults to claude-3-5-haiku).
+    /// Use a smaller, cheaper model for cost efficiency.
+    #[arg(long, env = "COMPRESS_MODEL")]
+    compress_model: Option<String>,
+
+    /// Model for quick operations (defaults to claude-3-5-haiku).
+    /// Use a fast model for classification and simple tasks.
+    #[arg(long, env = "FAST_MODEL")]
+    fast_model: Option<String>,
+
+    /// Enable multi-model mode (use separate models for plan/compress/fast).
+    #[arg(long, env = "MULTI_MODEL", default_value_t = false, action = clap::ArgAction::SetTrue)]
+    multi_model: bool,
 }
 
 #[tokio::main]
@@ -114,12 +157,19 @@ async fn main() -> Result<()> {
         _ => "https://api.anthropic.com".to_string(),
     });
 
+    // Set CONTEXT_SIZE env var if provided via CLI (must be before provider creation)
+    if let Some(size) = cli.context_size {
+        // SAFETY: set_var is unsafe because it can affect multi-threaded programs.
+        // We're doing this during initialization before any threads are spawned.
+        unsafe { std::env::set_var("CONTEXT_SIZE", size.to_string()); }
+    }
+
     let provider: Box<dyn providers::Provider> = match cli.provider.as_str() {
         "openai" => Box::new(providers::openai::OpenAIProvider::new(
-            api_key, model, base_url,
+            api_key.clone(), model.clone(), base_url.clone(),
         )),
         "anthropic" => Box::new(providers::anthropic::AnthropicProvider::new(
-            api_key, model, base_url,
+            api_key.clone(), model.clone(), base_url.clone(),
         )),
         other => anyhow::bail!("Unknown provider: {other}. Use 'openai' or 'anthropic'"),
     };
@@ -164,10 +214,104 @@ async fn main() -> Result<()> {
         overview.as_ref().map(|o| o.content.as_str()),
     );
 
+    // Configure multi-model if enabled or specific models provided
+    if cli.multi_model || cli.plan_model.is_some() || cli.compress_model.is_some() || cli.fast_model.is_some() {
+        // Start with all roles using the main model
+        let mut model_config = MultiModelConfig::with_main(model.clone());
+        
+        // Override plan model if specified
+        if let Some(ref plan_model_name) = cli.plan_model {
+            model_config.set(ModelRole::Plan, ModelConfig::new(plan_model_name.clone()));
+            println!("[plan model: {}]", plan_model_name);
+        } else if cli.multi_model {
+            println!("[plan model: {} (using main model)]", model);
+        }
+        
+        // Override compress model if specified
+        if let Some(ref compress_model_name) = cli.compress_model {
+            model_config.set(ModelRole::Compress, ModelConfig::new(compress_model_name.clone()));
+            println!("[compress model: {}]", compress_model_name);
+        } else if cli.multi_model {
+            println!("[compress model: {} (using main model)]", model);
+        }
+        
+        // Override fast model if specified
+        if let Some(ref fast_model_name) = cli.fast_model {
+            model_config.set(ModelRole::Fast, ModelConfig::new(fast_model_name.clone()));
+            println!("[fast model: {}]", fast_model_name);
+        } else if cli.multi_model {
+            println!("[fast model: {} (using main model)]", model);
+        }
+        
+        // Create providers for plan and compress if multi-model is enabled
+        if cli.multi_model {
+            // Plan provider (uses plan model config)
+            let plan_model_name = model_config.plan.name.clone();
+            let plan_provider: Box<dyn providers::Provider> = match cli.provider.as_str() {
+                "openai" => Box::new(providers::openai::OpenAIProvider::new(
+                    api_key.clone(), plan_model_name.clone(), base_url.clone(),
+                )),
+                _ => Box::new(providers::anthropic::AnthropicProvider::new(
+                    api_key.clone(), plan_model_name.clone(), base_url.clone(),
+                )),
+            };
+            agent = agent.with_plan_provider(plan_provider);
+            
+            // Compress provider (uses compress model config)
+            let compress_model_name = model_config.compress.name.clone();
+            let compress_provider: Box<dyn providers::Provider> = match cli.provider.as_str() {
+                "openai" => Box::new(providers::openai::OpenAIProvider::new(
+                    api_key.clone(), compress_model_name.clone(), base_url.clone(),
+                )),
+                _ => Box::new(providers::anthropic::AnthropicProvider::new(
+                    api_key.clone(), compress_model_name.clone(), base_url.clone(),
+                )),
+            };
+            agent = agent.with_compress_provider(compress_provider);
+            
+            println!("[multi-model enabled: all models default to main model]");
+        } else if cli.compress_model.is_some() {
+            // Only compress model specified, create compress provider
+            let compress_model_name = model_config.compress.name.clone();
+            let compress_provider: Box<dyn providers::Provider> = match cli.provider.as_str() {
+                "openai" => Box::new(providers::openai::OpenAIProvider::new(
+                    api_key.clone(), compress_model_name.clone(), base_url.clone(),
+                )),
+                _ => Box::new(providers::anthropic::AnthropicProvider::new(
+                    api_key.clone(), compress_model_name.clone(), base_url.clone(),
+                )),
+            };
+            agent = agent.with_compress_provider(compress_provider);
+        }
+        
+        agent = agent.with_model_config(model_config);
+    }
+
     // Enable server-side web search by default for Anthropic provider
     if cli.provider == "anthropic" && !cli.no_web_search {
         agent = agent.with_web_search(Some(cli.web_search_max_uses));
         println!("[server web search enabled, max {} uses per turn]", cli.web_search_max_uses);
+    }
+
+    // Configure context compression
+    if !cli.no_compression {
+        let compression_config = CompressionConfig {
+            threshold: cli.compression_threshold,
+            min_preserve_messages: cli.min_preserve_messages,
+            use_summarization: true,
+            target_ratio: 0.5,
+            compressor_model: None,
+            bias: matrixcode::compress::CompressionBias::balanced(),
+        };
+        agent.set_compression_config(compression_config);
+    }
+
+    // Configure prompt caching
+    if cli.provider == "anthropic" && !cli.no_caching {
+        agent.set_caching(true);
+        println!("[prompt caching enabled for Anthropic]");
+    } else if cli.no_caching {
+        agent.set_caching(false);
     }
 
     // Initialize session manager
@@ -239,6 +383,13 @@ async fn main() -> Result<()> {
 
     if !cli.prompt.is_empty() {
         agent.chat_once(&cli.prompt.join(" ")).await?;
+        
+        // Record compression result if any
+        if let Some(result) = agent.last_compression_result() {
+            use matrixcode::compress::CompressionHistoryEntry;
+            session_manager.record_compression(CompressionHistoryEntry::from_result(result));
+        }
+        
         // Update session stats and save
         let stats = agent.token_stats();
         session_manager.set_messages(agent.messages().to_vec());
@@ -351,11 +502,40 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
             handle_overview(project_root);
             continue;
         }
+        if trimmed == "/compress" {
+            // Default compression with balanced bias
+            handle_compress(agent, session_manager, None);
+            continue;
+        }
+        if trimmed.starts_with("/compress ") {
+            let bias_spec = trimmed.strip_prefix("/compress ").unwrap().trim();
+            handle_compress(agent, session_manager, Some(bias_spec));
+            continue;
+        }
+        if trimmed == "/plan" {
+            handle_plan(agent).await;
+            continue;
+        }
+        if trimmed.starts_with("/plan ") {
+            let plan_request = trimmed.strip_prefix("/plan ").unwrap().trim();
+            handle_plan_with_request(agent, plan_request).await;
+            continue;
+        }
+        if trimmed == "/models" {
+            handle_models(agent);
+            continue;
+        }
 
         let _ = rl.add_history_entry(trimmed);
 
         if let Err(e) = agent.chat_once(trimmed).await {
             eprintln!("\n[error] {e}");
+        }
+
+        // Record compression result to session if any
+        if let Some(result) = agent.last_compression_result() {
+            use matrixcode::compress::CompressionHistoryEntry;
+            session_manager.record_compression(CompressionHistoryEntry::from_result(result));
         }
 
         // Update session and save
@@ -469,6 +649,17 @@ fn print_help() {
     println!("  /rename <name> - Give the current session a name");
     println!("  /init       - Generate/update project overview");
     println!("  /overview   - Show current project overview status");
+    println!("  /plan       - Plan the current task (show last plan or new plan)");
+    println!("  /plan <task> - Generate a plan for the specified task");
+    println!("  /models     - Show current multi-model configuration");
+    println!("  /compress   - Manually compress context (balanced bias)");
+    println!("  /compress <bias> - Compress with specific bias:");
+    println!("      balanced     - Balanced preservation (default)");
+    println!("      important    - Preserve tools, thinking, decisions");
+    println!("      tools        - Focus on preserving tool operations");
+    println!("      aggressive   - Remove as much as possible");
+    println!("      preserve:tools,thinking keywords:决定,重要");
+    println!("      preserve:tools,thinking,user keywords:决定,重要");
     println!("  /clear      - Clear context and start a new session");
     println!("  /exit       - Exit the REPL (also /quit or :q)");
     println!();
@@ -625,4 +816,75 @@ fn handle_overview(project_root: Option<&Path>) {
     } else {
         println!("[no overview found. use /init to generate one]");
     }
+}
+
+/// Handle /compress command: manually compress context with optional bias.
+fn handle_compress(
+    agent: &mut agent::Agent,
+    session_manager: &mut SessionManager,
+    bias_spec: Option<&str>,
+) {
+    match agent.compress_with_bias(bias_spec) {
+        Ok(Some(result)) => {
+            // Record compression to session
+            use matrixcode::compress::CompressionHistoryEntry;
+            session_manager.record_compression(CompressionHistoryEntry::from_result(&result));
+            
+            // Update session messages
+            session_manager.set_messages(agent.messages().to_vec());
+            
+            // Save session
+            if let Err(e) = session_manager.save_current() {
+                eprintln!("[warn] could not save session: {e}");
+            }
+        }
+        Ok(None) => {
+            println!("[compression skipped]");
+        }
+        Err(e) => {
+            eprintln!("[error] {e}");
+        }
+    }
+}
+
+/// Handle /plan command: show or generate task plan.
+async fn handle_plan(agent: &mut agent::Agent) {
+    // Show last plan if available
+    if let Some(plan) = agent.last_plan() {
+        println!("[last plan]:\n{}", plan.format());
+    } else {
+        println!("[no plan available. use /plan <task> to generate one]");
+    }
+}
+
+/// Handle /plan <task> command: generate plan for specified task.
+async fn handle_plan_with_request(agent: &mut agent::Agent, request: &str) {
+    match agent.plan_task(request).await {
+        Ok(Some(plan)) => {
+            println!("\n{}", plan.format());
+            
+            // Optionally convert to todo items
+            let todos = plan.to_todo_items();
+            if !todos.is_empty() {
+                println!("\n[todo items generated: {} steps]", todos.len());
+            }
+        }
+        Ok(None) => {
+            println!("[planning not available - no plan model configured]");
+            println!("[use --multi-model or --plan-model to enable planning]");
+        }
+        Err(e) => {
+            eprintln!("[error] planning failed: {e}");
+        }
+    }
+}
+
+/// Handle /models command: show current model configuration.
+fn handle_models(agent: &agent::Agent) {
+    let config = agent.model_config();
+    println!("[multi-model configuration]");
+    println!("  main:     {} (context: {:?})", config.main.display_name(), config.main.context_size);
+    println!("  plan:     {} (context: {:?})", config.plan.display_name(), config.plan.context_size);
+    println!("  compress: {} (context: {:?})", config.compress.display_name(), config.compress.context_size);
+    println!("  fast:     {} (context: {:?})", config.fast.display_name(), config.fast.context_size);
 }

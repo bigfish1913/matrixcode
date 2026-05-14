@@ -200,6 +200,7 @@ impl ProjectOverview {
             think: false,
             max_tokens: MAX_OUTPUT_TOKENS,
             server_tools: vec![],
+            enable_caching: false, // No caching for overview generation
         };
         
         let response = provider.chat(request).await

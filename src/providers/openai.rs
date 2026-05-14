@@ -121,6 +121,19 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl Provider for OpenAIProvider {
+    fn context_size(&self) -> Option<u32> {
+        context_window_for(&self.model)
+    }
+
+    fn clone_box(&self) -> Box<dyn Provider> {
+        Box::new(Self {
+            api_key: self.api_key.clone(),
+            model: self.model.clone(),
+            base_url: self.base_url.clone(),
+            client: reqwest::Client::new(),
+        })
+    }
+
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
         let messages = self.convert_messages(&request.messages, request.system.as_deref());
 
@@ -207,4 +220,66 @@ impl Provider for OpenAIProvider {
             usage,
         })
     }
+}
+
+/// Best-effort mapping from an OpenAI model name to its context window size.
+/// Honours the `CONTEXT_SIZE` env variable first so users can override.
+fn context_window_for(model: &str) -> Option<u32> {
+    if let Ok(raw) = std::env::var("CONTEXT_SIZE") {
+        if let Ok(n) = raw.trim().parse::<u32>() {
+            if n > 0 {
+                return Some(n);
+            }
+        }
+    }
+    let m = model.to_ascii_lowercase();
+    
+    // GPT-4o models: 128K context
+    if m.contains("gpt-4o") || m.contains("gpt-4-turbo") {
+        return Some(128_000);
+    }
+    // GPT-4 (original): 8K or 32K variants
+    if m.contains("gpt-4-32k") {
+        return Some(32_768);
+    }
+    if m.contains("gpt-4") && !m.contains("turbo") && !m.contains("o") {
+        return Some(8_192);
+    }
+    // GPT-3.5 Turbo: 16K (4K variant is deprecated)
+    if m.contains("gpt-3.5-turbo-16k") {
+        return Some(16_384);
+    }
+    if m.contains("gpt-3.5") {
+        return Some(4_096);
+    }
+    // o1 series: 200K context
+    if m.contains("o1") {
+        return Some(200_000);
+    }
+    // DeepSeek models
+    if m.contains("deepseek") {
+        if m.contains("v3") || m.contains("r1") {
+            return Some(128_000);
+        }
+        return Some(64_000);
+    }
+    // Qwen models (via OpenAI-compatible endpoints)
+    if m.contains("qwen") {
+        if m.contains("qwen-max") || m.contains("qwen2.5-72b") {
+            return Some(128_000);
+        }
+        if m.contains("qwen2") {
+            return Some(32_000);
+        }
+        return Some(32_000);
+    }
+    // Llama models (via OpenAI-compatible endpoints)
+    if m.contains("llama-3") || m.contains("llama3") {
+        if m.contains("70b") || m.contains("405b") {
+            return Some(128_000);
+        }
+        return Some(8_192);
+    }
+    // Default for unknown models: assume reasonable context
+    None
 }
