@@ -1,0 +1,24 @@
+# Source files (not needed in npm package)
+src/
+tests/
+target/
+target-test/
+.git/
+.github/
+.claude/
+docs/
+game/
+
+# Config files
+.env
+.env.example
+.gitignore
+Cargo.lock
+Cargo.toml
+*.md
+!README.md
+*.txt
+.DS_Store
+
+# Build artifacts
+*.log

@@ -2,6 +2,19 @@
 name = "matrixcode"
 version = "0.1.0"
 edition = "2024"
+authors = ["bigfish1913"]
+description = "A smart code agent CLI with multi-model support, context compression, and task planning"
+license = "MIT"
+repository = "https://github.com/bigfish1913/matrixcode"
+homepage = "https://github.com/bigfish1913/matrixcode"
+readme = "README.md"
+keywords = ["ai", "llm", "code-agent", "cli", "anthropic"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["/.github", "/docs", "/tests", "/.claude", "*.txt"]
+
+[[bin]]
+name = "matrixcode"
+path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full", "signal"] }

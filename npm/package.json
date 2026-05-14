@@ -1,0 +1,43 @@
+{
+  "name": "matrixcode",
+  "version": "0.1.0",
+  "description": "A smart code agent CLI with multi-model support, context compression, and task planning",
+  "author": "bigfish1913",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigfish1913/matrixcode.git"
+  },
+  "homepage": "https://github.com/bigfish1913/matrixcode#readme",
+  "bugs": {
+    "url": "https://github.com/bigfish1913/matrixcode/issues"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "code-agent",
+    "cli",
+    "anthropic",
+    "claude",
+    "gpt",
+    "assistant"
+  ],
+  "bin": {
+    "matrixcode": "./bin/matrixcode"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

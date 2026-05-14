@@ -15,9 +15,32 @@
 
 ## 安装
 
+### 通过 npm 安装（推荐）
+
+```bash
+npm install -g matrixcode
+```
+
+安装脚本会自动检测并尝试以下方式：
+1. 如果已安装 Rust，使用 `cargo install matrixcode`
+2. 从 GitHub Releases 下载预编译二进制
+
+### 通过 Cargo 安装
+
+如果你已安装 Rust 工具链：
+
+```bash
+cargo install matrixcode
+```
+
 ### 从 Release 下载
 
 从 [GitHub Releases](https://github.com/bigfish1913/matrixcode/releases) 下载对应平台的预编译二进制文件。
+
+支持的平台：
+- macOS (x64, arm64/Apple Silicon)
+- Linux (x64, arm64)
+- Windows (x64)
 
 ### 从源码构建
 
@@ -26,6 +49,8 @@ git clone https://github.com/bigfish1913/matrixcode.git
 cd matrixcode
 cargo build --release
 ```
+
+构建完成后，二进制文件位于 `target/release/matrixcode`。
 
 ## 快速开始
 
@@ -282,6 +307,40 @@ cargo fmt
 # 构建 release
 cargo build --release
 ```
+
+## 发布
+
+### 发布到 crates.io
+
+```bash
+# 登录 crates.io（首次）
+cargo login
+
+# 发布
+cargo publish
+```
+
+发布后，用户可以通过 `cargo install matrixcode` 安装。
+
+### 发布到 npm
+
+```bash
+cd npm
+npm login
+npm publish
+```
+
+发布后，用户可以通过 `npm install -g matrixcode` 安装。
+
+### 发布 GitHub Release
+
+1. 更新版本号（Cargo.toml 和 npm/package.json）
+2. 创建 Git tag：
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+3. GitHub Actions 会自动构建并发布预编译二进制
 
 ## 项目结构
 
