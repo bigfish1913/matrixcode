@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod cancel;
 pub mod compress;
 pub mod markdown;
 pub mod models;

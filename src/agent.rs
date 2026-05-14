@@ -7,6 +7,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::compress::{CompressionConfig, CompressionStrategy, should_compress};
 use crate::markdown;
+use crate::cancel::CancellationToken;
 use crate::models::{MultiModelConfig, Planner, TaskPlan, TaskComplexity};
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, ServerTool,
@@ -72,6 +73,8 @@ pub struct Agent {
     last_compression_result: Option<crate::compress::CompressionResult>,
     /// Last task plan (if any), for tracking execution.
     last_plan: Option<TaskPlan>,
+    /// Cancellation token for interrupting ongoing operations.
+    cancel_token: Option<CancellationToken>,
 }
 
 impl Agent {
@@ -190,7 +193,23 @@ impl Agent {
             enable_caching: true,
             last_compression_result: None,
             last_plan: None,
+            cancel_token: None,
         }
+    }
+
+    /// Set cancellation token for interrupting operations.
+    pub fn set_cancel_token(&mut self, token: CancellationToken) {
+        self.cancel_token = Some(token);
+    }
+
+    /// Clear the cancellation token.
+    pub fn clear_cancel_token(&mut self) {
+        self.cancel_token = None;
+    }
+
+    /// Check if the current operation should be cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel_token.as_ref().map(|t| t.is_cancelled()).unwrap_or(false)
     }
 
     /// Set compress provider for AI summarization.
@@ -313,6 +332,9 @@ impl Agent {
         let mut continuation_count = 0;
         const MAX_CONTINUATIONS: usize = 5;
 
+        // Track whether we've already retried after an input-length error
+        let mut retried_after_length_error = false;
+
         for iteration in 0..MAX_ITERATIONS {
             let request = ChatRequest {
                 messages: self.messages.clone(),
@@ -324,7 +346,16 @@ impl Agent {
                 enable_caching: self.enable_caching,
             };
 
-            let response = self.stream_one_turn(request).await?;
+            let response = match self.stream_one_turn(request).await {
+                Ok(r) => r,
+                Err(e) if !retried_after_length_error && is_input_length_error(&e) => {
+                    retried_after_length_error = true;
+                    eprintln!("\n[error] input too long for API, force-compressing context...");
+                    self.force_compress();
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
 
             self.record_usage(&response.usage);
             self.print_usage_line(&response.usage);
@@ -379,13 +410,20 @@ impl Agent {
     /// Returns compression result if compression was performed.
     fn check_and_compress(&mut self) {
         use crate::compress::{CompressionResult, compress_messages};
-        
+
         // Clear previous compression result
         self.last_compression_result = None;
-        
+
         let context_size = self.provider.context_size();
-        let current_tokens = self.last_input_tokens;
-        
+        // Use last_input_tokens if available (from a prior turn), otherwise
+        // estimate from message content. This handles the case where we resume
+        // a large session and haven't made an API call yet.
+        let current_tokens = if self.last_input_tokens > 0 {
+            self.last_input_tokens
+        } else {
+            crate::compress::estimate_total_tokens(&self.messages)
+        };
+
         if should_compress(current_tokens, context_size, &self.compression_config) {
             let original_count = self.messages.len();
             let original_tokens = crate::compress::estimate_total_tokens(&self.messages);
@@ -427,6 +465,67 @@ impl Agent {
                 Err(e) => {
                     eprintln!("[warn] compression failed: {}", e);
                 }
+            }
+        }
+    }
+
+    /// Force-compress context aggressively when the API rejects input as too long.
+    /// Uses a lower threshold and more aggressive settings to guarantee size reduction.
+    fn force_compress(&mut self) {
+        use crate::compress::{CompressionResult, CompressionStrategy, compress_messages};
+
+        let original_count = self.messages.len();
+        let original_tokens = crate::compress::estimate_total_tokens(&self.messages);
+
+        // Use aggressive settings: keep only min_preserve_messages, target 30% of original
+        let mut config = self.compression_config.clone();
+        config.target_ratio = 0.3;
+
+        let strategy = if config.use_summarization {
+            CompressionStrategy::SlidingWindow
+        } else {
+            CompressionStrategy::Truncate
+        };
+
+        println!(
+            "[force-compressing: {} messages, ~{} estimated tokens]",
+            original_count, original_tokens
+        );
+
+        match compress_messages(&self.messages, strategy, &config) {
+            Ok(compressed) => {
+                let new_count = compressed.len();
+                let new_tokens = crate::compress::estimate_total_tokens(&compressed);
+                let tokens_saved = original_tokens.saturating_sub(new_tokens);
+
+                self.messages = compressed;
+                // Reset last_input_tokens so the next check_and_compress uses estimation
+                self.last_input_tokens = 0;
+
+                println!(
+                    "[force-compressed: {} → {} messages (~{} tokens saved)]",
+                    original_count, new_count, tokens_saved
+                );
+
+                self.last_compression_result = Some(CompressionResult::new(
+                    original_count,
+                    new_count,
+                    tokens_saved,
+                    None,
+                    strategy,
+                ));
+            }
+            Err(e) => {
+                eprintln!("[warn] force-compression failed: {}", e);
+                // Last resort: truncate to min_preserve_messages
+                let keep = config.min_preserve_messages.min(self.messages.len());
+                let removed = self.messages.len() - keep;
+                self.messages = self.messages.split_off(self.messages.len() - keep);
+                self.last_input_tokens = 0;
+                eprintln!(
+                    "[fallback: dropped {} oldest messages, kept {}]",
+                    removed, keep
+                );
             }
         }
     }
@@ -584,12 +683,42 @@ impl Agent {
         let mut last_shown_bytes: usize = 0;
         let mut final_response: Option<ChatResponse> = None;
 
-        while let Some(event) = rx.recv().await {
+        loop {
+            // Check for cancellation before processing
+            if self.is_cancelled() {
+                spinner.finish_and_clear();
+                if let Some((sp, _)) = tool_spinner.take() {
+                    sp.finish_and_clear();
+                }
+                if in_thinking {
+                    print!("{}", RESET);
+                }
+                if in_text {
+                    self.flush_text_block(&mut text_buffer);
+                }
+                println!("\n[interrupted]");
+                // Return a minimal response to end the turn gracefully
+                return Ok(ChatResponse {
+                    content: vec![ContentBlock::Text { text: "[interrupted]".to_string() }],
+                    stop_reason: StopReason::EndTurn,
+                    usage: Usage::default(),
+                });
+            }
+
+            // Try to receive with a small timeout to allow checking cancellation
+            let event = tokio::select! {
+                evt = rx.recv() => evt,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {
+                    // Timeout - continue loop to check cancellation
+                    continue;
+                }
+            };
+
             match event {
-                StreamEvent::FirstByte => {
+                Some(StreamEvent::FirstByte) => {
                     spinner.finish_and_clear();
                 }
-                StreamEvent::ThinkingDelta(t) => {
+                Some(StreamEvent::ThinkingDelta(t)) => {
                     if in_text {
                         // thinking can resume between text blocks; add a gap
                         self.flush_text_block(&mut text_buffer);
@@ -602,7 +731,7 @@ impl Agent {
                     print!("{}", t);
                     let _ = stdout().flush();
                 }
-                StreamEvent::TextDelta(t) => {
+                Some(StreamEvent::TextDelta(t)) => {
                     if in_thinking {
                         print!("{}\n\n", RESET);
                         in_thinking = false;
@@ -612,7 +741,7 @@ impl Agent {
                     print!("{}", t);
                     let _ = stdout().flush();
                 }
-                StreamEvent::ToolUseStart { name, .. } => {
+                Some(StreamEvent::ToolUseStart { name, .. }) => {
                     if in_thinking {
                         print!("{}\n\n", RESET);
                         in_thinking = false;
@@ -629,7 +758,7 @@ impl Agent {
                     tool_spinner = Some((sp, name));
                     last_shown_bytes = 0;
                 }
-                StreamEvent::ToolInputDelta { bytes_so_far } => {
+                Some(StreamEvent::ToolInputDelta { bytes_so_far }) => {
                     // Throttle: only refresh the spinner label when the size
                     // has grown by at least ~1 KB, to avoid noisy redraws
                     // when the model streams many small partial_json chunks.
@@ -645,7 +774,7 @@ impl Agent {
                         }
                     }
                 }
-                StreamEvent::Done(resp) => {
+                Some(StreamEvent::Done(resp)) => {
                     if let Some((sp, _)) = tool_spinner.take() {
                         sp.finish_and_clear();
                     }
@@ -660,7 +789,7 @@ impl Agent {
                     final_response = Some(resp);
                     break;
                 }
-                StreamEvent::Error(e) => {
+                Some(StreamEvent::Error(e)) => {
                     if let Some((sp, _)) = tool_spinner.take() {
                         sp.finish_and_clear();
                     }
@@ -670,6 +799,7 @@ impl Agent {
                     spinner.finish_and_clear();
                     anyhow::bail!("stream error: {}", e);
                 }
+                None => break,
             }
         }
 
@@ -835,6 +965,14 @@ fn format_tokens(n: u64) -> String {
     } else {
         format!("{:.2}M", n as f64 / 1_000_000.0)
     }
+}
+
+/// Detect API errors caused by input exceeding the model's max input length.
+fn is_input_length_error(err: &anyhow::Error) -> bool {
+    let msg = err.to_string();
+    msg.contains("Range of input length should be")
+        || msg.contains("InvalidParameter")
+        || (msg.contains("400") && msg.contains("input length"))
 }
 
 fn make_spinner(msg: &str) -> ProgressBar {

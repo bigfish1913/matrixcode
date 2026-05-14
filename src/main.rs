@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use matrixcode::{
     agent,
+    cancel::CancellationToken,
     compress::CompressionConfig,
     models::{MultiModelConfig, ModelConfig, ModelRole},
     overview::ProjectOverview,
@@ -409,13 +410,34 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
                 .map(|id| format!("session-{}", &id[..8]))
                 .unwrap_or_else(|| "new".to_string())
         });
-    println!("matrixcode — session: '{}' | /help for commands.", session_name);
+    println!("matrixcode — session: '{}' | /help for commands. | ESC to interrupt output.", session_name);
 
     let mut rl = DefaultEditor::new()?;
     let history_path = session_manager.history_path();
     if history_path.exists() {
         let _ = rl.load_history(&history_path);
     }
+
+    // Create cancellation token for ESC key interrupt
+    let cancel_token = CancellationToken::new();
+    let cancel_token_clone = cancel_token.clone();
+    
+    // Start ESC key listener thread
+    let _esc_thread = std::thread::spawn(move || {
+        use std::io::{stdin, Read};
+        let mut stdin = stdin();
+        let mut buf = [0u8; 1];
+        
+        loop {
+            // Read single byte
+            if stdin.read_exact(&mut buf).is_ok() {
+                // ESC key sends 27 (ASCII)
+                if buf[0] == 27 {
+                    cancel_token_clone.cancel();
+                }
+            }
+        }
+    });
 
     loop {
         let line = match rl.readline("\n> ") {
@@ -528,9 +550,15 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
 
         let _ = rl.add_history_entry(trimmed);
 
+        // Set cancel token before chat
+        agent.set_cancel_token(cancel_token.clone());
+        
         if let Err(e) = agent.chat_once(trimmed).await {
             eprintln!("\n[error] {e}");
         }
+        
+        // Clear cancel token after chat
+        agent.clear_cancel_token();
 
         // Record compression result to session if any
         if let Some(result) = agent.last_compression_result() {
@@ -664,6 +692,7 @@ fn print_help() {
     println!("  /exit       - Exit the REPL (also /quit or :q)");
     println!();
     println!("Keyboard shortcuts:");
+    println!("  ESC         - Interrupt current output");
     println!("  Ctrl+C      - Cancel current input");
     println!("  Ctrl+D      - Exit the REPL");
 }
