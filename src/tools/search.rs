@@ -1,6 +1,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
 
@@ -38,12 +40,37 @@ impl Tool for SearchTool {
         let path = params["path"].as_str().unwrap_or(".");
         let glob_pattern = params["glob"].as_str();
 
+        // Show spinner while searching
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner())
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        );
+        let msg = if let Some(g) = glob_pattern {
+            format!("searching '{}' in {} (glob: {})", pattern, path, g)
+        } else {
+            format!("searching '{}' in {}", pattern, path)
+        };
+        spinner.set_message(msg);
+        spinner.enable_steady_tick(Duration::from_millis(80));
+
         let pattern = pattern.to_string();
         let path = path.to_string();
         let glob_pattern = glob_pattern.map(|s| s.to_string());
 
-        tokio::task::spawn_blocking(move || search_files(&pattern, &path, glob_pattern.as_deref()))
-            .await?
+        let result = tokio::task::spawn_blocking(move || search_files(&pattern, &path, glob_pattern.as_deref()))
+            .await?;
+
+        // Count results for summary
+        let count = if let Ok(ref r) = result {
+            r.lines().filter(|l| !l.contains("truncated")).count()
+        } else {
+            0
+        };
+
+        spinner.finish_with_message(format!("✓ {} matches", count));
+        result
     }
 }
 

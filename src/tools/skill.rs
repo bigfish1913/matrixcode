@@ -9,6 +9,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
 use crate::skills::{Skill, list_skill_files};
@@ -66,12 +68,23 @@ impl Tool for SkillTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'name'"))?;
 
+        // Show spinner while loading skill
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner())
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        );
+        spinner.set_message(format!("loading skill '{}'", name));
+        spinner.enable_steady_tick(Duration::from_millis(80));
+
         let skill = self
             .skills
             .iter()
             .find(|s| s.name == name)
             .ok_or_else(|| {
                 let available: Vec<&str> = self.skills.iter().map(|s| s.name.as_str()).collect();
+                spinner.finish_with_message("✗ skill not found".to_string());
                 anyhow::anyhow!(
                     "unknown skill '{}'. Available: {}",
                     name,
@@ -95,12 +108,15 @@ impl Tool for SkillTool {
             s
         };
 
-        Ok(format!(
+        let result = format!(
             "# Skill: {}\n\n{}{}",
             skill.name,
             skill.body.trim_end(),
             files_section
-        ))
+        );
+
+        spinner.finish_with_message(format!("✓ skill '{}' loaded", name));
+        Ok(result)
     }
 }
 

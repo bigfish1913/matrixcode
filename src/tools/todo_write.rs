@@ -1,6 +1,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
 
@@ -53,7 +55,19 @@ impl Tool for TodoWriteTool {
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("missing 'todos' array"))?;
 
+        // Show spinner while updating todo list
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner())
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        );
+        spinner.set_message(format!("updating todos ({} items)", todos.len()));
+        spinner.enable_steady_tick(Duration::from_millis(80));
+
         let mut in_progress_count = 0;
+        let mut completed_count = 0;
+        let mut pending_count = 0;
         let mut lines = Vec::with_capacity(todos.len() + 1);
 
         for (i, todo) in todos.iter().enumerate() {
@@ -68,12 +82,18 @@ impl Tool for TodoWriteTool {
                 .ok_or_else(|| anyhow::anyhow!("todo {}: missing 'status'", i))?;
 
             let (marker, display) = match status {
-                "pending" => ("[ ]", content),
+                "pending" => {
+                    pending_count += 1;
+                    ("[ ]", content)
+                }
                 "in_progress" => {
                     in_progress_count += 1;
                     ("[~]", active)
                 }
-                "completed" => ("[x]", content),
+                "completed" => {
+                    completed_count += 1;
+                    ("[x]", content)
+                }
                 other => anyhow::bail!("todo {}: invalid status '{}'", i, other),
             };
 
@@ -81,6 +101,7 @@ impl Tool for TodoWriteTool {
         }
 
         if in_progress_count > 1 {
+            spinner.finish_with_message("✗ multiple in_progress".to_string());
             anyhow::bail!(
                 "at most one task may be 'in_progress' at a time (found {})",
                 in_progress_count
@@ -88,6 +109,7 @@ impl Tool for TodoWriteTool {
         }
 
         if lines.is_empty() {
+            spinner.finish_with_message("✓ cleared".to_string());
             return Ok("Todo list cleared.".to_string());
         }
 
@@ -98,6 +120,9 @@ impl Tool for TodoWriteTool {
             out.push('\n');
             out.push_str(l);
         }
+
+        spinner.finish_with_message(format!("✓ {} pending, {} in_progress, {} done", 
+            pending_count, in_progress_count, completed_count));
         Ok(out)
     }
 }

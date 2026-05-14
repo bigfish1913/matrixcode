@@ -1,6 +1,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
 
@@ -53,6 +55,16 @@ impl Tool for MultiEditTool {
             anyhow::bail!("'edits' must contain at least one entry");
         }
 
+        // Show spinner while editing
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner())
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        );
+        spinner.set_message(format!("multi-editing {} ({} edits)", path, edits.len()));
+        spinner.enable_steady_tick(Duration::from_millis(80));
+
         let mut content = tokio::fs::read_to_string(path).await?;
 
         for (idx, edit) in edits.iter().enumerate() {
@@ -64,14 +76,17 @@ impl Tool for MultiEditTool {
                 .ok_or_else(|| anyhow::anyhow!("edit {}: missing 'new_string'", idx))?;
 
             if old_string.is_empty() {
+                spinner.finish_with_message("✗ empty old_string".to_string());
                 anyhow::bail!("edit {}: 'old_string' must not be empty", idx);
             }
 
             let count = content.matches(old_string).count();
             if count == 0 {
+                spinner.finish_with_message(format!("✗ edit {} not found", idx));
                 anyhow::bail!("edit {}: old_string not found", idx);
             }
             if count > 1 {
+                spinner.finish_with_message(format!("✗ edit {} multiple matches", idx));
                 anyhow::bail!(
                     "edit {}: old_string found {} times — must be unique",
                     idx,
@@ -83,6 +98,7 @@ impl Tool for MultiEditTool {
         }
 
         tokio::fs::write(path, &content).await?;
+        spinner.finish_with_message(format!("✓ {} edits applied", edits.len()));
         Ok(format!("Applied {} edit(s) to {}", edits.len(), path))
     }
 }

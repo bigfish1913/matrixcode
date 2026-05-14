@@ -79,6 +79,7 @@ fn test_chat_request_creation() {
         think: false,
         max_tokens: 4096,
         server_tools: vec![],
+        enable_caching: false,
     };
 
     assert_eq!(request.messages.len(), 1);

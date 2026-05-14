@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
 
@@ -44,7 +46,31 @@ impl Tool for GlobTool {
             .to_string();
         let path = params["path"].as_str().unwrap_or(".").to_string();
 
-        tokio::task::spawn_blocking(move || find_files(&pattern, &path)).await?
+        // Show spinner while globbing
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner())
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        );
+        spinner.set_message(format!("glob '{}' in {}", pattern, path));
+        spinner.enable_steady_tick(Duration::from_millis(80));
+
+        let result = tokio::task::spawn_blocking(move || find_files(&pattern, &path)).await?;
+
+        // Count results for summary
+        let count = if let Ok(ref r) = result {
+            if r.contains("No files matched") {
+                0
+            } else {
+                r.lines().filter(|l| !l.contains("showing") && !l.contains("matches")).count()
+            }
+        } else {
+            0
+        };
+
+        spinner.finish_with_message(format!("✓ {} files", count));
+        result
     }
 }
 

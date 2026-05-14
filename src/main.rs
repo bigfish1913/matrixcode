@@ -537,8 +537,9 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         let cancel_token = CancellationToken::new();
         let cancel_token_for_signal = cancel_token.clone();
 
-        // Spawn a short-lived task to handle Ctrl+C and ESC for this specific chat.
-        std::thread::spawn({
+        // Spawn a short-lived task to handle ESC for this specific chat.
+        // We use JoinHandle to ensure the thread exits properly when the chat ends.
+        let esc_thread: std::thread::JoinHandle<()> = std::thread::spawn({
             let cancel_token = cancel_token_for_signal.clone();
             move || {
                 use crossterm::event::{Event, KeyCode, poll, read};
@@ -579,6 +580,10 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         // Cancel the token to signal background threads to stop
         cancel_token.cancel();
         agent.clear_cancel_token();
+
+        // Wait for the ESC listener thread to exit (with timeout to avoid hanging)
+        // This ensures the crossterm event listener is properly cleaned up
+        let _ = esc_thread.join();
 
         // Record compression result to session if any
         if let Some(result) = agent.last_compression_result() {
