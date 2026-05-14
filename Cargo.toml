@@ -21,6 +21,8 @@ termimad = "0.34"
 is-terminal = "0.4"
 log = "0.4"
 env_logger = "0.11"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 mockito = "1"

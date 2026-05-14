@@ -1,10 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use matrixcode::{
     agent,
     overview::ProjectOverview,
     prompt,
-    providers::{self, Message},
+    providers,
+    session::SessionManager,
     skills,
     workspace::Workspace,
 };
@@ -37,10 +38,19 @@ struct Cli {
     #[arg(long, env = "MARKDOWN", default_value_t = true, action = clap::ArgAction::Set)]
     markdown: bool,
 
-    /// Resume the previous session from disk instead of starting fresh.
-    /// Without this flag the saved session is overwritten by the new one.
-    #[arg(short, long, env = "RESUME", default_value_t = false)]
-    resume: bool,
+    /// Continue the last session (most common resume case).
+    /// Equivalent to --resume with the most recently used session.
+    #[arg(short = 'C', long)]
+    continue_: bool,
+
+    /// Resume a specific session by ID or name, or show interactive picker.
+    /// Use --resume alone to pick from a list, or --resume <id> to resume directly.
+    #[arg(short, long)]
+    resume: Option<Option<String>>, // --resume, --resume <id>
+
+    /// List all saved sessions.
+    #[arg(long)]
+    list_sessions: bool,
 
     /// Extra directory to scan for skills. May be passed multiple times.
     /// The defaults `./skills` and `~/.matrix/skills` are always
@@ -160,25 +170,50 @@ async fn main() -> Result<()> {
         println!("[server web search enabled, max {} uses per turn]", cli.web_search_max_uses);
     }
 
-    let session_path = dirs_session_path();
-    if cli.resume {
-        match session_path.as_ref().and_then(|p| load_session(p).transpose()) {
-            Some(Ok(messages)) => {
-                let n = messages.len();
-                agent.set_messages(messages);
-                println!("[resumed session with {n} message(s)]");
-            }
-            Some(Err(e)) => {
-                eprintln!("[warn] could not resume session: {e}. Starting fresh.");
+    // Initialize session manager
+    let mut session_manager = SessionManager::new()?;
+    
+    // Handle --list-sessions
+    if cli.list_sessions {
+        list_sessions(&session_manager);
+        return Ok(());
+    }
+
+    // Handle session resumption
+    let session_to_load = if cli.continue_ {
+        // --continue: load last session
+        session_manager.continue_last(project_root.as_deref())?
+    } else if let Some(ref resume_arg) = cli.resume {
+        match resume_arg {
+            Some(id_or_name) => {
+                // --resume <id>: load specific session
+                session_manager.resume(id_or_name, project_root.as_deref())?
             }
             None => {
-                println!("[no prior session found, starting fresh]");
+                // --resume alone: show picker
+                let picked = show_session_picker(&session_manager)?;
+                if let Some(id) = picked {
+                    session_manager.resume(&id, project_root.as_deref())?
+                } else {
+                    None
+                }
             }
         }
-    } else if let Some(ref p) = session_path {
-        // New session: clear any prior saved state so --resume later picks
-        // up only what happens in this run.
-        let _ = std::fs::remove_file(p);
+    } else {
+        // No resume flags: start new session
+        None
+    };
+
+    // Load messages into agent if resuming
+    if let Some(session) = session_to_load {
+        let n = session.messages.len();
+        agent.set_messages(session.messages.clone());
+        println!("[resumed session '{}' with {} message(s)]", 
+            session.metadata.display_name(), n);
+    } else {
+        // Start new session
+        session_manager.start_new(project_root.as_deref())?;
+        println!("[new session started]");
     }
 
     if cli.init {
@@ -204,24 +239,31 @@ async fn main() -> Result<()> {
 
     if !cli.prompt.is_empty() {
         agent.chat_once(&cli.prompt.join(" ")).await?;
-        if let Some(ref p) = session_path {
-            if let Err(e) = save_session(p, agent.messages()) {
-                eprintln!("[warn] could not save session: {e}");
-            }
-        }
+        // Update session stats and save
+        let stats = agent.token_stats();
+        session_manager.set_messages(agent.messages().to_vec());
+        session_manager.update_stats(stats.last_input_tokens, stats.total_output_tokens);
+        session_manager.save_current()?;
         return Ok(());
     }
 
-    run_repl(&mut agent, session_path.as_deref(), project_root.as_deref()).await
+    run_repl(&mut agent, &mut session_manager, project_root.as_deref()).await
 }
 
-async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>, project_root: Option<&Path>) -> Result<()> {
-    println!("matrixcode — type your message and press Enter. /help for commands.");
+async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager, project_root: Option<&Path>) -> Result<()> {
+    let session_name = session_manager.current_name()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| {
+            session_manager.current_id()
+                .map(|id| format!("session-{}", &id[..8]))
+                .unwrap_or_else(|| "new".to_string())
+        });
+    println!("matrixcode — session: '{}' | /help for commands.", session_name);
 
     let mut rl = DefaultEditor::new()?;
-    let history_path = dirs_history_path();
-    if let Some(ref p) = history_path {
-        let _ = rl.load_history(p);
+    let history_path = session_manager.history_path();
+    if history_path.exists() {
+        let _ = rl.load_history(&history_path);
     }
 
     loop {
@@ -247,10 +289,9 @@ async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>, project
         }
         if trimmed == "/clear" {
             agent.clear_messages();
-            if let Some(p) = session_path {
-                let _ = std::fs::remove_file(p);
-            }
-            println!("[context cleared]");
+            session_manager.clear_current()?;
+            session_manager.start_new(project_root)?;
+            println!("[context cleared, new session started]");
             continue;
         }
         if trimmed == "/help" {
@@ -258,11 +299,48 @@ async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>, project
             continue;
         }
         if trimmed == "/status" {
-            print_status(agent);
+            print_status(agent, session_manager);
             continue;
         }
         if trimmed == "/history" {
             print_history(agent);
+            continue;
+        }
+        if trimmed == "/sessions" {
+            list_sessions(session_manager);
+            continue;
+        }
+        if trimmed == "/resume" {
+            let picked = show_session_picker(session_manager)?;
+            if let Some(id) = picked {
+                session_manager.resume(&id, project_root)?;
+                if let Some(messages) = session_manager.messages() {
+                    agent.set_messages(messages.to_vec());
+                }
+                let name = session_manager.current_name()
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| session_manager.current_id().unwrap_or("unknown").to_string());
+                println!("[resumed session '{}']", name);
+            }
+            continue;
+        }
+        if trimmed.starts_with("/resume ") {
+            let query = trimmed.strip_prefix("/resume ").unwrap().trim();
+            match session_manager.resume(query, project_root)? {
+                Some(session) => {
+                    agent.set_messages(session.messages.clone());
+                    println!("[resumed session '{}']", session.metadata.display_name());
+                }
+                None => {
+                    println!("[session '{}' not found]", query);
+                }
+            }
+            continue;
+        }
+        if trimmed.starts_with("/rename ") {
+            let new_name = trimmed.strip_prefix("/rename ").unwrap().trim();
+            session_manager.rename_current(new_name)?;
+            println!("[session renamed to '{}']", new_name);
             continue;
         }
         if trimmed == "/init" {
@@ -280,29 +358,25 @@ async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>, project
             eprintln!("\n[error] {e}");
         }
 
-        if let Some(p) = session_path {
-            if let Err(e) = save_session(p, agent.messages()) {
-                eprintln!("[warn] could not save session: {e}");
-            }
+        // Update session and save
+        let stats = agent.token_stats();
+        session_manager.set_messages(agent.messages().to_vec());
+        session_manager.update_stats(stats.last_input_tokens, stats.total_output_tokens);
+        if let Err(e) = session_manager.save_current() {
+            eprintln!("[warn] could not save session: {e}");
         }
     }
 
-    if let Some(ref p) = history_path {
-        let _ = rl.save_history(p);
-    }
-
+    let _ = rl.save_history(&history_path);
     Ok(())
 }
 
-/// Resolve the list of directories to scan for skills and load them.
-/// Order matters: earlier roots win on duplicate names, so user-provided
-/// `--skills-dir` entries take precedence over the defaults.
 fn load_skills(extra: &[PathBuf], skip_defaults: bool) -> Vec<skills::Skill> {
     let mut roots: Vec<PathBuf> = Vec::new();
     roots.extend(extra.iter().cloned());
     if !skip_defaults {
         roots.push(PathBuf::from("skills"));
-        if let Some(home) = std::env::var_os("HOME") {
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
             let mut p = PathBuf::from(home);
             p.push(".matrix");
             p.push("skills");
@@ -317,68 +391,110 @@ fn load_skills(extra: &[PathBuf], skip_defaults: bool) -> Vec<skills::Skill> {
     found
 }
 
-fn dirs_history_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    let mut p = PathBuf::from(home);
-    p.push(".matrix_history");
-    Some(p)
-}
-
-fn dirs_session_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    let mut p = PathBuf::from(home);
-    p.push(".matrix_session.json");
-    Some(p)
-}
-
-/// Load a previously saved session. Returns `Ok(None)` when no file exists,
-/// so "first-time run with --resume" is not treated as an error.
-fn load_session(path: &Path) -> Result<Option<Vec<Message>>> {
-    if !path.exists() {
+/// Show interactive session picker.
+fn show_session_picker(session_manager: &SessionManager) -> Result<Option<String>> {
+    let sessions = session_manager.list_sessions();
+    if sessions.is_empty() {
+        println!("[no saved sessions]");
         return Ok(None);
     }
-    let data = std::fs::read_to_string(path)
-        .with_context(|| format!("reading session file {}", path.display()))?;
-    if data.trim().is_empty() {
+
+    println!("Saved sessions:");
+    println!("  (enter number to resume, or press Enter to cancel)");
+    println!();
+    
+    let current_id = session_manager.current_id();
+    for (i, meta) in sessions.iter().enumerate() {
+        let is_current = current_id == Some(meta.id.as_str());
+        println!("  {}. {}", i + 1, meta.format_line(is_current));
+    }
+    println!();
+
+    // Simple text input for selection
+    println!("Select session (1-{}): ", sessions.len());
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+    
+    if input.is_empty() {
+        println!("[cancelled]");
         return Ok(None);
     }
-    let messages: Vec<Message> = serde_json::from_str(&data)
-        .with_context(|| format!("parsing session file {}", path.display()))?;
-    Ok(Some(messages))
+
+    match input.parse::<usize>() {
+        Ok(n) if n > 0 && n <= sessions.len() => {
+            Ok(Some(sessions[n - 1].id.clone()))
+        }
+        _ => {
+            // Try to match by name or ID prefix
+            if let Some(meta) = sessions.iter().find(|s| 
+                s.name.as_deref() == Some(input) || 
+                s.id.starts_with(input) ||
+                s.id == input
+            ) {
+                Ok(Some(meta.id.clone()))
+            } else {
+                println!("[invalid selection: {}]", input);
+                Ok(None)
+            }
+        }
+    }
 }
 
-/// Persist the conversation atomically (write to a temp file in the same
-/// directory, then rename) so a crash mid-write can't leave a truncated JSON.
-fn save_session(path: &Path, messages: &[Message]) -> Result<()> {
-    let json = serde_json::to_string(messages).context("serializing session")?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json)
-        .with_context(|| format!("writing session tmp file {}", tmp.display()))?;
-    std::fs::rename(&tmp, path)
-        .with_context(|| format!("renaming tmp session file to {}", path.display()))?;
-    Ok(())
+/// List all sessions.
+fn list_sessions(session_manager: &SessionManager) {
+    let sessions = session_manager.list_sessions();
+    if sessions.is_empty() {
+        println!("[no saved sessions]");
+        return;
+    }
+
+    println!("Saved sessions ({} total):", sessions.len());
+    let current_id = session_manager.current_id();
+    for meta in sessions {
+        let is_current = current_id == Some(meta.id.as_str());
+        println!("  {}", meta.format_line(is_current));
+    }
 }
 
 /// Print available commands and usage.
 fn print_help() {
     println!("Available commands:");
-    println!("  /help     - Show this help message");
-    println!("  /status   - Show session status (messages, token usage)");
-    println!("  /history  - Show conversation history summary");
-    println!("  /init     - Generate/update project overview");
-    println!("  /overview - Show current project overview status");
-    println!("  /clear    - Clear conversation context");
-    println!("  /exit     - Exit the REPL (also /quit or :q)");
+    println!("  /help       - Show this help message");
+    println!("  /status     - Show session status (messages, token usage)");
+    println!("  /history    - Show conversation history summary");
+    println!("  /sessions   - List all saved sessions");
+    println!("  /resume     - Show session picker to resume a session");
+    println!("  /resume <id> - Resume a specific session by ID or name");
+    println!("  /rename <name> - Give the current session a name");
+    println!("  /init       - Generate/update project overview");
+    println!("  /overview   - Show current project overview status");
+    println!("  /clear      - Clear context and start a new session");
+    println!("  /exit       - Exit the REPL (also /quit or :q)");
     println!();
     println!("Keyboard shortcuts:");
-    println!("  Ctrl+C    - Cancel current input");
-    println!("  Ctrl+D    - Exit the REPL");
+    println!("  Ctrl+C      - Cancel current input");
+    println!("  Ctrl+D      - Exit the REPL");
 }
 
 /// Print current session status.
-fn print_status(agent: &agent::Agent) {
+fn print_status(agent: &agent::Agent, session_manager: &SessionManager) {
     let stats = agent.token_stats();
-    println!("Session status:");
+    
+    // Show session info
+    if let Some(meta) = session_manager.current_metadata() {
+        println!("Session: '{}'", meta.display_name());
+        println!("  ID: {}", meta.id);
+        if let Some(ref project) = meta.project_path {
+            println!("  Project: {}", project);
+        }
+        println!("  Created: {}", meta.created_at.format("%Y-%m-%d %H:%M"));
+    } else {
+        println!("Session: (new/unsaved)");
+    }
+    
+    println!();
+    println!("Conversation:");
     println!("  Messages: {}", agent.message_count());
     println!(
         "  Last input tokens: {}",
