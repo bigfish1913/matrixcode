@@ -403,6 +403,9 @@ async fn main() -> Result<()> {
 }
 
 async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager, project_root: Option<&Path>) -> Result<()> {
+    // Print welcome banner
+    print_welcome();
+
     let session_name = session_manager.current_name()
         .map(|n| n.to_string())
         .unwrap_or_else(|| {
@@ -410,24 +413,13 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
                 .map(|id| format!("session-{}", &id[..8]))
                 .unwrap_or_else(|| "new".to_string())
         });
-    println!("matrixcode — session: '{}' | /help for commands. | Ctrl+C to interrupt.", session_name);
+    println!("  Session: '{}'\n", session_name);
 
     let mut rl = DefaultEditor::new()?;
     let history_path = session_manager.history_path();
     if history_path.exists() {
         let _ = rl.load_history(&history_path);
     }
-
-    // Create cancellation token for Ctrl+C interrupt during streaming
-    let cancel_token = CancellationToken::new();
-    let cancel_token_clone = cancel_token.clone();
-
-    // Use Ctrl+C handler for cancellation during streaming output.
-    // rustyline handles Ctrl+C at the prompt (ReadlineError::Interrupted),
-    // so this only fires when the agent is actively streaming.
-    ctrlc::set_handler(move || {
-        cancel_token_clone.cancel();
-    }).ok();
 
     loop {
         let line = match rl.readline("\n> ") {
@@ -540,14 +532,52 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
 
         let _ = rl.add_history_entry(trimmed);
 
-        // Set cancel token before chat
+        // Create a fresh cancellation token for each chat session.
+        // This ensures that cancelling one operation doesn't affect subsequent ones.
+        let cancel_token = CancellationToken::new();
+        let cancel_token_for_signal = cancel_token.clone();
+
+        // Spawn a short-lived task to handle Ctrl+C and ESC for this specific chat.
+        std::thread::spawn({
+            let cancel_token = cancel_token_for_signal.clone();
+            move || {
+                use crossterm::event::{Event, KeyCode, poll, read};
+                
+                loop {
+                    // Poll for keyboard events
+                    if poll(std::time::Duration::from_millis(100)).ok() == Some(true) {
+                        if let Ok(Event::Key(key)) = read() {
+                            if key.code == KeyCode::Esc {
+                                cancel_token.cancel();
+                                break;
+                            }
+                        }
+                    }
+                    // Check if cancelled (chat ended)
+                    if cancel_token.is_cancelled() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Spawn async task for Ctrl+C
+        tokio::spawn({
+            let cancel_token = cancel_token_for_signal.clone();
+            async move {
+                tokio::signal::ctrl_c().await.ok();
+                cancel_token.cancel();
+            }
+        });
+
         agent.set_cancel_token(cancel_token.clone());
-        
+
         if let Err(e) = agent.chat_once(trimmed).await {
             eprintln!("\n[error] {e}");
         }
-        
-        // Clear cancel token after chat
+
+        // Cancel the token to signal background threads to stop
+        cancel_token.cancel();
         agent.clear_cancel_token();
 
         // Record compression result to session if any
@@ -655,6 +685,44 @@ fn list_sessions(session_manager: &SessionManager) {
     }
 }
 
+/// Print welcome banner.
+fn print_welcome() {
+    use std::env;
+    
+    // Get version from Cargo.toml
+    let version = env!("CARGO_PKG_VERSION");
+    
+    // Get current model from environment
+    let model = env::var("MODEL_NAME")
+        .or_else(|_| env::var("DEFAULT_MODEL"))
+        .unwrap_or_else(|_| "default".to_string());
+    
+    // ANSI colors
+    let cyan = "\x1b[36m";
+    let green = "\x1b[32m";
+    let yellow = "\x1b[33m";
+    let blue = "\x1b[34m";
+    let bold = "\x1b[1m";
+    let reset = "\x1b[0m";
+    let dim = "\x1b[2m";
+    
+    println!();
+    println!("{cyan}{bold}  __  __       _             _____          _____ _____  {reset}");
+    println!("{cyan} |  \\/  | __ _| |_ ___ _ __  |  _  |_ _ ___|_   _|_   _| {reset}");
+    println!("{cyan} | |\\/| |/ _` | __/ _ \\ '__| | |_| | '_/ _ \\ | |   | |   {reset}");
+    println!("{cyan} | |  | | (_| | ||  __/ |    |  _  | ||  __/ | |   | |   {reset}");
+    println!("{cyan} |_|  |_|\\__,_|\\__\\___|_|    |_| |_|_| \\___| |_|   |_|   {reset}");
+    println!();
+    println!("{dim}  ----------------------------------------------------------{reset}");
+    println!();
+    println!("  {green}Version{reset}  {bold}v{}{reset}", version);
+    println!("  {green}Model{reset}    {bold}{}{reset}", model);
+    println!();
+    println!("  {yellow}/help{reset}  for commands    {yellow}/exit{reset}  to quit");
+    println!("  {blue}Ctrl+C{reset} or {blue}ESC{reset} to interrupt output during streaming");
+    println!();
+}
+
 /// Print available commands and usage.
 fn print_help() {
     println!("Available commands:");
@@ -682,7 +750,7 @@ fn print_help() {
     println!("  /exit       - Exit the REPL (also /quit or :q)");
     println!();
     println!("Keyboard shortcuts:");
-    println!("  Ctrl+C      - Interrupt current output (at prompt: cancel input)");
+    println!("  Ctrl+C / ESC - Interrupt current output (at prompt: cancel input)");
     println!("  Ctrl+D      - Exit the REPL");
 }
 

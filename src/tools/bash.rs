@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::process::Command;
+use indicatif::{ProgressBar, ProgressStyle};
 
 use super::{Tool, ToolDefinition};
 
@@ -54,13 +55,26 @@ impl Tool for BashTool {
             .unwrap_or(DEFAULT_TIMEOUT_MS)
             .min(MAX_TIMEOUT_MS);
 
+        // Show spinner while running command
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner())
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        );
+        spinner.set_message(format!("running: {}", truncate_command(command, 50)));
+        spinner.enable_steady_tick(Duration::from_millis(80));
+
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(command).kill_on_drop(true);
 
         let fut = cmd.output();
         let output = match tokio::time::timeout(Duration::from_millis(timeout_ms), fut).await {
             Ok(result) => result?,
-            Err(_) => anyhow::bail!("command timed out after {} ms", timeout_ms),
+            Err(_) => {
+                spinner.finish_with_message("⏱ timed out".to_string());
+                anyhow::bail!("command timed out after {} ms", timeout_ms);
+            }
         };
 
         let mut stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -72,12 +86,15 @@ impl Tool for BashTool {
             stdout.push_str(&stderr);
         }
 
-        let stdout = truncate(stdout);
+        let stdout = truncate_output(stdout);
 
         let code = output.status.code().unwrap_or(-1);
         if !output.status.success() {
+            spinner.finish_with_message(format!("✗ exit {}", code));
             return Ok(format!("[exit {}]\n{}", code, stdout));
         }
+        
+        spinner.finish_with_message("✓ done".to_string());
         Ok(stdout)
     }
 }
@@ -113,7 +130,7 @@ fn refuse_reason(cmd: &str) -> Option<&'static str> {
     None
 }
 
-fn truncate(mut s: String) -> String {
+fn truncate_output(mut s: String) -> String {
     if s.len() <= MAX_OUTPUT {
         return s;
     }
@@ -127,4 +144,16 @@ fn truncate(mut s: String) -> String {
         MAX_OUTPUT
     ));
     s
+}
+
+fn truncate_command(cmd: &str, max: usize) -> String {
+    if cmd.len() <= max {
+        cmd.to_string()
+    } else {
+        let mut end = max;
+        while end > 0 && !cmd.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &cmd[..end])
+    }
 }

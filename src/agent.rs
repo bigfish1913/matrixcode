@@ -684,7 +684,7 @@ impl Agent {
         let mut final_response: Option<ChatResponse> = None;
 
         loop {
-            // Check for cancellation before processing
+            // Check for cancellation at the start of each iteration
             if self.is_cancelled() {
                 spinner.finish_and_clear();
                 if let Some((sp, _)) = tool_spinner.take() {
@@ -705,14 +705,34 @@ impl Agent {
                 });
             }
 
-            // Try to receive with a small timeout to allow checking cancellation
+            // Use a shorter timeout (10ms) for more responsive cancellation
             let event = tokio::select! {
                 evt = rx.recv() => evt,
-                _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {
                     // Timeout - continue loop to check cancellation
                     continue;
                 }
             };
+
+            // Check cancellation again immediately after receiving an event
+            if self.is_cancelled() {
+                spinner.finish_and_clear();
+                if let Some((sp, _)) = tool_spinner.take() {
+                    sp.finish_and_clear();
+                }
+                if in_thinking {
+                    print!("{}", RESET);
+                }
+                if in_text {
+                    self.flush_text_block(&mut text_buffer);
+                }
+                println!("\n[interrupted]");
+                return Ok(ChatResponse {
+                    content: vec![ContentBlock::Text { text: "[interrupted]".to_string() }],
+                    stop_reason: StopReason::EndTurn,
+                    usage: Usage::default(),
+                });
+            }
 
             match event {
                 Some(StreamEvent::FirstByte) => {
@@ -830,24 +850,30 @@ impl Agent {
         for block in content {
             match block {
                 ContentBlock::ToolUse { id, name, input } => {
-                    println!(
-                        "[tool-input: {}] {}",
-                        name,
-                        serde_json::to_string_pretty(input).unwrap_or_default()
-                    );
-                    let spinner = make_spinner(&format!("running {}", name));
+                    // Print tool input with nice formatting
+                    print_tool_input(name, input);
 
+                    // Note: Spinner is handled by the tool itself for better progress display
                     let result = self.execute_single_tool(name, input).await;
-                    spinner.finish_and_clear();
 
                     let output = match result {
                         Ok(output) => {
-                            println!("[result: {}] {}", name, truncate(&output, 500));
+                            // Print result header
+                            println!("[result: {}]", name);
+                            // Print result with indentation, truncate if too long
+                            let truncated = truncate(&output, 1000);
+                            for line in truncated.lines() {
+                                println!("  {}", line);
+                            }
+                            if output.len() > 1000 {
+                                println!("  ... (truncated, {} bytes total)", output.len());
+                            }
                             output
                         }
                         Err(e) => {
                             let err_msg = format!("Error: {}", e);
-                            println!("[error: {}] {}", name, err_msg);
+                            println!("[error: {}]", name);
+                            println!("  {}", err_msg);
                             err_msg
                         }
                     };
@@ -859,11 +885,7 @@ impl Agent {
                 }
                 ContentBlock::ServerToolUse { id: _, name, input } => {
                     // Server tool use is just informational - the server executes it.
-                    println!(
-                        "[server-tool: {}] {}",
-                        name,
-                        serde_json::to_string_pretty(input).unwrap_or_default()
-                    );
+                    print_tool_input(name, input);
                     // Server tools don't need client-side execution or result blocks
                     // The server will return web_search_tool_result directly.
                 }
@@ -997,6 +1019,62 @@ fn truncate(s: &str, max: usize) -> &str {
         end -= 1;
     }
     &s[..end]
+}
+
+/// Print tool input in a readable format, expanding multi-line strings.
+fn print_tool_input(name: &str, input: &serde_json::Value) {
+    println!("[tool-input: {}]", name);
+    
+    if let serde_json::Value::Object(map) = input {
+        for (key, value) in map {
+            match value {
+                serde_json::Value::String(s) => {
+                    // For string values, check if they contain newlines
+                    if s.contains('\n') {
+                        // Multi-line string: show as indented block (no truncation)
+                        println!("  {}:", key);
+                        for line in s.lines() {
+                            println!("    {}", line);
+                        }
+                    } else if s.len() > 100 {
+                        // Very long single-line string: show truncated with length
+                        println!("  {}: \"{}...\" ({} chars)", key, &s[..97], s.len());
+                    } else {
+                        // Normal single-line string
+                        println!("  {}: \"{}\"", key, s);
+                    }
+                }
+                serde_json::Value::Number(n) => {
+                    println!("  {}: {}", key, n);
+                }
+                serde_json::Value::Bool(b) => {
+                    println!("  {}: {}", key, b);
+                }
+                serde_json::Value::Null => {
+                    println!("  {}: null", key);
+                }
+                serde_json::Value::Array(arr) => {
+                    if arr.is_empty() {
+                        println!("  {}: []", key);
+                    } else if arr.len() <= 5 {
+                        println!("  {}: {}", key, serde_json::to_string(arr).unwrap_or_default());
+                    } else {
+                        println!("  {}: [{} items]", key, arr.len());
+                    }
+                }
+                serde_json::Value::Object(inner) => {
+                    if inner.is_empty() {
+                        println!("  {}: {{}}", key);
+                    } else {
+                        println!("  {}: {}", key, serde_json::to_string(inner).unwrap_or_default());
+                    }
+                }
+            }
+        }
+    } else {
+        // Non-object input: just print it
+        println!("  {}", serde_json::to_string_pretty(input).unwrap_or_default());
+    }
 }
 
 fn format_bytes(n: usize) -> String {
