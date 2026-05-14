@@ -64,6 +64,7 @@ impl Tool for TodoWriteTool {
         );
         spinner.set_message(format!("updating todos ({} items)", todos.len()));
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let mut in_progress_count = 0;
         let mut completed_count = 0;

@@ -49,6 +49,7 @@ impl Tool for EditTool {
         );
         spinner.set_message(format!("editing {}", path));
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let content = tokio::fs::read_to_string(path).await?;
 

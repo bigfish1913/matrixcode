@@ -773,7 +773,21 @@ fn context_window_for(model: &str) -> Option<u32> {
     if m.contains("deepseek") {
         return Some(128_000);
     }
-    None
+    // GLM models (Zhipu AI) via Anthropic-compatible endpoints
+    // GLM-4 has 128K, GLM-5 typically has 128K context
+    if m.contains("glm") {
+        return Some(128_000);
+    }
+    // Qwen models via Anthropic-compatible endpoints (DashScope)
+    if m.contains("qwen") {
+        if m.contains("qwen-max") || m.contains("qwen2.5") {
+            return Some(128_000);
+        }
+        return Some(32_000);
+    }
+    // Default fallback for unknown models: assume 128K (reasonable for modern models)
+    // This ensures context usage is always displayed
+    Some(128_000)
 }
 
 #[cfg(test)]

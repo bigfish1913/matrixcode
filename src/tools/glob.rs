@@ -55,6 +55,7 @@ impl Tool for GlobTool {
         );
         spinner.set_message(format!("glob '{}' in {}", pattern, path));
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let result = tokio::task::spawn_blocking(move || find_files(&pattern, &path)).await?;
 

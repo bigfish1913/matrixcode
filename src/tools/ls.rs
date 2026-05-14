@@ -43,6 +43,7 @@ impl Tool for LsTool {
         );
         spinner.set_message(format!("listing {}", path));
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let mut dirs: Vec<String> = Vec::new();
         let mut files: Vec<(String, u64)> = Vec::new();

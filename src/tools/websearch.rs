@@ -48,6 +48,7 @@ impl Tool for WebSearchTool {
         );
         spinner.set_message(format!("web-searching '{}'", query));
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let results = search_duckduckgo(query, max_results).await?;
 

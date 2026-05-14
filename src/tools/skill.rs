@@ -77,6 +77,7 @@ impl Tool for SkillTool {
         );
         spinner.set_message(format!("loading skill '{}'", name));
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let skill = self
             .skills

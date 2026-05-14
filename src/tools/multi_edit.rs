@@ -64,6 +64,7 @@ impl Tool for MultiEditTool {
         );
         spinner.set_message(format!("multi-editing {} ({} edits)", path, edits.len()));
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let mut content = tokio::fs::read_to_string(path).await?;
 

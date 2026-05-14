@@ -44,6 +44,7 @@ impl Tool for WebFetchTool {
         );
         spinner.set_message(format!("fetching {}", url));
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let response = reqwest::get(url).await?;
         let status = response.status();

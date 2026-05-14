@@ -54,6 +54,7 @@ impl Tool for SearchTool {
         };
         spinner.set_message(msg);
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let pattern = pattern.to_string();
         let path = path.to_string();

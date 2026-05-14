@@ -64,6 +64,7 @@ impl Tool for BashTool {
         );
         spinner.set_message(format!("running: {}", truncate_command(command, 50)));
         spinner.enable_steady_tick(Duration::from_millis(80));
+        spinner.tick(); // force an immediate draw so fast operations still show the spinner
 
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(command).kill_on_drop(true);

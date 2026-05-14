@@ -280,6 +280,11 @@ fn context_window_for(model: &str) -> Option<u32> {
         }
         return Some(8_192);
     }
-    // Default for unknown models: assume reasonable context
-    None
+    // GLM models (Zhipu AI) via OpenAI-compatible endpoints
+    if m.contains("glm") {
+        return Some(128_000);
+    }
+    // Default fallback for unknown models: assume 128K (reasonable for modern models)
+    // This ensures context usage is always displayed
+    Some(128_000)
 }
