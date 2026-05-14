@@ -50,7 +50,7 @@ impl Skill {
 
 /// Walk the given roots and load every `SKILL.md` found one level deep.
 /// Missing roots are silently skipped so users can keep a personal
-/// `~/.matrixcode/skills` directory without the project-local one (or
+/// `~/.matrix/skills` directory without the project-local one (or
 /// vice versa). Skills with duplicate names: first one wins, later ones
 /// are dropped with a stderr warning so precedence is predictable.
 pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {

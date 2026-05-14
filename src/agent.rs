@@ -200,6 +200,11 @@ impl Agent {
         &self.messages
     }
 
+    /// Get a reference to the provider.
+    pub fn provider(&self) -> &dyn Provider {
+        self.provider.as_ref()
+    }
+
     /// Replace the accumulated conversation, e.g. when resuming a session.
     pub fn set_messages(&mut self, messages: Vec<Message>) {
         self.messages = messages;

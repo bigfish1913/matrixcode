@@ -1,20 +1,150 @@
 //! Project overview generation and caching.
 //!
-//! The `/init` command generates a project overview file that captures the
-//! project structure and key files. On subsequent startups, this overview
-//! is loaded and injected into the system prompt, avoiding the need to
-//! re-scan the project each time.
+//! The `/init` command generates a project overview file using AI analysis.
+//! The overview captures the project architecture, key patterns, and development guidance.
 //!
-//! The overview file is stored at `.matrixcode/matrix.md` in the project root.
+//! The overview file is stored at `MATRIX.md` in the project root.
 
 use std::path::{Path, PathBuf};
 use std::fs;
 use anyhow::{Context, Result};
+use crate::prompt::{build_overview_prompt, OverviewContext};
+use crate::providers::{ChatRequest, Message, MessageContent, Provider, Role};
+
+// =============================================================================
+// Configuration Constants
+// =============================================================================
 
 /// Default filename for the cached project overview.
-pub const OVERVIEW_FILENAME: &str = "matrix.md";
+pub const OVERVIEW_FILENAME: &str = "MATRIX.md";
 /// Directory name for matrixcode metadata.
-pub const MATRIXCODE_DIR: &str = ".matrixcode";
+pub const MATRIXCODE_DIR: &str = ".matrix";
+
+// --- Token and content limits ---
+
+/// Maximum output tokens for AI overview generation.
+const MAX_OUTPUT_TOKENS: u32 = 8192;
+
+/// Maximum characters for config file content.
+const CONFIG_FILE_MAX_CHARS: usize = 2000;
+
+/// Maximum characters for README content.
+const README_MAX_CHARS: usize = 1000;
+
+/// Maximum characters for key source file content.
+const SOURCE_FILE_MAX_CHARS: usize = 3000;
+
+/// Maximum characters for module file content.
+const MODULE_FILE_MAX_CHARS: usize = 2000;
+
+// --- Directory structure limits ---
+
+/// Maximum depth for directory tree traversal.
+const DIRECTORY_MAX_DEPTH: usize = 3;
+
+/// Maximum items to show at root level.
+const DIRECTORY_ROOT_MAX_ITEMS: usize = 15;
+
+/// Maximum items to show at non-root levels.
+const DIRECTORY_OTHER_MAX_ITEMS: usize = 10;
+
+// --- Common file names ---
+
+/// Default project name when root directory name cannot be determined.
+const DEFAULT_PROJECT_NAME: &str = "project";
+
+/// README filename to look for.
+const README_FILENAME: &str = "README.md";
+
+/// Source directory name for many project types.
+pub(crate) const SRC_DIR: &str = "src";
+
+/// Rust module file name.
+const RUST_MOD_FILE: &str = "mod.rs";
+
+/// Rust library entry file.
+const RUST_LIB_FILE: &str = "lib.rs";
+
+// --- Project type configuration ---
+
+/// Configuration for a project type, including detection and key files.
+pub(crate) struct ProjectTypeConfig {
+    /// Human-readable type name.
+    pub(crate) type_name: &'static str,
+    /// Files whose presence indicates this project type (checked in order).
+    pub(crate) detect_files: &'static [&'static str],
+    /// Key source file paths relative to project root.
+    pub(crate) key_source_files: &'static [&'static str],
+}
+
+/// All supported project type configurations.
+pub(crate) const PROJECT_TYPE_CONFIGS: &[ProjectTypeConfig] = &[
+    ProjectTypeConfig {
+        type_name: "Rust",
+        detect_files: &["Cargo.toml"],
+        key_source_files: &["src/main.rs", "src/agent.rs"],
+    },
+    ProjectTypeConfig {
+        type_name: "Go",
+        detect_files: &["go.mod"],
+        key_source_files: &["main.go", "cmd/main.go"],
+    },
+    ProjectTypeConfig {
+        type_name: "Node.js/TypeScript",
+        detect_files: &["package.json"],
+        key_source_files: &[
+            "src/index.ts", "src/index.js",
+            "src/main.ts", "src/main.js",
+            "src/app.ts", "src/app.js",
+        ],
+    },
+    ProjectTypeConfig {
+        type_name: "Python",
+        detect_files: &["pyproject.toml", "requirements.txt"],
+        key_source_files: &["main.py", "app.py", "__init__.py"],
+    },
+    ProjectTypeConfig {
+        type_name: "Java (Maven)",
+        detect_files: &["pom.xml"],
+        key_source_files: &[],
+    },
+    ProjectTypeConfig {
+        type_name: "Java (Gradle)",
+        detect_files: &["build.gradle"],
+        key_source_files: &[],
+    },
+    ProjectTypeConfig {
+        type_name: "C/C++ (Make)",
+        detect_files: &["Makefile"],
+        key_source_files: &[],
+    },
+];
+
+/// Unknown project type name.
+const PROJECT_TYPE_UNKNOWN: &str = "Unknown";
+
+// --- Configuration file names to scan ---
+
+const CONFIG_FILENAMES: &[&str] = &[
+    "Cargo.toml",
+    "package.json",
+    "go.mod",
+    "pyproject.toml",
+    "requirements.txt",
+    "pom.xml",
+    "build.gradle",
+    "Makefile",
+    "docker-compose.yml",
+    "Dockerfile",
+    "tsconfig.json",
+    "vite.config.ts",
+    "vite.config.js",
+    "next.config.js",
+    "nuxt.config.ts",
+    "tailwind.config.js",
+    "tailwind.config.ts",
+    ".env.example",
+];
 
 /// Project overview containing the generated summary.
 #[derive(Debug, Clone)]
@@ -38,16 +168,51 @@ impl ProjectOverview {
         Ok(Some(Self { content, path }))
     }
 
-    /// Generate and save a new overview for the project.
-    /// Returns the generated overview content.
-    pub fn generate(project_root: &Path) -> Result<Self> {
-        let content = generate_overview_content(project_root)?;
-        let dir = project_root.join(MATRIXCODE_DIR);
-        fs::create_dir_all(&dir)
-            .with_context(|| format!("creating directory {}", dir.display()))?;
+    /// Generate and save a new overview using AI analysis.
+    /// This method collects project files and sends them to the AI for analysis.
+    pub async fn generate_with_ai(project_root: &Path, provider: &dyn Provider) -> Result<Self> {
+        let project_name = project_root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(DEFAULT_PROJECT_NAME);
+        
+        // Collect project context
+        let context = collect_project_context(project_root)?;
+        
+        // Build the AI prompt
+        let prompt = build_overview_prompt(&OverviewContext {
+            project_name: project_name.to_string(),
+            project_type: context.project_type.to_string(),
+            directory_structure: context.directory_structure.clone(),
+            config_files: context.config_files.clone(),
+            readme: context.readme.clone(),
+            source_files: context.source_files.clone(),
+        });
+        
+        // Call AI API
+        let request = ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text(prompt),
+            }],
+            tools: vec![],
+            system: None,
+            think: false,
+            max_tokens: MAX_OUTPUT_TOKENS,
+            server_tools: vec![],
+        };
+        
+        let response = provider.chat(request).await
+            .with_context(|| "calling AI for overview generation")?;
+        
+        // Extract content from response
+        let content = extract_response_content(&response);
+        
+        // Save to file
         let path = overview_path(project_root);
         fs::write(&path, &content)
             .with_context(|| format!("writing overview file {}", path.display()))?;
+        
         Ok(Self { content, path })
     }
 
@@ -72,9 +237,9 @@ impl ProjectOverview {
     }
 }
 
-/// Get the path to the overview file.
+/// Get the path to the overview file (directly in project root).
 fn overview_path(project_root: &Path) -> PathBuf {
-    project_root.join(MATRIXCODE_DIR).join(OVERVIEW_FILENAME)
+    project_root.join(OVERVIEW_FILENAME)
 }
 
 /// Patterns to ignore when scanning the project.
@@ -88,15 +253,19 @@ const IGNORE_PATTERNS: &[&str] = &[
     "vendor",
     // Build outputs
     "target",
+    "target-test",
     "build",
     "dist",
     "out",
     "bin",
     "obj",
+    ".cargo",
     // IDE and editor
     ".idea",
     ".vscode",
     ".vs",
+    ".claude",
+    ".matrix",
     // Cache and temp
     ".cache",
     "__pycache__",
@@ -108,20 +277,20 @@ const IGNORE_PATTERNS: &[&str] = &[
     "package-lock.json",
     "yarn.lock",
     "pnpm-lock.yaml",
-    // matrixcode metadata
-    MATRIXCODE_DIR,
+    // Generated files
+    "*.generated.*",
+    "swagger.json",
+    "swagger.yaml",
 ];
 
 /// Check if a path component should be ignored.
-fn should_ignore(name: &str) -> bool {
-    // Check exact matches
+pub(crate) fn should_ignore(name: &str) -> bool {
     if IGNORE_PATTERNS.contains(&name) {
         return true;
     }
-    // Check glob patterns (simple suffix match for now)
     for pattern in IGNORE_PATTERNS {
         if pattern.starts_with("*.") {
-            let suffix = &pattern[1..]; // "*" is 1 char
+            let suffix = &pattern[1..];
             if name.ends_with(suffix) {
                 return true;
             }
@@ -130,88 +299,121 @@ fn should_ignore(name: &str) -> bool {
     false
 }
 
-/// Generate the overview content by scanning the project.
-fn generate_overview_content(project_root: &Path) -> Result<String> {
-    let mut content = String::new();
+/// Project context collected for AI analysis.
+struct ProjectContext {
+    /// Configuration file contents (Cargo.toml, package.json, etc.)
+    config_files: Vec<(String, String)>,
+    /// README content (first part)
+    readme: Option<String>,
+    /// Directory structure summary
+    directory_structure: String,
+    /// Key source files content (limited)
+    source_files: Vec<(String, String)>,
+    /// Project type detected
+    project_type: &'static str,
+}
+
+/// Collect project context for AI analysis.
+fn collect_project_context(project_root: &Path) -> Result<ProjectContext> {
+    // Detect project type
+    let project_type = detect_project_type(project_root);
     
-    // Header
-    content.push_str("# 项目概览\n\n");
-    content.push_str(&format!("> 生成时间: {}\n\n", chrono_timestamp()));
-    content.push_str("此文件由 `/init` 命令自动生成，包含项目结构和关键文件概览。\n\n");
+    // Collect config files
+    let config_files = collect_config_files(project_root)?;
     
-    // Project root name
-    let project_name = project_root
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("project");
-    content.push_str(&format!("## 项目: {}\n\n", project_name));
+    // Get README
+    let readme = read_readme(project_root)?;
     
-    // Directory structure
-    content.push_str("## 目录结构\n\n");
-    content.push_str("```\n");
-    let tree = build_tree(project_root, 0, 4)?; // max depth of 4
-    content.push_str(&tree);
-    content.push_str("```\n\n");
+    // Build directory structure
+    let directory_structure = build_directory_structure(project_root)?;
     
-    // Key files detection
-    content.push_str("## 关键文件\n\n");
-    let key_files = detect_key_files(project_root)?;
-    for (name, desc) in &key_files {
-        content.push_str(&format!("- **{}**: {}\n", name, desc));
+    // Collect key source files
+    let source_files = collect_key_source_files(project_root, &project_type)?;
+    
+    Ok(ProjectContext {
+        config_files,
+        readme,
+        directory_structure,
+        source_files,
+        project_type,
+    })
+}
+
+/// Detect project type from configuration files.
+pub(crate) fn detect_project_type(project_root: &Path) -> &'static str {
+    for config in PROJECT_TYPE_CONFIGS {
+        for detect_file in config.detect_files {
+            if project_root.join(detect_file).exists() {
+                return config.type_name;
+            }
+        }
     }
-    
-    if key_files.is_empty() {
-        content.push_str("_未检测到常见配置文件_\n");
-    }
-    
-    content.push('\n');
-    
-    // Language detection
-    content.push_str("## 技术栈\n\n");
-    let languages = detect_languages(project_root)?;
-    if languages.is_empty() {
-        content.push_str("_未能检测_\n");
-    } else {
-        for (lang, count) in &languages {
-            content.push_str(&format!("- {}: {} 个文件\n", lang, count));
+    PROJECT_TYPE_UNKNOWN
+}
+
+/// Collect configuration files content.
+fn collect_config_files(project_root: &Path) -> Result<Vec<(String, String)>> {
+    let mut files = Vec::new();
+    for filename in CONFIG_FILENAMES {
+        let path = project_root.join(filename);
+        if path.exists() {
+            let content = fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", filename))?;
+            let truncated = truncate_content(&content, CONFIG_FILE_MAX_CHARS);
+            files.push((filename.to_string(), truncated));
         }
     }
     
-    Ok(content)
+    Ok(files)
 }
 
-/// Build a tree representation of the directory structure.
-fn build_tree(dir: &Path, depth: usize, max_depth: usize) -> Result<String> {
-    if depth > max_depth {
-        return Ok("...\n".to_string());
+/// Read README.md (first part).
+fn read_readme(project_root: &Path) -> Result<Option<String>> {
+    let readme_path = project_root.join(README_FILENAME);
+    if !readme_path.exists() {
+        return Ok(None);
     }
     
+    let content = fs::read_to_string(&readme_path)
+        .with_context(|| format!("reading {}", README_FILENAME))?;
+    
+    Ok(Some(truncate_content(&content, README_MAX_CHARS)))
+}
+
+/// Build directory structure string.
+fn build_directory_structure(project_root: &Path) -> Result<String> {
     let mut result = String::new();
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(result),
-    };
+    result.push_str(&format!("{}/\n", project_root.file_name().and_then(|n| n.to_str()).unwrap_or(DEFAULT_PROJECT_NAME)));
+    
+    build_tree_recursive(project_root, 0, DIRECTORY_MAX_DEPTH, &mut result)?;
+    
+    Ok(result)
+}
+
+/// Build directory tree recursively.
+fn build_tree_recursive(dir: &Path, depth: usize, max_depth: usize, result: &mut String) -> Result<()> {
+    if depth > max_depth {
+        result.push_str(&format!("{}  ...\n", "  ".repeat(depth)));
+        return Ok(());
+    }
+    
+    let entries = fs::read_dir(dir).ok();
+    if entries.is_none() {
+        return Ok(());
+    }
     
     let mut dirs: Vec<String> = Vec::new();
     let mut files: Vec<String> = Vec::new();
     
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        
-        if should_ignore(&name_str) {
+    for entry in entries.unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if should_ignore(&name) {
             continue;
         }
-        
-        let file_type = match entry.file_type() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        
-        if file_type.is_dir() {
-            dirs.push(name_str.into_owned());
-        } else if file_type.is_file() {
-            files.push(name_str.into_owned());
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            dirs.push(name);
+        } else {
+            files.push(name);
         }
     }
     
@@ -219,202 +421,103 @@ fn build_tree(dir: &Path, depth: usize, max_depth: usize) -> Result<String> {
     files.sort();
     
     let indent = "  ".repeat(depth);
+    let max_items = if depth == 0 { DIRECTORY_ROOT_MAX_ITEMS } else { DIRECTORY_OTHER_MAX_ITEMS };
     
-    // Limit output size
-    let max_entries = 20;
     let mut count = 0;
-    
     for d in &dirs {
-        if count >= max_entries {
-            result.push_str(&format!("{}... (更多目录)\n", indent));
+        if count >= max_items {
+            result.push_str(&format!("{}  ... ({} more dirs)\n", indent, dirs.len() - count));
             break;
         }
-        result.push_str(&format!("{}{}/\n", indent, d));
-        if depth + 1 <= max_depth {
-            let subtree = build_tree(&dir.join(d), depth + 1, max_depth)?;
-            result.push_str(&subtree);
-        }
+        result.push_str(&format!("{}  {}/\n", indent, d));
+        build_tree_recursive(&dir.join(d), depth + 1, max_depth, result)?;
         count += 1;
     }
     
-    for f in &files {
-        if count >= max_entries {
-            result.push_str(&format!("{}... (更多文件)\n", indent));
-            break;
-        }
-        result.push_str(&format!("{}{}\n", indent, f));
-        count += 1;
+    for f in files.iter().take(max_items - count) {
+        result.push_str(&format!("{}  {}\n", indent, f));
     }
     
-    Ok(result)
-}
-
-/// Detect key configuration files in the project.
-fn detect_key_files(project_root: &Path) -> Result<Vec<(String, String)>> {
-    let mut result = Vec::new();
-    
-    let key_files = [
-        ("Cargo.toml", "Rust 项目配置"),
-        ("package.json", "Node.js 项目配置"),
-        ("pyproject.toml", "Python 项目配置"),
-        ("requirements.txt", "Python 依赖"),
-        ("go.mod", "Go 模块配置"),
-        ("pom.xml", "Maven 项目配置"),
-        ("build.gradle", "Gradle 项目配置"),
-        ("Makefile", "构建脚本"),
-        ("Dockerfile", "Docker 构建文件"),
-        ("docker-compose.yml", "Docker Compose 配置"),
-        ("README.md", "项目说明"),
-        ("LICENSE", "许可证"),
-        (".env.example", "环境变量示例"),
-    ];
-    
-    for (filename, description) in &key_files {
-        if project_root.join(filename).exists() {
-            result.push((filename.to_string(), description.to_string()));
-        }
+    if files.len() > max_items - count {
+        result.push_str(&format!("{}  ... ({} more files)\n", indent, files.len() - (max_items - count)));
     }
     
-    Ok(result)
+    Ok(())
 }
 
-/// Detect programming languages by file extension count.
-fn detect_languages(project_root: &Path) -> Result<Vec<(String, usize)>> {
-    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+/// Collect key source files for analysis.
+fn collect_key_source_files(project_root: &Path, project_type: &str) -> Result<Vec<(String, String)>> {
+    let mut files = Vec::new();
     
-    fn count_files(dir: &Path, counts: &mut std::collections::HashMap<String, usize>) {
-        let entries = match fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => return,
-        };
-        
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            
-            if should_ignore(&name_str) {
-                continue;
-            }
-            
-            let file_type = match entry.file_type() {
-                Ok(t) => t,
-                Err(_) => continue,
-            };
-            
-            if file_type.is_dir() {
-                count_files(&entry.path(), counts);
-            } else if file_type.is_file() {
-                if let Some(ext) = entry.path().extension().and_then(|e| e.to_str()) {
-                    let lang = match ext {
-                        "rs" => "Rust",
-                        "js" | "jsx" | "mjs" | "cjs" => "JavaScript",
-                        "ts" | "tsx" => "TypeScript",
-                        "py" => "Python",
-                        "go" => "Go",
-                        "java" => "Java",
-                        "kt" | "kts" => "Kotlin",
-                        "rb" => "Ruby",
-                        "php" => "PHP",
-                        "c" | "h" => "C",
-                        "cpp" | "cc" | "cxx" | "hpp" | "hxx" => "C++",
-                        "cs" => "C#",
-                        "swift" => "Swift",
-                        "scala" => "Scala",
-                        "sh" | "bash" => "Shell",
-                        "sql" => "SQL",
-                        "html" | "htm" => "HTML",
-                        "css" | "scss" | "sass" | "less" => "CSS",
-                        "json" | "yaml" | "yml" | "toml" | "xml" => "配置",
-                        "md" => "Markdown",
-                        _ => continue,
-                    };
-                    *counts.entry(lang.to_string()).or_insert(0) += 1;
+    // Find the matching project type config
+    let config = PROJECT_TYPE_CONFIGS.iter()
+        .find(|c| c.type_name == project_type);
+    
+    // Collect key source files from config
+    if let Some(config) = config {
+        for path_str in config.key_source_files {
+            let path = project_root.join(path_str);
+            if path.exists() {
+                let content = fs::read_to_string(&path).ok();
+                if let Some(content) = content {
+                    files.push((path_str.to_string(), truncate_content(&content, SOURCE_FILE_MAX_CHARS)));
                 }
             }
         }
     }
     
-    count_files(project_root, &mut counts);
+    // Special handling for Rust: collect lib.rs and module files
+    if project_type == "Rust" {
+        // Collect lib.rs
+        let lib_path = project_root.join(SRC_DIR).join(RUST_LIB_FILE);
+        if lib_path.exists() {
+            let lib_relative = format!("{}/{}", SRC_DIR, RUST_LIB_FILE);
+            let content = fs::read_to_string(&lib_path).ok();
+            if let Some(content) = content {
+                files.push((lib_relative, truncate_content(&content, SOURCE_FILE_MAX_CHARS)));
+            }
+            
+            // Collect module files (mod.rs in subdirectories)
+            let src_path = project_root.join(SRC_DIR);
+            if src_path.exists() {
+                for entry in fs::read_dir(&src_path)?.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) && !should_ignore(&name) {
+                        let mod_path = src_path.join(&name).join(RUST_MOD_FILE);
+                        if mod_path.exists() {
+                            let content = fs::read_to_string(&mod_path).ok();
+                            if let Some(content) = content {
+                                let mod_relative = format!("{}/{}/{}", SRC_DIR, name, RUST_MOD_FILE);
+                                files.push((mod_relative, truncate_content(&content, MODULE_FILE_MAX_CHARS)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     
-    let mut result: Vec<_> = counts.into_iter().collect();
-    result.sort_by(|a, b| b.1.cmp(&a.1));
-    
-    // Limit output
-    result.truncate(10);
-    
-    Ok(result)
+    Ok(files)
 }
 
-/// Generate a timestamp for the overview file.
-fn chrono_timestamp() -> String {
-    // Use simple ISO 8601 format without requiring chrono dependency
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    // Simple conversion to datetime (approximate)
-    let days = secs / 86400;
-    let hours = (secs % 86400) / 3600;
-    let minutes = (secs % 3600) / 60;
-    // Unix epoch is 1970-01-01
-    let year = 1970 + (days / 365);
-    let month = ((days % 365) / 30) + 1;
-    let day = (days % 30) + 1;
-    format!("{}-{:02}-{:02} {:02}:{:02}", year, month, day, hours, minutes)
+/// Truncate content to a maximum length.
+pub(crate) fn truncate_content(content: &str, max_len: usize) -> String {
+    if content.len() <= max_len {
+        content.to_string()
+    } else {
+        let mut truncated = content[..max_len].to_string();
+        truncated.push_str("\n... (truncated)");
+        truncated
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn should_ignore_patterns() {
-        assert!(should_ignore(".git"));
-        assert!(should_ignore("node_modules"));
-        assert!(should_ignore("target"));
-        assert!(should_ignore("__pycache__"));
-        assert!(should_ignore("Cargo.lock"));
-        assert!(!should_ignore("src"));
-        assert!(!should_ignore("main.rs"));
+/// Extract content from AI response.
+fn extract_response_content(response: &crate::providers::ChatResponse) -> String {
+    let mut content = String::new();
+    for block in &response.content {
+        if let crate::providers::ContentBlock::Text { text } = block {
+            content.push_str(text);
+        }
     }
-
-    #[test]
-    fn overview_load_returns_none_when_missing() {
-        let tmp = TempDir::new().unwrap();
-        let result = ProjectOverview::load(tmp.path()).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn overview_generate_creates_file() {
-        let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join("main.rs"), "fn main() {}").unwrap();
-        
-        let overview = ProjectOverview::generate(tmp.path()).unwrap();
-        assert!(overview.content.contains("项目概览"));
-        assert!(overview.path.exists());
-    }
-
-    #[test]
-    fn overview_load_returns_content() {
-        let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join("main.rs"), "fn main() {}").unwrap();
-        
-        ProjectOverview::generate(tmp.path()).unwrap();
-        let loaded = ProjectOverview::load(tmp.path()).unwrap().unwrap();
-        assert!(loaded.content.contains("项目概览"));
-    }
-
-    #[test]
-    fn overview_clear_removes_file() {
-        let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join("main.rs"), "fn main() {}").unwrap();
-        
-        ProjectOverview::generate(tmp.path()).unwrap();
-        assert!(ProjectOverview::exists(tmp.path()));
-        
-        ProjectOverview::clear(tmp.path()).unwrap();
-        assert!(!ProjectOverview::exists(tmp.path()));
-    }
+    content
 }

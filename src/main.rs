@@ -43,12 +43,12 @@ struct Cli {
     resume: bool,
 
     /// Extra directory to scan for skills. May be passed multiple times.
-    /// The defaults `./skills` and `~/.matrixcode/skills` are always
+    /// The defaults `./skills` and `~/.matrix/skills` are always
     /// scanned first unless `--no-default-skills` is set.
     #[arg(long = "skills-dir", env = "SKILLS_DIR", value_delimiter = ':')]
     skills_dir: Vec<PathBuf>,
 
-    /// Skip the default skills roots (`./skills`, `~/.matrixcode/skills`).
+    /// Skip the default skills roots (`./skills`, `~/.matrix/skills`).
     #[arg(long, default_value_t = false)]
     no_default_skills: bool,
 
@@ -76,6 +76,10 @@ struct Cli {
     /// Skip loading project overview on startup.
     #[arg(long, default_value_t = false)]
     no_overview: bool,
+
+    /// Generate project overview using AI and exit.
+    #[arg(long, default_value_t = false)]
+    init: bool,
 }
 
 #[tokio::main]
@@ -177,6 +181,27 @@ async fn main() -> Result<()> {
         let _ = std::fs::remove_file(p);
     }
 
+    if cli.init {
+        // Generate project overview using AI and exit
+        let root = project_root.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("no project root detected (not in a git repo?)")
+        })?;
+        
+        println!("[generating project overview with AI...]");
+        println!("[this may take 10-30 seconds, please wait]");
+        
+        match ProjectOverview::generate_with_ai(root, agent.provider()).await {
+            Ok(overview) => {
+                println!("[saved overview to {}]", overview.path.display());
+                println!("[done]");
+            }
+            Err(e) => {
+                eprintln!("[error] could not generate overview: {e}");
+            }
+        }
+        return Ok(());
+    }
+
     if !cli.prompt.is_empty() {
         agent.chat_once(&cli.prompt.join(" ")).await?;
         if let Some(ref p) = session_path {
@@ -241,7 +266,7 @@ async fn run_repl(agent: &mut agent::Agent, session_path: Option<&Path>, project
             continue;
         }
         if trimmed == "/init" {
-            handle_init(project_root, agent);
+            handle_init(project_root, agent).await;
             continue;
         }
         if trimmed == "/overview" {
@@ -279,7 +304,7 @@ fn load_skills(extra: &[PathBuf], skip_defaults: bool) -> Vec<skills::Skill> {
         roots.push(PathBuf::from("skills"));
         if let Some(home) = std::env::var_os("HOME") {
             let mut p = PathBuf::from(home);
-            p.push(".matrixcode");
+            p.push(".matrix");
             p.push("skills");
             roots.push(p);
         }
@@ -295,14 +320,14 @@ fn load_skills(extra: &[PathBuf], skip_defaults: bool) -> Vec<skills::Skill> {
 fn dirs_history_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let mut p = PathBuf::from(home);
-    p.push(".matrixcode_history");
+    p.push(".matrix_history");
     Some(p)
 }
 
 fn dirs_session_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let mut p = PathBuf::from(home);
-    p.push(".matrixcode_session.json");
+    p.push(".matrix_session.json");
     Some(p)
 }
 
@@ -428,8 +453,8 @@ fn format_tokens(n: u64) -> String {
     }
 }
 
-/// Handle /init command: generate/update project overview.
-fn handle_init(project_root: Option<&Path>, agent: &mut agent::Agent) {
+/// Handle /init command: generate/update project overview using AI.
+async fn handle_init(project_root: Option<&Path>, agent: &mut agent::Agent) {
     let root = match project_root {
         Some(r) => r,
         None => {
@@ -438,8 +463,11 @@ fn handle_init(project_root: Option<&Path>, agent: &mut agent::Agent) {
         }
     };
 
-    println!("[generating project overview...]");
-    match ProjectOverview::generate(root) {
+    println!("[generating project overview with AI...]");
+    println!("[this may take 10-30 seconds, please wait]");
+    
+    // Get provider from agent
+    match ProjectOverview::generate_with_ai(root, agent.provider()).await {
         Ok(overview) => {
             println!("[saved overview to {}]", overview.path.display());
             // Update agent's system prompt with new overview
