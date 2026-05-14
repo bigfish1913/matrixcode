@@ -1,4 +1,4 @@
-use code_agent::prompt::{
+use matrixcode::prompt::{
     build_static_system_prompt, PromptContext, PromptProfile, PromptSection,
     SystemPromptBuilder, SECTION_AVAILABLE_SKILLS,
 };

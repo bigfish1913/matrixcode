@@ -1,5 +1,5 @@
-use code_agent::tools::edit::EditTool;
-use code_agent::tools::Tool;
+use matrixcode::tools::edit::EditTool;
+use matrixcode::tools::Tool;
 use serde_json::json;
 use std::io::Write;
 use tempfile::NamedTempFile;

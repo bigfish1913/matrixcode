@@ -1,7 +1,7 @@
-use code_agent::providers::{
+use matrixcode::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Role, StopReason, Usage,
 };
-use code_agent::tools::ToolDefinition;
+use matrixcode::tools::ToolDefinition;
 use serde_json::json;
 
 #[test]
@@ -77,6 +77,7 @@ fn test_chat_request_creation() {
         }],
         system: Some("You are helpful".to_string()),
         think: false,
+        max_tokens: 4096,
         server_tools: vec![],
     };
 

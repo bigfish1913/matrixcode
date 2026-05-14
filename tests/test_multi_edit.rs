@@ -1,5 +1,5 @@
-use code_agent::tools::Tool;
-use code_agent::tools::multi_edit::MultiEditTool;
+use matrixcode::tools::Tool;
+use matrixcode::tools::multi_edit::MultiEditTool;
 use serde_json::json;
 use std::fs;
 use tempfile::TempDir;

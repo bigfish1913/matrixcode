@@ -1,5 +1,5 @@
-use code_agent::tools::Tool;
-use code_agent::tools::glob::GlobTool;
+use matrixcode::tools::Tool;
+use matrixcode::tools::glob::GlobTool;
 use serde_json::json;
 use std::fs;
 use tempfile::TempDir;

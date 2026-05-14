@@ -1,5 +1,5 @@
-use code_agent::tools::Tool;
-use code_agent::tools::bash::BashTool;
+use matrixcode::tools::Tool;
+use matrixcode::tools::bash::BashTool;
 use serde_json::json;
 
 #[tokio::test]

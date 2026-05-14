@@ -1,4 +1,4 @@
-use code_agent::tools;
+use matrixcode::tools;
 
 #[test]
 fn test_all_tools_returns_twelve() {

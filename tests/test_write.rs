@@ -1,5 +1,5 @@
-use code_agent::tools::write::WriteTool;
-use code_agent::tools::Tool;
+use matrixcode::tools::write::WriteTool;
+use matrixcode::tools::Tool;
 use serde_json::json;
 use tempfile::TempDir;
 

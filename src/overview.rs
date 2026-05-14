@@ -57,7 +57,7 @@ const DEFAULT_PROJECT_NAME: &str = "project";
 const README_FILENAME: &str = "README.md";
 
 /// Source directory name for many project types.
-pub(crate) const SRC_DIR: &str = "src";
+pub const SRC_DIR: &str = "src";
 
 /// Rust module file name.
 const RUST_MOD_FILE: &str = "mod.rs";
@@ -68,17 +68,17 @@ const RUST_LIB_FILE: &str = "lib.rs";
 // --- Project type configuration ---
 
 /// Configuration for a project type, including detection and key files.
-pub(crate) struct ProjectTypeConfig {
+pub struct ProjectTypeConfig {
     /// Human-readable type name.
-    pub(crate) type_name: &'static str,
+    pub type_name: &'static str,
     /// Files whose presence indicates this project type (checked in order).
-    pub(crate) detect_files: &'static [&'static str],
+    pub detect_files: &'static [&'static str],
     /// Key source file paths relative to project root.
-    pub(crate) key_source_files: &'static [&'static str],
+    pub key_source_files: &'static [&'static str],
 }
 
 /// All supported project type configurations.
-pub(crate) const PROJECT_TYPE_CONFIGS: &[ProjectTypeConfig] = &[
+pub const PROJECT_TYPE_CONFIGS: &[ProjectTypeConfig] = &[
     ProjectTypeConfig {
         type_name: "Rust",
         detect_files: &["Cargo.toml"],
@@ -284,7 +284,7 @@ const IGNORE_PATTERNS: &[&str] = &[
 ];
 
 /// Check if a path component should be ignored.
-pub(crate) fn should_ignore(name: &str) -> bool {
+pub fn should_ignore(name: &str) -> bool {
     if IGNORE_PATTERNS.contains(&name) {
         return true;
     }
@@ -340,7 +340,7 @@ fn collect_project_context(project_root: &Path) -> Result<ProjectContext> {
 }
 
 /// Detect project type from configuration files.
-pub(crate) fn detect_project_type(project_root: &Path) -> &'static str {
+pub fn detect_project_type(project_root: &Path) -> &'static str {
     for config in PROJECT_TYPE_CONFIGS {
         for detect_file in config.detect_files {
             if project_root.join(detect_file).exists() {
@@ -501,7 +501,7 @@ fn collect_key_source_files(project_root: &Path, project_type: &str) -> Result<V
 }
 
 /// Truncate content to a maximum length.
-pub(crate) fn truncate_content(content: &str, max_len: usize) -> String {
+pub fn truncate_content(content: &str, max_len: usize) -> String {
     if content.len() <= max_len {
         content.to_string()
     } else {

@@ -1,6 +1,6 @@
 use std::fs;
 
-use code_agent::overview::{
+use matrixcode::overview::{
     detect_project_type, should_ignore, truncate_content, OVERVIEW_FILENAME,
     ProjectOverview, PROJECT_TYPE_CONFIGS, SRC_DIR,
 };

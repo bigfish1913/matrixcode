@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use code_agent::skills;
-use code_agent::tools;
+use matrixcode::skills;
+use matrixcode::tools;
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::tempdir;
