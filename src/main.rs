@@ -14,7 +14,10 @@ use matrixcode::{
 };
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
+use rustyline::{Cmd, EventHandler, KeyCode, KeyEvent, Modifiers};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 #[derive(Parser)]
 #[command(name = "matrixcode", about = "A simple code agent with tool use")]
@@ -134,6 +137,13 @@ struct Cli {
     /// Enable multi-model mode (use separate models for plan/compress/fast).
     #[arg(long, env = "MULTI_MODEL", default_value_t = false, action = clap::ArgAction::SetTrue)]
     multi_model: bool,
+
+    /// Approval mode for tool execution:
+    /// - ask: pause before mutating/dangerous operations (default)
+    /// - auto: execute everything without asking
+    /// - strict: ask before every tool call
+    #[arg(long, env = "APPROVE_MODE", default_value = "ask")]
+    approve_mode: String,
 }
 
 #[tokio::main]
@@ -315,6 +325,13 @@ async fn main() -> Result<()> {
         agent.set_caching(false);
     }
 
+    // Configure approval mode
+    let approve_mode = matrixcode::approval::ApproveMode::from_str(&cli.approve_mode);
+    agent.set_approve_mode(approve_mode);
+    if approve_mode != matrixcode::approval::ApproveMode::Ask {
+        println!("[approve mode: {}]", approve_mode);
+    }
+
     // Initialize session manager
     let mut session_manager = SessionManager::new()?;
     
@@ -414,6 +431,7 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
                 .unwrap_or_else(|| "new".to_string())
         });
     println!("  Session: '{}'\n", session_name);
+    println!("  Approve mode: {} (Shift+Tab / Alt+M or /mode to toggle)\n", agent.approve_mode());
 
     let mut rl = DefaultEditor::new()?;
     let history_path = session_manager.history_path();
@@ -421,8 +439,49 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         let _ = rl.load_history(&history_path);
     }
 
+    // Shared flag: when the mode-toggle hotkey is pressed, we set this to 1.
+    // The REPL loop checks it after readline returns.
+    let mode_toggle_flag = Arc::new(AtomicU8::new(0));
+    let flag_clone = mode_toggle_flag.clone();
+
+    // Bind hotkey to toggle approve mode.
+    // We use a ConditionalEventHandler to set the flag and accept the line.
+    struct ModeToggleHandler(Arc<AtomicU8>);
+    impl rustyline::ConditionalEventHandler for ModeToggleHandler {
+        fn handle(
+            &self,
+            _evt: &rustyline::Event,
+            _n: rustyline::RepeatCount,
+            _positive: bool,
+            _ctx: &rustyline::EventContext,
+        ) -> Option<Cmd> {
+            self.0.store(1, Ordering::SeqCst);
+            Some(Cmd::AcceptLine)
+        }
+    }
+
+    // Bind Shift+Tab (BackTab) - primary hotkey
+    rl.bind_sequence(
+        KeyEvent(KeyCode::BackTab, Modifiers::NONE),
+        EventHandler::Conditional(Box::new(ModeToggleHandler(flag_clone.clone()))),
+    );
+
+    // Also bind Alt+M as alternative (some terminals don't send BackTab properly)
+    rl.bind_sequence(
+        KeyEvent(KeyCode::Char('m'), Modifiers::ALT),
+        EventHandler::Conditional(Box::new(ModeToggleHandler(flag_clone))),
+    );
+
     loop {
-        let line = match rl.readline("\n> ") {
+        // Build prompt showing current approve mode
+        let mode_indicator = match agent.approve_mode() {
+            matrixcode::approval::ApproveMode::Ask => "[ask]",
+            matrixcode::approval::ApproveMode::Auto => "[auto]",
+            matrixcode::approval::ApproveMode::Strict => "[strict]",
+        };
+        let prompt = format!("\n{} > ", mode_indicator);
+
+        let line = match rl.readline(&prompt) {
             Ok(l) => l,
             Err(ReadlineError::Interrupted) => {
                 // Ctrl+C at the prompt: cancel current input, stay in REPL.
@@ -434,6 +493,14 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
                 break;
             }
         };
+
+        // Check if hotkey was pressed (mode toggle)
+        if mode_toggle_flag.load(Ordering::SeqCst) == 1 {
+            mode_toggle_flag.store(0, Ordering::SeqCst);
+            agent.toggle_approve_mode();
+            println!("[approve mode: {}]", agent.approve_mode());
+            continue;
+        }
 
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -451,6 +518,11 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         }
         if trimmed == "/help" {
             print_help();
+            continue;
+        }
+        if trimmed == "/mode" {
+            agent.toggle_approve_mode();
+            println!("[approve mode: {}]", agent.approve_mode());
             continue;
         }
         if trimmed == "/status" {
@@ -762,10 +834,13 @@ fn print_help() {
     println!("      preserve:tools,thinking keywords:决定,重要");
     println!("      preserve:tools,thinking,user keywords:决定,重要");
     println!("  /clear      - Clear context and start a new session");
+    println!("  /mode       - Toggle approve mode (ask -> auto -> strict)");
     println!("  /exit       - Exit the REPL (also /quit or :q)");
     println!();
     println!("Keyboard shortcuts:");
-    println!("  Ctrl+C / ESC - Interrupt current output (at prompt: cancel input)");
+    println!("  Shift+Tab   - Toggle approve mode (ask → auto → strict)");
+    println!("  Alt+M       - Alternative: toggle approve mode");
+    println!("  Ctrl+C      - Interrupt current output (at prompt: cancel input)");
     println!("  Ctrl+D      - Exit the REPL");
 }
 

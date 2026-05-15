@@ -53,10 +53,13 @@ impl ToolSpinner {
 
     /// Finish the spinner and print a success message on a new line.
     /// This ensures minimum display time before clearing.
+    /// Note: This method is synchronous and may block briefly.
     pub fn finish(&self, msg: &str) {
         // Ensure spinner has been visible for at least MIN_DISPLAY_MS
         let elapsed = self.created_at.elapsed();
         if elapsed < Duration::from_millis(MIN_DISPLAY_MS) {
+            // Use a blocking wait - this is acceptable in tool execution context
+            // where we want to ensure the user sees the feedback
             std::thread::sleep(Duration::from_millis(MIN_DISPLAY_MS) - elapsed);
         }
         
@@ -79,6 +82,24 @@ impl ToolSpinner {
         
         self.bar.finish_and_clear();
         println!("  ✗ {}", msg);
+    }
+
+    /// Clear the spinner without printing any message.
+    /// Useful when another spinner or output will follow immediately.
+    pub fn finish_clear(&self) {
+        // Ensure spinner has been visible for at least MIN_DISPLAY_MS
+        let elapsed = self.created_at.elapsed();
+        if elapsed < Duration::from_millis(MIN_DISPLAY_MS) {
+            std::thread::sleep(Duration::from_millis(MIN_DISPLAY_MS) - elapsed);
+        }
+        
+        self.bar.finish_and_clear();
+    }
+
+    /// Clear the spinner immediately without waiting for minimum display time.
+    /// Useful for transitional spinners that hand off to another spinner.
+    pub fn finish_clear_immediate(&self) {
+        self.bar.finish_and_clear();
     }
 
     /// Update the spinner message without stopping it.

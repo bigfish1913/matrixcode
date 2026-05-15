@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use super::{Tool, ToolDefinition};
 use super::spinner::ToolSpinner;
+use crate::approval::RiskLevel;
 
 pub struct TodoWriteTool;
 
@@ -118,5 +119,9 @@ impl Tool for TodoWriteTool {
             pending_count, in_progress_count, completed_count
         ));
         Ok(out)
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Mutating
     }
 }

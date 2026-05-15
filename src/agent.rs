@@ -2,7 +2,9 @@ use std::io::{Write as _, stdout};
 use std::sync::Arc;
 
 use anyhow::Result;
+use tokio::sync::mpsc;
 
+use crate::approval::{ApproveMode, ApprovalAnswer, build_approval_request, needs_approval, prompt_approval};
 use crate::compress::{CompressionConfig, CompressionStrategy, should_compress};
 use crate::markdown;
 use crate::cancel::CancellationToken;
@@ -74,6 +76,8 @@ pub struct Agent {
     last_plan: Option<TaskPlan>,
     /// Cancellation token for interrupting ongoing operations.
     cancel_token: Option<CancellationToken>,
+    /// Approval mode controlling when user confirmation is required.
+    approve_mode: ApproveMode,
 }
 
 impl Agent {
@@ -193,12 +197,32 @@ impl Agent {
             last_compression_result: None,
             last_plan: None,
             cancel_token: None,
+            approve_mode: ApproveMode::Ask,
         }
     }
 
     /// Set cancellation token for interrupting operations.
     pub fn set_cancel_token(&mut self, token: CancellationToken) {
         self.cancel_token = Some(token);
+    }
+
+    /// Set the approval mode for tool execution.
+    pub fn set_approve_mode(&mut self, mode: ApproveMode) {
+        self.approve_mode = mode;
+    }
+
+    /// Get the current approval mode.
+    pub fn approve_mode(&self) -> ApproveMode {
+        self.approve_mode
+    }
+
+    /// Toggle approval mode: Ask -> Auto -> Strict -> Ask
+    pub fn toggle_approve_mode(&mut self) {
+        self.approve_mode = match self.approve_mode {
+            ApproveMode::Ask => ApproveMode::Auto,
+            ApproveMode::Auto => ApproveMode::Strict,
+            ApproveMode::Strict => ApproveMode::Ask,
+        };
     }
 
     /// Clear the cancellation token.
@@ -681,7 +705,7 @@ impl Agent {
     /// Returns the assembled final response.
     async fn stream_one_turn(&self, request: ChatRequest) -> Result<ChatResponse> {
         let mut spinner = Some(ToolSpinner::new("thinking"));
-        let mut rx = self.provider.chat_stream(request).await?;
+        let mut rx = self.request_with_retry(&request, &mut spinner).await?;
 
         let mut in_thinking = false;
         let mut in_text = false;
@@ -855,6 +879,92 @@ impl Agent {
         buffer.clear();
     }
 
+    /// Maximum number of retries for transient API errors.
+    const MAX_RETRIES: u32 = 3;
+
+    /// Request the LLM with automatic retry on transient errors.
+    /// Uses exponential backoff: 1s, 2s, 4s between retries.
+    async fn request_with_retry(
+        &self,
+        request: &ChatRequest,
+        spinner: &mut Option<ToolSpinner>,
+    ) -> Result<mpsc::Receiver<StreamEvent>> {
+        let mut last_err = None;
+
+        for attempt in 0..=Self::MAX_RETRIES {
+            if attempt > 0 {
+                let delay_secs = 1u64 << (attempt - 1); // 1, 2, 4
+                // Update spinner to show retry status
+                if let Some(s) = spinner.as_ref() {
+                    s.set_message(&format!(
+                        "retrying ({}/{}) in {}s...",
+                        attempt, Self::MAX_RETRIES, delay_secs
+                    ));
+                }
+                eprintln!(
+                    "\n[retry {}/{}] waiting {}s before retrying...",
+                    attempt, Self::MAX_RETRIES, delay_secs
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+
+                // Restore spinner message
+                if let Some(s) = spinner.as_ref() {
+                    s.set_message("thinking");
+                }
+            }
+
+            match self.provider.chat_stream(request.clone()).await {
+                Ok(rx) => return Ok(rx),
+                Err(e) => {
+                    if Self::is_retryable_error(&e) && attempt < Self::MAX_RETRIES {
+                        eprintln!("\n[error] transient API error: {}", e);
+                        last_err = Some(e);
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
+        }
+
+        // Should not reach here, but just in case
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("request failed after retries")))
+    }
+
+    /// Determine if an error is transient and worth retrying.
+    fn is_retryable_error(err: &anyhow::Error) -> bool {
+        let msg = err.to_string().to_lowercase();
+
+        // HTTP status codes that are retryable
+        if msg.contains("429") || msg.contains("rate limit") {
+            return true;
+        }
+        if msg.contains("500") || msg.contains("502") || msg.contains("503") || msg.contains("504") {
+            return true;
+        }
+        if msg.contains("internal server error") || msg.contains("bad gateway")
+            || msg.contains("service unavailable") || msg.contains("gateway timeout") {
+            return true;
+        }
+
+        // Network / connection errors
+        if msg.contains("connection") || msg.contains("timeout") || msg.contains("timed out") {
+            return true;
+        }
+        if msg.contains("reset by peer") || msg.contains("broken pipe") {
+            return true;
+        }
+        if msg.contains("dns") || msg.contains("resolve") {
+            return true;
+        }
+
+        // Anthropic overloaded
+        if msg.contains("overloaded") || msg.contains("capacity") {
+            return true;
+        }
+
+        false
+    }
+
     async fn execute_tool_calls(&self, content: &[ContentBlock]) -> Vec<ContentBlock> {
         let mut results = Vec::new();
 
@@ -864,7 +974,7 @@ impl Agent {
                     // Print tool input with nice formatting
                     print_tool_input(name, input);
 
-                    // Note: Spinner is handled by the tool itself for better progress display
+                    // Execute the tool (waiting spinner is handled in execute_single_tool)
                     let result = self.execute_single_tool(name, input).await;
 
                     let output = match result {
@@ -929,6 +1039,55 @@ impl Agent {
             .find(|t| t.definition().name == name)
             .ok_or_else(|| anyhow::anyhow!("Unknown tool: {}", name))?;
 
+        // Approval gate: check if user confirmation is needed
+        let risk = tool.risk_level();
+        if needs_approval(self.approve_mode, risk) {
+            let request = build_approval_request(name, risk, input);
+            match prompt_approval(&request) {
+                ApprovalAnswer::Yes => { /* proceed */ }
+                ApprovalAnswer::No => {
+                    return Ok("用户拒绝了此操作，请调整方案或询问用户意见。".to_string());
+                }
+                ApprovalAnswer::Abort => {
+                    anyhow::bail!("用户中止了本轮执行。");
+                }
+            }
+        }
+
+        // Special handling for 'ask' tool in auto mode: skip user interaction
+        if name == "ask" && self.approve_mode == ApproveMode::Auto {
+            // Extract recommendation if provided
+            let recommendation = input["recommendation"]["option_id"].as_str();
+            let reason = input["recommendation"]["reason"].as_str();
+            let question = input["question"].as_str().unwrap_or("未提供问题");
+
+            println!("[ask: auto mode, skipping user interaction]");
+            
+            if recommendation.is_some() {
+                let rec = recommendation.unwrap();
+                let r = reason.unwrap_or("无理由");
+                return Ok(format!(
+                    "自动模式下无法询问用户。\n问题：{}\n已自动采纳推荐方案：{}\n理由：{}\n请继续执行推荐方案。",
+                    question, rec, r
+                ));
+            } else {
+                return Ok(format!(
+                    "自动模式下无法询问用户。问题：{}\n请根据你的判断选择最合适的方案继续执行。",
+                    question
+                ));
+            }
+        }
+
+        // Show waiting spinner to fill the gap between tool input display and actual tool execution
+        // This ensures user sees feedback immediately after tool input is printed
+        let waiting_spinner = ToolSpinner::new(&format!("executing {}", name));
+        
+        // Wait a brief moment to show the spinner, then clear before tool creates its own
+        // Using a short delay (50ms) to ensure smooth visual transition without overlap
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        waiting_spinner.finish_clear_immediate();
+
+        // Tool will create its own spinner for the actual operation
         tool.execute(input.clone()).await
     }
 

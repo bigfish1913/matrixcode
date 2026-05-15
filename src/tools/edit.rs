@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use super::{Tool, ToolDefinition};
 use super::spinner::ToolSpinner;
+use crate::approval::RiskLevel;
 
 pub struct EditTool;
 
@@ -59,5 +60,9 @@ impl Tool for EditTool {
 
         spinner.finish_success("edited");
         Ok(format!("Successfully edited {}", path))
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Mutating
     }
 }

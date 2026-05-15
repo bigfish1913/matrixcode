@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
 use super::spinner::ToolSpinner;
+use crate::approval::RiskLevel;
 
 pub struct BashTool;
 
@@ -87,6 +88,10 @@ impl Tool for BashTool {
         
         spinner.finish_success("done");
         Ok(stdout)
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Dangerous
     }
 }
 

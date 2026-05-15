@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use super::{Tool, ToolDefinition};
 use super::spinner::ToolSpinner;
+use crate::approval::RiskLevel;
 
 pub struct MultiEditTool;
 
@@ -92,5 +93,9 @@ impl Tool for MultiEditTool {
         tokio::fs::write(path, &content).await?;
         spinner.finish_success(&format!("{} edits applied", edits.len()));
         Ok(format!("Applied {} edit(s) to {}", edits.len(), path))
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Mutating
     }
 }

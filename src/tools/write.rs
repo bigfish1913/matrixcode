@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use super::{Tool, ToolDefinition};
 use super::spinner::ToolSpinner;
+use crate::approval::RiskLevel;
 
 pub struct WriteTool;
 
@@ -50,5 +51,9 @@ impl Tool for WriteTool {
         spinner.finish_success(&format!("wrote {} bytes", total_bytes));
 
         Ok(format!("Successfully wrote {} bytes to {}", total_bytes, path))
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Mutating
     }
 }

@@ -1,3 +1,4 @@
+pub mod ask;
 pub mod bash;
 pub mod edit;
 pub mod glob;
@@ -19,6 +20,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::approval::RiskLevel;
 use crate::skills::Skill;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +34,12 @@ pub struct ToolDefinition {
 pub trait Tool: Send + Sync {
     fn definition(&self) -> ToolDefinition;
     async fn execute(&self, params: Value) -> Result<String>;
+
+    /// Risk level of this tool. Defaults to Safe (read-only).
+    /// Override in tools that modify state.
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Safe
+    }
 }
 
 /// Default toolset without any skill integration. Kept for callers
@@ -45,6 +53,7 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
 /// but will only report "no skills loaded" if invoked.
 pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
     vec![
+        Box::new(ask::AskTool),
         Box::new(read::ReadTool),
         Box::new(write::WriteTool),
         Box::new(edit::EditTool),
