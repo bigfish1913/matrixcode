@@ -43,6 +43,12 @@ struct Cli {
     #[arg(long, env = "THINK", default_value_t = true, action = clap::ArgAction::Set)]
     think: bool,
 
+    /// Auto-continue last session on startup (default: false).
+    /// Set via AUTO_CONTINUE environment variable or --auto-continue flag.
+    /// When true, behaves as if --continue was passed automatically.
+    #[arg(long, env = "AUTO_CONTINUE", default_value_t = false)]
+    auto_continue: bool,
+
     /// Render assistant output as Markdown in the terminal (default on).
     /// Pass --markdown false to disable, or set NO_COLOR / run in a non-TTY
     /// to auto-disable.
@@ -355,8 +361,8 @@ async fn main() -> Result<()> {
     }
 
     // Handle session resumption
-    let session_to_load = if cli.continue_ {
-        // --continue: load last session
+    let session_to_load = if cli.continue_ || cli.auto_continue {
+        // --continue or AUTO_CONTINUE=true: load last session
         session_manager.continue_last(project_root.as_deref())?
     } else if let Some(ref resume_arg) = cli.resume {
         match resume_arg {
