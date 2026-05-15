@@ -16,11 +16,16 @@ use crate::providers::{
 use crate::skills::{self, Skill};
 use crate::tools::{self, Tool};
 use crate::tools::spinner::ToolSpinner;
+use crate::ui;
 use termimad::MadSkin;
 
 pub use crate::prompt::PromptProfile;
 
 const MAX_ITERATIONS: usize = 200;
+
+// ============================================================================
+// Token Statistics
+// ============================================================================
 
 /// Token usage statistics for the current session.
 pub struct TokenStats {
@@ -29,166 +34,131 @@ pub struct TokenStats {
     pub context_size: Option<u32>,
 }
 
-// ANSI dim italic for thinking, reset at end. Kept minimal to avoid pulling in a color crate.
-const DIM: &str = "\x1b[2;3m";
-const RESET: &str = "\x1b[0m";
+// ============================================================================
+// Agent Structure
+// ============================================================================
 
 pub struct Agent {
     provider: Box<dyn Provider>,
-    /// Optional secondary providers for specific tasks.
     compress_provider: Option<Box<dyn Provider>>,
     plan_provider: Option<Box<dyn Provider>>,
-    /// Multi-model configuration.
     model_config: MultiModelConfig,
     tools: Vec<Box<dyn Tool>>,
-    /// Server-side tools that are executed by the API provider (e.g., web_search).
     server_tools: Vec<ServerTool>,
     think: bool,
     max_tokens: u32,
     messages: Vec<Message>,
-    /// Whether to re-render assistant text as markdown when a text block ends.
     markdown_enabled: bool,
-    /// Cached skin; cheap to build but we only need one per agent.
     skin: MadSkin,
-    /// Final system prompt with any skills catalogue already appended.
     system_prompt: String,
-    /// Project overview content, injected into system prompt when present.
     project_overview: Option<String>,
-    /// Profile used to build the static system prompt.
     profile: PromptProfile,
-    /// Skills catalogue for the skill tool.
     skills: Arc<Vec<Skill>>,
-    /// Cumulative output tokens across the whole session. (Input tokens for
-    /// the next turn include prior output already — they are reported
-    /// directly by the provider — so we track input via "latest turn" and
-    /// output via running sum.)
     total_output_tokens: u64,
-    /// Latest `input_tokens` reported by the provider, which equals the
-    /// number of tokens currently resident in the context window.
     last_input_tokens: u32,
-    /// Compression configuration for context management.
     compression_config: CompressionConfig,
-    /// Enable prompt caching (Anthropic-specific).
     enable_caching: bool,
-    /// Last compression result (if any), for session recording.
     last_compression_result: Option<crate::compress::CompressionResult>,
-    /// Last task plan (if any), for tracking execution.
     last_plan: Option<TaskPlan>,
-    /// Cancellation token for interrupting ongoing operations.
     cancel_token: Option<CancellationToken>,
-    /// Approval mode controlling when user confirmation is required.
     approve_mode: ApproveMode,
 }
 
-impl Agent {
+// ============================================================================
+// Agent Builder
+// ============================================================================
+
+/// Builder for creating an Agent with custom configuration.
+/// 
+/// # Example
+/// ```ignore
+/// let agent = Agent::builder(provider)
+///     .think(true)
+///     .markdown(true)
+///     .profile(PromptProfile::Default)
+///     .skills(skills)
+///     .max_tokens(16384)
+///     .build();
+/// ```
+pub struct AgentBuilder {
+    provider: Box<dyn Provider>,
+    think: bool,
+    markdown_enabled: bool,
+    profile: PromptProfile,
+    skills: Vec<Skill>,
+    max_tokens: u32,
+    project_overview: Option<String>,
+}
+
+impl AgentBuilder {
+    /// Create a new builder with the required provider.
     pub fn new(provider: Box<dyn Provider>) -> Self {
-        Self::with_options(provider, true)
-    }
-
-    pub fn with_options(provider: Box<dyn Provider>, think: bool) -> Self {
-        Self::with_full_options(provider, think, true)
-    }
-
-    pub fn with_full_options(
-        provider: Box<dyn Provider>,
-        think: bool,
-        markdown_enabled: bool,
-    ) -> Self {
-        Self::with_profile(provider, think, markdown_enabled, PromptProfile::Default)
-    }
-
-    pub fn with_profile(
-        provider: Box<dyn Provider>,
-        think: bool,
-        markdown_enabled: bool,
-        profile: PromptProfile,
-    ) -> Self {
-        Self::with_profile_and_skills(provider, think, markdown_enabled, profile, Vec::new())
-    }
-
-    /// Full constructor. The `skills` list is advertised in the system
-    /// prompt and bound to the `skill` tool so the model can pull any
-    /// one of them into the conversation on demand.
-    pub fn with_skills(
-        provider: Box<dyn Provider>,
-        think: bool,
-        markdown_enabled: bool,
-        skills: Vec<Skill>,
-    ) -> Self {
-        Self::with_profile_and_skills(
-            provider,
-            think,
-            markdown_enabled,
-            PromptProfile::Default,
-            skills,
-        )
-    }
-
-    /// Full constructor with an explicit prompt profile.
-    pub fn with_profile_and_skills(
-        provider: Box<dyn Provider>,
-        think: bool,
-        markdown_enabled: bool,
-        profile: PromptProfile,
-        skills: Vec<Skill>,
-    ) -> Self {
-        Self::with_profile_and_skills_and_max_tokens(
-            provider,
-            think,
-            markdown_enabled,
-            profile,
-            skills,
-            16384, // default max_tokens
-        )
-    }
-
-    /// Full constructor with all options including max_tokens.
-    pub fn with_profile_and_skills_and_max_tokens(
-        provider: Box<dyn Provider>,
-        think: bool,
-        markdown_enabled: bool,
-        profile: PromptProfile,
-        skills: Vec<Skill>,
-        max_tokens: u32,
-    ) -> Self {
-        Self::with_profile_and_skills_and_max_tokens_and_overview(
-            provider,
-            think,
-            markdown_enabled,
-            profile,
-            skills,
-            max_tokens,
-            None,
-        )
-    }
-
-    /// Full constructor with all options including project overview.
-    pub fn with_profile_and_skills_and_max_tokens_and_overview(
-        provider: Box<dyn Provider>,
-        think: bool,
-        markdown_enabled: bool,
-        profile: PromptProfile,
-        skills: Vec<Skill>,
-        max_tokens: u32,
-        project_overview: Option<&str>,
-    ) -> Self {
-        let skills_arc = Arc::new(skills);
-        let system_prompt = build_system_prompt(profile, &skills_arc, project_overview);
         Self {
             provider,
+            think: true,
+            markdown_enabled: true,
+            profile: PromptProfile::Default,
+            skills: Vec::new(),
+            max_tokens: 16384,
+            project_overview: None,
+        }
+    }
+
+    /// Enable or disable extended thinking mode.
+    pub fn think(mut self, enabled: bool) -> Self {
+        self.think = enabled;
+        self
+    }
+
+    /// Enable or disable markdown rendering.
+    pub fn markdown(mut self, enabled: bool) -> Self {
+        self.markdown_enabled = enabled;
+        self
+    }
+
+    /// Set the prompt profile.
+    pub fn profile(mut self, profile: PromptProfile) -> Self {
+        self.profile = profile;
+        self
+    }
+
+    /// Set the skills list.
+    pub fn skills(mut self, skills: Vec<Skill>) -> Self {
+        self.skills = skills;
+        self
+    }
+
+    /// Set maximum output tokens.
+    pub fn max_tokens(mut self, max: u32) -> Self {
+        self.max_tokens = max;
+        self
+    }
+
+    /// Set project overview content.
+    pub fn overview(mut self, overview: impl Into<String>) -> Self {
+        self.project_overview = Some(overview.into());
+        self
+    }
+
+    /// Build the Agent instance.
+    pub fn build(self) -> Agent {
+        let skills_arc = Arc::new(self.skills);
+        let system_prompt = build_system_prompt(self.profile, &skills_arc, self.project_overview.as_deref());
+        Agent {
+            provider: self.provider,
             compress_provider: None,
             plan_provider: None,
             model_config: MultiModelConfig::default(),
             tools: tools::all_tools_with_skills(skills_arc.clone()),
             server_tools: Vec::new(),
-            think,
-            max_tokens,
+            think: self.think,
+            max_tokens: self.max_tokens,
             messages: Vec::new(),
-            markdown_enabled: markdown::should_render(markdown_enabled),
+            markdown_enabled: markdown::should_render(self.markdown_enabled),
             skin: markdown::default_skin(),
             system_prompt,
-            project_overview: project_overview.map(|s| s.to_string()),
-            profile,
+            project_overview: self.project_overview,
+            profile: self.profile,
             skills: skills_arc,
             total_output_tokens: 0,
             last_input_tokens: 0,
@@ -200,6 +170,113 @@ impl Agent {
             approve_mode: ApproveMode::Ask,
         }
     }
+}
+
+// ============================================================================
+// Agent Implementation - Constructors
+// ============================================================================
+
+impl Agent {
+    /// Create a builder for constructing an Agent.
+    pub fn builder(provider: Box<dyn Provider>) -> AgentBuilder {
+        AgentBuilder::new(provider)
+    }
+
+    /// Simple constructor with default settings.
+    pub fn new(provider: Box<dyn Provider>) -> Self {
+        Self::builder(provider).build()
+    }
+
+    /// Constructor with thinking option.
+    pub fn with_options(provider: Box<dyn Provider>, think: bool) -> Self {
+        Self::builder(provider).think(think).build()
+    }
+
+    /// Constructor with full basic options.
+    pub fn with_full_options(provider: Box<dyn Provider>, think: bool, markdown_enabled: bool) -> Self {
+        Self::builder(provider)
+            .think(think)
+            .markdown(markdown_enabled)
+            .build()
+    }
+
+    /// Constructor with prompt profile.
+    pub fn with_profile(provider: Box<dyn Provider>, think: bool, markdown_enabled: bool, profile: PromptProfile) -> Self {
+        Self::builder(provider)
+            .think(think)
+            .markdown(markdown_enabled)
+            .profile(profile)
+            .build()
+    }
+
+    /// Constructor with skills list.
+    pub fn with_skills(provider: Box<dyn Provider>, think: bool, markdown_enabled: bool, skills: Vec<Skill>) -> Self {
+        Self::builder(provider)
+            .think(think)
+            .markdown(markdown_enabled)
+            .skills(skills)
+            .build()
+    }
+
+    /// Full constructor with profile and skills.
+    pub fn with_profile_and_skills(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+        profile: PromptProfile,
+        skills: Vec<Skill>,
+    ) -> Self {
+        Self::builder(provider)
+            .think(think)
+            .markdown(markdown_enabled)
+            .profile(profile)
+            .skills(skills)
+            .build()
+    }
+
+    /// Full constructor with max_tokens.
+    pub fn with_profile_and_skills_and_max_tokens(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+        profile: PromptProfile,
+        skills: Vec<Skill>,
+        max_tokens: u32,
+    ) -> Self {
+        Self::builder(provider)
+            .think(think)
+            .markdown(markdown_enabled)
+            .profile(profile)
+            .skills(skills)
+            .max_tokens(max_tokens)
+            .build()
+    }
+
+    /// Full constructor with project overview.
+    pub fn with_profile_and_skills_and_max_tokens_and_overview(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+        profile: PromptProfile,
+        skills: Vec<Skill>,
+        max_tokens: u32,
+        project_overview: Option<&str>,
+    ) -> Self {
+        let mut builder = Self::builder(provider)
+            .think(think)
+            .markdown(markdown_enabled)
+            .profile(profile)
+            .skills(skills)
+            .max_tokens(max_tokens);
+        if let Some(overview) = project_overview {
+            builder = builder.overview(overview);
+        }
+        builder.build()
+    }
+
+    // ========================================================================
+    // Configuration Methods (Setters/Getters)
+    // ========================================================================
 
     /// Set cancellation token for interrupting operations.
     pub fn set_cancel_token(&mut self, token: CancellationToken) {
@@ -218,11 +295,7 @@ impl Agent {
 
     /// Toggle approval mode: Ask -> Auto -> Strict -> Ask
     pub fn toggle_approve_mode(&mut self) {
-        self.approve_mode = match self.approve_mode {
-            ApproveMode::Ask => ApproveMode::Auto,
-            ApproveMode::Auto => ApproveMode::Strict,
-            ApproveMode::Strict => ApproveMode::Ask,
-        };
+        self.approve_mode = self.approve_mode.next();
     }
 
     /// Clear the cancellation token.
@@ -347,6 +420,10 @@ impl Agent {
         }
     }
 
+    // ========================================================================
+    // Core Chat Methods
+    // ========================================================================
+
     /// Run a single user turn, re-using accumulated conversation history.
     /// The agent keeps looping through tool_use turns internally until it
     /// produces a non-tool-use response, then returns control to the caller.
@@ -438,6 +515,10 @@ impl Agent {
 
         Ok(())
     }
+
+    // ========================================================================
+    // Context Compression Methods
+    // ========================================================================
 
     /// Check if context compression is needed and perform it.
     /// Returns compression result if compression was performed.
@@ -700,6 +781,10 @@ impl Agent {
         self.chat_once(prompt).await
     }
 
+    // ========================================================================
+    // Streaming Response Processing
+    // ========================================================================
+
     /// Drive one streaming turn: show spinner while waiting, then print
     /// thinking deltas (dim) and text deltas (normal) as they arrive.
     /// Returns the assembled final response.
@@ -724,7 +809,7 @@ impl Agent {
                 spinner.take();
                 tool_spinner.take();
                 if in_thinking {
-                    print!("{}", RESET);
+                    print!("{}", ui::RESET);
                 }
                 if in_text {
                     self.flush_text_block(&mut text_buffer);
@@ -743,6 +828,10 @@ impl Agent {
                 evt = rx.recv() => evt,
                 _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {
                     // Timeout - continue loop to check cancellation
+                    // Also show "processing" spinner if text just ended and we're waiting for next event
+                    if !in_text && !in_thinking && tool_spinner.is_none() && spinner.is_none() {
+                        tool_spinner = Some(ToolSpinner::new("processing"));
+                    }
                     continue;
                 }
             };
@@ -753,7 +842,7 @@ impl Agent {
                 spinner.take();
                 tool_spinner.take();
                 if in_thinking {
-                    print!("{}", RESET);
+                    print!("{}", ui::RESET);
                 }
                 if in_text {
                     self.flush_text_block(&mut text_buffer);
@@ -773,12 +862,18 @@ impl Agent {
                 }
                 Some(StreamEvent::ThinkingDelta(t)) => {
                     if in_text {
-                        // thinking can resume between text blocks; add a gap
+                        // Text ended, thinking starts
                         self.flush_text_block(&mut text_buffer);
                         in_text = false;
+                        // Show preparing spinner during the gap
+                        if tool_spinner.is_none() {
+                            tool_spinner = Some(ToolSpinner::new("processing"));
+                        }
                     }
+                    // Clear preparing spinner when thinking actually starts
+                    tool_spinner.take();
                     if !in_thinking {
-                        print!("{}[thinking] ", DIM);
+                        print!("{}[thinking] ", ui::DIM);
                         in_thinking = true;
                     }
                     print!("{}", t);
@@ -786,9 +881,11 @@ impl Agent {
                 }
                 Some(StreamEvent::TextDelta(t)) => {
                     if in_thinking {
-                        print!("{}\n\n", RESET);
+                        print!("{}\n\n", ui::RESET);
                         in_thinking = false;
                     }
+                    // Clear preparing spinner when text resumes
+                    tool_spinner.take();
                     in_text = true;
                     text_buffer.push_str(&t);
                     print!("{}", t);
@@ -796,17 +893,21 @@ impl Agent {
                 }
                 Some(StreamEvent::ToolUseStart { name, .. }) => {
                     if in_thinking {
-                        print!("{}\n\n", RESET);
+                        print!("{}\n\n", ui::RESET);
                         in_thinking = false;
                     }
                     if in_text {
                         self.flush_text_block(&mut text_buffer);
                         in_text = false;
+                        // Show preparing spinner briefly while transitioning
+                        if tool_spinner.is_none() {
+                            tool_spinner = Some(ToolSpinner::new("preparing tool call"));
+                        }
                     }
-                    // Clear previous tool spinner if any
+                    // Replace preparing spinner with tool-specific spinner
                     tool_spinner.take();
                     println!("[tool: {}]", name);
-                    tool_spinner = Some(ToolSpinner::new(&format!("streaming {} input (0 B)", name)));
+                    tool_spinner = Some(ToolSpinner::new(&format!("streaming {} input", name)));
                     current_tool_name = Some(name.clone());
                     last_shown_bytes = 0;
                 }
@@ -821,7 +922,7 @@ impl Agent {
                                 sp.set_message(&format!(
                                     "streaming {} input ({})",
                                     name,
-                                    format_bytes(bytes_so_far)
+                                    ui::format_bytes(bytes_so_far)
                                 ));
                                 last_shown_bytes = bytes_so_far;
                             }
@@ -832,7 +933,7 @@ impl Agent {
                     // Tool spinner cleanup handled by Drop (RAII)
                     tool_spinner.take();
                     if in_thinking {
-                        print!("{}", RESET);
+                        print!("{}", ui::RESET);
                     }
                     if in_text {
                         self.flush_text_block(&mut text_buffer);
@@ -847,7 +948,7 @@ impl Agent {
                     spinner.take();
                     tool_spinner.take();
                     if in_thinking {
-                        print!("{}", RESET);
+                        print!("{}", ui::RESET);
                     }
                     anyhow::bail!("stream error: {}", e);
                 }
@@ -934,36 +1035,27 @@ impl Agent {
     fn is_retryable_error(err: &anyhow::Error) -> bool {
         let msg = err.to_string().to_lowercase();
 
-        // HTTP status codes that are retryable
-        if msg.contains("429") || msg.contains("rate limit") {
-            return true;
-        }
-        if msg.contains("500") || msg.contains("502") || msg.contains("503") || msg.contains("504") {
-            return true;
-        }
-        if msg.contains("internal server error") || msg.contains("bad gateway")
-            || msg.contains("service unavailable") || msg.contains("gateway timeout") {
-            return true;
-        }
+        // Keywords that indicate retryable errors
+        const RETRYABLE_KEYWORDS: &[&str] = &[
+            // HTTP status codes and messages
+            "429", "rate limit",
+            "500", "502", "503", "504",
+            "internal server error", "bad gateway", 
+            "service unavailable", "gateway timeout",
+            // Network / connection errors
+            "connection", "timeout", "timed out",
+            "reset by peer", "broken pipe",
+            "dns", "resolve",
+            // Anthropic specific
+            "overloaded", "capacity",
+        ];
 
-        // Network / connection errors
-        if msg.contains("connection") || msg.contains("timeout") || msg.contains("timed out") {
-            return true;
-        }
-        if msg.contains("reset by peer") || msg.contains("broken pipe") {
-            return true;
-        }
-        if msg.contains("dns") || msg.contains("resolve") {
-            return true;
-        }
-
-        // Anthropic overloaded
-        if msg.contains("overloaded") || msg.contains("capacity") {
-            return true;
-        }
-
-        false
+        RETRYABLE_KEYWORDS.iter().any(|kw| msg.contains(kw))
     }
+
+    // ========================================================================
+    // Tool Execution Methods
+    // ========================================================================
 
     async fn execute_tool_calls(&self, content: &[ContentBlock]) -> Vec<ContentBlock> {
         let mut results = Vec::new();
@@ -972,7 +1064,7 @@ impl Agent {
             match block {
                 ContentBlock::ToolUse { id, name, input } => {
                     // Print tool input with nice formatting
-                    print_tool_input(name, input);
+                    ui::print_tool_input(name, input);
 
                     // Execute the tool (waiting spinner is handled in execute_single_tool)
                     let result = self.execute_single_tool(name, input).await;
@@ -982,7 +1074,7 @@ impl Agent {
                             // Print result header
                             println!("[result: {}]", name);
                             // Print result with indentation, truncate if too long
-                            let truncated = truncate(&output, 1000);
+                            let truncated = ui::truncate(&output, 1000);
                             for line in truncated.lines() {
                                 println!("  {}", line);
                             }
@@ -1006,7 +1098,7 @@ impl Agent {
                 }
                 ContentBlock::ServerToolUse { id: _, name, input } => {
                     // Server tool use is just informational - the server executes it.
-                    print_tool_input(name, input);
+                    ui::print_tool_input(name, input);
                     // Server tools don't need client-side execution or result blocks
                     // The server will return web_search_tool_result directly.
                 }
@@ -1020,7 +1112,7 @@ impl Agent {
                         );
                         println!("    {}", result.url);
                         if let Some(snippet) = &result.snippet {
-                            println!("    {}", truncate(snippet, 200));
+                            println!("    {}", ui::truncate(snippet, 200));
                         }
                     }
                     // Web search results are already in the message, no need to add tool_result
@@ -1109,15 +1201,15 @@ impl Agent {
         let mut parts: Vec<String> = Vec::with_capacity(4);
         parts.push(format!(
             "in {} / out {} (session out: {})",
-            format_tokens(usage.input_tokens as u64),
-            format_tokens(usage.output_tokens as u64),
-            format_tokens(self.total_output_tokens),
+            ui::format_tokens(usage.input_tokens as u64),
+            ui::format_tokens(usage.output_tokens as u64),
+            ui::format_tokens(self.total_output_tokens),
         ));
         if usage.cache_read_input_tokens > 0 || usage.cache_creation_input_tokens > 0 {
             parts.push(format!(
                 "cache r/w {}/{}",
-                format_tokens(usage.cache_read_input_tokens as u64),
-                format_tokens(usage.cache_creation_input_tokens as u64),
+                ui::format_tokens(usage.cache_read_input_tokens as u64),
+                ui::format_tokens(usage.cache_creation_input_tokens as u64),
             ));
         }
         if let Some(ctx) = self.provider.context_size() {
@@ -1125,39 +1217,20 @@ impl Agent {
             let pct = (used as f64 / ctx as f64 * 100.0).min(100.0);
             parts.push(format!(
                 "ctx {} / {} ({:.1}%) {}",
-                format_tokens(used as u64),
-                format_tokens(ctx as u64),
+                ui::format_tokens(used as u64),
+                ui::format_tokens(ctx as u64),
                 pct,
-                bar(pct, 20),
+                ui::bar(pct, 20),
             ));
         }
 
-        println!("{}{}{}", DIM, parts.join(" | "), RESET);
+        println!("{}{}{}", ui::DIM, parts.join(" | "), ui::RESET);
     }
 }
 
-/// Render a 0–100 percentage into a 20-char unicode progress bar.
-fn bar(pct: f64, width: usize) -> String {
-    let filled = ((pct / 100.0) * width as f64).round() as usize;
-    let filled = filled.min(width);
-    let mut s = String::with_capacity(width + 2);
-    s.push('[');
-    for i in 0..width {
-        s.push(if i < filled { '█' } else { '░' });
-    }
-    s.push(']');
-    s
-}
-
-fn format_tokens(n: u64) -> String {
-    if n < 1_000 {
-        n.to_string()
-    } else if n < 1_000_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        format!("{:.2}M", n as f64 / 1_000_000.0)
-    }
-}
+// ============================================================================
+// Helper Functions (Utilities)
+// ============================================================================
 
 /// Detect API errors caused by input exceeding the model's max input length.
 fn is_input_length_error(err: &anyhow::Error) -> bool {
@@ -1165,85 +1238,6 @@ fn is_input_length_error(err: &anyhow::Error) -> bool {
     msg.contains("Range of input length should be")
         || msg.contains("InvalidParameter")
         || (msg.contains("400") && msg.contains("input length"))
-}
-
-fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        return s;
-    }
-    let mut end = max;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
-
-/// Print tool input in a readable format, expanding multi-line strings.
-fn print_tool_input(name: &str, input: &serde_json::Value) {
-    println!("[tool-input: {}]", name);
-    
-    if let serde_json::Value::Object(map) = input {
-        for (key, value) in map {
-            match value {
-                serde_json::Value::String(s) => {
-                    // For string values, check if they contain newlines
-                    if s.contains('\n') {
-                        // Multi-line string: show as indented block (no truncation)
-                        println!("  {}:", key);
-                        for line in s.lines() {
-                            println!("    {}", line);
-                        }
-                    } else if s.len() > 100 {
-                        // Very long single-line string: show truncated with length
-                        println!("  {}: \"{}...\" ({} chars)", key, &s[..97], s.len());
-                    } else {
-                        // Normal single-line string
-                        println!("  {}: \"{}\"", key, s);
-                    }
-                }
-                serde_json::Value::Number(n) => {
-                    println!("  {}: {}", key, n);
-                }
-                serde_json::Value::Bool(b) => {
-                    println!("  {}: {}", key, b);
-                }
-                serde_json::Value::Null => {
-                    println!("  {}: null", key);
-                }
-                serde_json::Value::Array(arr) => {
-                    if arr.is_empty() {
-                        println!("  {}: []", key);
-                    } else if arr.len() <= 5 {
-                        println!("  {}: {}", key, serde_json::to_string(arr).unwrap_or_default());
-                    } else {
-                        println!("  {}: [{} items]", key, arr.len());
-                    }
-                }
-                serde_json::Value::Object(inner) => {
-                    if inner.is_empty() {
-                        println!("  {}: {{}}", key);
-                    } else {
-                        println!("  {}: {}", key, serde_json::to_string(inner).unwrap_or_default());
-                    }
-                }
-            }
-        }
-    } else {
-        // Non-object input: just print it
-        println!("  {}", serde_json::to_string_pretty(input).unwrap_or_default());
-    }
-}
-
-fn format_bytes(n: usize) -> String {
-    const KB: usize = 1024;
-    const MB: usize = 1024 * 1024;
-    if n < KB {
-        format!("{} B", n)
-    } else if n < MB {
-        format!("{:.1} KB", n as f64 / KB as f64)
-    } else {
-        format!("{:.2} MB", n as f64 / MB as f64)
-    }
 }
 
 /// Build the system prompt with optional project overview section.
@@ -1268,28 +1262,26 @@ fn build_system_prompt(
 
 #[cfg(test)]
 mod tests {
-    use super::truncate;
-
     #[test]
     fn truncate_ascii_under_max() {
-        assert_eq!(truncate("hello", 10), "hello");
+        assert_eq!(crate::ui::truncate("hello", 10), "hello");
     }
 
     #[test]
     fn truncate_ascii_over_max() {
-        assert_eq!(truncate("hello world", 5), "hello");
+        assert_eq!(crate::ui::truncate("hello world", 5), "hello");
     }
 
     #[test]
     fn truncate_multibyte_mid_char_does_not_panic() {
         let s = "中文".repeat(200);
-        let t = truncate(&s, 500);
+        let t = crate::ui::truncate(&s, 500);
         assert!(t.len() <= 500);
         assert!(s.starts_with(t));
     }
 
     #[test]
     fn truncate_zero_max() {
-        assert_eq!(truncate("中", 0), "");
+        assert_eq!(crate::ui::truncate("中", 0), "");
     }
 }

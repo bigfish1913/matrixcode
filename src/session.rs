@@ -32,12 +32,12 @@ pub struct SessionMetadata {
 }
 
 impl SessionMetadata {
-    /// Create a new session metadata with a fresh UUID.
+    /// Create a new session metadata with a fresh UUID and auto-generated name.
     pub fn new(project_path: Option<&Path>) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
-            name: None,
+            name: Some(Self::generate_time_name(now)),
             project_path: project_path.map(|p| p.to_string_lossy().to_string()),
             created_at: now,
             updated_at: now,
@@ -46,6 +46,14 @@ impl SessionMetadata {
             total_output_tokens: 0,
             compression_history: Vec::new(),
         }
+    }
+
+    /// Generate a friendly time-based name for the session.
+    /// Format: "YYYY-MM-DD HH:mm" (e.g., "2024-01-15 14:30")
+    fn generate_time_name(time: DateTime<Utc>) -> String {
+        // Use local timezone for display
+        let local: chrono::DateTime<chrono::Local> = time.with_timezone(&chrono::Local);
+        local.format("%Y-%m-%d %H:%M").to_string()
     }
 
     /// Add a compression entry to history.
@@ -73,16 +81,20 @@ impl SessionMetadata {
         if let Some(ref name) = self.name {
             name.clone()
         } else {
-            // Show first 8 characters of UUID as fallback
+            // Fallback: show first 8 characters of UUID
             format!("session-{}", &self.id[..8])
         }
+    }
+
+    /// Get a short ID for the session (first 8 chars of UUID).
+    pub fn short_id(&self) -> String {
+        self.id[..8].to_string()
     }
 
     /// Format the session for display in a list.
     pub fn format_line(&self, is_current: bool) -> String {
         let marker = if is_current { "*" } else { " " };
         let name = self.display_name();
-        let time = self.updated_at.format("%Y-%m-%d %H:%M");
         let msgs = self.message_count;
         let project = self.project_path
             .as_ref()
@@ -102,7 +114,7 @@ impl SessionMetadata {
             "".to_string()
         };
         
-        format!("{} {}  [{}]  {} msgs  {}{}", marker, name, time, msgs, project, compression_info)
+        format!("{} {}  {} msgs  {}{}", marker, name, msgs, project, compression_info)
     }
 }
 

@@ -10,6 +10,7 @@ use matrixcode::{
     providers,
     session::SessionManager,
     skills,
+    ui,
     workspace::Workspace,
 };
 use rustyline::DefaultEditor;
@@ -18,6 +19,10 @@ use rustyline::{Cmd, EventHandler, KeyCode, KeyEvent, Modifiers};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
+
+// ============================================================================
+// CLI Argument Definitions
+// ============================================================================
 
 #[derive(Parser)]
 #[command(name = "matrixcode", about = "A simple code agent with tool use")]
@@ -145,6 +150,10 @@ struct Cli {
     #[arg(long, env = "APPROVE_MODE", default_value = "ask")]
     approve_mode: String,
 }
+
+// ============================================================================
+// Main Entry Point
+// ============================================================================
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -375,7 +384,11 @@ async fn main() -> Result<()> {
     } else {
         // Start new session
         session_manager.start_new(project_root.as_deref())?;
-        println!("[new session started]");
+        if let Some(meta) = session_manager.current_metadata() {
+            println!("[new session '{}' started]", meta.display_name());
+        } else {
+            println!("[new session started]");
+        }
     }
 
     if cli.init {
@@ -419,17 +432,17 @@ async fn main() -> Result<()> {
     run_repl(&mut agent, &mut session_manager, project_root.as_deref()).await
 }
 
+// ============================================================================
+// REPL Loop (Interactive Mode)
+// ============================================================================
+
 async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager, project_root: Option<&Path>) -> Result<()> {
     // Print welcome banner
-    print_welcome();
+    ui::print_welcome();
 
-    let session_name = session_manager.current_name()
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| {
-            session_manager.current_id()
-                .map(|id| format!("session-{}", &id[..8]))
-                .unwrap_or_else(|| "new".to_string())
-        });
+    let session_name = session_manager.current_metadata()
+        .map(|m| m.display_name())
+        .unwrap_or_else(|| "new".to_string());
     println!("  Session: '{}'\n", session_name);
     println!("  Approve mode: {} (Shift+Tab / Alt+M or /mode to toggle)\n", agent.approve_mode());
 
@@ -513,11 +526,15 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
             agent.clear_messages();
             session_manager.clear_current()?;
             session_manager.start_new(project_root)?;
-            println!("[context cleared, new session started]");
+            if let Some(meta) = session_manager.current_metadata() {
+                println!("[context cleared, new session '{}' started]", meta.display_name());
+            } else {
+                println!("[context cleared, new session started]");
+            }
             continue;
         }
         if trimmed == "/help" {
-            print_help();
+            ui::print_help();
             continue;
         }
         if trimmed == "/mode" {
@@ -684,6 +701,10 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
     Ok(())
 }
 
+// ============================================================================
+// Skills Loading
+// ============================================================================
+
 fn load_skills(extra: &[PathBuf], skip_defaults: bool) -> Vec<skills::Skill> {
     let mut roots: Vec<PathBuf> = Vec::new();
     roots.extend(extra.iter().cloned());
@@ -703,6 +724,10 @@ fn load_skills(extra: &[PathBuf], skip_defaults: bool) -> Vec<skills::Skill> {
     }
     found
 }
+
+// ============================================================================
+// Session Management UI
+// ============================================================================
 
 /// Show interactive session picker.
 fn show_session_picker(session_manager: &SessionManager) -> Result<Option<String>> {
@@ -770,79 +795,13 @@ fn list_sessions(session_manager: &SessionManager) {
     }
 }
 
-/// Print welcome banner.
-fn print_welcome() {
-    use std::env;
-    
-    // Get version from Cargo.toml
-    let version = env!("CARGO_PKG_VERSION");
-    
-    // Get current model from environment
-    let model = env::var("MODEL_NAME")
-        .or_else(|_| env::var("DEFAULT_MODEL"))
-        .unwrap_or_else(|_| "default".to_string());
-    
-    // ANSI colors
-    let cyan = "\x1b[36m";
-    let green = "\x1b[32m";
-    let yellow = "\x1b[33m";
-    let blue = "\x1b[34m";
-    let bold = "\x1b[1m";
-    let reset = "\x1b[0m";
-    let dim = "\x1b[2m";
-    
-    println!();
-    println!("{cyan}{bold}  __  __       _             _____          _____ _____  {reset}");
-    println!("{cyan} |  \\/  | __ _| |_ ___ _ __  |  _  |_ _ ___|_   _|_   _| {reset}");
-    println!("{cyan} | |\\/| |/ _` | __/ _ \\ '__| | |_| | '_/ _ \\ | |   | |   {reset}");
-    println!("{cyan} | |  | | (_| | ||  __/ |    |  _  | ||  __/ | |   | |   {reset}");
-    println!("{cyan} |_|  |_|\\__,_|\\__\\___|_|    |_| |_|_| \\___| |_|   |_|   {reset}");
-    println!();
-    println!("{dim}  ----------------------------------------------------------{reset}");
-    println!();
-    println!("  {green}Version{reset}  {bold}v{}{reset}", version);
-    println!("  {green}Model{reset}    {bold}{}{reset}", model);
-    println!();
-    println!("  {yellow}/help{reset}  for commands    {yellow}/exit{reset}  to quit");
-    println!("  {blue}Ctrl+C{reset} or {blue}ESC{reset} to interrupt output during streaming");
-    println!();
-}
+// ============================================================================
+// UI Display Functions
+// ============================================================================
 
-/// Print available commands and usage.
-fn print_help() {
-    println!("Available commands:");
-    println!("  /help       - Show this help message");
-    println!("  /status     - Show session status (messages, token usage)");
-    println!("  /model      - Show current model information");
-    println!("  /models     - Show full multi-model configuration");
-    println!("  /skills     - Show loaded skills list");
-    println!("  /history    - Show conversation history summary");
-    println!("  /sessions   - List all saved sessions");
-    println!("  /resume     - Show session picker to resume a session");
-    println!("  /resume <id> - Resume a specific session by ID or name");
-    println!("  /rename <name> - Give the current session a name");
-    println!("  /init       - Generate/update project overview");
-    println!("  /overview   - Show current project overview status");
-    println!("  /plan       - Plan the current task (show last plan or new plan)");
-    println!("  /plan <task> - Generate a plan for the specified task");
-    println!("  /compress   - Manually compress context (balanced bias)");
-    println!("  /compress <bias> - Compress with specific bias:");
-    println!("      balanced     - Balanced preservation (default)");
-    println!("      important    - Preserve tools, thinking, decisions");
-    println!("      tools        - Focus on preserving tool operations");
-    println!("      aggressive   - Remove as much as possible");
-    println!("      preserve:tools,thinking keywords:决定,重要");
-    println!("      preserve:tools,thinking,user keywords:决定,重要");
-    println!("  /clear      - Clear context and start a new session");
-    println!("  /mode       - Toggle approve mode (ask -> auto -> strict)");
-    println!("  /exit       - Exit the REPL (also /quit or :q)");
-    println!();
-    println!("Keyboard shortcuts:");
-    println!("  Shift+Tab   - Toggle approve mode (ask → auto → strict)");
-    println!("  Alt+M       - Alternative: toggle approve mode");
-    println!("  Ctrl+C      - Interrupt current output (at prompt: cancel input)");
-    println!("  Ctrl+D      - Exit the REPL");
-}
+// ============================================================================
+// Command Handlers
+// ============================================================================
 
 /// Print current session status.
 fn print_status(agent: &agent::Agent, session_manager: &SessionManager) {
@@ -865,19 +824,19 @@ fn print_status(agent: &agent::Agent, session_manager: &SessionManager) {
     println!("  Messages: {}", agent.message_count());
     println!(
         "  Last input tokens: {}",
-        format_tokens(stats.last_input_tokens as u64)
+        ui::format_tokens(stats.last_input_tokens as u64)
     );
     println!(
         "  Total output tokens: {}",
-        format_tokens(stats.total_output_tokens)
+        ui::format_tokens(stats.total_output_tokens)
     );
     if let Some(ctx) = stats.context_size {
         let used = stats.last_input_tokens;
         let pct = (used as f64 / ctx as f64 * 100.0).min(100.0);
         println!(
             "  Context window: {} / {} ({:.1}%)",
-            format_tokens(used as u64),
-            format_tokens(ctx as u64),
+            ui::format_tokens(used as u64),
+            ui::format_tokens(ctx as u64),
             pct
         );
     }
@@ -902,37 +861,13 @@ fn print_history(agent: &agent::Agent) {
             providers::MessageContent::Text(t) => {
                 let s = t.trim();
                 let first_line = s.lines().next().unwrap_or("");
-                truncate_str(first_line, 60)
+                ui::truncate_str(first_line, 60)
             }
             providers::MessageContent::Blocks(blocks) => {
                 format!("[{} blocks]", blocks.len())
             }
         };
         println!("  {}. {}: {}", i + 1, role, preview);
-    }
-}
-
-/// Truncate a string for display.
-fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let mut end = max;
-        while end > 0 && !s.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("{}...", &s[..end])
-    }
-}
-
-/// Format a number of tokens for display.
-fn format_tokens(n: u64) -> String {
-    if n < 1_000 {
-        n.to_string()
-    } else if n < 1_000_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        format!("{:.2}M", n as f64 / 1_000_000.0)
     }
 }
 
