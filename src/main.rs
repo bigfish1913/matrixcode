@@ -529,6 +529,14 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
             handle_models(agent);
             continue;
         }
+        if trimmed == "/model" {
+            handle_model(agent);
+            continue;
+        }
+        if trimmed == "/skills" {
+            handle_skills(agent);
+            continue;
+        }
 
         let _ = rl.add_history_entry(trimmed);
 
@@ -733,6 +741,9 @@ fn print_help() {
     println!("Available commands:");
     println!("  /help       - Show this help message");
     println!("  /status     - Show session status (messages, token usage)");
+    println!("  /model      - Show current model information");
+    println!("  /models     - Show full multi-model configuration");
+    println!("  /skills     - Show loaded skills list");
     println!("  /history    - Show conversation history summary");
     println!("  /sessions   - List all saved sessions");
     println!("  /resume     - Show session picker to resume a session");
@@ -742,7 +753,6 @@ fn print_help() {
     println!("  /overview   - Show current project overview status");
     println!("  /plan       - Plan the current task (show last plan or new plan)");
     println!("  /plan <task> - Generate a plan for the specified task");
-    println!("  /models     - Show current multi-model configuration");
     println!("  /compress   - Manually compress context (balanced bias)");
     println!("  /compress <bias> - Compress with specific bias:");
     println!("      balanced     - Balanced preservation (default)");
@@ -978,4 +988,46 @@ fn handle_models(agent: &agent::Agent) {
     println!("  plan:     {} (context: {:?})", config.plan.display_name(), config.plan.context_size);
     println!("  compress: {} (context: {:?})", config.compress.display_name(), config.compress.context_size);
     println!("  fast:     {} (context: {:?})", config.fast.display_name(), config.fast.context_size);
+}
+
+/// Handle /model command: show current model (simple view).
+fn handle_model(agent: &agent::Agent) {
+    let config = agent.model_config();
+    println!("Current model: {}", config.main.display_name());
+    if let Some(ctx) = config.main.context_size {
+        println!("Context window: {} tokens", ctx);
+    }
+}
+
+/// Handle /skills command: show loaded skills list.
+fn handle_skills(agent: &agent::Agent) {
+    let skills = agent.skills();
+    if skills.is_empty() {
+        println!("[no skills loaded]");
+        println!();
+        println!("Skills are loaded from:");
+        println!("  ./skills/              (project skills)");
+        println!("  ~/.matrix/skills/      (user skills)");
+        println!();
+        println!("Use --skills-dir <path> to add custom skill directories.");
+        return;
+    }
+    
+    println!("Loaded skills ({} total):", skills.len());
+    println!();
+    for skill in skills {
+        println!("  {}", skill.name);
+        // Truncate description to ~60 chars for display
+        let desc = &skill.description;
+        let desc_preview = if desc.len() > 60 {
+            let mut end = 60;
+            while end > 0 && !desc.is_char_boundary(end) {
+                end -= 1;
+            }
+            format!("{}...", &desc[..end])
+        } else {
+            desc.clone()
+        };
+        println!("    {}", desc_preview);
+    }
 }

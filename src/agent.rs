@@ -234,6 +234,16 @@ impl Agent {
         &self.model_config
     }
 
+    /// Get loaded skills list.
+    pub fn skills(&self) -> &[Skill] {
+        &self.skills
+    }
+
+    /// Get current model name (main model).
+    pub fn current_model(&self) -> &str {
+        &self.model_config.main.name
+    }
+
     /// Enable server-side web search tool. This allows the model to perform
     /// web searches directly via the API provider without client intervention.
     pub fn with_web_search(mut self, max_uses: Option<u32>) -> Self {
