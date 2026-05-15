@@ -37,7 +37,7 @@ impl SessionMetadata {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
-            name: Some(Self::generate_time_name(now)),
+            name: None,  // Will be auto-generated from first meaningful user message
             project_path: project_path.map(|p| p.to_string_lossy().to_string()),
             created_at: now,
             updated_at: now,
@@ -76,13 +76,13 @@ impl SessionMetadata {
     }
 
     /// Get a display name for the session.
-    /// Returns user-defined name if set, otherwise a truncated ID.
+    /// Returns user-defined name if set, otherwise a time-based fallback.
     pub fn display_name(&self) -> String {
         if let Some(ref name) = self.name {
             name.clone()
         } else {
-            // Fallback: show first 8 characters of UUID
-            format!("session-{}", &self.id[..8])
+            // Fallback: show creation time
+            Self::generate_time_name(self.created_at)
         }
     }
 
@@ -364,8 +364,16 @@ impl SessionManager {
         }
         let data = std::fs::read_to_string(&path)
             .with_context(|| format!("reading session file {}", path.display()))?;
-        let session: Session = serde_json::from_str(&data)
+        let mut session: Session = serde_json::from_str(&data)
             .with_context(|| format!("parsing session file {}", path.display()))?;
+        
+        // If session name is null but index has a name, use index's name
+        if session.metadata.name.is_none() {
+            if let Some(index_meta) = self.index.find(id) {
+                session.metadata.name = index_meta.name.clone();
+            }
+        }
+        
         self.current_session = Some(session);
         Ok(())
     }
