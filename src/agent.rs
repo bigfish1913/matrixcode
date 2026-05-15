@@ -1144,15 +1144,8 @@ impl Agent {
                     // Print tool input with nice formatting
                     ui::print_tool_input(name, input);
 
-                    // Create transition spinner immediately after printing tool input
-                    // This fills the gap until the tool's execute method creates its own spinner
-                    let mut transition_spinner = ToolSpinner::new(&format!("executing {}", name));
-
                     // Execute the tool (spinner is created immediately in tool's execute method)
                     let result = self.execute_single_tool(name, input).await;
-
-                    // Clear transition spinner before showing result
-                    transition_spinner.finish_clear_immediate();
 
                     let output = match result {
                         Ok(output) => {

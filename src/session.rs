@@ -406,10 +406,62 @@ impl SessionManager {
     /// Set messages for the current session.
     pub fn set_messages(&mut self, messages: Vec<Message>) {
         if let Some(ref mut session) = self.current_session {
+            // Auto-generate name from first user message if name is None
+            if session.metadata.name.is_none() && !messages.is_empty() {
+                if let Some(name) = Self::generate_name_from_messages(&messages) {
+                    session.metadata.name = Some(name);
+                }
+            }
+            
             session.messages = messages;
             session.metadata.message_count = session.messages.len();
             session.metadata.updated_at = Utc::now();
         }
+    }
+
+    /// Generate a human-readable session name from the first user message.
+    /// Takes the first meaningful user input and truncates it.
+    fn generate_name_from_messages(messages: &[Message]) -> Option<String> {
+        use crate::providers::{Role, MessageContent, ContentBlock};
+        
+        // Find first meaningful user message (skip very short/generic ones)
+        let user_messages: Vec<&Message> = messages.iter()
+            .filter(|m| m.role == Role::User)
+            .collect();
+        
+        for msg in user_messages.iter().take(3) {
+            let text = match &msg.content {
+                MessageContent::Text(t) => t.clone(),
+                MessageContent::Blocks(blocks) => {
+                    blocks.iter().filter_map(|b| {
+                        if let ContentBlock::Text { text } = b {
+                            Some(text.clone())
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<_>>().join(" ")
+                }
+            };
+            
+            let cleaned = text.trim().lines().next().unwrap_or("").trim();
+            
+            // Skip too short or generic messages
+            if cleaned.len() < 5 || is_generic_message(cleaned) {
+                continue;
+            }
+            
+            // Truncate to reasonable length for display
+            let name = if cleaned.chars().count() > 40 {
+                let truncated: String = cleaned.chars().take(37).collect();
+                format!("{}...", truncated)
+            } else {
+                cleaned.to_string()
+            };
+            
+            return Some(name);
+        }
+        
+        None
     }
 
     /// Get the current session's messages.
@@ -488,3 +540,13 @@ impl Session {
 }
 
 use anyhow::Context;
+
+/// Check if a message is too generic to be a good session name.
+fn is_generic_message(msg: &str) -> bool {
+    let generic = [
+        "继续", "好的", "ok", "yes", "no", "是", "否",
+        "嗯", "对", "行", "可以", "好", "谢谢", "thanks",
+        "hi", "hello", "你好", "开始", "start",
+    ];
+    generic.iter().any(|g| msg.eq_ignore_ascii_case(g))
+}

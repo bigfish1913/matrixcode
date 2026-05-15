@@ -689,6 +689,11 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
 
         agent.set_cancel_token(cancel_token.clone());
 
+        // Update memory context based on current user input
+        if let Some(summary) = load_contextual_memory_summary(project_root, trimmed) {
+            agent.set_memory_summary(&summary);
+        }
+
         if let Err(e) = agent.chat_once(trimmed).await {
             eprintln!("\n[error] {e}");
         }
@@ -1090,9 +1095,39 @@ fn load_memory_summary(project_root: Option<&Path>) -> Option<String> {
     }
 }
 
+/// Load memory summary with context awareness.
+/// Selects memories relevant to the current conversation context.
+fn load_contextual_memory_summary(project_root: Option<&Path>, context: &str) -> Option<String> {
+    use matrixcode::memory::MemoryStorage;
+    
+    let storage = MemoryStorage::new(project_root).ok()?;
+    let memory = storage.load_combined().ok()?;
+    
+    if memory.entries.is_empty() {
+        return None;
+    }
+    
+    // Use contextual summary if context is available
+    let summary = if context.is_empty() {
+        memory.generate_prompt_summary(15)
+    } else {
+        memory.generate_contextual_summary(context, 15)
+    };
+    
+    if summary.is_empty() {
+        None
+    } else {
+        Some(summary)
+    }
+}
+
 /// Save detected memories from conversation to storage.
 /// Called after each conversation turn to accumulate knowledge.
 /// Uses AI extraction if provider is available, falls back to rule-based detection.
+/// 
+/// Note: This async version is currently unused but kept for future integration
+/// into the REPL loop when async memory detection is desired.
+#[allow(dead_code)]
 async fn save_detected_memories_async(
     messages: &[matrixcode::providers::Message],
     project_root: Option<&Path>,
@@ -1156,7 +1191,7 @@ async fn save_detected_memories_async(
     }
     
     // Save to storage and update references
-    if let Ok(storage) = MemoryStorage::new(project_root) {
+    if let Ok(mut storage) = MemoryStorage::new(project_root) {
         // Load existing memory to update references
         if let Ok(mut existing_memory) = storage.load_combined() {
             // Update reference counts for existing entries
@@ -1185,9 +1220,10 @@ async fn save_detected_memories_async(
 fn save_detected_memories(messages: &[matrixcode::providers::Message], project_root: Option<&Path>, session_id: Option<&str>) {
     use matrixcode::memory::{MemoryStorage, detect_memories_from_text};
     
-    // Extract combined text from messages
+    // Only extract from USER messages (not assistant output which contains formatting)
     let combined_text: String = messages
         .iter()
+        .filter(|msg| msg.role == matrixcode::providers::Role::User)
         .filter_map(|msg| {
             match &msg.content {
                 matrixcode::providers::MessageContent::Text(t) => Some(t.clone()),
@@ -1209,42 +1245,151 @@ fn save_detected_memories(messages: &[matrixcode::providers::Message], project_r
         .collect::<Vec<_>>()
         .join("\n\n");
     
+    // Also extract key decisions from assistant messages (but filter formatting)
+    let assistant_text: String = messages
+        .iter()
+        .filter(|msg| msg.role == matrixcode::providers::Role::Assistant)
+        .filter_map(|msg| {
+            match &msg.content {
+                matrixcode::providers::MessageContent::Text(t) => Some(t.clone()),
+                matrixcode::providers::MessageContent::Blocks(blocks) => {
+                    Some(blocks
+                        .iter()
+                        .filter_map(|b| {
+                            if let matrixcode::providers::ContentBlock::Text { text } = b {
+                                // Skip short tool-like outputs
+                                if text.len() > 50 {
+                                    Some(text.clone())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"))
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    
+    // Clean formatting artifacts from assistant text
+    let cleaned_assistant = clean_memory_text(&assistant_text);
+    
+    // Combine user text + cleaned assistant text
+    let full_text = format!("{}\n\n{}", combined_text, cleaned_assistant);
+    
     // Skip if too short
-    if combined_text.len() < 100 {
+    if full_text.len() < 100 {
         return;
     }
     
     // Detect memories from conversation (rule-based)
-    let new_entries = detect_memories_from_text(&combined_text, session_id);
+    let new_entries = detect_memories_from_text(&full_text, session_id);
     
     if new_entries.is_empty() {
         return;
     }
     
     // Save to storage and update references
-    if let Ok(storage) = MemoryStorage::new(project_root) {
-        // Load existing memory to update references
+    if let Ok(mut storage) = MemoryStorage::new(project_root) {
+        // Load existing memory to check for duplicates
+        let existing = storage.load_global().unwrap_or_default();
+        
+        // Filter out entries that are similar to existing ones
+        let truly_new: Vec<_> = new_entries
+            .into_iter()
+            .filter(|entry| !existing.has_similar(&entry.content))
+            .collect();
+        
+        if truly_new.is_empty() {
+            return;
+        }
+        
+        // Update reference counts for existing entries
         if let Ok(mut existing_memory) = storage.load_combined() {
-            // Update reference counts for existing entries
             existing_memory.update_references(messages);
-            
-            // Apply time decay to old entries
             existing_memory.apply_time_decay();
             
-            // Save updated memory
             if let Err(e) = storage.save_global(&existing_memory) {
                 eprintln!("[warn] could not update memory references: {}", e);
             }
         }
         
-        // Add new entries
-        for entry in new_entries {
-            // Try to save as global memory first (default)
+        // Add truly new entries
+        for entry in truly_new {
             if let Err(e) = storage.add_entry(entry, false) {
                 eprintln!("[warn] could not save memory: {}", e);
             }
         }
     }
+}
+
+/// Clean formatting artifacts from text before memory detection.
+/// Removes emoji, table borders, markdown decorations, etc.
+fn clean_memory_text(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            // Skip empty lines
+            if trimmed.is_empty() {
+                return false;
+            }
+            // Skip lines that are mostly formatting
+            if is_formatting_line(trimmed) {
+                return false;
+            }
+            true
+        })
+        .map(|line| strip_formatting(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Check if a line is primarily formatting (not content).
+fn is_formatting_line(line: &str) -> bool {
+    // Table borders
+    if line.starts_with("├") || line.starts_with("└") || line.starts_with("│") || line.starts_with("┌") || line.starts_with("┐") || line.starts_with("─") {
+        return true;
+    }
+    // Lines that are mostly special characters
+    let special_count = line.chars().filter(|c| {
+        matches!(c, '│' | '├' | '└' | '┌' | '┐' | '─' | '═' | '║' | '╔' | '╗' | '╚' | '╝' | '┬' | '┴' | '┼')
+    }).count();
+    if special_count > line.chars().count() / 3 {
+        return true;
+    }
+    // Lines that start with emoji markers (likely formatted output, not user intent)
+    if line.starts_with("🎯") || line.starts_with("🔧") || line.starts_with("💡") || 
+       line.starts_with("📚") || line.starts_with("🏗") || line.starts_with("👤") ||
+       line.starts_with("⭐") || line.starts_with("📝") {
+        return true;
+    }
+    // Section headers from memory summary
+    if line.contains("【自动记忆摘要】") || line.contains("[ACCUMULATED MEMORY]") {
+        return true;
+    }
+    // Code block markers
+    if line.starts_with("```") {
+        return true;
+    }
+    false
+}
+
+/// Strip formatting characters from a line.
+fn strip_formatting(line: &str) -> &str {
+    let trimmed = line.trim();
+    // Remove leading tree characters
+    let stripped = trimmed
+        .trim_start_matches("│")
+        .trim_start_matches("├──")
+        .trim_start_matches("└──")
+        .trim_start_matches("├─")
+        .trim_start_matches("└─")
+        .trim();
+    stripped
 }
 
 /// Handle /memory command: show accumulated memories.
@@ -1347,7 +1492,7 @@ fn handle_memory_command(args: &str, _agent: &mut agent::Agent, project_root: Op
             e
         };
         
-        let storage = match MemoryStorage::new(project_root) {
+        let mut storage = match MemoryStorage::new(project_root) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[error] {}", e);
@@ -1365,7 +1510,7 @@ fn handle_memory_command(args: &str, _agent: &mut agent::Agent, project_root: Op
         }
     } else if args == "clear" || args == "clear all" {
         // Clear all memories (simplified UX)
-        let storage = match MemoryStorage::new(project_root) {
+        let mut storage = match MemoryStorage::new(project_root) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[error] {}", e);
@@ -1395,7 +1540,7 @@ fn handle_memory_command(args: &str, _agent: &mut agent::Agent, project_root: Op
         println!("[{} memory entries cleared]", cleared);
     } else if args == "clear global" {
         // Clear only global memory
-        let storage = match MemoryStorage::new(project_root) {
+        let mut storage = match MemoryStorage::new(project_root) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[error] {}", e);
@@ -1418,7 +1563,7 @@ fn handle_memory_command(args: &str, _agent: &mut agent::Agent, project_root: Op
             return;
         }
         
-        let storage = match MemoryStorage::new(project_root) {
+        let mut storage = match MemoryStorage::new(project_root) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[error] {}", e);
@@ -1492,7 +1637,7 @@ fn handle_memory_command(args: &str, _agent: &mut agent::Agent, project_root: Op
         }
     } else if args == "prune" {
         // Manually trigger pruning
-        let storage = match MemoryStorage::new(project_root) {
+        let mut storage = match MemoryStorage::new(project_root) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[error] {}", e);
@@ -1584,7 +1729,7 @@ fn handle_memory_command(args: &str, _agent: &mut agent::Agent, project_root: Op
             }
         };
         
-        let storage = match MemoryStorage::new(project_root) {
+        let mut storage = match MemoryStorage::new(project_root) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[error] {}", e);
@@ -1608,6 +1753,202 @@ fn handle_memory_command(args: &str, _agent: &mut agent::Agent, project_root: Op
         println!("[imported {} memories, {} duplicates skipped]", 
             imported_count,
             imported_count - (existing.entries.len() - imported_count));
+    } else if args == "config" || args == "config show" {
+        // Show current config
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let config = storage.load_config().unwrap_or_default();
+        println!("记忆系统配置：");
+        println!("  max_entries:       {} 条", config.max_entries);
+        println!("  min_importance:    {:.1} 分", config.min_importance);
+        println!("  enabled:           {}", if config.enabled { "是" } else { "否" });
+        println!("  decay_start_days:  {} 天", config.decay_start_days);
+        println!("  decay_rate:        {:.2}", config.decay_rate);
+        println!("  reference_increment: {:.1}", config.reference_increment);
+        println!("  max_importance:    {:.1}", config.max_importance_ceiling);
+        println!();
+        println!("修改配置：");
+        println!("  /memory config set <key> <value>");
+        println!("  /memory config reset");
+        println!("  /memory config minimal");
+        println!("  /memory config archival");
+    } else if args == "config reset" {
+        // Reset config to default
+        let mut storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let config = matrixcode::memory::MemoryConfig::default();
+        if let Err(e) = storage.save_config(&config) {
+            eprintln!("[error saving config: {}]", e);
+        } else {
+            println!("[config reset to default]");
+        }
+    } else if args == "config minimal" {
+        // Set minimal config
+        let mut storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let config = matrixcode::memory::MemoryConfig::minimal();
+        if let Err(e) = storage.save_config(&config) {
+            eprintln!("[error saving config: {}]", e);
+        } else {
+            println!("[config set to minimal (50 entries, 14-day decay)]");
+        }
+    } else if args == "config archival" {
+        // Set archival config
+        let mut storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let config = matrixcode::memory::MemoryConfig::archival();
+        if let Err(e) = storage.save_config(&config) {
+            eprintln!("[error saving config: {}]", e);
+        } else {
+            println!("[config set to archival (500 entries, 90-day decay)]");
+        }
+    } else if args.starts_with("config set ") {
+        // Set a specific config value
+        let parts: Vec<&str> = args.trim_start_matches("config set ").splitn(2, ' ').collect();
+        if parts.len() != 2 {
+            println!("Usage: /memory config set <key> <value>");
+            println!("Keys: max_entries, min_importance, decay_start_days, decay_rate, reference_increment");
+            return;
+        }
+        
+        let key = parts[0];
+        let value = parts[1];
+        
+        let mut storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let mut config = storage.load_config().unwrap_or_default();
+        
+        match key {
+            "max_entries" => {
+                if let Ok(v) = value.parse::<usize>() {
+                    config.max_entries = v;
+                } else {
+                    eprintln!("[error: invalid value for max_entries]");
+                    return;
+                }
+            }
+            "min_importance" => {
+                if let Ok(v) = value.parse::<f64>() {
+                    config.min_importance = v.clamp(0.0, 100.0);
+                } else {
+                    eprintln!("[error: invalid value for min_importance]");
+                    return;
+                }
+            }
+            "decay_start_days" => {
+                if let Ok(v) = value.parse::<i64>() {
+                    config.decay_start_days = v.max(1);
+                } else {
+                    eprintln!("[error: invalid value for decay_start_days]");
+                    return;
+                }
+            }
+            "decay_rate" => {
+                if let Ok(v) = value.parse::<f64>() {
+                    config.decay_rate = v.clamp(0.1, 0.9);
+                } else {
+                    eprintln!("[error: invalid value for decay_rate]");
+                    return;
+                }
+            }
+            "reference_increment" => {
+                if let Ok(v) = value.parse::<f64>() {
+                    config.reference_increment = v.clamp(0.1, 10.0);
+                } else {
+                    eprintln!("[error: invalid value for reference_increment]");
+                    return;
+                }
+            }
+            "enabled" => {
+                config.enabled = value == "true" || value == "1" || value == "yes";
+            }
+            _ => {
+                eprintln!("[error: unknown config key '{}']", key);
+                println!("Valid keys: max_entries, min_importance, decay_start_days, decay_rate, reference_increment, enabled");
+                return;
+            }
+        }
+        
+        if let Err(e) = storage.save_config(&config) {
+            eprintln!("[error saving config: {}]", e);
+        } else {
+            println!("[config updated: {} = {}]", key, value);
+        }
+    } else if args.starts_with("semantic ") {
+        // Semantic search using TF-IDF
+        let query = args.trim_start_matches("semantic ").trim();
+        if query.is_empty() {
+            println!("Usage: /memory semantic <query>");
+            return;
+        }
+        
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let memory = match storage.load_combined() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        if memory.entries.is_empty() {
+            println!("[no memories to search]");
+            return;
+        }
+        
+        // Build TF-IDF index and search
+        let mut tfidf = matrixcode::memory::TfIdfSearch::new();
+        tfidf.index(&memory);
+        
+        let results = tfidf.search(query, Some(10));
+        
+        if results.is_empty() {
+            println!("[no semantically similar memories found for '{}']", query);
+        } else {
+            println!("Semantic search results for '{}':", query);
+            println!();
+            for (i, (content, score)) in results.iter().enumerate() {
+                let truncated = crate::ui::truncate_str(content, 70);
+                println!("  {}. [{:.2}] {}", i + 1, score, truncated);
+            }
+        }
     } else {
         println!("Unknown memory command: {}", args);
         println!("Available commands:");
@@ -1619,5 +1960,7 @@ fn handle_memory_command(args: &str, _agent: &mut agent::Agent, project_root: Op
         println!("  /memory prune           - Prune old memories");
         println!("  /memory export [file]   - Export to JSON");
         println!("  /memory import <file>   - Import from JSON");
+        println!("  /memory config          - Show/edit config");
+        println!("  /memory semantic <query> - Semantic search (TF-IDF)");
     }
 }
