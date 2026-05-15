@@ -4,7 +4,8 @@
 //! ensuring proper cleanup even when errors occur.
 
 use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
+use std::io::Write;
+use std::time::{Duration, Instant};
 
 /// Spinner animation frames (Braille patterns)
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -24,7 +25,11 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 /// ```
 pub struct ToolSpinner {
     bar: ProgressBar,
+    created_at: Instant,
 }
+
+/// Minimum time spinner should be visible (in milliseconds)
+const MIN_DISPLAY_MS: u64 = 100;
 
 impl ToolSpinner {
     /// Create a new spinner with the given message.
@@ -39,22 +44,41 @@ impl ToolSpinner {
         bar.set_message(msg.to_string());
         bar.enable_steady_tick(Duration::from_millis(80));
         bar.tick(); // force immediate draw for fast operations
-        Self { bar }
+        
+        // Force stdout flush to ensure spinner appears immediately
+        let _ = std::io::stdout().flush();
+        
+        Self { bar, created_at: Instant::now() }
     }
 
-    /// Finish the spinner with a final message (shown briefly before clearing).
+    /// Finish the spinner and print a success message on a new line.
+    /// This ensures minimum display time before clearing.
     pub fn finish(&self, msg: &str) {
-        self.bar.finish_with_message(msg.to_string());
+        // Ensure spinner has been visible for at least MIN_DISPLAY_MS
+        let elapsed = self.created_at.elapsed();
+        if elapsed < Duration::from_millis(MIN_DISPLAY_MS) {
+            std::thread::sleep(Duration::from_millis(MIN_DISPLAY_MS) - elapsed);
+        }
+        
+        self.bar.finish_and_clear();
+        println!("  ✓ {}", msg);
     }
 
     /// Finish the spinner with a success message.
     pub fn finish_success(&self, msg: &str) {
-        self.finish(&format!("✓ {}", msg));
+        self.finish(msg);
     }
 
     /// Finish the spinner with an error message.
     pub fn finish_error(&self, msg: &str) {
-        self.finish(&format!("✗ {}", msg));
+        // Ensure spinner has been visible for at least MIN_DISPLAY_MS
+        let elapsed = self.created_at.elapsed();
+        if elapsed < Duration::from_millis(MIN_DISPLAY_MS) {
+            std::thread::sleep(Duration::from_millis(MIN_DISPLAY_MS) - elapsed);
+        }
+        
+        self.bar.finish_and_clear();
+        println!("  ✗ {}", msg);
     }
 
     /// Update the spinner message without stopping it.
@@ -70,12 +94,9 @@ impl ToolSpinner {
 
 impl Drop for ToolSpinner {
     fn drop(&mut self) {
-        // Only clear if not already finished
-        // If finish() was called, the bar is already in a finished state
-        // and we should preserve the final message
-        if !self.bar.is_finished() {
-            self.bar.finish_and_clear();
-        }
+        // Always clear the spinner line when dropped
+        // This ensures cleanup even if finish was not called
+        self.bar.finish_and_clear();
     }
 }
 
