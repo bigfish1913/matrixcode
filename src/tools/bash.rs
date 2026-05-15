@@ -1,12 +1,10 @@
-use std::time::Duration;
-
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::process::Command;
-use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
+use super::spinner::ToolSpinner;
 
 pub struct BashTool;
 
@@ -55,25 +53,17 @@ impl Tool for BashTool {
             .unwrap_or(DEFAULT_TIMEOUT_MS)
             .min(MAX_TIMEOUT_MS);
 
-        // Show spinner while running command
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
-        spinner.set_message(format!("running: {}", truncate_command(command, 50)));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-        spinner.tick(); // force an immediate draw so fast operations still show the spinner
+        // Show spinner while running command - RAII guard ensures cleanup on error
+        let spinner = ToolSpinner::new(&format!("running: {}", truncate_command(command, 50)));
 
-        let mut cmd = Command::new("sh");
+        let mut cmd = tokio::process::Command::new("sh");
         cmd.arg("-c").arg(command).kill_on_drop(true);
 
         let fut = cmd.output();
         let output = match tokio::time::timeout(Duration::from_millis(timeout_ms), fut).await {
             Ok(result) => result?,
             Err(_) => {
-                spinner.finish_with_message("⏱ timed out".to_string());
+                spinner.finish_error("timed out");
                 anyhow::bail!("command timed out after {} ms", timeout_ms);
             }
         };
@@ -91,11 +81,11 @@ impl Tool for BashTool {
 
         let code = output.status.code().unwrap_or(-1);
         if !output.status.success() {
-            spinner.finish_with_message(format!("✗ exit {}", code));
+            spinner.finish_error(&format!("exit {}", code));
             return Ok(format!("[exit {}]\n{}", code, stdout));
         }
         
-        spinner.finish_with_message("✓ done".to_string());
+        spinner.finish_success("done");
         Ok(stdout)
     }
 }

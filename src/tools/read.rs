@@ -1,10 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
+use super::spinner::ToolSpinner;
 
 pub struct ReadTool;
 
@@ -38,16 +37,8 @@ impl Tool for ReadTool {
     async fn execute(&self, params: Value) -> Result<String> {
         let path = params["path"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
         
-        // Show spinner while reading
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
-        spinner.set_message(format!("reading {}", path));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-        spinner.tick(); // force an immediate draw so fast operations still show the spinner
+        // Show spinner while reading - RAII guard ensures cleanup on error
+        let spinner = ToolSpinner::new(&format!("reading {}", path));
 
         let content = tokio::fs::read_to_string(path).await?;
 
@@ -65,7 +56,7 @@ impl Tool for ReadTool {
             .collect::<Vec<_>>()
             .join("\n");
 
-        spinner.finish_with_message(format!("✓ {} lines", selected.len()));
+        spinner.finish_success(&format!("{} lines", selected.len()));
         Ok(result)
     }
 }

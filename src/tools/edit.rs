@@ -1,10 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
+use super::spinner::ToolSpinner;
 
 pub struct EditTool;
 
@@ -40,33 +39,25 @@ impl Tool for EditTool {
         let old_string = params["old_string"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'old_string'"))?;
         let new_string = params["new_string"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'new_string'"))?;
 
-        // Show spinner while editing
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
-        spinner.set_message(format!("editing {}", path));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-        spinner.tick(); // force an immediate draw so fast operations still show the spinner
+        // Show spinner while editing - RAII guard ensures cleanup on error
+        let spinner = ToolSpinner::new(&format!("editing {}", path));
 
         let content = tokio::fs::read_to_string(path).await?;
 
         let count = content.matches(old_string).count();
         if count == 0 {
-            spinner.finish_with_message("✗ not found".to_string());
+            spinner.finish_error("not found");
             anyhow::bail!("old_string not found in {}", path);
         }
         if count > 1 {
-            spinner.finish_with_message("✗ multiple matches".to_string());
+            spinner.finish_error("multiple matches");
             anyhow::bail!("old_string found {} times in {} — must be unique", count, path);
         }
 
         let new_content = content.replacen(old_string, new_string, 1);
         tokio::fs::write(path, &new_content).await?;
 
-        spinner.finish_with_message("✓ edited".to_string());
+        spinner.finish_success("edited");
         Ok(format!("Successfully edited {}", path))
     }
 }

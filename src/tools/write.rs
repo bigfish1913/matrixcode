@@ -1,10 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
+use super::spinner::ToolSpinner;
 
 pub struct WriteTool;
 
@@ -42,21 +41,13 @@ impl Tool for WriteTool {
 
         let total_bytes = content.len();
         
-        // Show progress spinner for writes
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
-        spinner.set_message(format!("writing to {}", path));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-        spinner.tick(); // force an immediate draw so fast operations still show the spinner
+        // Show progress spinner for writes - RAII guard ensures cleanup on error
+        let spinner = ToolSpinner::new(&format!("writing to {}", path));
         
         // Write the file
         tokio::fs::write(path, content).await?;
         
-        spinner.finish_with_message(format!("✓ wrote {} bytes", total_bytes));
+        spinner.finish_success(&format!("wrote {} bytes", total_bytes));
 
         Ok(format!("Successfully wrote {} bytes to {}", total_bytes, path))
     }

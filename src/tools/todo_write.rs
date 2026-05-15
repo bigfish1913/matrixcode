@@ -1,10 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
+use super::spinner::ToolSpinner;
 
 pub struct TodoWriteTool;
 
@@ -55,16 +54,8 @@ impl Tool for TodoWriteTool {
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("missing 'todos' array"))?;
 
-        // Show spinner while updating todo list
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
-        spinner.set_message(format!("updating todos ({} items)", todos.len()));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-        spinner.tick(); // force an immediate draw so fast operations still show the spinner
+        // Show spinner while updating todo list - RAII guard ensures cleanup on error
+        let spinner = ToolSpinner::new(&format!("updating todos ({} items)", todos.len()));
 
         let mut in_progress_count = 0;
         let mut completed_count = 0;
@@ -102,7 +93,7 @@ impl Tool for TodoWriteTool {
         }
 
         if in_progress_count > 1 {
-            spinner.finish_with_message("✗ multiple in_progress".to_string());
+            spinner.finish_error("multiple in_progress");
             anyhow::bail!(
                 "at most one task may be 'in_progress' at a time (found {})",
                 in_progress_count
@@ -110,7 +101,7 @@ impl Tool for TodoWriteTool {
         }
 
         if lines.is_empty() {
-            spinner.finish_with_message("✓ cleared".to_string());
+            spinner.finish_success("cleared");
             return Ok("Todo list cleared.".to_string());
         }
 
@@ -122,8 +113,10 @@ impl Tool for TodoWriteTool {
             out.push_str(l);
         }
 
-        spinner.finish_with_message(format!("✓ {} pending, {} in_progress, {} done", 
-            pending_count, in_progress_count, completed_count));
+        spinner.finish_success(&format!(
+            "{} pending, {} in_progress, {} done",
+            pending_count, in_progress_count, completed_count
+        ));
         Ok(out)
     }
 }

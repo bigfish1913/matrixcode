@@ -6,6 +6,7 @@ pub mod multi_edit;
 pub mod read;
 pub mod search;
 pub mod skill;
+pub mod spinner;
 pub mod todo_write;
 pub mod webfetch;
 pub mod websearch;

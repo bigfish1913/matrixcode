@@ -1,9 +1,7 @@
 use std::io::{Write as _, stdout};
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Result;
-use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::compress::{CompressionConfig, CompressionStrategy, should_compress};
 use crate::markdown;
@@ -15,6 +13,7 @@ use crate::providers::{
 };
 use crate::skills::{self, Skill};
 use crate::tools::{self, Tool};
+use crate::tools::spinner::ToolSpinner;
 use termimad::MadSkin;
 
 pub use crate::prompt::PromptProfile;
@@ -671,7 +670,7 @@ impl Agent {
     /// thinking deltas (dim) and text deltas (normal) as they arrive.
     /// Returns the assembled final response.
     async fn stream_one_turn(&self, request: ChatRequest) -> Result<ChatResponse> {
-        let spinner = make_spinner("thinking");
+        let mut spinner = Some(ToolSpinner::new("thinking"));
         let mut rx = self.provider.chat_stream(request).await?;
 
         let mut in_thinking = false;
@@ -679,17 +678,17 @@ impl Agent {
         // Raw markdown accumulated for the current text block. Re-rendered
         // over the printed plaintext when the block closes.
         let mut text_buffer = String::new();
-        let mut tool_spinner: Option<(ProgressBar, String)> = None;
+        let mut tool_spinner: Option<ToolSpinner> = None;
+        let mut current_tool_name: Option<String> = None;
         let mut last_shown_bytes: usize = 0;
         let mut final_response: Option<ChatResponse> = None;
 
         loop {
             // Check for cancellation at the start of each iteration
             if self.is_cancelled() {
-                spinner.finish_and_clear();
-                if let Some((sp, _)) = tool_spinner.take() {
-                    sp.finish_and_clear();
-                }
+                // Spinner cleanup handled by Drop (RAII)
+                spinner.take();
+                tool_spinner.take();
                 if in_thinking {
                     print!("{}", RESET);
                 }
@@ -716,10 +715,9 @@ impl Agent {
 
             // Check cancellation again immediately after receiving an event
             if self.is_cancelled() {
-                spinner.finish_and_clear();
-                if let Some((sp, _)) = tool_spinner.take() {
-                    sp.finish_and_clear();
-                }
+                // Spinner cleanup handled by Drop (RAII)
+                spinner.take();
+                tool_spinner.take();
                 if in_thinking {
                     print!("{}", RESET);
                 }
@@ -736,7 +734,8 @@ impl Agent {
 
             match event {
                 Some(StreamEvent::FirstByte) => {
-                    spinner.finish_and_clear();
+                    // Main spinner done, clear it (cleanup handled by Drop)
+                    spinner.take();
                 }
                 Some(StreamEvent::ThinkingDelta(t)) => {
                     if in_text {
@@ -770,12 +769,11 @@ impl Agent {
                         self.flush_text_block(&mut text_buffer);
                         in_text = false;
                     }
-                    if let Some((sp, _)) = tool_spinner.take() {
-                        sp.finish_and_clear();
-                    }
+                    // Clear previous tool spinner if any
+                    tool_spinner.take();
                     println!("[tool: {}]", name);
-                    let sp = make_spinner(&format!("streaming {} input (0 B)", name));
-                    tool_spinner = Some((sp, name));
+                    tool_spinner = Some(ToolSpinner::new(&format!("streaming {} input (0 B)", name)));
+                    current_tool_name = Some(name.clone());
                     last_shown_bytes = 0;
                 }
                 Some(StreamEvent::ToolInputDelta { bytes_so_far }) => {
@@ -784,20 +782,21 @@ impl Agent {
                     // when the model streams many small partial_json chunks.
                     const REFRESH_STEP: usize = 1024;
                     if bytes_so_far >= last_shown_bytes + REFRESH_STEP {
-                        if let Some((sp, name)) = tool_spinner.as_ref() {
-                            sp.set_message(format!(
-                                "streaming {} input ({})",
-                                name,
-                                format_bytes(bytes_so_far)
-                            ));
-                            last_shown_bytes = bytes_so_far;
+                        if let Some(ref sp) = tool_spinner {
+                            if let Some(ref name) = current_tool_name {
+                                sp.set_message(&format!(
+                                    "streaming {} input ({})",
+                                    name,
+                                    format_bytes(bytes_so_far)
+                                ));
+                                last_shown_bytes = bytes_so_far;
+                            }
                         }
                     }
                 }
                 Some(StreamEvent::Done(resp)) => {
-                    if let Some((sp, _)) = tool_spinner.take() {
-                        sp.finish_and_clear();
-                    }
+                    // Tool spinner cleanup handled by Drop (RAII)
+                    tool_spinner.take();
                     if in_thinking {
                         print!("{}", RESET);
                     }
@@ -810,19 +809,21 @@ impl Agent {
                     break;
                 }
                 Some(StreamEvent::Error(e)) => {
-                    if let Some((sp, _)) = tool_spinner.take() {
-                        sp.finish_and_clear();
-                    }
+                    // All spinners cleanup handled by Drop (RAII)
+                    spinner.take();
+                    tool_spinner.take();
                     if in_thinking {
                         print!("{}", RESET);
                     }
-                    spinner.finish_and_clear();
                     anyhow::bail!("stream error: {}", e);
                 }
                 None => break,
             }
         }
 
+        // Main spinner cleanup handled by Drop (RAII) if still present
+        spinner.take();
+        
         final_response.ok_or_else(|| anyhow::anyhow!("stream ended without Done event"))
     }
 
@@ -995,19 +996,6 @@ fn is_input_length_error(err: &anyhow::Error) -> bool {
     msg.contains("Range of input length should be")
         || msg.contains("InvalidParameter")
         || (msg.contains("400") && msg.contains("input length"))
-}
-
-fn make_spinner(msg: &str) -> ProgressBar {
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::with_template("{spinner:.cyan} {msg}")
-            .unwrap_or_else(|_| ProgressStyle::default_spinner())
-            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-    );
-    pb.set_message(msg.to_string());
-    pb.enable_steady_tick(Duration::from_millis(80));
-    pb.tick(); // force an immediate draw so fast responses still show the spinner
-    pb
 }
 
 fn truncate(s: &str, max: usize) -> &str {

@@ -1,10 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
+use super::spinner::ToolSpinner;
 
 pub struct WebFetchTool;
 
@@ -35,22 +34,14 @@ impl Tool for WebFetchTool {
         let url = params["url"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'url'"))?;
         let max_length = params["max_length"].as_u64().unwrap_or(10000) as usize;
 
-        // Show spinner while fetching
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
-        spinner.set_message(format!("fetching {}", url));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-        spinner.tick(); // force an immediate draw so fast operations still show the spinner
+        // Show spinner while fetching - RAII guard ensures cleanup on error
+        let spinner = ToolSpinner::new(&format!("fetching {}", url));
 
         let response = reqwest::get(url).await?;
         let status = response.status();
 
         if !status.is_success() {
-            spinner.finish_with_message(format!("✗ HTTP {}", status));
+            spinner.finish_error(&format!("HTTP {}", status));
             anyhow::bail!("HTTP {} for {}", status, url);
         }
 
@@ -65,7 +56,7 @@ impl Tool for WebFetchTool {
             body
         };
 
-        spinner.finish_with_message(format!("✓ {} bytes", bytes));
+        spinner.finish_success(&format!("{} bytes", bytes));
         Ok(truncated)
     }
 }

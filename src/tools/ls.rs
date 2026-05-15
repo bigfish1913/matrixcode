@@ -1,10 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
+use super::spinner::ToolSpinner;
 
 pub struct LsTool;
 
@@ -34,16 +33,8 @@ impl Tool for LsTool {
     async fn execute(&self, params: Value) -> Result<String> {
         let path = params["path"].as_str().unwrap_or(".").to_string();
 
-        // Show spinner while listing
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
-        spinner.set_message(format!("listing {}", path));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-        spinner.tick(); // force an immediate draw so fast operations still show the spinner
+        // Show spinner while listing - RAII guard ensures cleanup on error
+        let spinner = ToolSpinner::new(&format!("listing {}", path));
 
         let mut dirs: Vec<String> = Vec::new();
         let mut files: Vec<(String, u64)> = Vec::new();
@@ -66,7 +57,7 @@ impl Tool for LsTool {
         let total = dirs.len() + files.len();
 
         if dirs.is_empty() && files.is_empty() {
-            spinner.finish_with_message("✓ (empty)".to_string());
+            spinner.finish_success("(empty)");
             return Ok(format!("(empty) {}", path));
         }
 
@@ -82,7 +73,7 @@ impl Tool for LsTool {
             out.pop();
         }
 
-        spinner.finish_with_message(format!("✓ {} entries", total));
+        spinner.finish_success(&format!("{} entries", total));
         Ok(out)
     }
 }

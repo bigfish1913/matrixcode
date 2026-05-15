@@ -9,10 +9,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
+use super::spinner::ToolSpinner;
 use crate::skills::{Skill, list_skill_files};
 
 pub struct SkillTool {
@@ -68,16 +67,8 @@ impl Tool for SkillTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'name'"))?;
 
-        // Show spinner while loading skill
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
-        spinner.set_message(format!("loading skill '{}'", name));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-        spinner.tick(); // force an immediate draw so fast operations still show the spinner
+        // Show spinner while loading skill - RAII guard ensures cleanup on error
+        let spinner = ToolSpinner::new(&format!("loading skill '{}'", name));
 
         let skill = self
             .skills
@@ -85,7 +76,7 @@ impl Tool for SkillTool {
             .find(|s| s.name == name)
             .ok_or_else(|| {
                 let available: Vec<&str> = self.skills.iter().map(|s| s.name.as_str()).collect();
-                spinner.finish_with_message("✗ skill not found".to_string());
+                spinner.finish_error("skill not found");
                 anyhow::anyhow!(
                     "unknown skill '{}'. Available: {}",
                     name,
@@ -116,7 +107,7 @@ impl Tool for SkillTool {
             files_section
         );
 
-        spinner.finish_with_message(format!("✓ skill '{}' loaded", name));
+        spinner.finish_success(&format!("skill '{}' loaded", name));
         Ok(result)
     }
 }

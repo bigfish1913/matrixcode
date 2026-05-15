@@ -3,10 +3,9 @@ use async_trait::async_trait;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
+use super::spinner::ToolSpinner;
 
 /// Client-side web search tool using DuckDuckGo HTML search.
 /// This tool performs web searches without requiring any API key.
@@ -39,21 +38,13 @@ impl Tool for WebSearchTool {
         let query = params["query"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'query' parameter"))?;
         let max_results = params["max_results"].as_u64().unwrap_or(5).min(10) as usize;
 
-        // Show spinner while searching
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .unwrap_or_else(|_| ProgressStyle::default_spinner())
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
-        spinner.set_message(format!("web-searching '{}'", query));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-        spinner.tick(); // force an immediate draw so fast operations still show the spinner
+        // Show spinner while searching - RAII guard ensures cleanup on error
+        let spinner = ToolSpinner::new(&format!("web-searching '{}'", query));
 
         let results = search_duckduckgo(query, max_results).await?;
 
         if results.is_empty() {
-            spinner.finish_with_message("✓ 0 results".to_string());
+            spinner.finish_success("0 results");
             return Ok("No results found.".to_string());
         }
 
@@ -70,7 +61,7 @@ impl Tool for WebSearchTool {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        spinner.finish_with_message(format!("✓ {} results", results.len()));
+        spinner.finish_success(&format!("{} results", results.len()));
         Ok(output)
     }
 }
