@@ -52,6 +52,7 @@ pub struct Agent {
     skin: MadSkin,
     system_prompt: String,
     project_overview: Option<String>,
+    memory_summary: Option<String>,  // 跨会话记忆摘要
     profile: PromptProfile,
     skills: Arc<Vec<Skill>>,
     total_output_tokens: u64,
@@ -88,6 +89,7 @@ pub struct AgentBuilder {
     skills: Vec<Skill>,
     max_tokens: u32,
     project_overview: Option<String>,
+    memory_summary: Option<String>,  // 跨会话记忆摘要
 }
 
 impl AgentBuilder {
@@ -101,6 +103,7 @@ impl AgentBuilder {
             skills: Vec::new(),
             max_tokens: 16384,
             project_overview: None,
+            memory_summary: None,
         }
     }
 
@@ -140,10 +143,21 @@ impl AgentBuilder {
         self
     }
 
+    /// Set memory summary content (accumulated memories across sessions).
+    pub fn memory(mut self, summary: impl Into<String>) -> Self {
+        self.memory_summary = Some(summary.into());
+        self
+    }
+
     /// Build the Agent instance.
     pub fn build(self) -> Agent {
         let skills_arc = Arc::new(self.skills);
-        let system_prompt = build_system_prompt(self.profile, &skills_arc, self.project_overview.as_deref());
+        let system_prompt = build_system_prompt(
+            self.profile,
+            &skills_arc,
+            self.project_overview.as_deref(),
+            self.memory_summary.as_deref(),
+        );
         Agent {
             provider: self.provider,
             compress_provider: None,
@@ -158,6 +172,7 @@ impl AgentBuilder {
             skin: markdown::default_skin(),
             system_prompt,
             project_overview: self.project_overview,
+            memory_summary: self.memory_summary,
             profile: self.profile,
             skills: skills_arc,
             total_output_tokens: 0,
@@ -262,6 +277,29 @@ impl Agent {
         max_tokens: u32,
         project_overview: Option<&str>,
     ) -> Self {
+        Self::with_memory_and_overview(
+            provider,
+            think,
+            markdown_enabled,
+            profile,
+            skills,
+            max_tokens,
+            project_overview,
+            None,  // No memory summary
+        )
+    }
+
+    /// Constructor with full options including memory summary.
+    pub fn with_memory_and_overview(
+        provider: Box<dyn Provider>,
+        think: bool,
+        markdown_enabled: bool,
+        profile: PromptProfile,
+        skills: Vec<Skill>,
+        max_tokens: u32,
+        project_overview: Option<&str>,
+        memory_summary: Option<&str>,
+    ) -> Self {
         let mut builder = Self::builder(provider)
             .think(think)
             .markdown(markdown_enabled)
@@ -270,6 +308,9 @@ impl Agent {
             .max_tokens(max_tokens);
         if let Some(overview) = project_overview {
             builder = builder.overview(overview);
+        }
+        if let Some(memory) = memory_summary {
+            builder = builder.memory(memory);
         }
         builder.build()
     }
@@ -367,13 +408,50 @@ impl Agent {
     /// Set or update the project overview and rebuild system prompt.
     pub fn set_project_overview(&mut self, overview: &str) {
         self.project_overview = Some(overview.to_string());
-        self.system_prompt = build_system_prompt(self.profile, &self.skills, Some(overview));
+        self.system_prompt = build_system_prompt(
+            self.profile,
+            &self.skills,
+            Some(overview),
+            self.memory_summary.as_deref(),
+        );
     }
 
     /// Clear the project overview and rebuild system prompt.
     pub fn clear_project_overview(&mut self) {
         self.project_overview = None;
-        self.system_prompt = build_system_prompt(self.profile, &self.skills, None);
+        self.system_prompt = build_system_prompt(
+            self.profile,
+            &self.skills,
+            None,
+            self.memory_summary.as_deref(),
+        );
+    }
+
+    /// Set or update the memory summary and rebuild system prompt.
+    pub fn set_memory_summary(&mut self, summary: &str) {
+        self.memory_summary = Some(summary.to_string());
+        self.system_prompt = build_system_prompt(
+            self.profile,
+            &self.skills,
+            self.project_overview.as_deref(),
+            Some(summary),
+        );
+    }
+
+    /// Clear the memory summary and rebuild system prompt.
+    pub fn clear_memory_summary(&mut self) {
+        self.memory_summary = None;
+        self.system_prompt = build_system_prompt(
+            self.profile,
+            &self.skills,
+            self.project_overview.as_deref(),
+            None,
+        );
+    }
+
+    /// Get current memory summary.
+    pub fn memory_summary(&self) -> Option<&str> {
+        self.memory_summary.as_deref()
     }
 
     /// Set compression configuration.
@@ -1066,8 +1144,15 @@ impl Agent {
                     // Print tool input with nice formatting
                     ui::print_tool_input(name, input);
 
-                    // Execute the tool (waiting spinner is handled in execute_single_tool)
+                    // Create transition spinner immediately after printing tool input
+                    // This fills the gap until the tool's execute method creates its own spinner
+                    let mut transition_spinner = ToolSpinner::new(&format!("executing {}", name));
+
+                    // Execute the tool (spinner is created immediately in tool's execute method)
                     let result = self.execute_single_tool(name, input).await;
+
+                    // Clear transition spinner before showing result
+                    transition_spinner.finish_clear_immediate();
 
                     let output = match result {
                         Ok(output) => {
@@ -1170,16 +1255,6 @@ impl Agent {
             }
         }
 
-        // Show waiting spinner to fill the gap between tool input display and actual tool execution
-        // This ensures user sees feedback immediately after tool input is printed
-        let waiting_spinner = ToolSpinner::new(&format!("executing {}", name));
-        
-        // Wait a brief moment to show the spinner, then clear before tool creates its own
-        // Using a short delay (50ms) to ensure smooth visual transition without overlap
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        waiting_spinner.finish_clear_immediate();
-
-        // Tool will create its own spinner for the actual operation
         tool.execute(input.clone()).await
     }
 
@@ -1245,14 +1320,19 @@ fn build_system_prompt(
     profile: PromptProfile,
     skills: &Arc<Vec<Skill>>,
     project_overview: Option<&str>,
+    memory_summary: Option<&str>,
 ) -> String {
-    use crate::prompt::{PromptContext, SystemPromptBuilder, SECTION_PROJECT_CONTEXT};
+    use crate::prompt::{PromptContext, SystemPromptBuilder, SECTION_PROJECT_CONTEXT, SECTION_ACCUMULATED_MEMORY};
 
     let mut prompt_context = PromptContext::new()
         .with_available_skills(skills::format_catalogue(skills).unwrap_or_default());
 
     if let Some(overview) = project_overview {
         prompt_context = prompt_context.with_section(SECTION_PROJECT_CONTEXT, overview);
+    }
+
+    if let Some(memory) = memory_summary {
+        prompt_context = prompt_context.with_section(SECTION_ACCUMULATED_MEMORY, memory);
     }
 
     SystemPromptBuilder::new(profile)

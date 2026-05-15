@@ -10,6 +10,7 @@ pub mod workspace;    // Working directory management
 
 // Session & State Management
 pub mod session;      // Session persistence and management
+pub mod memory;       // Auto memory accumulation (new)
 pub mod cancel;       // Cancellation tokens for interrupting operations
 pub mod approval;     // User approval gates for dangerous operations
 

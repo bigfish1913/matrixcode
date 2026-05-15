@@ -170,6 +170,14 @@ pub fn build_static_system_prompt(profile: PromptProfile) -> String {
 pub const SECTION_PROJECT_CONTEXT: &str = "PROJECT CONTEXT";
 pub const SECTION_TASK_CONTEXT: &str = "TASK CONTEXT";
 pub const SECTION_AVAILABLE_SKILLS: &str = "AVAILABLE SKILLS";
+pub const SECTION_ACCUMULATED_MEMORY: &str = "ACCUMULATED MEMORY";
+
+/// Memory summary section header for system prompt.
+pub const MEMORY_SUMMARY_HEADER: &str = r#"【跨会话记忆摘要】
+以下是从过往对话中积累的关键知识，请在回答时参考这些信息以保持一致性："#;
+
+/// Memory entry format template.
+pub const MEMORY_ENTRY_TEMPLATE: &str = "{icon} {category}: {content}";
 
 // =============================================================================
 // Overview Generation Prompt Constants

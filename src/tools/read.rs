@@ -35,10 +35,13 @@ impl Tool for ReadTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
+        // Create spinner immediately at the start to fill the gap before actual operation
+        let mut spinner = ToolSpinner::new("preparing read");
+
         let path = params["path"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
-        
-        // Show spinner while reading - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("reading {}", path));
+
+        // Update spinner message for the actual read operation
+        spinner.set_message(&format!("reading {}", path));
 
         let content = tokio::fs::read_to_string(path).await?;
 

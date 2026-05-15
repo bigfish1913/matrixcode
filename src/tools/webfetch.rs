@@ -35,7 +35,7 @@ impl Tool for WebFetchTool {
         let max_length = params["max_length"].as_u64().unwrap_or(10000) as usize;
 
         // Show spinner while fetching - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("fetching {}", url));
+        let mut spinner = ToolSpinner::new(&format!("fetching {}", url));
 
         let response = reqwest::get(url).await?;
         let status = response.status();

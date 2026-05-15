@@ -45,7 +45,7 @@ impl Tool for SearchTool {
         } else {
             format!("searching '{}' in {}", pattern, path)
         };
-        let spinner = ToolSpinner::new(&msg);
+        let mut spinner = ToolSpinner::new(&msg);
 
         let pattern = pattern.to_string();
         let path = path.to_string();

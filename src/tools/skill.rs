@@ -68,7 +68,7 @@ impl Tool for SkillTool {
             .ok_or_else(|| anyhow::anyhow!("missing 'name'"))?;
 
         // Show spinner while loading skill - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("loading skill '{}'", name));
+        let mut spinner = ToolSpinner::new(&format!("loading skill '{}'", name));
 
         let skill = self
             .skills

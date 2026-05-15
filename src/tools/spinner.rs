@@ -18,7 +18,7 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 /// # Example
 /// 
 /// ```ignore
-/// let spinner = ToolSpinner::new("reading file.txt");
+/// let mut spinner = ToolSpinner::new("reading file.txt");
 /// let content = tokio::fs::read_to_string("file.txt").await?;
 /// spinner.finish("✓ 100 lines");
 /// // If the read fails, spinner is still cleared via Drop
@@ -26,6 +26,7 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 pub struct ToolSpinner {
     bar: ProgressBar,
     created_at: Instant,
+    finished: bool,  // Track if spinner has been cleared to prevent double-clear in Drop
 }
 
 /// Minimum time spinner should be visible (in milliseconds)
@@ -44,17 +45,17 @@ impl ToolSpinner {
         bar.set_message(msg.to_string());
         bar.enable_steady_tick(Duration::from_millis(80));
         bar.tick(); // force immediate draw for fast operations
-        
+
         // Force stdout flush to ensure spinner appears immediately
         let _ = std::io::stdout().flush();
-        
-        Self { bar, created_at: Instant::now() }
+
+        Self { bar, created_at: Instant::now(), finished: false }
     }
 
     /// Finish the spinner and print a success message on a new line.
     /// This ensures minimum display time before clearing.
     /// Note: This method is synchronous and may block briefly.
-    pub fn finish(&self, msg: &str) {
+    pub fn finish(&mut self, msg: &str) {
         // Ensure spinner has been visible for at least MIN_DISPLAY_MS
         let elapsed = self.created_at.elapsed();
         if elapsed < Duration::from_millis(MIN_DISPLAY_MS) {
@@ -62,44 +63,48 @@ impl ToolSpinner {
             // where we want to ensure the user sees the feedback
             std::thread::sleep(Duration::from_millis(MIN_DISPLAY_MS) - elapsed);
         }
-        
+
         self.bar.finish_and_clear();
+        self.finished = true;
         println!("  ✓ {}", msg);
     }
 
     /// Finish the spinner with a success message.
-    pub fn finish_success(&self, msg: &str) {
+    pub fn finish_success(&mut self, msg: &str) {
         self.finish(msg);
     }
 
     /// Finish the spinner with an error message.
-    pub fn finish_error(&self, msg: &str) {
+    pub fn finish_error(&mut self, msg: &str) {
         // Ensure spinner has been visible for at least MIN_DISPLAY_MS
         let elapsed = self.created_at.elapsed();
         if elapsed < Duration::from_millis(MIN_DISPLAY_MS) {
             std::thread::sleep(Duration::from_millis(MIN_DISPLAY_MS) - elapsed);
         }
-        
+
         self.bar.finish_and_clear();
+        self.finished = true;
         println!("  ✗ {}", msg);
     }
 
     /// Clear the spinner without printing any message.
     /// Useful when another spinner or output will follow immediately.
-    pub fn finish_clear(&self) {
+    pub fn finish_clear(&mut self) {
         // Ensure spinner has been visible for at least MIN_DISPLAY_MS
         let elapsed = self.created_at.elapsed();
         if elapsed < Duration::from_millis(MIN_DISPLAY_MS) {
             std::thread::sleep(Duration::from_millis(MIN_DISPLAY_MS) - elapsed);
         }
-        
+
         self.bar.finish_and_clear();
+        self.finished = true;
     }
 
     /// Clear the spinner immediately without waiting for minimum display time.
     /// Useful for transitional spinners that hand off to another spinner.
-    pub fn finish_clear_immediate(&self) {
+    pub fn finish_clear_immediate(&mut self) {
         self.bar.finish_and_clear();
+        self.finished = true;
     }
 
     /// Update the spinner message without stopping it.
@@ -115,9 +120,11 @@ impl ToolSpinner {
 
 impl Drop for ToolSpinner {
     fn drop(&mut self) {
-        // Always clear the spinner line when dropped
-        // This ensures cleanup even if finish was not called
-        self.bar.finish_and_clear();
+        // Only clear if not already finished
+        // This prevents double-clear when finish methods were called explicitly
+        if !self.finished {
+            self.bar.finish_and_clear();
+        }
     }
 }
 
@@ -130,20 +137,20 @@ mod tests {
 
     #[test]
     fn spinner_can_be_created_and_finished() {
-        let spinner = ToolSpinner::new("test operation");
+        let mut spinner = ToolSpinner::new("test operation");
         spinner.finish("done");
         // Spinner should be cleared on drop
     }
 
     #[test]
     fn spinner_success_format() {
-        let spinner = ToolSpinner::new("test");
+        let mut spinner = ToolSpinner::new("test");
         spinner.finish_success("completed");
     }
 
     #[test]
     fn spinner_error_format() {
-        let spinner = ToolSpinner::new("test");
+        let mut spinner = ToolSpinner::new("test");
         spinner.finish_error("failed");
     }
 }

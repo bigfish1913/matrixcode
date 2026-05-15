@@ -41,11 +41,15 @@ impl Tool for BashTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
+        // Create spinner immediately at the start to fill the gap before actual operation
+        let mut spinner = ToolSpinner::new("preparing command");
+
         let command = params["command"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'command'"))?;
 
         if let Some(reason) = refuse_reason(command) {
+            spinner.finish_error("refused");
             anyhow::bail!("refused: {}", reason);
         }
 
@@ -54,8 +58,8 @@ impl Tool for BashTool {
             .unwrap_or(DEFAULT_TIMEOUT_MS)
             .min(MAX_TIMEOUT_MS);
 
-        // Show spinner while running command - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("running: {}", truncate_command(command, 50)));
+        // Update spinner message for the actual command execution
+        spinner.set_message(&format!("running: {}", truncate_command(command, 50)));
 
         let mut cmd = tokio::process::Command::new("sh");
         cmd.arg("-c").arg(command).kill_on_drop(true);
@@ -85,7 +89,7 @@ impl Tool for BashTool {
             spinner.finish_error(&format!("exit {}", code));
             return Ok(format!("[exit {}]\n{}", code, stdout));
         }
-        
+
         spinner.finish_success("done");
         Ok(stdout)
     }

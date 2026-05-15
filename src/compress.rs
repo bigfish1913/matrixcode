@@ -103,7 +103,7 @@ impl CompressionBias {
         if spec == "balanced" || spec == "default" || spec.is_empty() {
             return Ok(Self::balanced());
         }
-        if spec == "aggressive" || spec == "aggressive" {
+        if spec == "aggressive" {
             return Ok(Self::aggressive());
         }
         if spec == "preserve_important" || spec == "important" {
@@ -433,6 +433,8 @@ const SUMMARY_SYSTEM_PROMPT: &str = r#"你是一个对话历史压缩助手。�
 - 简洁：摘要控制在 200 字以内
 - 关键：只保留重要操作和决策
 - 结构化：使用清晰格式
+- 敏感：必须保留用户的敏感指令（如"不要..."、"必须..."、"禁止..."等）
+- 偏好：保留用户的偏好设置和决策
 
 请直接输出摘要内容。"#;
 
@@ -461,7 +463,7 @@ fn parse_summary_response(text: &str) -> (String, Vec<String>) {
         
         // Detect bullet points
         if line.starts_with("•") || line.starts_with("-") || line.starts_with("*") {
-            let point = line.trim_start_matches(|c| c == '•' || c == '-' || c == '*').trim();
+            let point = line.trim_start_matches(['•', '-', '*']).trim();
             if !point.is_empty() {
                 key_points.push(point.to_string());
             }
@@ -620,6 +622,11 @@ fn calculate_preservation_score(message: &Message, _index: usize, _total: usize,
                 }
             }
             
+            // Check for sensitive instructions (Claude Code inspired)
+            if contains_sensitive_instructions(text) {
+                score += 50.0; // Highly preserve sensitive instructions
+            }
+            
             // Penalize very long messages if not compacting
             if !bias.compact_long_outputs && text.len() > 2000 {
                 score -= 10.0;
@@ -647,6 +654,10 @@ fn calculate_preservation_score(message: &Message, _index: usize, _total: usize,
                                 score += 10.0;
                             }
                         }
+                        // Check for sensitive instructions in result
+                        if contains_sensitive_instructions(content) {
+                            score += 30.0;
+                        }
                     }
                     ContentBlock::Thinking { .. } => {
                         if bias.preserve_thinking {
@@ -661,6 +672,10 @@ fn calculate_preservation_score(message: &Message, _index: usize, _total: usize,
                                 score += 15.0;
                             }
                         }
+                        // Check for sensitive instructions
+                        if contains_sensitive_instructions(text) {
+                            score += 50.0;
+                        }
                     }
                     _ => {}
                 }
@@ -669,6 +684,45 @@ fn calculate_preservation_score(message: &Message, _index: usize, _total: usize,
     }
 
     score
+}
+
+/// Check if text contains sensitive user instructions that must be preserved.
+/// Inspired by Claude Code's "preserve sensitive user instructions" feature.
+fn contains_sensitive_instructions(text: &str) -> bool {
+    let text_lower = text.to_lowercase();
+    
+    // Sensitive instruction patterns (cleaned, no duplicates, more specific)
+    let sensitive_patterns = [
+        // Negative instructions (must NOT do something)
+        "不要", "禁止", "不能", "千万别", "禁止使用",
+        "never do", "must not", "should not", "cannot", "avoid",
+        
+        // Mandatory instructions (MUST do something)
+        "必须", "一定要", "务必", "必须使用",
+        "must", "required", "mandatory",
+        
+        // Security/privacy related
+        "敏感", "隐私", "密码", "secret", "password", "credential",
+        "private", "sensitive", "confidential",
+        
+        // Critical decisions
+        "决定", "决策", "critical", "important", "关键",
+        
+        // User preferences
+        "偏好", "我喜欢", "我习惯", "prefer", "preference",
+        
+        // Strict constraints
+        "严格按照", "遵循", "按原样", "strictly", "exactly",
+        "不要修改", "不要改动", "keep original", "as is",
+    ];
+    
+    for pattern in &sensitive_patterns {
+        if text_lower.contains(pattern) {
+            return true;
+        }
+    }
+    
+    false
 }
 
 /// Compress messages with AI summarization (async version).

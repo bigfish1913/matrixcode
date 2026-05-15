@@ -56,7 +56,7 @@ impl Tool for TodoWriteTool {
             .ok_or_else(|| anyhow::anyhow!("missing 'todos' array"))?;
 
         // Show spinner while updating todo list - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("updating todos ({} items)", todos.len()));
+        let mut spinner = ToolSpinner::new(&format!("updating todos ({} items)", todos.len()));
 
         let mut in_progress_count = 0;
         let mut completed_count = 0;

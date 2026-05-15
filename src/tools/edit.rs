@@ -36,12 +36,15 @@ impl Tool for EditTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
+        // Create spinner immediately at the start to fill the gap before actual operation
+        let mut spinner = ToolSpinner::new("preparing edit");
+
         let path = params["path"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
         let old_string = params["old_string"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'old_string'"))?;
         let new_string = params["new_string"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'new_string'"))?;
 
-        // Show spinner while editing - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("editing {}", path));
+        // Update spinner message for the actual edit operation
+        spinner.set_message(&format!("editing {}", path));
 
         let content = tokio::fs::read_to_string(path).await?;
 

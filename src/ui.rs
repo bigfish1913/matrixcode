@@ -114,6 +114,8 @@ pub fn print_help() {
     println!("Available commands:");
     println!("  /help       - Show this help message");
     println!("  /status     - Show session status (messages, token usage)");
+    println!("  /memory     - Show accumulated memories (new)");
+    println!("  /memory add - Add manual memory entry (new)");
     println!("  /model      - Show current model information");
     println!("  /models     - Show full multi-model configuration");
     println!("  /skills     - Show loaded skills list");

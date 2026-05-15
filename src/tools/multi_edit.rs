@@ -56,7 +56,7 @@ impl Tool for MultiEditTool {
         }
 
         // Show spinner while editing - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("multi-editing {} ({} edits)", path, edits.len()));
+        let mut spinner = ToolSpinner::new(&format!("multi-editing {} ({} edits)", path, edits.len()));
 
         let mut content = tokio::fs::read_to_string(path).await?;
 

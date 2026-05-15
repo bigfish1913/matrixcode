@@ -224,7 +224,10 @@ async fn main() -> Result<()> {
         None
     };
 
-    let mut agent = agent::Agent::with_profile_and_skills_and_max_tokens_and_overview(
+    // Load accumulated memory and generate summary for system prompt
+    let memory_summary = load_memory_summary(project_root.as_deref());
+
+    let mut agent = agent::Agent::with_memory_and_overview(
         provider,
         cli.think,
         cli.markdown,
@@ -232,6 +235,7 @@ async fn main() -> Result<()> {
         load_skills(&cli.skills_dir, cli.no_default_skills),
         cli.max_tokens,
         overview.as_ref().map(|o| o.content.as_str()),
+        memory_summary.as_deref(),
     );
 
     // Configure multi-model if enabled or specific models provided
@@ -542,6 +546,15 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
             println!("[approve mode: {}]", agent.approve_mode());
             continue;
         }
+        if trimmed == "/memory" {
+            handle_memory(agent, project_root);
+            continue;
+        }
+        if trimmed.starts_with("/memory ") {
+            let args = trimmed.trim_start_matches("/memory ");
+            handle_memory_command(args, agent, project_root);
+            continue;
+        }
         if trimmed == "/status" {
             print_status(agent, session_manager);
             continue;
@@ -695,6 +708,13 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         if let Err(e) = session_manager.save_current() {
             eprintln!("[warn] could not save session: {e}");
         }
+
+        // Detect and save memories from conversation
+        save_detected_memories(
+            agent.messages(),
+            project_root,
+            session_manager.current_id(),
+        );
     }
 
     let _ = rl.save_history(&history_path);
@@ -1039,5 +1059,559 @@ fn handle_skills(agent: &agent::Agent) {
             desc.clone()
         };
         println!("    {}", desc_preview);
+    }
+}
+
+/// Load accumulated memory and generate summary for system prompt injection.
+/// Returns None if no memories exist or loading fails.
+fn load_memory_summary(project_root: Option<&Path>) -> Option<String> {
+    use matrixcode::memory::MemoryStorage;
+    
+    let storage = MemoryStorage::new(project_root).ok()?;
+    let memory = storage.load_combined().ok()?;
+    
+    if memory.entries.is_empty() {
+        return None;
+    }
+    
+    // Generate summary with top 15 most important entries
+    let summary = memory.generate_prompt_summary(15);
+    if summary.is_empty() {
+        None
+    } else {
+        println!("[loaded {} accumulated memories]", memory.entries.len());
+        Some(summary)
+    }
+}
+
+/// Save detected memories from conversation to storage.
+/// Called after each conversation turn to accumulate knowledge.
+/// Uses AI extraction if provider is available, falls back to rule-based detection.
+async fn save_detected_memories_async(
+    messages: &[matrixcode::providers::Message],
+    project_root: Option<&Path>,
+    session_id: Option<&str>,
+    fast_provider: Option<&dyn matrixcode::providers::Provider>,
+) {
+    use matrixcode::memory::{MemoryStorage, detect_memories_from_text, detect_memories_with_ai, AiMemoryExtractor};
+    
+    // Extract combined text from messages
+    let combined_text: String = messages
+        .iter()
+        .filter_map(|msg| {
+            match &msg.content {
+                matrixcode::providers::MessageContent::Text(t) => Some(t.clone()),
+                matrixcode::providers::MessageContent::Blocks(blocks) => {
+                    Some(blocks
+                        .iter()
+                        .filter_map(|b| {
+                            if let matrixcode::providers::ContentBlock::Text { text } = b {
+                                Some(text.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"))
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    
+    // Skip if too short
+    if combined_text.len() < 100 {
+        return;
+    }
+    
+    // Detect memories from conversation
+    let new_entries = if let Some(_provider) = fast_provider {
+        // Use AI extraction with fast model
+        let extractor = AiMemoryExtractor::new(
+            Box::new(matrixcode::providers::anthropic::AnthropicProvider::new(
+                std::env::var("API_KEY").unwrap_or_default(),
+                matrixcode::memory::DEFAULT_MEMORY_EXTRACTOR_MODEL.to_string(),
+                String::new(),  // No custom base_url
+            )),
+            matrixcode::memory::DEFAULT_MEMORY_EXTRACTOR_MODEL.to_string(),
+        );
+        
+        match detect_memories_with_ai(&combined_text, session_id, Some(&extractor)).await {
+            Ok(entries) => entries,
+            Err(_) => detect_memories_from_text(&combined_text, session_id),  // Fallback
+        }
+    } else {
+        // Use rule-based detection
+        detect_memories_from_text(&combined_text, session_id)
+    };
+    
+    if new_entries.is_empty() {
+        return;
+    }
+    
+    // Save to storage and update references
+    if let Ok(storage) = MemoryStorage::new(project_root) {
+        // Load existing memory to update references
+        if let Ok(mut existing_memory) = storage.load_combined() {
+            // Update reference counts for existing entries
+            existing_memory.update_references(messages);
+            
+            // Save updated memory
+            if let Err(e) = storage.save_global(&existing_memory) {
+                eprintln!("[warn] could not update memory references: {}", e);
+            }
+        }
+        
+        // Add new entries
+        let new_count = new_entries.len();
+        for entry in new_entries {
+            // Try to save as global memory first (default)
+            if let Err(e) = storage.add_entry(entry, false) {
+                eprintln!("[warn] could not save memory: {}", e);
+            }
+        }
+        
+        println!("[saved {} new memories]", new_count);
+    }
+}
+
+/// Synchronous wrapper for memory detection (for non-AI fallback).
+fn save_detected_memories(messages: &[matrixcode::providers::Message], project_root: Option<&Path>, session_id: Option<&str>) {
+    use matrixcode::memory::{MemoryStorage, detect_memories_from_text};
+    
+    // Extract combined text from messages
+    let combined_text: String = messages
+        .iter()
+        .filter_map(|msg| {
+            match &msg.content {
+                matrixcode::providers::MessageContent::Text(t) => Some(t.clone()),
+                matrixcode::providers::MessageContent::Blocks(blocks) => {
+                    Some(blocks
+                        .iter()
+                        .filter_map(|b| {
+                            if let matrixcode::providers::ContentBlock::Text { text } = b {
+                                Some(text.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"))
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    
+    // Skip if too short
+    if combined_text.len() < 100 {
+        return;
+    }
+    
+    // Detect memories from conversation (rule-based)
+    let new_entries = detect_memories_from_text(&combined_text, session_id);
+    
+    if new_entries.is_empty() {
+        return;
+    }
+    
+    // Save to storage and update references
+    if let Ok(storage) = MemoryStorage::new(project_root) {
+        // Load existing memory to update references
+        if let Ok(mut existing_memory) = storage.load_combined() {
+            // Update reference counts for existing entries
+            existing_memory.update_references(messages);
+            
+            // Apply time decay to old entries
+            existing_memory.apply_time_decay();
+            
+            // Save updated memory
+            if let Err(e) = storage.save_global(&existing_memory) {
+                eprintln!("[warn] could not update memory references: {}", e);
+            }
+        }
+        
+        // Add new entries
+        for entry in new_entries {
+            // Try to save as global memory first (default)
+            if let Err(e) = storage.add_entry(entry, false) {
+                eprintln!("[warn] could not save memory: {}", e);
+            }
+        }
+    }
+}
+
+/// Handle /memory command: show accumulated memories.
+fn handle_memory(_agent: &agent::Agent, project_root: Option<&Path>) {
+    use matrixcode::memory::{MemoryStorage, MemoryCategory};
+    
+    // Load combined memory
+    let storage = match MemoryStorage::new(project_root) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[error] could not initialize memory storage: {}", e);
+            return;
+        }
+    };
+    
+    let memory = match storage.load_combined() {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("[error] could not load memory: {}", e);
+            return;
+        }
+    };
+    
+    if memory.entries.is_empty() {
+        println!("[no memories accumulated]");
+        println!();
+        println!("Memory automatically accumulates as you work with Claude:");
+        println!("  - User preferences");
+        println!("  - Project decisions");
+        println!("  - Key findings and solutions");
+        println!();
+        println!("Memory storage:");
+        println!("  Global:  ~/.matrix/memory.json");
+        if project_root.is_some() {
+            println!("  Project: .matrix/memory.json");
+        }
+        println!();
+        println!("Commands:");
+        println!("  /memory                 - Show all memories");
+        println!("  /memory add <content>   - Add manual memory");
+        println!("  /memory clear           - Clear memories");
+        println!("  /memory search <query>  - Search memories");
+        println!("  /memory stats           - Show statistics");
+        println!("  /memory prune           - Prune old memories");
+        println!("  /memory export [file]   - Export to JSON");
+        println!("  /memory import <file>   - Import from JSON");
+        return;
+    }
+    
+    println!("Accumulated memories ({} entries):", memory.entries.len());
+    println!();
+    
+    // Group by category
+    let mut by_cat: std::collections::HashMap<MemoryCategory, Vec<&matrixcode::memory::MemoryEntry>> = std::collections::HashMap::new();
+    for entry in &memory.entries {
+        by_cat.entry(entry.category).or_default().push(entry);
+    }
+    
+    // Display each category
+    for (cat, entries) in by_cat {
+        println!("{} {} ({} entries):", cat.icon(), cat.display_name(), entries.len());
+        for entry in entries {
+            let importance_marker = if entry.importance >= 80.0 { " ⭐" } else { "" };
+            let manual_marker = if entry.is_manual { " 📝" } else { "" };
+            println!("  {}{}{}", entry.format_for_prompt(), importance_marker, manual_marker);
+        }
+        println!();
+    }
+    
+    println!("Storage:");
+    println!("  Global:  ~/.matrix/memory.json");
+    if project_root.is_some() {
+        println!("  Project: .matrix/memory.json");
+    }
+}
+
+/// Handle /memory subcommands.
+fn handle_memory_command(args: &str, _agent: &mut agent::Agent, project_root: Option<&Path>) {
+    use matrixcode::memory::{MemoryStorage, MemoryCategory, MemoryEntry, AutoMemory};
+    
+    let args = args.trim();
+    
+    if args.starts_with("add ") {
+        // Add manual memory
+        let content = args.trim_start_matches("add ").trim();
+        if content.is_empty() {
+            eprintln!("[error] provide content to add");
+            println!("Usage: /memory add <content>");
+            return;
+        }
+        
+        // Detect category from content
+        let entries = matrixcode::memory::detect_memories_from_text(content, None);
+        let entry = if entries.is_empty() {
+            MemoryEntry::manual(MemoryCategory::Technical, content.to_string())
+        } else {
+            let mut e = entries.into_iter().next().unwrap();
+            e.is_manual = true;
+            e.importance = 95.0;
+            e
+        };
+        
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        // Store in global memory by default (simplified UX)
+        // Users can manually move to project later if needed
+        let is_project = false;
+        
+        match storage.add_entry(entry, is_project) {
+            Ok(_) => println!("[memory added: {}]", crate::ui::truncate_str(content, 60)),
+            Err(e) => eprintln!("[error] {}", e),
+        }
+    } else if args == "clear" || args == "clear all" {
+        // Clear all memories (simplified UX)
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let mut cleared = 0;
+        
+        // Clear global memory
+        let mut global = storage.load_global().unwrap_or_default();
+        cleared += global.entries.len();
+        global.clear();
+        if let Err(e) = storage.save_global(&global) {
+            eprintln!("[error saving global memory: {}]", e);
+        }
+        
+        // Clear project memory if exists
+        if let Some(mut project) = storage.load_project().unwrap_or_default() {
+            cleared += project.entries.len();
+            project.clear();
+            if let Err(e) = storage.save_project(&project) {
+                eprintln!("[error saving project memory: {}]", e);
+            }
+        }
+        
+        println!("[{} memory entries cleared]", cleared);
+    } else if args == "clear global" {
+        // Clear only global memory
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let mut memory = storage.load_global().unwrap_or_default();
+        let cleared = memory.entries.len();
+        memory.clear();
+        if let Err(e) = storage.save_global(&memory) {
+            eprintln!("[error saving global memory: {}]", e);
+        }
+        
+        println!("[{} global memory entries cleared]", cleared);
+    } else if args == "clear project" {
+        // Clear only project memory
+        if project_root.is_none() {
+            eprintln!("[error] no project root");
+            return;
+        }
+        
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        if let Some(mut memory) = storage.load_project().unwrap_or_default() {
+            let cleared = memory.entries.len();
+            memory.clear();
+            if let Err(e) = storage.save_project(&memory) {
+                eprintln!("[error saving project memory: {}]", e);
+            }
+            println!("[{} project memory entries cleared]", cleared);
+        } else {
+            println!("[no project memory to clear]");
+        }
+    } else if args.starts_with("search ") {
+        // Search memory
+        let query = args.trim_start_matches("search ").trim();
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let memory = match storage.load_combined() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let results = memory.search(query);
+        if results.is_empty() {
+            println!("[no memories matching '{}']", query);
+        } else {
+            println!("Found {} matching memories:", results.len());
+            for entry in results {
+                println!("  {}", entry.format_line());
+            }
+        }
+    } else if args == "stats" || args == "statistics" {
+        // Show memory statistics
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let memory = match storage.load_combined() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let stats = memory.generate_statistics();
+        println!("{}", stats.format_summary());
+        
+        println!("Storage locations:");
+        println!("  Global:  ~/.matrix/memory.json");
+        if project_root.is_some() {
+            println!("  Project: .matrix/memory.json");
+        }
+    } else if args == "prune" {
+        // Manually trigger pruning
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let mut memory = match storage.load_combined() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let before = memory.entries.len();
+        memory.prune();
+        memory.apply_time_decay();
+        let after = memory.entries.len();
+        
+        if let Err(e) = storage.save_global(&memory) {
+            eprintln!("[error saving memory: {}", e);
+        }
+        
+        println!("[pruned {} entries, {} remaining]", before - after, after);
+    } else if args.starts_with("export") {
+        // Export memories to file
+        let export_path = args.trim_start_matches("export").trim();
+        let export_path = if export_path.is_empty() {
+            PathBuf::from("memories_export.json")
+        } else {
+            PathBuf::from(export_path)
+        };
+        
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let memory = match storage.load_combined() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        if memory.entries.is_empty() {
+            println!("[no memories to export]");
+            return;
+        }
+        
+        let json = serde_json::to_string_pretty(&memory).unwrap_or_default();
+        if let Err(e) = std::fs::write(&export_path, json) {
+            eprintln!("[error exporting: {}", e);
+        } else {
+            println!("[exported {} memories to {}]", memory.entries.len(), export_path.display());
+        }
+    } else if args.starts_with("import") {
+        // Import memories from file
+        let import_path = args.trim_start_matches("import").trim();
+        if import_path.is_empty() {
+            println!("Usage: /memory import <file.json>");
+            return;
+        }
+        
+        let import_path = PathBuf::from(import_path);
+        if !import_path.exists() {
+            eprintln!("[error: file not found: {}]", import_path.display());
+            return;
+        }
+        
+        let json = match std::fs::read_to_string(&import_path) {
+            Ok(j) => j,
+            Err(e) => {
+                eprintln!("[error reading file: {}", e);
+                return;
+            }
+        };
+        
+        let imported: AutoMemory = match serde_json::from_str(&json) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[error parsing JSON: {}", e);
+                return;
+            }
+        };
+        
+        let storage = match MemoryStorage::new(project_root) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[error] {}", e);
+                return;
+            }
+        };
+        
+        let mut existing = storage.load_global().unwrap_or_default();
+        let imported_count = imported.entries.len();
+        
+        for entry in imported.entries {
+            if !existing.has_similar(&entry.content) {
+                existing.add(entry);
+            }
+        }
+        
+        if let Err(e) = storage.save_global(&existing) {
+            eprintln!("[error saving memory: {}", e);
+        }
+        
+        println!("[imported {} memories, {} duplicates skipped]", 
+            imported_count,
+            imported_count - (existing.entries.len() - imported_count));
+    } else {
+        println!("Unknown memory command: {}", args);
+        println!("Available commands:");
+        println!("  /memory                 - Show all memories");
+        println!("  /memory add <content>   - Add manual memory");
+        println!("  /memory clear           - Clear memories");
+        println!("  /memory search <query>  - Search memories");
+        println!("  /memory stats           - Show statistics");
+        println!("  /memory prune           - Prune old memories");
+        println!("  /memory export [file]   - Export to JSON");
+        println!("  /memory import <file>   - Import from JSON");
     }
 }

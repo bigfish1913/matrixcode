@@ -39,7 +39,7 @@ impl Tool for WebSearchTool {
         let max_results = params["max_results"].as_u64().unwrap_or(5).min(10) as usize;
 
         // Show spinner while searching - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("web-searching '{}'", query));
+        let mut spinner = ToolSpinner::new(&format!("web-searching '{}'", query));
 
         let results = search_duckduckgo(query, max_results).await?;
 

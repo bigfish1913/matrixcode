@@ -35,19 +35,22 @@ impl Tool for WriteTool {
         let path = params["path"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
         let content = params["content"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'content'"))?;
 
+        // Create spinner immediately at the start to fill the gap before actual operation
+        let mut spinner = ToolSpinner::new(&format!("preparing write to {}", path));
+
         // Create parent directories if needed
         if let Some(parent) = std::path::Path::new(path).parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
 
         let total_bytes = content.len();
-        
-        // Show progress spinner for writes - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("writing to {}", path));
-        
+
+        // Update spinner message for the actual write operation
+        spinner.set_message(&format!("writing to {}", path));
+
         // Write the file
         tokio::fs::write(path, content).await?;
-        
+
         spinner.finish_success(&format!("wrote {} bytes", total_bytes));
 
         Ok(format!("Successfully wrote {} bytes to {}", total_bytes, path))

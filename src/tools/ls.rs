@@ -34,7 +34,7 @@ impl Tool for LsTool {
         let path = params["path"].as_str().unwrap_or(".").to_string();
 
         // Show spinner while listing - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("listing {}", path));
+        let mut spinner = ToolSpinner::new(&format!("listing {}", path));
 
         let mut dirs: Vec<String> = Vec::new();
         let mut files: Vec<(String, u64)> = Vec::new();

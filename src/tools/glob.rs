@@ -46,7 +46,7 @@ impl Tool for GlobTool {
         let path = params["path"].as_str().unwrap_or(".").to_string();
 
         // Show spinner while globbing - RAII guard ensures cleanup on error
-        let spinner = ToolSpinner::new(&format!("glob '{}' in {}", pattern, path));
+        let mut spinner = ToolSpinner::new(&format!("glob '{}' in {}", pattern, path));
 
         let result = tokio::task::spawn_blocking(move || find_files(&pattern, &path)).await?;
 
