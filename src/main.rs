@@ -690,7 +690,13 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         agent.set_cancel_token(cancel_token.clone());
 
         // Update memory context based on current user input
-        if let Some(summary) = load_contextual_memory_summary(project_root, trimmed) {
+        // Use AI-enhanced keyword extraction for better memory matching
+        let memory_summary = load_contextual_memory_summary_async(
+            project_root,
+            trimmed,
+            Some(agent.provider()),
+        ).await;
+        if let Some(summary) = memory_summary {
             agent.set_memory_summary(&summary);
         }
 
@@ -721,11 +727,12 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         }
 
         // Detect and save memories from conversation
-        save_detected_memories(
+        save_detected_memories_async(
             agent.messages(),
             project_root,
             session_manager.current_id(),
-        );
+            Some(agent.provider()),
+        ).await;
     }
 
     let _ = rl.save_history(&history_path);
@@ -1121,6 +1128,36 @@ fn load_contextual_memory_summary(project_root: Option<&Path>, context: &str) ->
     }
 }
 
+/// Load memory summary with AI-enhanced keyword extraction (async version).
+/// Uses hybrid keyword extraction: rule-based first, AI fallback when needed.
+async fn load_contextual_memory_summary_async(
+    project_root: Option<&Path>,
+    context: &str,
+    fast_provider: Option<&dyn matrixcode::providers::Provider>,
+) -> Option<String> {
+    use matrixcode::memory::MemoryStorage;
+    
+    let storage = MemoryStorage::new(project_root).ok()?;
+    let memory = storage.load_combined().ok()?;
+    
+    if memory.entries.is_empty() {
+        return None;
+    }
+    
+    // Use contextual summary if context is available
+    let summary = if context.is_empty() {
+        memory.generate_prompt_summary(15)
+    } else {
+        memory.generate_contextual_summary_async(context, 15, fast_provider).await
+    };
+    
+    if summary.is_empty() {
+        None
+    } else {
+        Some(summary)
+    }
+}
+
 /// Save detected memories from conversation to storage.
 /// Called after each conversation turn to accumulate knowledge.
 /// Uses AI extraction if provider is available, falls back to rule-based detection.
@@ -1134,11 +1171,12 @@ async fn save_detected_memories_async(
     session_id: Option<&str>,
     fast_provider: Option<&dyn matrixcode::providers::Provider>,
 ) {
-    use matrixcode::memory::{MemoryStorage, detect_memories_from_text, detect_memories_with_ai, AiMemoryExtractor};
+    use matrixcode::memory::{MemoryStorage, detect_memories_from_text, detect_memories_with_ai, AiMemoryExtractor, MemoryExtractor};
     
-    // Extract combined text from messages
-    let combined_text: String = messages
+    // Extract from USER messages (primary source of meaningful content)
+    let user_text: String = messages
         .iter()
+        .filter(|msg| msg.role == matrixcode::providers::Role::User)
         .filter_map(|msg| {
             match &msg.content {
                 matrixcode::providers::MessageContent::Text(t) => Some(t.clone()),
@@ -1160,6 +1198,42 @@ async fn save_detected_memories_async(
         .collect::<Vec<_>>()
         .join("\n\n");
     
+    // Extract from assistant messages, but clean formatting artifacts
+    let assistant_text: String = messages
+        .iter()
+        .filter(|msg| msg.role == matrixcode::providers::Role::Assistant)
+        .filter_map(|msg| {
+            match &msg.content {
+                matrixcode::providers::MessageContent::Text(t) => Some(t.clone()),
+                matrixcode::providers::MessageContent::Blocks(blocks) => {
+                    Some(blocks
+                        .iter()
+                        .filter_map(|b| {
+                            if let matrixcode::providers::ContentBlock::Text { text } = b {
+                                // Skip short outputs (likely tool results)
+                                if text.len() > 50 {
+                                    Some(text.clone())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"))
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    
+    // Clean formatting artifacts from assistant text
+    let cleaned_assistant = clean_memory_text(&assistant_text);
+    
+    // Combine user text + cleaned assistant text
+    let combined_text = format!("{}\n\n{}", user_text, cleaned_assistant);
+    
     // Skip if too short
     if combined_text.len() < 100 {
         return;
@@ -1168,21 +1242,46 @@ async fn save_detected_memories_async(
     // Detect memories from conversation
     let new_entries = if let Some(_provider) = fast_provider {
         // Use AI extraction with fast model
-        let extractor = AiMemoryExtractor::new(
-            Box::new(matrixcode::providers::anthropic::AnthropicProvider::new(
-                std::env::var("API_KEY").unwrap_or_default(),
-                matrixcode::memory::DEFAULT_MEMORY_EXTRACTOR_MODEL.to_string(),
-                String::new(),  // No custom base_url
-            )),
-            matrixcode::memory::DEFAULT_MEMORY_EXTRACTOR_MODEL.to_string(),
-        );
+        // Try to get API key from correct environment variable
+        let api_key = std::env::var("ANTHROPIC_API_KEY")
+            .or_else(|_| std::env::var("API_KEY"))
+            .unwrap_or_default();
         
-        match detect_memories_with_ai(&combined_text, session_id, Some(&extractor)).await {
-            Ok(entries) => entries,
-            Err(_) => detect_memories_from_text(&combined_text, session_id),  // Fallback
+        if api_key.is_empty() {
+            // No API key available, fallback to rule-based detection
+            log::debug!("No API key for memory extraction, using rule-based detection");
+            detect_memories_from_text(&combined_text, session_id)
+        } else {
+            let extractor = AiMemoryExtractor::new(
+                Box::new(matrixcode::providers::anthropic::AnthropicProvider::new(
+                    api_key,
+                    matrixcode::memory::DEFAULT_MEMORY_EXTRACTOR_MODEL.to_string(),
+                    std::env::var("ANTHROPIC_BASE_URL").unwrap_or_default(),
+                )),
+                matrixcode::memory::DEFAULT_MEMORY_EXTRACTOR_MODEL.to_string(),
+            );
+            
+            log::debug!("Using AI memory extraction with model: {}", extractor.model_name());
+            match detect_memories_with_ai(&combined_text, session_id, Some(&extractor)).await {
+                Ok(entries) if !entries.is_empty() => {
+                    log::debug!("AI extracted {} memories", entries.len());
+                    entries
+                },
+                Ok(_) => {
+                    // AI returned empty, try fallback
+                    log::debug!("AI extraction returned empty, trying rule-based detection");
+                    detect_memories_from_text(&combined_text, session_id)
+                },
+                Err(e) => {
+                    // AI extraction failed, fallback with warning
+                    log::warn!("AI memory extraction failed: {}, falling back to rule-based", e);
+                    detect_memories_from_text(&combined_text, session_id)
+                }
+            }
         }
     } else {
         // Use rule-based detection
+        log::debug!("No fast provider available, using rule-based memory detection");
         detect_memories_from_text(&combined_text, session_id)
     };
     
@@ -1213,117 +1312,6 @@ async fn save_detected_memories_async(
         }
         
         println!("[saved {} new memories]", new_count);
-    }
-}
-
-/// Synchronous wrapper for memory detection (for non-AI fallback).
-fn save_detected_memories(messages: &[matrixcode::providers::Message], project_root: Option<&Path>, session_id: Option<&str>) {
-    use matrixcode::memory::{MemoryStorage, detect_memories_from_text};
-    
-    // Only extract from USER messages (not assistant output which contains formatting)
-    let combined_text: String = messages
-        .iter()
-        .filter(|msg| msg.role == matrixcode::providers::Role::User)
-        .filter_map(|msg| {
-            match &msg.content {
-                matrixcode::providers::MessageContent::Text(t) => Some(t.clone()),
-                matrixcode::providers::MessageContent::Blocks(blocks) => {
-                    Some(blocks
-                        .iter()
-                        .filter_map(|b| {
-                            if let matrixcode::providers::ContentBlock::Text { text } = b {
-                                Some(text.clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n"))
-                }
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    
-    // Also extract key decisions from assistant messages (but filter formatting)
-    let assistant_text: String = messages
-        .iter()
-        .filter(|msg| msg.role == matrixcode::providers::Role::Assistant)
-        .filter_map(|msg| {
-            match &msg.content {
-                matrixcode::providers::MessageContent::Text(t) => Some(t.clone()),
-                matrixcode::providers::MessageContent::Blocks(blocks) => {
-                    Some(blocks
-                        .iter()
-                        .filter_map(|b| {
-                            if let matrixcode::providers::ContentBlock::Text { text } = b {
-                                // Skip short tool-like outputs
-                                if text.len() > 50 {
-                                    Some(text.clone())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n"))
-                }
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    
-    // Clean formatting artifacts from assistant text
-    let cleaned_assistant = clean_memory_text(&assistant_text);
-    
-    // Combine user text + cleaned assistant text
-    let full_text = format!("{}\n\n{}", combined_text, cleaned_assistant);
-    
-    // Skip if too short
-    if full_text.len() < 100 {
-        return;
-    }
-    
-    // Detect memories from conversation (rule-based)
-    let new_entries = detect_memories_from_text(&full_text, session_id);
-    
-    if new_entries.is_empty() {
-        return;
-    }
-    
-    // Save to storage and update references
-    if let Ok(mut storage) = MemoryStorage::new(project_root) {
-        // Load existing memory to check for duplicates
-        let existing = storage.load_global().unwrap_or_default();
-        
-        // Filter out entries that are similar to existing ones
-        let truly_new: Vec<_> = new_entries
-            .into_iter()
-            .filter(|entry| !existing.has_similar(&entry.content))
-            .collect();
-        
-        if truly_new.is_empty() {
-            return;
-        }
-        
-        // Update reference counts for existing entries
-        if let Ok(mut existing_memory) = storage.load_combined() {
-            existing_memory.update_references(messages);
-            existing_memory.apply_time_decay();
-            
-            if let Err(e) = storage.save_global(&existing_memory) {
-                eprintln!("[warn] could not update memory references: {}", e);
-            }
-        }
-        
-        // Add truly new entries
-        for entry in truly_new {
-            if let Err(e) = storage.add_entry(entry, false) {
-                eprintln!("[warn] could not save memory: {}", e);
-            }
-        }
     }
 }
 

@@ -17,6 +17,9 @@ use crate::providers::Message;
 // Constants
 // ============================================================================
 
+/// Maximum importance score ceiling (entries cannot exceed this).
+pub const MAX_IMPORTANCE_CEILING: f64 = 100.0;
+
 /// Minimum content length for similarity check (to avoid short words matching everything).
 pub const MIN_SIMILARITY_LENGTH: usize = 10;
 
@@ -29,8 +32,81 @@ pub const MIN_MEMORY_CONTENT_LENGTH: usize = 15;
 /// Maximum entries to return from detection (to avoid overwhelming).
 pub const MAX_DETECTED_ENTRIES: usize = 5;
 
+/// Maximum length for memory content before truncation.
+pub const MAX_MEMORY_CONTENT_LENGTH: usize = 200;
+
+/// Maximum length for display (shorter for terminal readability).
+pub const MAX_DISPLAY_LENGTH: usize = 60;
+
+/// Topic overlap threshold for conflict detection.
+pub const CONFLICT_OVERLAY_THRESHOLD: f64 = 0.5;
+
+/// Lower topic overlap threshold when change signal is present.
+pub const CONFLICT_OVERLAY_THRESHOLD_WITH_SIGNAL: f64 = 0.3;
+
+/// Importance threshold for displaying star marker (⭐).
+pub const IMPORTANCE_STAR_THRESHOLD: f64 = 80.0;
+
+/// Weight for relevance in contextual summary (relevance vs importance trade-off).
+pub const CONTEXT_RELEVANCE_WEIGHT: f64 = 0.6;
+
+/// Weight for importance in contextual summary (1.0 - CONTEXT_RELEVANCE_WEIGHT).
+pub const CONTEXT_IMPORTANCE_WEIGHT: f64 = 0.4;
+
 /// Default model for cost-effective memory extraction.
 pub const DEFAULT_MEMORY_EXTRACTOR_MODEL: &str = "claude-3-5-haiku-20241022";
+
+/// Minimum keywords threshold for triggering AI fallback.
+/// If rule-based extraction produces fewer keywords than this, AI is used.
+pub const MIN_KEYWORDS_FOR_AI_FALLBACK: usize = 2;
+
+/// AI keyword extraction mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AiKeywordMode {
+    /// Hybrid mode: rule-based first, AI fallback when keywords are insufficient (default).
+    #[default]
+    Auto,
+    /// Always use AI for keyword extraction.
+    Always,
+    /// Never use AI, only rule-based extraction.
+    Never,
+}
+
+impl AiKeywordMode {
+    /// Parse from environment variable string.
+    pub fn from_env() -> Self {
+        match std::env::var("MEMORY_AI_KEYWORDS")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str()
+        {
+            "always" | "true" | "1" => AiKeywordMode::Always,
+            "never" | "false" | "0" => AiKeywordMode::Never,
+            "auto" | "" => AiKeywordMode::Auto,
+            other => {
+                log::warn!("Unknown MEMORY_AI_KEYWORDS value: '{}', using 'auto'", other);
+                AiKeywordMode::Auto
+            }
+        }
+    }
+    
+    /// Whether AI extraction should be used given the keyword count.
+    pub fn should_use_ai(&self, keyword_count: usize) -> bool {
+        match self {
+            AiKeywordMode::Always => true,
+            AiKeywordMode::Never => false,
+            AiKeywordMode::Auto => keyword_count < MIN_KEYWORDS_FOR_AI_FALLBACK,
+        }
+    }
+}
+
+/// Default importance scores by category.
+pub const DEFAULT_IMPORTANCE_DECISION: f64 = 90.0;
+pub const DEFAULT_IMPORTANCE_SOLUTION: f64 = 85.0;
+pub const DEFAULT_IMPORTANCE_PREF: f64 = 70.0;
+pub const DEFAULT_IMPORTANCE_FINDING: f64 = 60.0;
+pub const DEFAULT_IMPORTANCE_TECH: f64 = 50.0;
+pub const DEFAULT_IMPORTANCE_STRUCTURE: f64 = 40.0;
 
 // ============================================================================
 // Memory Configuration
@@ -64,7 +140,7 @@ impl Default for MemoryConfig {
             decay_start_days: 30,
             decay_rate: 0.5,
             reference_increment: 2.0,
-            max_importance_ceiling: 100.0,
+            max_importance_ceiling: MAX_IMPORTANCE_CEILING,
         }
     }
 }
@@ -87,7 +163,7 @@ impl MemoryConfig {
             decay_start_days: 14,
             decay_rate: 0.6,
             reference_increment: 1.0,
-            max_importance_ceiling: 100.0,
+            max_importance_ceiling: MAX_IMPORTANCE_CEILING,
         }
     }
     
@@ -100,7 +176,7 @@ impl MemoryConfig {
             decay_start_days: 90,
             decay_rate: 0.3,
             reference_increment: 3.0,
-            max_importance_ceiling: 100.0,
+            max_importance_ceiling: MAX_IMPORTANCE_CEILING,
         }
     }
 }
@@ -155,12 +231,12 @@ impl MemoryCategory {
     /// Get default importance score for the category.
     pub fn default_importance(&self) -> f64 {
         match self {
-            MemoryCategory::Decision => 90.0,      // Decisions are very important
-            MemoryCategory::Solution => 85.0,      // Solutions are important
-            MemoryCategory::Preference => 70.0,    // Preferences are moderately important
-            MemoryCategory::Finding => 60.0,       // Findings are useful
-            MemoryCategory::Technical => 50.0,     // Technical notes are reference
-            MemoryCategory::Structure => 40.0,     // Structure is basic info
+            MemoryCategory::Decision => DEFAULT_IMPORTANCE_DECISION,
+            MemoryCategory::Solution => DEFAULT_IMPORTANCE_SOLUTION,
+            MemoryCategory::Preference => DEFAULT_IMPORTANCE_PREF,
+            MemoryCategory::Finding => DEFAULT_IMPORTANCE_FINDING,
+            MemoryCategory::Technical => DEFAULT_IMPORTANCE_TECH,
+            MemoryCategory::Structure => DEFAULT_IMPORTANCE_STRUCTURE,
         }
     }
 }
@@ -229,14 +305,14 @@ impl MemoryEntry {
     pub fn mark_referenced_with_increment(&mut self, increment: f64) {
         self.reference_count += 1;
         self.last_referenced = Utc::now();
-        // Increase importance slightly with each reference (max 100)
-        self.importance = (self.importance + increment).min(100.0);
+        // Increase importance slightly with each reference (capped at ceiling)
+        self.importance = (self.importance + increment).min(MAX_IMPORTANCE_CEILING);
     }
 
     /// Format for display.
     pub fn format_line(&self) -> String {
         let time = self.created_at.format("%Y-%m-%d %H:%M");
-        let importance_marker = if self.importance >= 80.0 { "⭐" } else { "" };
+        let importance_marker = if self.importance >= IMPORTANCE_STAR_THRESHOLD { "⭐" } else { "" };
         let manual_marker = if self.is_manual { "📝" } else { "" };
         format!(
             "{} {} {}{}{} {}",
@@ -245,15 +321,15 @@ impl MemoryEntry {
             importance_marker,
             manual_marker,
             self.category.display_name(),
-            crate::ui::truncate_str(&self.content, 60)
+            crate::ui::truncate_str(&self.content, MAX_DISPLAY_LENGTH)
         )
     }
 
     /// Format for inclusion in system prompt.
     pub fn format_for_prompt(&self) -> String {
         let category_name = self.category.display_name();
-        if self.content.len() > 200 {
-            format!("{}: {}...", category_name, crate::ui::truncate(&self.content, 197))
+        if self.content.len() > MAX_MEMORY_CONTENT_LENGTH {
+            format!("{}: {}...", category_name, crate::ui::truncate(&self.content, MAX_MEMORY_CONTENT_LENGTH - 3))
         } else {
             format!("{}: {}", category_name, self.content)
         }
@@ -488,7 +564,11 @@ impl AutoMemory {
         
         // If new content has explicit change signals, lower the threshold
         let has_change_signal = has_contradiction_signal("", &new_lower);
-        let overlap_threshold = if has_change_signal { 0.3 } else { 0.5 };
+        let overlap_threshold = if has_change_signal { 
+            CONFLICT_OVERLAY_THRESHOLD_WITH_SIGNAL 
+        } else { 
+            CONFLICT_OVERLAY_THRESHOLD 
+        };
         
         // Only check entries in the same category
         for (i, entry) in self.entries.iter().enumerate() {
@@ -882,9 +962,86 @@ impl AutoMemory {
                 return std::cmp::Ordering::Greater;
             }
             
-            // Combined score: 60% relevance + 40% normalized importance
-            let score_a = a.1 * 0.6 + (a.0.importance / 100.0) * 0.4;
-            let score_b = b.1 * 0.6 + (b.0.importance / 100.0) * 0.4;
+            // Combined score: relevance weight + importance weight
+            let score_a = a.1 * CONTEXT_RELEVANCE_WEIGHT + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_b = b.1 * CONTEXT_RELEVANCE_WEIGHT + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            
+            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        
+        // Take top entries
+        let selected: Vec<&MemoryEntry> = scored
+            .iter()
+            .take(max_entries)
+            .map(|(entry, _)| *entry)
+            .collect();
+        
+        if selected.is_empty() {
+            return String::new();
+        }
+
+        let mut summary = String::from("【跨会话记忆】\n\n");
+        
+        // Group by category
+        let mut by_cat: HashMap<MemoryCategory, Vec<&MemoryEntry>> = HashMap::new();
+        for entry in selected {
+            by_cat.entry(entry.category).or_default().push(entry);
+        }
+
+        for (cat, entries) in by_cat {
+            summary.push_str(&format!("{} {}:\n", cat.icon(), cat.display_name()));
+            for entry in entries {
+                summary.push_str(&format!("  {}\n", entry.format_for_prompt()));
+            }
+            summary.push('\n');
+        }
+
+        summary
+    }
+
+    /// Generate context-aware summary with AI-enhanced keyword extraction.
+    /// 
+    /// This is the async version that uses AI to extract keywords when
+    /// rule-based extraction produces insufficient results.
+    pub async fn generate_contextual_summary_async(
+        &self,
+        context: &str,
+        max_entries: usize,
+        fast_provider: Option<&dyn crate::providers::Provider>,
+    ) -> String {
+        if self.entries.is_empty() {
+            return String::new();
+        }
+
+        // Extract keywords using hybrid approach (rule-based + AI fallback)
+        let context_keywords = if let Some(provider) = fast_provider {
+            extract_keywords_hybrid(context, Some(provider)).await
+        } else {
+            extract_context_keywords(context)
+        };
+        
+        // Score each entry by relevance to context
+        let mut scored: Vec<(&MemoryEntry, f64)> = self.entries
+            .iter()
+            .map(|entry| {
+                let relevance = compute_relevance(entry, &context_keywords);
+                (entry, relevance)
+            })
+            .collect();
+        
+        // Sort by: manual first, then relevance + importance combined
+        scored.sort_by(|a, b| {
+            // Manual entries always first
+            if a.0.is_manual && !b.0.is_manual {
+                return std::cmp::Ordering::Less;
+            }
+            if !a.0.is_manual && b.0.is_manual {
+                return std::cmp::Ordering::Greater;
+            }
+            
+            // Combined score: relevance weight + importance weight
+            let score_a = a.1 * CONTEXT_RELEVANCE_WEIGHT + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_b = b.1 * CONTEXT_RELEVANCE_WEIGHT + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
             
             score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
         });
@@ -1753,6 +1910,168 @@ fn parse_memory_response(json_text: &str, session_id: Option<&str>) -> Result<Ve
 }
 
 // ============================================================================
+// AI-Based Keyword Extraction (for context-aware memory retrieval)
+// ============================================================================
+
+/// System prompt for AI keyword extraction.
+const KEYWORD_EXTRACT_SYSTEM_PROMPT: &str = r#"你是一个关键词提取助手。你的任务是从用户输入中提取有意义的关键词，用于检索相关记忆。
+
+提取原则：
+1. 只提取有实际意义的词汇（技术名词、项目名、概念等）
+2. 过滤掉常见的停用词（的、是、在、我、你、the、a、is 等）
+3. 保留专有名词和技术术语
+4. 中英文混合输入时，两种语言的关键词都提取
+5. 提取 3-10 个关键词
+
+输出格式（严格 JSON）：
+```json
+{
+  "keywords": ["数据库", "PostgreSQL", "优化", "查询"]
+}
+```
+
+如果没有有意义的关键词，返回：
+```json
+{"keywords": []}
+```
+
+直接输出 JSON，不要加代码块包裹。"#;
+
+/// Extract keywords from context using AI (for context-aware memory retrieval).
+/// 
+/// This is used when the rule-based keyword extraction produces too few results
+/// or when the context is complex and needs better understanding.
+pub async fn extract_keywords_with_ai(
+    context: &str,
+    provider: &dyn crate::providers::Provider,
+) -> Result<Vec<String>> {
+    use crate::providers::{ChatRequest, Message, MessageContent, Role};
+    
+    // Truncate if too long
+    let truncated = if context.len() > 1000 {
+        crate::ui::truncate_str(context, 1000)
+    } else {
+        context.to_string()
+    };
+    
+    let request = ChatRequest {
+        messages: vec![Message {
+            role: Role::User,
+            content: MessageContent::Text(format!(
+                "请从以下文本中提取关键词：\n\n{}", 
+                truncated
+            )),
+        }],
+        tools: vec![],
+        system: Some(KEYWORD_EXTRACT_SYSTEM_PROMPT.to_string()),
+        think: false,
+        max_tokens: 256,
+        server_tools: vec![],
+        enable_caching: false,
+    };
+    
+    let response = provider.chat(request).await?;
+    
+    // Extract text from response
+    let response_text = response.content
+        .iter()
+        .filter_map(|block| {
+            if let crate::providers::ContentBlock::Text { text } = block {
+                Some(text.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    
+    // Parse JSON response
+    parse_keyword_response(&response_text)
+}
+
+/// Parse AI keyword extraction response.
+fn parse_keyword_response(json_text: &str) -> Result<Vec<String>> {
+    // Clean up response
+    let cleaned = json_text
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    
+    #[derive(serde::Deserialize)]
+    struct KeywordResponse {
+        keywords: Vec<String>,
+    }
+    
+    let parsed: KeywordResponse = serde_json::from_str(cleaned)?;
+    
+    // Filter out empty or too-short keywords
+    Ok(parsed.keywords
+        .into_iter()
+        .filter(|k| k.len() >= 2)
+        .collect())
+}
+
+/// Extract keywords from context with hybrid approach.
+/// 
+/// Strategy:
+/// 1. First use rule-based stop word filtering (fast, zero cost)
+/// 2. If result is insufficient (too few keywords), fall back to AI extraction
+/// 3. Behavior controlled by MEMORY_AI_KEYWORDS env var (auto/always/never)
+pub async fn extract_keywords_hybrid(
+    context: &str,
+    fast_provider: Option<&dyn crate::providers::Provider>,
+) -> Vec<String> {
+    // Get AI keyword extraction mode from environment
+    let mode = AiKeywordMode::from_env();
+    
+    // If mode is Never, skip AI entirely
+    if mode == AiKeywordMode::Never {
+        return extract_context_keywords(context);
+    }
+    
+    // Step 1: Try rule-based extraction first (unless mode is Always)
+    let keywords = if mode == AiKeywordMode::Always {
+        Vec::new()  // Skip rule-based when Always mode
+    } else {
+        extract_context_keywords(context)
+    };
+    
+    // Step 2: Check if we should use AI based on mode and keyword count
+    if !mode.should_use_ai(keywords.len()) {
+        return keywords;
+    }
+    
+    // Step 3: If we should use AI and have a provider, do AI extraction
+    if let Some(provider) = fast_provider {
+        match extract_keywords_with_ai(context, provider).await {
+            Ok(ai_keywords) if !ai_keywords.is_empty() => {
+                log::debug!("AI extracted {} keywords: {:?}", ai_keywords.len(), ai_keywords);
+                // In Auto mode, merge AI keywords with rule-based ones
+                if mode == AiKeywordMode::Auto && !keywords.is_empty() {
+                    let merged = keywords
+                        .into_iter()
+                        .chain(ai_keywords.into_iter())
+                        .collect::<std::collections::HashSet<_>>();
+                    return merged.into_iter().collect();
+                }
+                return ai_keywords;
+            }
+            Ok(_) => {
+                log::debug!("AI returned no keywords, keeping rule-based results");
+            }
+            Err(e) => {
+                log::warn!("AI keyword extraction failed: {}, keeping rule-based results", e);
+            }
+        }
+    }
+    
+    // Return whatever we have (rule-based results)
+    keywords
+}
+
+// ============================================================================
 // Memory Detection (Fallback - Rule-based)
 // ============================================================================
 
@@ -1894,23 +2213,58 @@ fn extract_memory_content(text: &str, keyword: &str) -> String {
     let keyword_lower = keyword.to_lowercase();
 
     // Find keyword position
-    let pos = text_lower.find(&keyword_lower);
-    if pos.is_none() {
-        return String::new();
-    }
+    let pos = match text_lower.find(&keyword_lower) {
+        Some(p) => p,
+        None => return String::new(),
+    };
 
-    let pos = pos.unwrap();
-    
     // Find sentence boundaries (sentence end markers)
     const SENTENCE_END_MARKERS: [char; 3] = ['.', '\n', '。'];
-    
+
+    // For start: find the last sentence end marker before pos
+    // Need to correctly find the next char boundary after multi-byte markers like '。'
     let start = text[..pos].rfind(SENTENCE_END_MARKERS)
-        .map(|i| i + 1)
+        .map(|i| {
+            // The marker char starts at byte position i
+            // We need the byte position after this marker char
+            // Use char_indices to find the next char's start position
+            match text[i..].char_indices().nth(1) {
+                Some((next_idx, _)) => i + next_idx,  // Next char starts at i + next_idx
+                None => pos,  // Marker is at the end of prefix, start from keyword position
+            }
+        })
         .unwrap_or(0);
-    
+
+    // For end: find the first sentence end marker after pos
     let end = text[pos..].find(SENTENCE_END_MARKERS)
-        .map(|i| pos + i + 1)
-        .unwrap_or(text.len().min(pos + 200));
+        .map(|i| {
+            let marker_pos = pos + i;
+            // Find the byte position after the marker char
+            match text[marker_pos..].char_indices().nth(1) {
+                Some((next_idx, _)) => marker_pos + next_idx,
+                None => text.len(),  // Marker at end of text
+            }
+        })
+        .unwrap_or_else(|| {
+            // No marker found: use MAX_MEMORY_CONTENT_LENGTH, but ensure valid UTF-8 boundary
+            let max_end = pos + MAX_MEMORY_CONTENT_LENGTH;
+            // Find the nearest valid char boundary
+            if max_end >= text.len() {
+                text.len()
+            } else {
+                // Walk backwards to find a valid boundary
+                let mut boundary = max_end;
+                while boundary > pos && !text.is_char_boundary(boundary) {
+                    boundary -= 1;
+                }
+                boundary
+            }
+        });
+
+    // Ensure start and end are valid UTF-8 boundaries and start < end
+    if start >= end || start > text.len() || end > text.len() {
+        return String::new();
+    }
 
     let content = text[start..end].trim();
     
@@ -1920,8 +2274,8 @@ fn extract_memory_content(text: &str, keyword: &str) -> String {
     }
     
     // Clean up and truncate
-    if content.len() > 200 {
-        crate::ui::truncate_str(content, 197)
+    if content.len() > MAX_MEMORY_CONTENT_LENGTH {
+        crate::ui::truncate_str(content, MAX_MEMORY_CONTENT_LENGTH - 3)
     } else {
         content.to_string()
     }

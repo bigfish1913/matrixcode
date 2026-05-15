@@ -501,12 +501,17 @@ fn collect_key_source_files(project_root: &Path, project_type: &str) -> Result<V
     Ok(files)
 }
 
-/// Truncate content to a maximum length.
+/// Truncate content to a maximum length, respecting char boundaries.
 pub fn truncate_content(content: &str, max_len: usize) -> String {
     if content.len() <= max_len {
         content.to_string()
     } else {
-        let mut truncated = content[..max_len].to_string();
+        // Find valid char boundary
+        let mut end = max_len;
+        while end > 0 && !content.is_char_boundary(end) {
+            end -= 1;
+        }
+        let mut truncated = content[..end].to_string();
         truncated.push_str("\n... (truncated)");
         truncated
     }
@@ -521,4 +526,45 @@ fn extract_response_content(response: &crate::providers::ChatResponse) -> String
         }
     }
     content
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn truncate_content_respects_char_boundary() {
+        // Chinese text with multibyte characters
+        let text = "这是一个包含中文字符的测试文本，用于验证截断功能是否正确处理字符边界问题。";
+        
+        // Truncate at a position that would fall inside a multibyte character
+        let truncated = truncate_content(text, 50);
+        
+        // Should not panic and should end with truncated marker
+        assert!(truncated.contains("... (truncated)"));
+        // String in Rust is always valid UTF-8, no need to check
+    }
+    
+    #[test]
+    fn truncate_content_preserves_short_text() {
+        let short = "hello world";
+        let result = truncate_content(short, 100);
+        assert_eq!(result, short);
+    }
+    
+    #[test]
+    fn truncate_content_exact_boundary() {
+        // ASCII text - every byte is a char boundary
+        let text = "abcdefghijklmnopqrstuvwxyz";
+        let truncated = truncate_content(text, 10);
+        assert_eq!(truncated, "abcdefghij\n... (truncated)");
+    }
+    
+    #[test]
+    fn truncate_content_multibyte_edge() {
+        // Text ending exactly at a multibyte char
+        let text = "你好世界hello";
+        let truncated = truncate_content(text, 12); // "你好世界" = 12 bytes
+        assert!(truncated.starts_with("你好世界"));
+    }
 }

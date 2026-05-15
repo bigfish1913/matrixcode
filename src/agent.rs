@@ -1141,8 +1141,14 @@ impl Agent {
         for block in content {
             match block {
                 ContentBlock::ToolUse { id, name, input } => {
+                    // Create transition spinner to fill the gap between Done event and tool execution
+                    let mut transition_spinner = ToolSpinner::new(&format!("executing {}", name));
+
                     // Print tool input with nice formatting
                     ui::print_tool_input(name, input);
+
+                    // Clear transition spinner before tool creates its own spinner
+                    transition_spinner.finish_clear();
 
                     // Execute the tool (spinner is created immediately in tool's execute method)
                     let result = self.execute_single_tool(name, input).await;
