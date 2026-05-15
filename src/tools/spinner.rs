@@ -70,8 +70,12 @@ impl ToolSpinner {
 
 impl Drop for ToolSpinner {
     fn drop(&mut self) {
-        // Always clear the spinner line when dropped
-        self.bar.finish_and_clear();
+        // Only clear if not already finished
+        // If finish() was called, the bar is already in a finished state
+        // and we should preserve the final message
+        if !self.bar.is_finished() {
+            self.bar.finish_and_clear();
+        }
     }
 }
 
