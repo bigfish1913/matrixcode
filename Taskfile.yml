@@ -13,13 +13,13 @@ tasks:
   login-npm:
     desc: Login to npm from .env
     cmds:
-      - cmd: 'node -e "const fs=require(\"fs\"); const token=fs.readFileSync(\".env\",\"utf8\").match(/NPM_TOKEN=(\\S+)/)?.[1]; if(token){fs.writeFileSync(process.env.HOME+\"/.npmrc\",\"//registry.npmjs.org/:_authToken=\"+token)}"'
+      - cmd: 'node -e "const os=require(\"os\"); const fs=require(\"fs\"); const token=fs.readFileSync(\".env\",\"utf8\").match(/NPM_TOKEN=(\\S+)/)?.[1]; if(token){fs.writeFileSync(os.homedir()+\"/.npmrc\",\"//registry.npmjs.org/:_authToken=\"+token)}"'
       - cmd: 'npm whoami'
 
   login-cargo:
     desc: Login to cargo from .env
     cmds:
-      - cmd: 'node -e "const fs=require(\"fs\"); const token=fs.readFileSync(\".env\",\"utf8\").match(/CARGO_TOKEN=(\\S+)/)?.[1]; if(token){const path=process.env.HOME+\"/.cargo/credentials.toml\"; fs.writeFileSync(path,\"[registry]\\ntoken = \\\"\"+token+\"\\\"\")}"'
+      - cmd: 'node -e "const os=require(\"os\"); const fs=require(\"fs\"); const token=fs.readFileSync(\".env\",\"utf8\").match(/CARGO_TOKEN=(\\S+)/)?.[1]; if(token){const path=os.homedir()+\"/.cargo/credentials.toml\"; fs.writeFileSync(path,\"[registry]\\ntoken = \\\"\"+token+\"\\\"\")}"'
 
   login:
     desc: Login to npm and cargo
