@@ -609,6 +609,251 @@ impl Agent {
         Ok(())
     }
 
+    /// Run a single user turn with JSON streaming output.
+    /// Designed for VSCode extension integration (--json mode).
+    /// Returns usage statistics on completion.
+    pub async fn chat_stream_json(&mut self, user_input: &str) -> Result<crate::protocol::Usage> {
+        use crate::protocol::{StreamEvent as JsonEvent, Usage as JsonUsage};
+        use std::io::Write;
+
+        self.messages.push(Message {
+            role: Role::User,
+            content: MessageContent::Text(user_input.to_string()),
+        });
+
+        // Check if context compression is needed before sending request
+        self.check_and_compress_json();
+
+        let tool_defs: Vec<_> = self.tools.iter().map(|t| t.definition()).collect();
+
+        // Track max_tokens continuation count
+        let mut continuation_count = 0;
+        const MAX_CONTINUATIONS: usize = 5;
+
+        let mut total_usage = JsonUsage::new(0, 0);
+        let stdout = std::io::stdout();
+        let mut out = stdout.lock();
+
+        for iteration in 0..MAX_ITERATIONS {
+            let request = ChatRequest {
+                messages: self.messages.clone(),
+                tools: tool_defs.clone(),
+                system: Some(self.system_prompt.clone()),
+                think: self.think,
+                max_tokens: self.max_tokens,
+                server_tools: self.server_tools.clone(),
+                enable_caching: self.enable_caching,
+            };
+
+            // Stream with JSON output
+            let response = self.stream_one_turn_json(&request, &mut out).await?;
+
+            // Update usage
+            total_usage.input += response.usage.input_tokens as u64;
+            total_usage.output += response.usage.output_tokens as u64;
+            if response.usage.cache_read_input_tokens > 0 {
+                total_usage.cache_read = Some(total_usage.cache_read.unwrap_or(0) + response.usage.cache_read_input_tokens as u64);
+            }
+            if response.usage.cache_creation_input_tokens > 0 {
+                total_usage.cache_write = Some(total_usage.cache_write.unwrap_or(0) + response.usage.cache_creation_input_tokens as u64);
+            }
+
+            self.record_usage(&response.usage);
+
+            self.messages.push(Message {
+                role: Role::Assistant,
+                content: MessageContent::Blocks(response.content.clone()),
+            });
+
+            if response.stop_reason == StopReason::ToolUse {
+                // Execute tools and output JSON events
+                let tool_results = self.execute_tool_calls_json(&response.content, &mut out).await;
+
+                self.messages.push(Message {
+                    role: Role::Tool,
+                    content: MessageContent::Blocks(tool_results),
+                });
+
+                if iteration + 1 == MAX_ITERATIONS {
+                    let _ = out.write_all(JsonEvent::error("Reached max iterations").to_json_line().as_bytes());
+                }
+                continue;
+            }
+
+            if response.stop_reason == StopReason::MaxTokens {
+                if continuation_count >= MAX_CONTINUATIONS {
+                    let _ = out.write_all(JsonEvent::error("Max continuation limit reached").to_json_line().as_bytes());
+                    return Ok(total_usage);
+                }
+                continuation_count += 1;
+                self.messages.push(Message {
+                    role: Role::User,
+                    content: MessageContent::Text("请继续完成你的回复。".to_string()),
+                });
+                continue;
+            }
+
+            return Ok(total_usage);
+        }
+
+        Ok(total_usage)
+    }
+
+    /// Stream one turn with JSON output format
+    async fn stream_one_turn_json(
+        &self,
+        request: &ChatRequest,
+        out: &mut std::io::StdoutLock<'_>,
+    ) -> Result<ChatResponse> {
+        use crate::protocol::StreamEvent as JsonEvent;
+        use std::io::Write;
+
+        let mut spinner = Some(ToolSpinner::new("thinking"));
+        let mut rx = self.request_with_retry(request, &mut spinner).await?;
+
+        let mut final_response: Option<ChatResponse> = None;
+
+        loop {
+            let event = tokio::select! {
+                evt = rx.recv() => evt,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {
+                    continue;
+                }
+            };
+
+            match event {
+                Some(StreamEvent::FirstByte) => {
+                    if let Some(mut sp) = spinner.take() {
+                        sp.finish_clear();
+                    }
+                }
+                Some(StreamEvent::ThinkingDelta(t)) => {
+                    let json = JsonEvent::thinking(t);
+                    let _ = out.write_all(json.to_json_line().as_bytes());
+                }
+                Some(StreamEvent::TextDelta(t)) => {
+                    let json = JsonEvent::text(t);
+                    let _ = out.write_all(json.to_json_line().as_bytes());
+                }
+                Some(StreamEvent::ToolUseStart { id, name }) => {
+                    let json = JsonEvent::tool_use(id.clone(), name.clone(), serde_json::Value::Null);
+                    let _ = out.write_all(json.to_json_line().as_bytes());
+                }
+                Some(StreamEvent::ToolInputDelta { .. }) => {
+                    // Skip for JSON output - we'll output full input when done
+                }
+                Some(StreamEvent::Done(resp)) => {
+                    if let Some(mut sp) = spinner.take() {
+                        sp.finish_clear();
+                    }
+                    final_response = Some(resp);
+                    break;
+                }
+                None => break,
+                _ => {}
+            }
+        }
+
+        // Output tool_use events for complete tool inputs
+        if let Some(ref response) = final_response {
+            for block in &response.content {
+                if let ContentBlock::ToolUse { id, name, input } = block {
+                    let json = JsonEvent::tool_use(id.clone(), name.clone(), input.clone());
+                    let _ = out.write_all(json.to_json_line().as_bytes());
+                }
+            }
+        }
+
+        let _ = out.flush();
+
+        Ok(final_response.unwrap_or_else(|| ChatResponse {
+            content: vec![ContentBlock::Text { text: "[no response]".to_string() }],
+            stop_reason: StopReason::EndTurn,
+            usage: Usage::default(),
+        }))
+    }
+
+    /// Execute tool calls with JSON output format
+    async fn execute_tool_calls_json(
+        &mut self,
+        content: &[ContentBlock],
+        out: &mut std::io::StdoutLock<'_>,
+    ) -> Vec<ContentBlock> {
+        use crate::protocol::StreamEvent as JsonEvent;
+        use std::io::Write;
+
+        let mut results = Vec::new();
+
+        for block in content {
+            if let ContentBlock::ToolUse { id, name, input } = block {
+                // Find matching tool
+                let tool = self.tools.iter().find(|t| t.definition().name == *name);
+
+                let result_content = if let Some(t) = tool {
+                    // Execute tool (skip approval in JSON mode)
+                    match t.execute(input.clone()).await {
+                        Ok(output) => {
+                            let json = JsonEvent::tool_result(id.clone(), output.clone(), true);
+                            let _ = out.write_all(json.to_json_line().as_bytes());
+                            output
+                        }
+                        Err(e) => {
+                            let error_msg = format!("Tool error: {}", e);
+                            let json = JsonEvent::tool_result(id.clone(), error_msg.clone(), false);
+                            let _ = out.write_all(json.to_json_line().as_bytes());
+                            error_msg
+                        }
+                    }
+                } else {
+                    let error_msg = format!("Unknown tool: {}", name);
+                    let json = JsonEvent::tool_result(id.clone(), error_msg.clone(), false);
+                    let _ = out.write_all(json.to_json_line().as_bytes());
+                    error_msg
+                };
+
+                results.push(ContentBlock::ToolResult {
+                    tool_use_id: id.clone(),
+                    content: result_content,
+                });
+            }
+        }
+
+        let _ = out.flush();
+        results
+    }
+
+    /// Check and compress context for JSON mode (silent, no terminal output)
+    fn check_and_compress_json(&mut self) {
+        use crate::compress::{compress_messages};
+
+        self.last_compression_result = None;
+
+        let context_size = self.provider.context_size();
+        let current_tokens = if self.last_input_tokens > 0 {
+            self.last_input_tokens
+        } else {
+            crate::compress::estimate_total_tokens(&self.messages)
+        };
+
+        if should_compress(current_tokens, context_size, &self.compression_config) {
+            let strategy = if self.compression_config.use_summarization {
+                CompressionStrategy::SlidingWindow
+            } else {
+                CompressionStrategy::Truncate
+            };
+
+            let result = compress_messages(
+                &mut self.messages,
+                strategy,
+                &self.compression_config,
+            );
+
+            if let Ok(messages) = result {
+                self.messages = messages;
+            }
+        }
+    }
+
     // ========================================================================
     // Context Compression Methods
     // ========================================================================

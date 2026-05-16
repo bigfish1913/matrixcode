@@ -1,13 +1,30 @@
-/target
+# Build outputs
+packages/cli/target/
+packages/vscode/dist/
+packages/vscode/node_modules/
+
+# Environment files
 .env
-*.html
-ah-spa/
-target/
+.env.local
+
+# IDE
 .idea/
 .vscode/
-.gitignore
-.git/
-target-test
-code-run.exe
+
+# Test artifacts
+target-test/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+
+# Claude artifacts (development)
 .claude/
-game/
+
+# Misc
+*.html
+code-run.exe

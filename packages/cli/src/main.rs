@@ -155,6 +155,18 @@ struct Cli {
     /// - strict: ask before every tool call
     #[arg(long, env = "APPROVE_MODE", default_value = "ask")]
     approve_mode: String,
+
+    /// Output in JSON format for IDE/extension integration.
+    /// Responses are streamed as JSON Lines (one JSON object per line).
+    /// Useful for VSCode extension or other tool integration.
+    #[arg(long, default_value_t = false)]
+    json: bool,
+
+    /// Run as a daemon process, communicating via stdin/stdout.
+    /// Reads JSON requests from stdin, streams JSON events to stdout.
+    /// Designed for VSCode extension integration.
+    #[arg(long, default_value_t = false)]
+    daemon: bool,
 }
 
 // ============================================================================
@@ -382,6 +394,35 @@ async fn main() -> Result<()> {
 
     // Initialize session manager
     let mut session_manager = SessionManager::new()?;
+    
+    // Handle --daemon mode (VSCode extension integration)
+    if cli.daemon {
+        // Start new session for daemon
+        session_manager.start_new(project_root.as_deref())?;
+        
+        // Run daemon loop
+        return matrixcode::ipc::run_daemon(agent, session_manager, project_root).await;
+    }
+    
+    // Handle --json mode (single request with JSON output)
+    if cli.json && !cli.prompt.is_empty() {
+        // Process single request with JSON output
+        let message = cli.prompt.join(" ");
+        let result = agent.chat_stream_json(&message).await;
+        
+        match result {
+            Ok(usage) => {
+                use matrixcode::protocol::StreamEvent;
+                print!("{}", StreamEvent::done(Some(usage)).to_json_line());
+            }
+            Err(e) => {
+                use matrixcode::protocol::StreamEvent;
+                print!("{}", StreamEvent::error(e.to_string()).to_json_line());
+                print!("{}", StreamEvent::done(None).to_json_line());
+            }
+        }
+        return Ok(());
+    }
     
     // Handle --list-sessions
     if cli.list_sessions {

@@ -9,8 +9,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
+  build-cli:
+    name: Build CLI ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -53,8 +53,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            packages/cli/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('packages/cli/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
@@ -70,29 +70,30 @@ jobs:
           echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
 
       - name: Build
+        working-directory: packages/cli
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          cd target/${{ matrix.target }}/release
+          cd packages/cli/target/${{ matrix.target }}/release
           mkdir -p staging
           cp matrixcode staging/ 2>/dev/null || true
           cp ${{ github.workspace }}/README.md staging/ 2>/dev/null || true
           cp ${{ github.workspace }}/LICENSE staging/ 2>/dev/null || true
           cd ${{ github.workspace }}
-          tar -czvf matrixcode-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release/staging .
+          tar -czvf matrixcode-${{ matrix.target }}.tar.gz -C packages/cli/target/${{ matrix.target }}/release/staging .
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cd target/${{ matrix.target }}/release
+          cd packages/cli/target/${{ matrix.target }}/release
           mkdir staging
           copy matrixcode.exe staging/ 2>$null
           copy ${{ github.workspace }}\README.md staging/ 2>$null
           copy ${{ github.workspace }}\LICENSE staging/ 2>$null
           cd ${{ github.workspace }}
-          7z a matrixcode-${{ matrix.target }}.zip target\${{ matrix.target }}\release\staging
+          7z a matrixcode-${{ matrix.target }}.zip packages\cli\target\${{ matrix.target }}\release\staging
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -100,9 +101,39 @@ jobs:
           name: matrixcode-${{ matrix.target }}
           path: matrixcode-${{ matrix.target }}.${{ matrix.archive }}
 
+  build-vscode:
+    name: Build VSCode Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: packages/vscode
+        run: npm ci
+
+      - name: Build
+        working-directory: packages/vscode
+        run: npm run compile
+
+      - name: Package
+        working-directory: packages/vscode
+        run: npm run package
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrixcode-vscode-extension
+          path: packages/vscode/*.vsix
+
   release:
     name: Create Release
-    needs: build
+    needs: [build-cli, build-vscode]
     runs-on: ubuntu-latest
     permissions:
       contents: write

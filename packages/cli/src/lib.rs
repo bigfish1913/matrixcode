@@ -19,9 +19,13 @@ pub mod approval;     // User approval gates for dangerous operations
 pub mod compress;     // Context compression for long conversations
 pub mod models;       // Model configuration and task planning
 
+// IPC Integration
+pub mod ipc;          // IPC daemon for VSCode extension integration
+
 // Utilities
 pub mod ui;           // UI display utilities (formatting, printing)
 pub mod markdown;     // Terminal markdown rendering
 pub mod overview;     // Project overview generation and management
 pub mod prompt;       // System prompt building and profiles
 pub mod skills;       // Skill loading and management
+pub mod protocol;     // IPC protocol for VSCode extension integration
