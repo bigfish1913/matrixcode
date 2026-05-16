@@ -1,5 +1,5 @@
 {
-  "name": "matrixcode",
+  "name": "@bigfishnpm/matrixcode",
   "version": "0.2.1",
   "description": "A smart code agent CLI with multi-model support, context compression, and task planning",
   "author": "bigfish1913",
