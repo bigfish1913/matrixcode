@@ -9,13 +9,46 @@ tasks:
     cmds:
       - 'grep "^version" Cargo.toml'
       - 'git status --short'
+      - 'echo ""'
+      - 'grep "^NPM_TOKEN=" .env 2>/dev/null || echo "NPM_TOKEN not set"'
+      - 'grep "^CARGO_TOKEN=" .env 2>/dev/null || echo "CARGO_TOKEN not set"'
+
+  login-npm:
+    desc: Login to npm using NPM_TOKEN from .env
+    cmds:
+      - 'TOKEN=$(grep "^NPM_TOKEN=" .env | cut -d= -f2)'
+      - 'echo "//registry.npmjs.org/:_authToken=$TOKEN" > ~/.npmrc'
+      - 'npm whoami'
+      - 'echo "NPM login complete"'
+    preconditions:
+      - 'grep -q "^NPM_TOKEN=..*" .env'
+
+  login-cargo:
+    desc: Login to crates.io using CARGO_TOKEN from .env
+    cmds:
+      - 'TOKEN=$(grep "^CARGO_TOKEN=" .env | cut -d= -f2)'
+      - 'cargo login --registry crates-io $TOKEN'
+      - 'echo "Cargo login complete"'
+    preconditions:
+      - 'grep -q "^CARGO_TOKEN=..*" .env'
+
+  login:
+    desc: Login to npm and cargo (tokens from .env)
+    cmds:
+      - task: login-npm
+      - task: login-cargo
+      - 'echo "All logins complete"'
+    preconditions:
+      - 'test -f .env'
 
   bump:
     desc: Bump version (task bump -- v0.2.2)
     cmds:
       - 'sed -i "s/^version = .*/version = \"{{.CLI_ARGS}}\"/" Cargo.toml'
-      - 'sed -i "s/\"version\": .*/\"version\": \"{{.CLI_ARGS}}\"/" npm/package.json'
+      - 'sed -i "s/version\": .*/version\": \"{{.CLI_ARGS}}\"/" npm/package.json'
       - 'echo "Bumped to {{.CLI_ARGS}}"'
+    preconditions:
+      - 'test -n "{{.CLI_ARGS}}"'
 
   tag:
     desc: Create git tag (task tag -- v0.2.2)
@@ -26,41 +59,57 @@ tasks:
       - 'git push origin dev'
       - 'git push origin {{.CLI_ARGS}}'
       - 'echo "Tagged: {{.CLI_ARGS}}"'
+    preconditions:
+      - 'test -n "{{.CLI_ARGS}}"'
 
   publish-npm:
-    desc: Publish to npm
+    desc: Publish to npm (auto-login from .env)
     dir: npm
     cmds:
+      - task: login-npm
       - 'cp ../LICENSE .'
       - 'npm publish --access=public'
+      - 'echo "NPM published"'
 
   publish-cargo:
-    desc: Publish to crates.io
+    desc: Publish to crates.io (auto-login from .env)
     cmds:
+      - task: login-cargo
       - 'cargo publish --registry crates-io'
+      - 'echo "Cargo published"'
 
   publish:
-    desc: Publish to npm and cargo
+    desc: Publish to npm and cargo (auto-login)
     cmds:
+      - task: login
       - task: publish-npm
       - task: publish-cargo
 
   release:
-    desc: Full release workflow
+    desc: Full release workflow with auto-login
     cmds:
+      - task: login
       - task: bump
         vars:
           CLI_ARGS: "{{.CLI_ARGS}}"
       - task: tag
         vars:
           CLI_ARGS: "{{.CLI_ARGS}}"
+      - 'echo "Waiting 30s for CI..."'
       - 'sleep 30'
-      - task: publish
+      - task: publish-npm
+      - task: publish-cargo
+      - 'echo "Release {{.CLI_ARGS}} complete!"'
+    preconditions:
+      - 'test -n "{{.CLI_ARGS}}"'
+      - 'grep -q "^NPM_TOKEN=..*" .env'
+      - 'grep -q "^CARGO_TOKEN=..*" .env'
 
   build:
     desc: Build release binary
     cmds:
       - 'cargo build --release'
+      - 'ls -la target/release/matrixcode*'
 
   test:
     desc: Run tests
@@ -71,6 +120,7 @@ tasks:
     desc: Check code
     cmds:
       - 'cargo check'
+      - 'cargo clippy 2>/dev/null || true'
 
   install:
     desc: Install locally
