@@ -13,12 +13,13 @@ tasks:
   login-npm:
     desc: Login to npm from .env
     cmds:
-      - cmd: 'TOKEN=$(grep "^NPM_TOKEN=" .env | cut -d= -f2) && echo "//registry.npmjs.org/:_authToken=$TOKEN" > ~/.npmrc && npm whoami'
+      - cmd: 'node -e "const fs=require(\"fs\"); const token=fs.readFileSync(\".env\",\"utf8\").match(/NPM_TOKEN=(\\S+)/)?.[1]; if(token){fs.writeFileSync(process.env.HOME+\"/.npmrc\",\"//registry.npmjs.org/:_authToken=\"+token)}"'
+      - cmd: 'npm whoami'
 
   login-cargo:
     desc: Login to cargo from .env
     cmds:
-      - cmd: 'TOKEN=$(grep "^CARGO_TOKEN=" .env | cut -d= -f2) && cargo login --registry crates-io "$TOKEN"'
+      - cmd: 'node -e "const fs=require(\"fs\"); const token=fs.readFileSync(\".env\",\"utf8\").match(/CARGO_TOKEN=(\\S+)/)?.[1]; if(token){const path=process.env.HOME+\"/.cargo/credentials.toml\"; fs.writeFileSync(path,\"[registry]\\ntoken = \\\"\"+token+\"\\\"\")}"'
 
   login:
     desc: Login to npm and cargo
@@ -26,30 +27,18 @@ tasks:
       - task: login-npm
       - task: login-cargo
 
-  bump-version:
-    desc: Bump Cargo.toml version
-    cmds:
-      - cmd: 'sed -i "s/^version = .*/version = \"{{.CLI_ARGS}}\"/" Cargo.toml'
-
-  bump-package:
-    desc: Bump npm package.json version
-    dir: npm
-    cmds:
-      - cmd: 'npm version --no-git-tag-version {{.CLI_ARGS}}'
-
   bump:
     desc: Bump all versions
     cmds:
-      - task: bump-version
-        vars: {CLI_ARGS: '{{.CLI_ARGS}}'}
-      - task: bump-package
-        vars: {CLI_ARGS: '{{.CLI_ARGS}}'}
+      - cmd: 'node -e "const fs=require(\"fs\"); let c=fs.readFileSync(\"Cargo.toml\",\"utf8\"); c=c.replace(/^(version = )\"[^\"]+\"/,\"$1\"\"{{.CLI_ARGS}}\"\"\"\"); fs.writeFileSync(\"Cargo.toml\",c)"'
+      - cmd: 'node -e "const fs=require(\"fs\"); let p=JSON.parse(fs.readFileSync(\"npm/package.json\")); p.version=\"{{.CLI_ARGS}}\"; fs.writeFileSync(\"npm/package.json\",JSON.stringify(p,null,2))"'
+      - cmd: 'echo Bumped to {{.CLI_ARGS}}'
 
   tag:
     desc: Create git tag
     cmds:
-      - 'git add Cargo.toml npm/package.json'
-      - 'git commit -m "chore: bump to {{.CLI_ARGS}}" || true'
+      - 'git add Cargo.toml npm/package.json Cargo.lock'
+      - cmd: 'git commit -m "chore: bump to {{.CLI_ARGS}}"'
       - 'git tag {{.CLI_ARGS}}'
       - 'git push origin dev'
       - 'git push origin {{.CLI_ARGS}}'
