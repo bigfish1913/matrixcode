@@ -166,31 +166,49 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
     env_logger::init();
 
+    // Load configuration with fallback chain:
+    // CLI args > ~/.matrix/config.json > ~/.claude/settings.json > env vars
+    let config = matrixcode::config::MatrixConfig::load();
+
     let cli = Cli::parse();
 
-    let api_key = cli.api_key.unwrap_or_else(|| match cli.provider.as_str() {
-        "openai" => std::env::var("OPENAI_API_KEY").expect("API_KEY or OPENAI_API_KEY required"),
-        _ => std::env::var("ANTHROPIC_API_KEY").expect("API_KEY or ANTHROPIC_API_KEY required"),
-    });
+    // Determine provider (CLI > config > env > default)
+    let provider_name = cli.provider.clone();
 
-    let model = cli.model.unwrap_or_else(|| match cli.provider.as_str() {
-        "openai" => "gpt-4o".to_string(),
-        _ => "claude-sonnet-4-20250514".to_string(),
-    });
+    // Get API key with fallback chain
+    let api_key = cli.api_key.clone()
+        .or(config.get_api_key(&provider_name))
+        .ok_or_else(|| anyhow::anyhow!(match provider_name.as_str() {
+            "openai" => "OPENAI_API_KEY required (set in ~/.matrix/config.json, ~/.claude/settings.json, or env)",
+            _ => "ANTHROPIC_API_KEY required (set in ~/.matrix/config.json, ~/.claude/settings.json, or env)",
+        }))?;
 
-    let base_url = cli.base_url.unwrap_or_else(|| match cli.provider.as_str() {
-        "openai" => "https://api.openai.com/v1".to_string(),
-        _ => "https://api.anthropic.com".to_string(),
-    });
+    // Get model with fallback chain
+    let model = cli.model.clone()
+        .unwrap_or_else(|| config.get_model(&provider_name));
 
-    // Set CONTEXT_SIZE env var if provided via CLI (must be before provider creation)
-    if let Some(size) = cli.context_size {
+    // Get base URL with fallback chain
+    let base_url = cli.base_url.clone()
+        .unwrap_or_else(|| config.get_base_url(&provider_name));
+
+    // Get think setting (CLI > config > default)
+    let think = if cli.think { true } else { config.think };
+
+    // Get markdown setting (CLI > config > default)
+    let markdown = if cli.markdown { true } else { config.markdown };
+
+    // Get max tokens (CLI > config > default)
+    let max_tokens = cli.max_tokens.max(config.max_tokens);
+
+    // Set CONTEXT_SIZE env var if provided via CLI or config
+    let context_size = cli.context_size.or(config.context_size);
+    if let Some(size) = context_size {
         // SAFETY: set_var is unsafe because it can affect multi-threaded programs.
         // We're doing this during initialization before any threads are spawned.
         unsafe { std::env::set_var("CONTEXT_SIZE", size.to_string()); }
     }
 
-    let provider: Box<dyn providers::Provider> = match cli.provider.as_str() {
+    let provider: Box<dyn providers::Provider> = match provider_name.as_str() {
         "openai" => Box::new(providers::openai::OpenAIProvider::new(
             api_key.clone(), model.clone(), base_url.clone(),
         )),
@@ -235,49 +253,55 @@ async fn main() -> Result<()> {
 
     let mut agent = agent::Agent::with_memory_and_overview(
         provider,
-        cli.think,
-        cli.markdown,
+        think,
+        markdown,
         profile,
         load_skills(&cli.skills_dir, cli.no_default_skills),
-        cli.max_tokens,
+        max_tokens,
         overview.as_ref().map(|o| o.content.as_str()),
         memory_summary.as_deref(),
     );
 
     // Configure multi-model if enabled or specific models provided
-    if cli.multi_model || cli.plan_model.is_some() || cli.compress_model.is_some() || cli.fast_model.is_some() {
+    // Use CLI args > config file > default
+    let plan_model = cli.plan_model.clone().or(config.plan_model.clone());
+    let compress_model = cli.compress_model.clone().or(config.compress_model.clone());
+    let fast_model = cli.fast_model.clone().or(config.fast_model.clone());
+    let multi_model = cli.multi_model || config.multi_model.unwrap_or(false);
+    
+    if multi_model || plan_model.is_some() || compress_model.is_some() || fast_model.is_some() {
         // Start with all roles using the main model
         let mut model_config = MultiModelConfig::with_main(model.clone());
         
         // Override plan model if specified
-        if let Some(ref plan_model_name) = cli.plan_model {
+        if let Some(ref plan_model_name) = plan_model {
             model_config.set(ModelRole::Plan, ModelConfig::new(plan_model_name.clone()));
             println!("[plan model: {}]", plan_model_name);
-        } else if cli.multi_model {
+        } else if multi_model {
             println!("[plan model: {} (using main model)]", model);
         }
         
         // Override compress model if specified
-        if let Some(ref compress_model_name) = cli.compress_model {
+        if let Some(ref compress_model_name) = compress_model {
             model_config.set(ModelRole::Compress, ModelConfig::new(compress_model_name.clone()));
             println!("[compress model: {}]", compress_model_name);
-        } else if cli.multi_model {
+        } else if multi_model {
             println!("[compress model: {} (using main model)]", model);
         }
         
         // Override fast model if specified
-        if let Some(ref fast_model_name) = cli.fast_model {
+        if let Some(ref fast_model_name) = fast_model {
             model_config.set(ModelRole::Fast, ModelConfig::new(fast_model_name.clone()));
             println!("[fast model: {}]", fast_model_name);
-        } else if cli.multi_model {
+        } else if multi_model {
             println!("[fast model: {} (using main model)]", model);
         }
         
         // Create providers for plan and compress if multi-model is enabled
-        if cli.multi_model {
+        if multi_model {
             // Plan provider (uses plan model config)
             let plan_model_name = model_config.plan.name.clone();
-            let plan_provider: Box<dyn providers::Provider> = match cli.provider.as_str() {
+            let plan_provider: Box<dyn providers::Provider> = match provider_name.as_str() {
                 "openai" => Box::new(providers::openai::OpenAIProvider::new(
                     api_key.clone(), plan_model_name.clone(), base_url.clone(),
                 )),
@@ -289,7 +313,7 @@ async fn main() -> Result<()> {
             
             // Compress provider (uses compress model config)
             let compress_model_name = model_config.compress.name.clone();
-            let compress_provider: Box<dyn providers::Provider> = match cli.provider.as_str() {
+            let compress_provider: Box<dyn providers::Provider> = match provider_name.as_str() {
                 "openai" => Box::new(providers::openai::OpenAIProvider::new(
                     api_key.clone(), compress_model_name.clone(), base_url.clone(),
                 )),
@@ -300,10 +324,10 @@ async fn main() -> Result<()> {
             agent = agent.with_compress_provider(compress_provider);
             
             println!("[multi-model enabled: all models default to main model]");
-        } else if cli.compress_model.is_some() {
+        } else if compress_model.is_some() {
             // Only compress model specified, create compress provider
             let compress_model_name = model_config.compress.name.clone();
-            let compress_provider: Box<dyn providers::Provider> = match cli.provider.as_str() {
+            let compress_provider: Box<dyn providers::Provider> = match provider_name.as_str() {
                 "openai" => Box::new(providers::openai::OpenAIProvider::new(
                     api_key.clone(), compress_model_name.clone(), base_url.clone(),
                 )),
@@ -318,7 +342,7 @@ async fn main() -> Result<()> {
     }
 
     // Enable server-side web search by default for Anthropic provider
-    if cli.provider == "anthropic" && !cli.no_web_search {
+    if provider_name == "anthropic" && !cli.no_web_search {
         agent = agent.with_web_search(Some(cli.web_search_max_uses));
         println!("[server web search enabled, max {} uses per turn]", cli.web_search_max_uses);
     }
@@ -337,15 +361,20 @@ async fn main() -> Result<()> {
     }
 
     // Configure prompt caching
-    if cli.provider == "anthropic" && !cli.no_caching {
+    if provider_name == "anthropic" && !cli.no_caching {
         agent.set_caching(true);
         println!("[prompt caching enabled for Anthropic]");
     } else if cli.no_caching {
         agent.set_caching(false);
     }
 
-    // Configure approval mode
-    let approve_mode = matrixcode::approval::ApproveMode::from_str(&cli.approve_mode);
+    // Configure approval mode (CLI > config > default "ask")
+    let approve_mode_str = if cli.approve_mode != "ask" {
+        cli.approve_mode.clone()
+    } else {
+        config.approve_mode.clone().unwrap_or_else(|| cli.approve_mode.clone())
+    };
+    let approve_mode = matrixcode::approval::ApproveMode::from_str(&approve_mode_str);
     agent.set_approve_mode(approve_mode);
     if approve_mode != matrixcode::approval::ApproveMode::Ask {
         println!("[approve mode: {}]", approve_mode);
@@ -643,6 +672,19 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         }
         if trimmed == "/skills" {
             handle_skills(agent);
+            continue;
+        }
+        if trimmed == "/config" {
+            handle_config_show();
+            continue;
+        }
+        if trimmed == "/config init" {
+            handle_config_init()?;
+            continue;
+        }
+        if trimmed.starts_with("/config set ") {
+            let args = trimmed.strip_prefix("/config set ").unwrap();
+            handle_config_set(args)?;
             continue;
         }
 
@@ -1091,6 +1133,112 @@ fn handle_skills(agent: &agent::Agent) {
         };
         println!("    {}", desc_preview);
     }
+}
+
+/// Handle /config command: show current configuration.
+fn handle_config_show() {
+    println!("[configuration]");
+    println!();
+    
+    // Show config file paths
+    let matrix_path = matrixcode::config::MatrixConfig::matrix_config_path();
+    let claude_path = matrixcode::config::MatrixConfig::claude_settings_path();
+    
+    println!("Config files:");
+    if let Some(p) = matrix_path {
+        let exists = if p.exists() { "✓" } else { "(not found)" };
+        println!("  ~/.matrix/config.json  {}", exists);
+    }
+    if let Some(p) = claude_path {
+        let exists = if p.exists() { "✓ (cc-switch)" } else { "(not found)" };
+        println!("  ~/.claude/settings.json {}", exists);
+    }
+    println!();
+    
+    // Load and show current config
+    let config = matrixcode::config::MatrixConfig::load();
+    
+    println!("Current settings:");
+    println!("  provider:     {}", config.provider.unwrap_or_else(|| "anthropic".to_string()));
+    println!("  model:        {}", config.model.unwrap_or_else(|| "(default)".to_string()));
+    println!("  base_url:     {}", config.base_url.unwrap_or_else(|| "(default)".to_string()));
+    println!("  think:        {}", config.think);
+    println!("  markdown:     {}", config.markdown);
+    println!("  max_tokens:   {}", config.max_tokens);
+    println!("  approve_mode: {}", config.approve_mode.unwrap_or_else(|| "ask".to_string()));
+    
+    if let Some(ref m) = config.plan_model {
+        println!("  plan_model:   {}", m);
+    }
+    if let Some(ref m) = config.compress_model {
+        println!("  compress_model: {}", m);
+    }
+    if let Some(ref m) = config.fast_model {
+        println!("  fast_model:   {}", m);
+    }
+    
+    // API key status (don't show actual key)
+    let has_key = config.api_key.is_some() 
+        || std::env::var("ANTHROPIC_API_KEY").is_ok() 
+        || std::env::var("API_KEY").is_ok();
+    println!("  api_key:      {}", if has_key { "✓ (set)" } else { "(not set)" });
+    
+    println!();
+    println!("Commands:");
+    println!("  /config init        - Create default config file");
+    println!("  /config set <k> <v> - Set a config value");
+    println!("  /config set api_key <key> - Set API key");
+}
+
+/// Handle /config init: create default config file.
+fn handle_config_init() -> Result<()> {
+    matrixcode::config::create_default_config()?;
+    Ok(())
+}
+
+/// Handle /config set: set a configuration value.
+fn handle_config_set(args: &str) -> Result<()> {
+    let parts: Vec<&str> = args.splitn(2, ' ').collect();
+    if parts.len() < 2 {
+        println!("Usage: /config set <key> <value>");
+        println!("Keys: provider, model, base_url, api_key, think, markdown, max_tokens, approve_mode");
+        println!("      plan_model, compress_model, fast_model");
+        return Ok(());
+    }
+    
+    let key = parts[0];
+    let value = parts[1];
+    
+    // Load existing config or create new
+    let mut config = matrixcode::config::MatrixConfig::load();
+    
+    match key {
+        "provider" => config.provider = Some(value.to_string()),
+        "model" => config.model = Some(value.to_string()),
+        "base_url" => config.base_url = Some(value.to_string()),
+        "api_key" => config.api_key = Some(value.to_string()),
+        "think" => config.think = value == "true" || value == "1",
+        "markdown" => config.markdown = value == "true" || value == "1",
+        "max_tokens" => {
+            let tokens: u32 = value.parse()
+                .map_err(|_| anyhow::anyhow!("Invalid max_tokens value"))?;
+            config.max_tokens = tokens;
+        }
+        "approve_mode" => config.approve_mode = Some(value.to_string()),
+        "plan_model" => config.plan_model = Some(value.to_string()),
+        "compress_model" => config.compress_model = Some(value.to_string()),
+        "fast_model" => config.fast_model = Some(value.to_string()),
+        _ => {
+            println!("[error: unknown config key '{}']", key);
+            println!("Valid keys: provider, model, base_url, api_key, think, markdown, max_tokens, approve_mode");
+            return Ok(());
+        }
+    }
+    
+    config.save()?;
+    println!("[config updated: {} = {}]", key, if key == "api_key" { "***" } else { value });
+    
+    Ok(())
 }
 
 /// Load accumulated memory and generate summary for system prompt injection.

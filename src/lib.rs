@@ -7,6 +7,7 @@ pub mod agent;        // Main agent implementation (chat loop, tool execution)
 pub mod providers;    // LLM API providers (Anthropic, OpenAI)
 pub mod tools;        // Tool implementations (read, write, bash, etc.)
 pub mod workspace;    // Working directory management
+pub mod config;       // Configuration loading (matrix + cc-switch fallback)
 
 // Session & State Management
 pub mod session;      // Session persistence and management

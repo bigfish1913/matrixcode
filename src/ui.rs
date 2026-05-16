@@ -114,6 +114,9 @@ pub fn print_help() {
     println!("Available commands:");
     println!("  /help       - Show this help message");
     println!("  /status     - Show session status (messages, token usage)");
+    println!("  /config     - Show configuration settings");
+    println!("  /config init - Create default config file (~/.matrix/config.json)");
+    println!("  /config set <k> <v> - Set config value (api_key, model, etc.)");
     println!("  /memory     - Show accumulated memories (new)");
     println!("  /memory add - Add manual memory entry (new)");
     println!("  /model      - Show current model information");
