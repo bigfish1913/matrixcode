@@ -5,6 +5,7 @@
 ## 功能特性
 
 - 🤖 **多模型配置**: 支持 main/plan/compress/fast 四种模型角色
+- 🧠 **跨会话记忆**: 自动记住偏好、决策、发现，下次对话自动加载
 - 🗜️ **智能压缩**: 自动检测并压缩超出阈值的上下文
 - 📋 **任务规划**: 使用规划模型分解复杂任务
 - 💾 **会话管理**: 支持多会话保存、恢复和命名
@@ -99,6 +100,11 @@ matrixcode --compress-model claude-3-5-haiku-20241022
 | 命令 | 说明 |
 |------|------|
 | `/help` | 显示帮助信息 |
+| `/memory` | 显示所有累积的记忆 |
+| `/memory add <内容>` | 手动添加记忆 |
+| `/memory search <关键词>` | 搜索记忆 |
+| `/memory stats` | 显示记忆统计 |
+| `/memory clear` | 清除所有记忆 |
 | `/status` | 显示会话状态（消息数、token 使用） |
 | `/history` | 显示对话历史摘要 |
 | `/sessions` | 列出所有保存的会话 |
@@ -125,6 +131,57 @@ matrixcode --compress-model claude-3-5-haiku-20241022
 /compress aggressive   # 激进压缩（删除更多）
 /compress preserve:tools,thinking keywords:决定,重要  # 自定义
 ```
+
+## 🧠 跨会话记忆系统
+
+MatrixCode 会自动记住你说过的重要信息，下次对话时自动加载相关记忆。
+
+### 记忆类型
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| 🎯 **决策** | 项目或技术选型决定 | "决定使用 PostgreSQL 作为主数据库" |
+| 👤 **偏好** | 用户习惯或偏好 | "偏好使用 vim 编辑器" |
+| 💡 **发现** | 重要发现或信息 | "API 端点位于 /api/v2" |
+| 🔧 **解决方案** | 解决问题的方法 | "通过添加 middleware 修复认证问题" |
+| 📚 **技术** | 技术栈信息 | "使用 React Query 做数据获取" |
+| 🏗️ **结构** | 项目结构信息 | "入口文件是 src/index.ts" |
+
+### 记忆演示
+
+```bash
+# 第一次对话
+> 我决定使用 PostgreSQL 作为这个项目的数据库
+[saved 1 new memories]
+
+# 关闭终端，第二天继续...
+> 继续设计数据库 schema
+[loaded 15 accumulated memories]
+# AI 自动记得你选择了 PostgreSQL，不会再问用什么数据库
+
+# 改变决定
+> 改用 MySQL，PostgreSQL 太重了
+[saved 1 new memories]
+# AI 自动更新记忆，不再提 PostgreSQL
+```
+
+### 记忆管理
+
+```bash
+/memory                 # 显示所有记忆
+/memory search postgres # 搜索包含 postgres 的记忆
+/memory add 我喜欢用 TypeScript  # 手动添加记忆
+/memory stats           # 显示统计信息
+/memory export          # 导出记忆到 JSON
+/memory import file.json # 从文件导入记忆
+```
+
+### 记忆存储位置
+
+- **全局记忆**: `~/.matrix/memory.json`（跨项目共享）
+- **项目记忆**: `.matrix/memory.json`（项目特定）
+
+---
 
 ## 环境变量配置
 
