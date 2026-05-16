@@ -906,10 +906,10 @@ impl Agent {
                 evt = rx.recv() => evt,
                 _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {
                     // Timeout - continue loop to check cancellation
-                    // Also show "processing" spinner if text just ended and we're waiting for next event
-                    if !in_text && !in_thinking && tool_spinner.is_none() && spinner.is_none() {
-                        tool_spinner = Some(ToolSpinner::new("processing"));
-                    }
+                    // Note: We no longer create "processing" spinner here because:
+                    // 1. It causes visual noise when thinking completes
+                    // 2. The spinner creation/cleanup overhead adds latency
+                    // 3. User can see thinking output has ended, waiting is acceptable
                     continue;
                 }
             };
@@ -943,13 +943,7 @@ impl Agent {
                         // Text ended, thinking starts
                         self.flush_text_block(&mut text_buffer);
                         in_text = false;
-                        // Show preparing spinner during the gap
-                        if tool_spinner.is_none() {
-                            tool_spinner = Some(ToolSpinner::new("processing"));
-                        }
                     }
-                    // Clear preparing spinner when thinking actually starts
-                    tool_spinner.take();
                     if !in_thinking {
                         print!("{}[thinking] ", ui::DIM);
                         in_thinking = true;
@@ -977,13 +971,7 @@ impl Agent {
                     if in_text {
                         self.flush_text_block(&mut text_buffer);
                         in_text = false;
-                        // Show preparing spinner briefly while transitioning
-                        if tool_spinner.is_none() {
-                            tool_spinner = Some(ToolSpinner::new("preparing tool call"));
-                        }
                     }
-                    // Replace preparing spinner with tool-specific spinner
-                    tool_spinner.take();
                     println!("[tool: {}]", name);
                     tool_spinner = Some(ToolSpinner::new(&format!("streaming {} input", name)));
                     current_tool_name = Some(name.clone());
