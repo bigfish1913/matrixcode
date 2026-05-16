@@ -13,13 +13,13 @@ tasks:
   login-npm:
     desc: Login to npm from .env
     cmds:
-      - cmd: node -e "const os=require('os');const fs=require('fs');const m=fs.readFileSync('.env','utf8').match(/NPM_TOKEN=([^\\s]+)/);if(m){fs.writeFileSync(os.homedir()+'/.npmrc','//registry.npmjs.org/:_authToken='+m[1])}"
-      - npm whoami
+      - cmd: 'node -e "const os=require(\"os\");const fs=require(\"fs\");const m=fs.readFileSync(\".env\",\"utf8\").match(/NPM_TOKEN=([^\\\\s]+)/);if(m){fs.writeFileSync(os.homedir()+\"/.npmrc\",\"//registry.npmjs.org/:_authToken=\"+m[1])}"'
+      - cmd: 'npm whoami'
 
   login-cargo:
     desc: Login to cargo from .env
     cmds:
-      - cmd: node -e "const os=require('os');const fs=require('fs');const m=fs.readFileSync('.env','utf8').match(/CARGO_TOKEN=([^\\s]+)/);if(m){fs.writeFileSync(os.homedir()+'/.cargo/credentials.toml','[registry]\\n token = \\\"'+m[1]+'\\\"')}"
+      - cmd: 'node -e "const os=require(\"os\");const fs=require(\"fs\");const m=fs.readFileSync(\".env\",\"utf8\").match(/CARGO_TOKEN=([^\\\\s]+)/);if(m){fs.writeFileSync(os.homedir()+\"/.cargo/credentials.toml\",\"[registry]\\\\n token = \\\"\"+m[1]+\"\\\"\")}"'
 
   login:
     desc: Login to npm and cargo
@@ -28,14 +28,14 @@ tasks:
       - task: login-cargo
 
   bump:
-    desc: Bump all versions
+    desc: Bump all versions (task bump -- 0.2.4)
     cmds:
-      - cmd: node -e "const fs=require('fs');const v='{{.CLI_ARGS}}';const c=fs.readFileSync('Cargo.toml','utf8').replace(/^version = .*/m,'version = \"'+v+'\"');fs.writeFileSync('Cargo.toml',c)"
-      - cmd: node -e "const fs=require('fs');const v='{{.CLI_ARGS}}';const p=JSON.parse(fs.readFileSync('npm/package.json'));p.version=v;fs.writeFileSync('npm/package.json',JSON.stringify(p,null,2))"
-      - echo "Bumped to {{.CLI_ARGS}}"
+      - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const c=fs.readFileSync(\"Cargo.toml\",\"utf8\").replace(/^version = .*/m,\"version = \\\"\"+v+\"\\\"\");fs.writeFileSync(\"Cargo.toml\",c)"'
+      - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const p=JSON.parse(fs.readFileSync(\"npm/package.json\"));p.version=v;fs.writeFileSync(\"npm/package.json\",JSON.stringify(p,null,2))"'
+      - cmd: 'echo "Bumped to {{.CLI_ARGS}}"'
 
   tag:
-    desc: Create git tag
+    desc: Create git tag (task tag -- 0.2.4)
     cmds:
       - 'git add Cargo.toml npm/package.json Cargo.lock'
       - 'git commit -m "chore: bump to {{.CLI_ARGS}}"'
@@ -58,14 +58,16 @@ tasks:
       - 'cargo publish --registry crates-io'
 
   publish:
-    desc: Publish npm and cargo
+    desc: Auto bump version and publish
     cmds:
+      - cmd: 'node -e "const fs=require(\"fs\");const c=fs.readFileSync(\"Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const p=m[1].split(\".\");p[2]=parseInt(p[2])+1;const nv=p.join(\".\");fs.writeFileSync(\"Cargo.toml\",c.replace(/^version = .*/m,\"version = \\\"\"+nv+\"\\\"\"));const pkg=JSON.parse(fs.readFileSync(\"npm/package.json\"));pkg.version=nv;fs.writeFileSync(\"npm/package.json\",JSON.stringify(pkg,null,2));console.log(\"New version: \"+nv)}"'
+      - cmd: 'node -e "const fs=require(\"fs\");const execSync=require(\"child_process\").execSync;const c=fs.readFileSync(\"Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const v=m[1];execSync(\"git add Cargo.toml npm/package.json Cargo.lock\");execSync(\"git commit -m \\\"chore: bump to \"+v+\"\\\"\");execSync(\"git tag \"+v);execSync(\"git push origin dev\");execSync(\"git push origin \"+v)}"'
       - task: login
       - task: publish-npm
       - task: publish-cargo
 
   release:
-    desc: Full release workflow
+    desc: Full release workflow (task release -- 0.2.4)
     cmds:
       - task: login
       - task: bump
