@@ -1,4 +1,5 @@
 use std::io::{Write as _, stdout};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -57,6 +58,7 @@ pub struct Agent {
     skills: Arc<Vec<Skill>>,
     total_output_tokens: u64,
     last_input_tokens: u32,
+    api_call_count: AtomicUsize,  // 每次 API 调用计数（使用 AtomicUsize 支持 &self 方法中修改）
     compression_config: CompressionConfig,
     enable_caching: bool,
     last_compression_result: Option<crate::compress::CompressionResult>,
@@ -177,6 +179,7 @@ impl AgentBuilder {
             skills: skills_arc,
             total_output_tokens: 0,
             last_input_tokens: 0,
+            api_call_count: AtomicUsize::new(0),
             compression_config: CompressionConfig::default(),
             enable_caching: true,
             last_compression_result: None,
@@ -482,6 +485,7 @@ impl Agent {
     /// Clear the conversation history.
     pub fn clear_messages(&mut self) {
         self.messages.clear();
+        self.api_call_count.store(0, Ordering::SeqCst);  // Reset API call count
     }
 
     /// Get the number of messages in the conversation.
@@ -496,6 +500,16 @@ impl Agent {
             total_output_tokens: self.total_output_tokens,
             context_size: self.provider.context_size(),
         }
+    }
+
+    /// Get API call count (each API call to LLM counts as one).
+    pub fn api_call_count(&self) -> usize {
+        self.api_call_count.load(Ordering::SeqCst)
+    }
+
+    /// Reset API call count (used when clearing conversation).
+    pub fn reset_api_call_count(&self) {
+        self.api_call_count.store(0, Ordering::SeqCst);
     }
 
     // ========================================================================
@@ -533,7 +547,8 @@ impl Agent {
                 server_tools: self.server_tools.clone(),
                 enable_caching: self.enable_caching,
             };
-
+            
+            //这里动画
             let response = match self.stream_one_turn(request).await {
                 Ok(r) => r,
                 Err(e) if !retried_after_length_error && is_input_length_error(&e) => {
@@ -935,8 +950,10 @@ impl Agent {
 
             match event {
                 Some(StreamEvent::FirstByte) => {
-                    // Main spinner done, clear it (cleanup handled by Drop)
-                    spinner.take();
+                    // Main spinner done - wait for min display time then clear
+                    if let Some(mut sp) = spinner.take() {
+                        sp.finish_clear();
+                    }
                 }
                 Some(StreamEvent::ThinkingDelta(t)) => {
                     if in_text {
@@ -956,8 +973,10 @@ impl Agent {
                         print!("{}\n\n", ui::RESET);
                         in_thinking = false;
                     }
-                    // Clear preparing spinner when text resumes
-                    tool_spinner.take();
+                    // Clear preparing spinner when text resumes (if any)
+                    if let Some(mut sp) = tool_spinner.take() {
+                        sp.finish_clear();
+                    }
                     in_text = true;
                     text_buffer.push_str(&t);
                     print!("{}", t);
@@ -996,8 +1015,10 @@ impl Agent {
                     }
                 }
                 Some(StreamEvent::Done(resp)) => {
-                    // Tool spinner cleanup handled by Drop (RAII)
-                    tool_spinner.take();
+                    // Tool spinner cleanup - wait for min display time before clearing
+                    if let Some(mut sp) = tool_spinner.take() {
+                        sp.finish_clear();
+                    }
                     if in_thinking {
                         print!("{}", ui::RESET);
                     }
@@ -1022,9 +1043,11 @@ impl Agent {
             }
         }
 
-        // Main spinner cleanup handled by Drop (RAII) if still present
-        spinner.take();
-        
+        // Main spinner cleanup - wait for min display time if still present
+        if let Some(mut sp) = spinner.take() {
+            sp.finish_clear();
+        }
+
         final_response.ok_or_else(|| anyhow::anyhow!("stream ended without Done event"))
     }
 
@@ -1081,7 +1104,11 @@ impl Agent {
             }
 
             match self.provider.chat_stream(request.clone()).await {
-                Ok(rx) => return Ok(rx),
+                Ok(rx) => {
+                    // Increment API call count
+                    self.api_call_count.fetch_add(1, Ordering::SeqCst);
+                    return Ok(rx);
+                }
                 Err(e) => {
                     if Self::is_retryable_error(&e) && attempt < Self::MAX_RETRIES {
                         eprintln!("\n[error] transient API error: {}", e);
@@ -1129,14 +1156,14 @@ impl Agent {
         for block in content {
             match block {
                 ContentBlock::ToolUse { id, name, input } => {
-                    // Create transition spinner to fill the gap between Done event and tool execution
-                    let mut transition_spinner = ToolSpinner::new(&format!("executing {}", name));
+                    // Show parsing spinner while preparing tool execution
+                    let mut parsing_spinner = ToolSpinner::new(&format!("parsing {}", name));
 
-                    // Print tool input with nice formatting
+                    // Wait and clear spinner BEFORE printing (to avoid interference)
+                    parsing_spinner.finish_clear();
+
+                    // Print tool input with nice formatting (after spinner cleared)
                     ui::print_tool_input(name, input);
-
-                    // Clear transition spinner before tool creates its own spinner
-                    transition_spinner.finish_clear();
 
                     // Execute the tool (spinner is created immediately in tool's execute method)
                     let result = self.execute_single_tool(name, input).await;
@@ -1204,8 +1231,11 @@ impl Agent {
             .ok_or_else(|| anyhow::anyhow!("Unknown tool: {}", name))?;
 
         // Approval gate: check if user confirmation is needed
+        // Note: 'ask' tool is always executed (it needs user input, not approval)
         let risk = tool.risk_level();
-        if needs_approval(self.approve_mode, risk) {
+        let is_ask_tool = name == "ask";
+        
+        if needs_approval(self.approve_mode, risk) && !is_ask_tool {
             let request = build_approval_request(name, risk, input);
             match prompt_approval(&request) {
                 ApprovalAnswer::Yes => { /* proceed */ }
@@ -1215,30 +1245,6 @@ impl Agent {
                 ApprovalAnswer::Abort => {
                     anyhow::bail!("用户中止了本轮执行。");
                 }
-            }
-        }
-
-        // Special handling for 'ask' tool in auto mode: skip user interaction
-        if name == "ask" && self.approve_mode == ApproveMode::Auto {
-            // Extract recommendation if provided
-            let recommendation = input["recommendation"]["option_id"].as_str();
-            let reason = input["recommendation"]["reason"].as_str();
-            let question = input["question"].as_str().unwrap_or("未提供问题");
-
-            println!("[ask: auto mode, skipping user interaction]");
-            
-            if recommendation.is_some() {
-                let rec = recommendation.unwrap();
-                let r = reason.unwrap_or("无理由");
-                return Ok(format!(
-                    "自动模式下无法询问用户。\n问题：{}\n已自动采纳推荐方案：{}\n理由：{}\n请继续执行推荐方案。",
-                    question, rec, r
-                ));
-            } else {
-                return Ok(format!(
-                    "自动模式下无法询问用户。问题：{}\n请根据你的判断选择最合适的方案继续执行。",
-                    question
-                ));
             }
         }
 

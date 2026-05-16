@@ -1,174 +1,569 @@
-# MATRIX.md - MatrixCode 项目概览
+# MatrixCode 项目概览
 
-## 1. 项目简介
+## 项目简介
 
-**MatrixCode** 是一个基于 Rust 开发的智能代码代理CLI 工具。它能够理解自然语言指令，并通过调用大型语言模型（LLM）如 OpenAI 或 Anthropic 来执行代码编写、文件操作、命令执行等任务。该项目采用了“工具调用”架构，允许 AI 智能体与本地文件系统、Shell 环境及网络进行交互，旨在成为一个可扩展、高效的开发辅助工具。
+**MatrixCode** 是一个基于 Rust 开发的智能代码代理 CLI 工具，核心定位是成为一个具备多模型支持、自动上下文压缩和任务规划能力的 AI 编程助手。
 
-## 2. 核心架构
+### 核心特性
 
-MatrixCode 采用了典型的 **Agent + Tool + Provider** 架构模式：
+| 特性 | 说明 |
+|------|------|
+| 🤖 多模型配置 | 支持 main/plan/compress/fast 四种模型角色分工 |
+| 🧠 跨会话记忆 | 自动记住偏好、决策、发现，下次对话自动加载 |
+| 🗜️ 智能压缩 | 自动检测并压缩超出阈值的上下文，避免 token 溢出 |
+| 📋 任务规划 | 使用规划模型分解复杂任务，自动生成执行步骤 |
+| 💾 会话管理 | 支持多会话保存、恢复、命名和交互式选择 |
+| 📁 文件操作 | 读写、编辑、多文件编辑、搜索、模式匹配 |
+| 🔧 工具系统 | 可扩展的工具架构，支持技能系统 |
+| 🌐 Web 能力 | 内置网页搜索和网页抓取能力 |
+| 💻 跨平台 | 支持 Linux、macOS、Windows |
 
-*   **Agent (核心代理)**: 负责管理对话上下文、构建提示词、调度 LLM 请求以及处理模型的响应。它维护了会话的历史状态，并负责解析模型的输出以决定是否调用工具。
-*   **Provider (模型提供者)**: 抽象了不同 LLM API 的差异（如 OpenAI 和 Anthropic），处理 API 请求、流式响应解析以及认证。支持扩展新的模型提供商。
-*   **Tool (工具集)**: 定义了代理可执行的操作。每个工具（如读写文件、执行 Bash、搜索代码）都实现了统一的 `Tool` trait，包含定义（JSON Schema）和执行逻辑。
-*   **Workspace (工作区)**: 管理当前的工作目录上下文，为代理提供文件系统的访问边界。
+---
 
-## 3. 目录结构详解
+## 架构概览
 
-```text
-matrixcode/
-├── src/
-│   ├── main.rs           # 程序入口，CLI 参数解析，REPL 循环主逻辑
-│   ├── lib.rs            # 库模块导出
-│   ├── agent.rs          # Agent 核心实现，包含会话管理、工具调用循环
-│   ├── providers/        # LLM 提供商实现
-│   │   ├── mod.rs        # 定义 Provider trait 及通用数据结构 (Message, Role, ContentBlock)
-│   │   ├── anthropic.rs  # Anthropic API 适配
-│   │   └── openai.rs     # OpenAI API 适配
-│   ├── tools/            # 工具实现模块
-│   │   ├── mod.rs        # Tool trait 定义及工具注册
-│   │   ├── read.rs       # 文件读取工具
-│   │   ├── write.rs      # 文件写入工具
-│   │   ├── edit.rs       # 文件编辑工具
-│   │   ├── bash.rs       # Shell 命令执行工具
-│   │   ├── glob.rs       # 文件匹配工具
-│   │   ├── ls.rs         # 目录列出工具
-│   │   ├── search.rs     # 代码/文本搜索工具
-│   │   ├── todo_write.rs # 任务清单管理工具
-│   │   ├── skill.rs      # 技能调用工具
-│   │   └── webfetch/...  # 网络相关工具
-│   ├── skills.rs         # 技能加载与管理逻辑
-│   ├── prompt.rs         # 系统提示词构建与 Profile 管理
-│   ├── markdown.rs       # 终端 Markdown 渲染逻辑
-│   ├── overview.rs       # 项目概览生成逻辑
-│   └── workspace.rs      # 工作区状态管理
-├── tests/                # 集成测试目录
-├── docs/                 # 文档目录
-├── .env.example          # 环境变量配置模板
-└── Cargo.toml            # Rust 项目配置文件
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         CLI Layer (main.rs)                      │
+│  参数解析 · 会话管理 · 交互循环 · 信号处理                          │
+├─────────────────────────────────────────────────────────────────┤
+│                        Agent Layer (agent.rs)                    │
+│  对话循环 · 工具调度 · 审批控制 · 压缩触发 · 任务规划                │
+├──────────────────────┬──────────────────────────────────────────┤
+│    Providers Layer   │              Tools Layer                  │
+│  ┌────────────────┐  │  ┌─────────────────────────────────────┐  │
+│  │   Anthropic    │  │  │ Read │ Write │ Edit │ MultiEdit │  │  │
+│  │   Provider     │  │  │ Bash │ Search │ Glob │ Ls │ Ask   │  │  │
+│  ├────────────────┤  │  │ WebSearch │ WebFetch │ Skill │ Todo │  │
+│  │    OpenAI      │  │  └─────────────────────────────────────┘  │
+│  │   Provider     │  │                                          │
+│  └────────────────┘  │                                          │
+├──────────────────────┴──────────────────────────────────────────┤
+│                    Supporting Systems                            │
+│  Session · Memory · Compression · Approval · Cancel · Overview   │
+├─────────────────────────────────────────────────────────────────┤
+│                      Infrastructure                               │
+│  Workspace · UI · Markdown · Prompt · Skills                     │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## 4. 关键功能模块
+---
 
-### 4.1 Agent (智能代理)
+## 目录结构详解
 
-`src/agent.rs` 是项目的大脑。其主要职责包括：
-*   **上下文管理**: 维护 `messages` 向量，保存对话历史，包括用户输入、模型回复、工具调用及结果。
-*   **Prompt 构建**: 根据配置（`PromptProfile`）和项目概览（`ProjectOverview`）构建系统提示词。
-*   **执行循环**: 实现了“思考-行动-观察”循环。发送请求 -> 接收流式响应 -> 解析工具调用 -> 执行工具 -> 将结果回传 -> 继续请求，直到模型返回 `end_turn` 或达到最大迭代次数。
-*   **Token 统计**: 实时追踪输入/输出 Token 消耗。
+```
+matrixcode/
+├── .github/workflows/          # CI/CD 配置
+│   ├── ci.yml                  # 持续集成：测试、构建
+│   └── release.yml             # 发布流程：构建二进制、发布到 GitHub/npm
+│
+├── defaults/prompts/           # 默认提示词配置
+│
+├── docs/                       # 项目文档
+│   ├── CI_CD.md               # CI/CD 说明文档
+│   └── MatrixCode_vs_Claude_Code.md  # 产品对比文档
+│
+├── game/                       # 演示/测试用的小游戏
+│   ├── game.js
+│   ├── index.html
+│   └── style.css
+│
+├── npm/                        # npm 发布包
+│   ├── install.js             # 安装脚本（检测环境、下载二进制）
+│   ├── package.json           # npm 包配置
+│   └── README.md
+│
+├── src/                        # 源代码主目录
+│   ├── providers/             # LLM 提供者实现
+│   │   ├── mod.rs            # Provider trait 定义、消息类型
+│   │   ├── anthropic.rs      # Anthropic Claude API 实现
+│   │   └── openai.rs         # OpenAI API 实现
+│   │
+│   ├── tools/                 # 工具实现
+│   │   ├── mod.rs            # Tool trait、工具注册
+│   │   ├── read.rs           # 文件读取
+│   │   ├── write.rs          # 文件写入
+│   │   ├── edit.rs           # 单文件编辑
+│   │   ├── multi_edit.rs     # 多文件批量编辑
+│   │   ├── bash.rs           # Shell 命令执行
+│   │   ├── search.rs         # 文件内容搜索
+│   │   ├── glob.rs           # 文件名模式匹配
+│   │   ├── ls.rs             # 目录列表
+│   │   ├── ask.rs            # 用户提问
+│   │   ├── websearch.rs      # Web 搜索
+│   │   ├── webfetch.rs       # 网页抓取
+│   │   ├── skill.rs          # 技能调用
+│   │   ├── todo_write.rs     # 待办事项管理
+│   │   └── spinner.rs        # UI 加载指示器
+│   │
+│   ├── agent.rs               # 核心代理实现（主循环）
+│   ├── main.rs                # CLI 入口
+│   ├── lib.rs                 # 库模块导出
+│   ├── session.rs             # 会话持久化管理
+│   ├── memory.rs              # 跨会话记忆系统
+│   ├── compress.rs           # 上下文压缩策略
+│   ├── models.rs             # 模型配置、任务规划
+│   ├── approval.rs           # 操作审批机制
+│   ├── cancel.rs             # 取消令牌（中断处理）
+│   ├── workspace.rs          # 工作目录管理
+│   ├── overview.rs           # 项目概览生成
+│   ├── prompt.rs             # 系统提示词构建
+│   ├── skills.rs             # 技能加载与管理
+│   ├── ui.rs                 # 终端 UI 工具
+│   └── markdown.rs           # Markdown 渲染
+│
+├── tests/                      # 集成测试
+│   ├── test_bash.rs
+│   ├── test_edit.rs
+│   ├── test_providers.rs
+│   └── ... (其他测试文件)
+│
+├── Cargo.toml                 # Rust 项目配置
+├── .env.example               # 环境变量示例
+└── README.md                  # 项目说明
+```
 
-### 4.2 Providers (模型接口)
+---
 
-位于 `src/providers/`，采用 Trait 抽象，支持多模型切换：
-*   **Provider Trait**: 定义了 `chat_stream` 异步方法，返回流式事件。
-*   **数据结构**:
-    *   `Message`: 包含角色和内容。
-    *   `ContentBlock`: 支持文本、工具调用、工具结果、思考块以及服务端工具。
-*   **兼容性**: 目前已实现 Anthropic 和 OpenAI 接口适配。
+## 核心模块分析
 
-### 4.3 Tools (工具系统)
+### 1. Provider 层 (`src/providers/`)
 
-位于 `src/tools/`，遵循统一的接口规范：
-*   `definition()`: 返回工具的 JSON Schema 定义，告诉模型如何调用。
-*   `execute()`: 执行具体的逻辑，返回字符串结果。
-*   **内置工具**: 支持文件读写、多文件编辑、正则搜索、Glob 搜索、Bash 命令执行、任务清单管理等。
+定义了与 LLM API 交互的统一抽象：
 
-### 4.4 Skills (技能系统)
+```rust
+// 核心类型定义
+pub struct Message {
+    pub role: Role,           // System, User, Assistant, Tool
+    pub content: MessageContent,
+}
 
-*   允许通过文件系统定义可复用的技能集（默认扫描 `./skills` 和 `~/.matrix/skills`）。
-*   Agent 启动时会加载这些技能，并将其描述注入到系统提示词中，模型可通过 `skill` 工具调用特定的技能逻辑。
+pub enum ContentBlock {
+    Text { text: String },
+    ToolUse { id, name, input },
+    ToolResult { tool_use_id, content },
+    Thinking { thinking, signature },  // Anthropic extended thinking
+    ServerToolUse { id, name, input }, // 服务端工具（如 web_search）
+    WebSearchResult { tool_use_id, content },
+}
 
-## 5. 业务逻辑流程
+#[async_trait]
+pub trait Provider: Send + Sync {
+    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse>;
+    async fn chat_stream(&self, request: ChatRequest, tx: mpsc::Sender<StreamEvent>);
+}
+```
 
-### 5.1 启动与初始化流程
+**支持的 Provider:**
+- **Anthropic**: 支持 extended thinking、prompt caching、server-side web search
+- **OpenAI**: 标准 chat completions 接口
 
-1.  **解析参数**: 通过 `clap` 解析命令行参数（如 `--provider`, `--model`, `--resume`, `--init` 等）。
-2.  **加载环境**: 从 `.env` 和环境变量中加载 API Key 等配置。
-3.  **构建依赖**: 实例化 Provider（如 Anthropic 客户端）、Workspace 和 Agent。
-4.  **技能加载**: 扫描指定目录加载技能列表。
-5.  **概览生成/加载**:
-    *   如果指定 `--init`，则调用 AI 分析项目结构并生成概览后退出。
-    *   否则，尝试加载现有的项目概览注入上下文（除非指定 `--no-overview`）。
-6.  **进入主循环**:
-    *   若指定了 prompt 参数，执行单次问答后退出。
-    *   否则，启动交互式 REPL（Read-Eval-Print Loop），等待用户输入。
+### 2. Tools 层 (`src/tools/`)
 
-### 5.2 交互式对话流程
+所有工具实现统一的 `Tool` trait：
 
-1.  **用户输入**: 用户在终端输入指令。
-2.  **请求构建**: Agent 将用户输入、系统提示词、历史对话记录打包成 `ChatRequest`。
-3.  **流式响应**: Agent 调用 Provider 的流式接口。
-4.  **实时渲染**:
-    *   文本块：实时打印或渲染为 Markdown。
-    *   思考块：以暗色斜体显示模型的内心独白。
-5.  **工具处理**:
-    *   当流中返回 `tool_use` 块时，Agent 暂停接收文本。
-    *   根据工具名称查找本地工具实现。
-    *   执行工具（如 `edit file`），获取结果。
-    *   将结果封装为 `tool_result` 消息，加入对话历史。
-    *   **递归调用**: 再次发起请求，让模型根据工具结果继续生成回复。
-6.  **结束**: 当模型返回 `end_turn` 时，回合结束，等待下一次输入。
+```rust
+#[async_trait]
+pub trait Tool: Send + Sync {
+    fn definition(&self) -> ToolDefinition;  // 工具定义
+    async fn execute(&self, params: Value) -> Result<String>;
+    fn risk_level(&self) -> RiskLevel { RiskLevel::Safe }  // 风险等级
+}
+```
 
-## 6. 开发指南
+**工具风险等级分类：**
 
-### 6.1 常用命令
+| 风险等级 | 工具 | 说明 |
+|---------|------|------|
+| Safe | read, ls, glob, search, ask | 只读操作，无需审批 |
+| Low | websearch, webfetch, todo_write | 低风险操作 |
+| Medium | edit, multi_edit, write, skill | 文件修改，可能需要审批 |
+| High | bash | 命令执行，高风险，默认需审批 |
+
+**内置工具列表：**
+
+| 工具 | 功能描述 |
+|------|---------|
+| `ReadTool` | 读取文件内容，支持行号范围 |
+| `WriteTool` | 创建或覆盖文件 |
+| `EditTool` | 单文件字符串替换编辑 |
+| `MultiEditTool` | 多文件批量编辑 |
+| `BashTool` | 执行 Shell 命令 |
+| `SearchTool` | 文件内容正则搜索 |
+| `GlobTool` | 文件名模式匹配 |
+| `LsTool` | 列出目录结构 |
+| `AskTool` | 向用户提问 |
+| `WebSearchTool` | Web 搜索 |
+| `WebFetchTool` | 抓取网页内容 |
+| `SkillTool` | 调用已加载的技能 |
+| `TodoWriteTool` | 管理待办事项 |
+
+### 3. Agent 核心 (`src/agent.rs`)
+
+Agent 是系统的核心控制器，负责：
+- 维护对话消息历史
+- 调用 Provider API
+- 调度工具执行
+- 触发上下文压缩
+- 处理用户审批
+
+```rust
+pub struct Agent {
+    provider: Box<dyn Provider>,           // 主模型
+    compress_provider: Option<Box<dyn Provider>>,  // 压缩模型
+    plan_provider: Option<Box<dyn Provider>>,      // 规划模型
+    tools: Vec<Box<dyn Tool>>,
+    messages: Vec<Message>,                 // 对话历史
+    memory_summary: Option<String>,         // 跨会话记忆
+    project_overview: Option<String>,       // 项目概览
+    compression_config: CompressionConfig,
+    approve_mode: ApproveMode,
+    // ...
+}
+```
+
+**Agent 主循环流程：**
+
+```
+用户输入 → 构建 Message → 调用 Provider → 接收响应
+                                              ↓
+返回结果给用户 ← 压缩上下文(可选) ← 执行工具 ← 解析 tool_use
+```
+
+### 4. 会话与记忆系统
+
+**会话管理 (`src/session.rs`):**
+- 持久化对话历史到本地文件
+- 支持会话命名、列表、恢复
+- 自动保存/加载最近会话
+
+**跨会话记忆 (`src/memory.rs`):**
+- 自动累积用户偏好、决策、发现
+- 每次启动自动加载记忆摘要
+- 记忆存储在 `~/.matrix/memory/` 目录
+
+### 5. 上下文压缩 (`src/compress.rs`)
+
+当对话上下文超过阈值时，自动触发压缩：
+
+```rust
+pub struct CompressionConfig {
+    pub threshold_tokens: u32,     // 触发压缩的阈值
+    pub target_ratio: f32,          // 压缩目标比例
+    pub preserve_recent_messages: usize,  // 保留最近 N 条消息
+}
+```
+
+**压缩策略：**
+- 保留系统提示和最近的对话
+- 将历史对话总结为摘要
+- 可使用专门的压缩模型（如 Haiku）降低成本
+
+### 6. 任务规划 (`src/models.rs`)
+
+支持复杂任务的自动分解：
+
+```rust
+pub struct TaskPlan {
+    pub steps: Vec<TaskStep>,
+    pub complexity: TaskComplexity,
+}
+
+pub enum TaskComplexity {
+    Simple,      // 单步可完成
+    Moderate,    // 2-5 步
+    Complex,     // 5 步以上
+}
+```
+
+**多模型角色配置：**
+
+| 角色 | 用途 | 推荐模型 |
+|------|------|---------|
+| main | 主要对话和代码生成 | claude-sonnet-4 |
+| plan | 任务分解和规划 | claude-sonnet-4 或 claude-opus-4 |
+| compress | 上下文压缩 | claude-3-5-haiku |
+| fast | 快速分类和提取 | claude-3-5-haiku |
+
+---
+
+## 配置系统
+
+### 环境变量配置
 
 ```bash
-# 构建项目
-cargo build
+# 基础配置
+PROVIDER=anthropic                    # 提供者：anthropic 或 openai
+API_KEY=sk-ant-xxx                   # API 密钥
+MODEL_NAME=claude-sonnet-4-20250514  # 主模型名称
+BASE_URL=                            # 自定义 API 端点（可选）
 
-# 运行项目 (需要配置 .env)
-cargo run
+# 多模型模式
+MULTI_MODEL=false                    # 启用多模型模式
+PLAN_MODEL=                          # 规划模型（默认使用 MODEL_NAME）
+COMPRESS_MODEL=                      # 压缩模型（推荐 haiku）
+FAST_MODEL=                          # 快速模型
 
-# 运行测试
-cargo test
+# 记忆系统
+MEMORY_ENABLED=true                  # 启用跨会话记忆
+MEMORY_MAX_ENTRIES=100              # 最大记忆条目数
 
-# 生成项目概览
-cargo run -- --init
+# 压缩配置
+COMPRESSION_THRESHOLD=80000          # 触发压缩的 token 阈值
+COMPRESSION_TARGET_RATIO=0.3        # 压缩目标比例
 
-# 指定模型运行
-cargo run -- --provider anthropic --model claude-3-opus-20240229
+# 审批模式
+APPROVE_MODE=suggest                 # suggest（建议）/ auto（自动）/ manual（手动）
 
-# 运行并禁用 Markdown 渲染
-cargo run -- --markdown false
+# 功能开关
+THINK=true                          # 启用 Anthropic extended thinking
+MARKDOWN=true                        # Markdown 渲染输出
 ```
 
-### 6.2 配置说明
+### CLI 参数
 
-复制 `.env.example` 为 `.env` 并填写以下关键配置：
+```bash
+matrixcode [OPTIONS]
 
-*   `PROVIDER`: 使用的模型提供商 (目前支持 "openai", "anthropic")。
-*   `API_KEY`: 认证密钥。
-*   `MODEL_NAME`: 模型名称 (如 "sonnet-4-20250514")。
-*   `BASE_URL`: 可选，自定义 API 端点。
-*   `THINK`: 是否开启扩展思考模式 (仅限支持的模型)。
-*   `MAX_TOKENS`: 单次响应最大 Token 数。
+选项:
+  -p, --provider <NAME>       提供者
+  -m, --model <NAME>          模型名称
+  --api-key <KEY>            API 密钥
+  --base-url <URL>           API 端点
+  --think <BOOL>             启用 extended thinking
+  --markdown <BOOL>          Markdown 渲染
+  -c, --continue             继续上次会话
+  --resume [ID]              恢复指定会话
+  --list-sessions            列出所有会话
+  --skills-dir <DIR>         额外技能目录
+  --no-default-skills        禁用默认技能目录
+  --profile <NAME>           提示词配置
+```
 
-### 6.3 扩展开发
+---
 
-**添加新工具**:
-1.  在 `src/tools/` 下新建文件（如 `my_tool.rs`）。
-2.  实现 `Tool` trait：
-    ```rust
-    #[async_trait]
-    impl Tool for MyTool {
-        fn definition(&self) -> ToolDefinition { ... }
-        async fn execute(&self, params: Value) -> Result<String> { ... }
+## 常用开发命令
+
+### 构建与运行
+
+```bash
+# 开发构建
+cargo build
+
+# 发布构建（优化）
+cargo build --release
+
+# 直接运行
+cargo run -- [CLI 参数]
+
+# 安装到系统
+cargo install --path .
+```
+
+### 测试
+
+```bash
+# 运行所有测试
+cargo test
+
+# 运行特定测试
+cargo test test_edit
+cargo test test_providers
+
+# 显示测试输出
+cargo test -- --nocapture
+
+# 运行单个测试文件
+cargo test --test test_bash
+```
+
+### 发布流程
+
+```bash
+# 本地打包
+cargo package
+
+# 发布到 crates.io
+cargo publish
+
+# 构建 npm 包
+cd npm && npm pack
+```
+
+### 调试与日志
+
+```bash
+# 启用日志输出
+RUST_LOG=debug cargo run
+
+# 指定模块日志
+RUST_LOG=matrixcode::agent=trace cargo run
+```
+
+---
+
+## 关键设计模式与约定
+
+### 1. Builder 模式
+
+Agent 使用 Builder 模式构建：
+
+```rust
+let agent = Agent::builder(provider)
+    .think(true)
+    .markdown(true)
+    .profile(PromptProfile::Default)
+    .skills(skills)
+    .max_tokens(16384)
+    .build();
+```
+
+### 2. Trait 抽象
+
+- `Provider` trait：统一不同 LLM API
+- `Tool` trait：统一工具接口
+- 所有工具实现 `definition()` 和 `execute()` 方法
+
+### 3. 异步架构
+
+全异步实现，基于 Tokio：
+- 使用 `async_trait` 定义异步 trait
+- 流式响应通过 `mpsc` channel 传递
+- 支持取消令牌中断长时间操作
+
+### 4. 错误处理
+
+统一使用 `anyhow::Result`，错误传播清晰。
+
+### 5. 配置优先级
+
+```
+CLI 参数 > 环境变量 > .env 文件 > 默认值
+```
+
+---
+
+## 开发注意事项
+
+### 1. 添加新工具
+
+1. 在 `src/tools/` 创建新文件
+2. 实现 `Tool` trait
+3. 在 `src/tools/mod.rs` 的 `all_tools_with_skills()` 中注册
+
+```rust
+// src/tools/my_tool.rs
+pub struct MyTool;
+
+#[async_trait]
+impl Tool for MyTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "my_tool".to_string(),
+            description: "工具描述".to_string(),
+            parameters: json!({ /* JSON Schema */ }),
+        }
     }
-    ```
-3.  在 `src/tools/mod.rs` 的 `all_tools_with_skills` 函数中注册新工具。
 
-**添加新 Provider**:
-1.  在 `src/providers/` 下新建文件。
-2.  实现 `Provider` trait，处理 HTTP 请求和响应流解析。
-3.  在 `src/main.rs` 中根据参数实例化该 Provider。
+    async fn execute(&self, params: Value) -> Result<String> {
+        // 实现逻辑
+        Ok("结果".to_string())
+    }
 
-## 7. 开发注意事项
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Medium  // 根据风险设置
+    }
+}
+```
 
-1.  **异步运行时**: 项目基于 `tokio` 构建，所有涉及 I/O 的操作（网络请求、文件读写）均需使用 `async/await`。
-2.  **错误处理**: 项目统一使用 `anyhow` 进行错误处理，便于在 CLI 中输出友好的错误信息。
-3.  **敏感操作**: Bash 工具和文件写入工具具有潜在风险。在生产环境部署时应考虑添加权限控制或沙箱机制。
-4.  **Token 消耗**: 频繁的工具调用和长上下文会迅速消耗 Token。建议合理设置 `MAX_TOKENS` 和对话历史截断策略（当前代码中主要通过 `TokenStats` 监控）。
-5.  **版本兼容**: 项目 `Cargo.toml` 中指定 `edition = "2024"`，请确保使用的 Rust 编译器版本支持该版次。
-6.  **测试隔离**: 集成测试中使用了 `mockito` 和 `tempfile`，确保测试不依赖外部网络环境和真实文件系统。
+### 2. 添加新 Provider
+
+1. 在 `src/providers/` 创建新文件
+2. 实现 `Provider` trait
+3. 在 `src/providers/mod.rs` 导出并添加创建逻辑
+
+### 3. 测试约定
+
+- 测试文件命名：`test_<功能>.rs`
+- 测试函数命名：`test_<场景>_<预期结果>`
+- 使用 `mockito` mock HTTP 请求
+- 使用 `tempfile` 创建临时测试目录
+
+### 4. 安全考虑
+
+- 高风险操作（bash、文件修改）需要审批
+- API 密钥不记录到日志
+- 敏感文件（.env、.pem）自动排除在搜索外
+
+### 5. 性能优化
+
+- Anthropic API 支持 prompt caching
+- 大上下文自动压缩
+- 使用 stream 模式减少首字延迟
+
+---
+
+## 典型工作流程
+
+### 用户交互流程
+
+```
+1. 用户输入请求
+   ↓
+2. Agent 构建消息（包含项目概览、记忆摘要）
+   ↓
+3. 调用 Provider API
+   ↓
+4. 接收响应（流式）
+   ↓
+5. 如果有 tool_use：
+   a. 检查风险等级
+   b. 如需审批，询问用户
+   c. 执行工具
+   d. 将结果加入消息
+   e. 返回步骤 3
+   ↓
+6. 检查上下文大小，必要时压缩
+   ↓
+7. 返回结果给用户
+```
+
+### 会话恢复流程
+
+```
+1. 检查 --continue 或 --resume 参数
+   ↓
+2. 从 ~/.matrix/sessions/ 加载会话
+   ↓
+3. 恢复消息历史
+   ↓
+4. 加载记忆摘要
+   ↓
+5. 继续对话
+```
+
+---
+
+## 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 语言 | Rust (Edition 2024) |
+| 异步运行时 | Tokio |
+| HTTP 客户端 | reqwest |
+| 序列化 | serde, serde_json |
+| CLI 框架 | clap |
+| 终端 UI | rustyline, termimad, indicatif, crossterm |
+| 日志 | log, env_logger |
+| 测试 | mockito, tempfile, tokio-test |
+
+---
+
+## 版本与发布
+
+- **当前版本**: 0.2.1
+- **许可证**: MIT
+- **发布渠道**: 
+  - GitHub Releases（预编译二进制）
+  - crates.io（cargo install）
+  - npm（npm install -g matrixcode）

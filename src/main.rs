@@ -689,6 +689,9 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
 
         agent.set_cancel_token(cancel_token.clone());
 
+        // Show spinner while preparing memory context (covers the gap before chat_once)
+        let mut prep_spinner = Some(matrixcode::tools::spinner::ToolSpinner::new("preparing"));
+
         // Update memory context based on current user input
         // Use AI-enhanced keyword extraction for better memory matching
         let memory_summary = load_contextual_memory_summary_async(
@@ -700,8 +703,17 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
             agent.set_memory_summary(&summary);
         }
 
+        // Clear preparation spinner before chat_once (which creates its own spinner)
+        if let Some(mut sp) = prep_spinner.take() {
+            sp.finish_clear();
+        }
+
         if let Err(e) = agent.chat_once(trimmed).await {
             eprintln!("\n[error] {e}");
+        } else {
+            // Show API call count after successful chat
+            let api_calls = agent.api_call_count();
+            println!("\n✓ [API calls: {}]", api_calls);
         }
 
         // Cancel the token to signal background threads to stop
@@ -860,6 +872,7 @@ fn print_status(agent: &agent::Agent, session_manager: &SessionManager) {
     println!();
     println!("Conversation:");
     println!("  Messages: {}", agent.message_count());
+    println!("  API calls: {}", agent.api_call_count());
     println!(
         "  Last input tokens: {}",
         ui::format_tokens(stats.last_input_tokens as u64)
@@ -1098,32 +1111,6 @@ fn load_memory_summary(project_root: Option<&Path>) -> Option<String> {
         None
     } else {
         println!("[loaded {} accumulated memories]", memory.entries.len());
-        Some(summary)
-    }
-}
-
-/// Load memory summary with context awareness.
-/// Selects memories relevant to the current conversation context.
-fn load_contextual_memory_summary(project_root: Option<&Path>, context: &str) -> Option<String> {
-    use matrixcode::memory::MemoryStorage;
-    
-    let storage = MemoryStorage::new(project_root).ok()?;
-    let memory = storage.load_combined().ok()?;
-    
-    if memory.entries.is_empty() {
-        return None;
-    }
-    
-    // Use contextual summary if context is available
-    let summary = if context.is_empty() {
-        memory.generate_prompt_summary(15)
-    } else {
-        memory.generate_contextual_summary(context, 15)
-    };
-    
-    if summary.is_empty() {
-        None
-    } else {
         Some(summary)
     }
 }

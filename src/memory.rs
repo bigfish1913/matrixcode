@@ -2072,6 +2072,680 @@ pub async fn extract_keywords_hybrid(
 }
 
 // ============================================================================
+// AI-Enhanced Memory Processing
+// ============================================================================
+
+/// System prompt for AI memory summarization.
+const MEMORY_SUMMARY_SYSTEM_PROMPT: &str = r#"你是一个记忆摘要助手。你的任务是将多条相关记忆合并为一条精炼的摘要记忆。
+
+摘要原则：
+1. 保留核心信息，去除冗余细节
+2. 使用简洁明确的一句话表达
+3. 保留关键的技术名词和决策结论
+4. 如果多条记忆主题相同，合并为一条综合性记忆
+5. 优先保留高价值的决策和解决方案
+
+输出格式（严格 JSON）：
+```json
+{
+  "summary": "决定使用 PostgreSQL 作为主数据库，Redis 作为缓存层",
+  "category": "decision",
+  "importance": 90
+}
+```
+
+如果没有值得保留的信息，返回：
+```json
+{"summary": "", "category": "", "importance": 0}
+```
+
+直接输出 JSON，不要加代码块包裹。"#;
+
+/// System prompt for AI conflict detection.
+const MEMORY_CONFLICT_SYSTEM_PROMPT: &str = r#"你是一个记忆冲突检测助手。你的任务是判断两条记忆是否矛盾或需要更新。
+
+冲突类型：
+1. 直接矛盾：两条记忆结论相反（如"使用 PostgreSQL" vs "使用 MySQL"）
+2. 过时更新：新记忆明确替换旧记忆（如"改用 Redis" 替换 "使用 Memcached"）
+3. 补充关系：新记忆补充旧记忆（如"PostgreSQL 版本为 15" 补充 "使用 PostgreSQL"）
+4. 无关关系：两条记忆主题不同，不冲突
+
+输出格式（严格 JSON）：
+```json
+{
+  "conflict_type": "direct_conflict",
+  "should_replace": true,
+  "reason": "两条记忆都是数据库选型决策，但选择了不同的数据库",
+  "winner": "new"
+}
+```
+
+conflict_type 可选值：
+- "direct_conflict": 直接矛盾，需要选择一条
+- "outdated_update": 过时更新，新记忆替换旧记忆
+- "supplement": 补充关系，两者可共存
+- "no_conflict": 无关关系，不冲突
+
+should_replace: true 表示需要替换旧记忆，false 表示保留两者
+winner: "new" 表示新记忆胜出，"old" 表示旧记忆胜出（仅在 direct_conflict 时有意义）
+
+直接输出 JSON，不要加代码块包裹。"#;
+
+/// System prompt for AI memory quality assessment.
+const MEMORY_QUALITY_SYSTEM_PROMPT: &str = r#"你是一个记忆质量评估助手。你的任务是评估记忆的长期价值和重要程度。
+
+评估维度：
+1. 复用价值：这条信息在未来的���话中会被引用吗？
+2. 决策权重：这是重要的项目决策还是次要细节？
+3. 时效性：这条信息会很快过时吗？
+4. 独特性：这条信息是否足够独特，不与其他记忆重叠？
+
+评分标准：
+- 90-100: 核心决策，长期有效，高复用价值（如数据库选型、框架选择）
+- 70-89: 重要偏好或解决方案，中等复用价值
+- 50-69: 有用的技术信息或发现，时效性中等
+- 30-49: 一般性信息，复用价值较低
+- 0-29: 过时或过于具体的细节，建议丢弃
+
+输出格式（严格 JSON）：
+```json
+{
+  "quality_score": 85,
+  "reason": "这是核心的技术选型决策，长期有效，高复用价值",
+  "should_keep": true,
+  "suggested_category": "decision"
+}
+```
+
+直接输出 JSON，不要加代码块包裹。"#;
+
+/// System prompt for AI memory merge.
+const MEMORY_MERGE_SYSTEM_PROMPT: &str = r#"你是一个记忆合并助手。你的任务是将多条相似或相关的记忆合并为一条精炼的记忆。
+
+合并原则：
+1. 相同主题的记忆应合并为一条综合性记忆
+2. 保留所有关键信息，去除重复内容
+3. 使用简洁的一句话表达
+4. 合并后的记忆应比原记忆更全面但更简洁
+5. 如果记忆完全不相关，返回空结果表示不应合并
+
+输出格式（严格 JSON）：
+```json
+{
+  "merged_content": "使用 PostgreSQL 作为主数据库（版本15），Redis 作为缓存层，通过连接池优化性能",
+  "category": "technical",
+  "importance": 75,
+  "merged_from_count": 3,
+  "summary_reason": "三条记忆都与数据库和缓存技术栈相关，合并为一条综合性技术栈记忆"
+}
+```
+
+如果不应合并，返回：
+```json
+{"merged_content": "", "category": "", "importance": 0, "merged_from_count": 0, "summary_reason": "记忆主题不同，不应合并"}
+```
+
+直接输出 JSON，不要加代码块包裹。"#;
+
+/// Result of AI memory summarization.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct MemorySummaryResult {
+    pub summary: String,
+    pub category: String,
+    pub importance: f64,
+}
+
+/// Result of AI conflict detection.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct MemoryConflictResult {
+    pub conflict_type: String,
+    pub should_replace: bool,
+    pub reason: String,
+    pub winner: Option<String>,
+}
+
+/// Result of AI quality assessment.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct MemoryQualityResult {
+    pub quality_score: f64,
+    pub reason: String,
+    pub should_keep: bool,
+    pub suggested_category: Option<String>,
+}
+
+/// Result of AI memory merge.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct MemoryMergeResult {
+    pub merged_content: String,
+    pub category: String,
+    pub importance: f64,
+    pub merged_from_count: usize,
+    pub summary_reason: String,
+}
+
+/// AI-enhanced memory processor.
+/// Provides advanced memory operations using AI.
+pub struct AiMemoryProcessor {
+    provider: Box<dyn crate::providers::Provider>,
+    model: String,
+}
+
+impl AiMemoryProcessor {
+    /// Create a new AI memory processor.
+    pub fn new(provider: Box<dyn crate::providers::Provider>, model: String) -> Self {
+        Self { provider, model }
+    }
+    
+    /// Summarize multiple memories into one concise memory.
+    pub async fn summarize_memories(&self, memories: &[&MemoryEntry]) -> Result<Option<MemoryEntry>> {
+        if memories.is_empty() {
+            return Ok(None);
+        }
+        
+        // Build input from memories
+        let memories_text = memories
+            .iter()
+            .map(|m| format!("[{}] {}", m.category.display_name(), m.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        let request = build_ai_request(
+            MEMORY_SUMMARY_SYSTEM_PROMPT,
+            &format!("请将以下记忆合并为一条精炼的摘要：\n\n{}", memories_text),
+        );
+        
+        let response = self.provider.chat(request).await?;
+        let response_text = extract_response_text(&response);
+        
+        let result: MemorySummaryResult = parse_json_response(&response_text)?;
+        
+        if result.summary.is_empty() {
+            return Ok(None);
+        }
+        
+        let category = parse_category(&result.category)?;
+        let mut entry = MemoryEntry::new(category, result.summary, None);
+        entry.importance = result.importance.clamp(0.0, 100.0);
+        
+        Ok(Some(entry))
+    }
+    
+    /// Detect if two memories conflict using AI.
+    pub async fn detect_conflict(&self, old: &MemoryEntry, new: &MemoryEntry) -> Result<MemoryConflictResult> {
+        let input = format!(
+            "旧记忆：[{}] {}\n新记忆：[{}] {}\n\n请判断这两条记忆是否存在冲突。",
+            old.category.display_name(),
+            old.content,
+            new.category.display_name(),
+            new.content
+        );
+        
+        let request = build_ai_request(MEMORY_CONFLICT_SYSTEM_PROMPT, &input);
+        let response = self.provider.chat(request).await?;
+        let response_text = extract_response_text(&response);
+        
+        parse_json_response(&response_text)
+    }
+    
+    /// Assess memory quality using AI.
+    pub async fn assess_quality(&self, memory: &MemoryEntry) -> Result<MemoryQualityResult> {
+        let input = format!(
+            "记忆内容：[{}] {}\n\n请评估这条记忆的质量和长期价值。",
+            memory.category.display_name(),
+            memory.content
+        );
+        
+        let request = build_ai_request(MEMORY_QUALITY_SYSTEM_PROMPT, &input);
+        let response = self.provider.chat(request).await?;
+        let response_text = extract_response_text(&response);
+        
+        parse_json_response(&response_text)
+    }
+    
+    /// Merge multiple memories using AI.
+    pub async fn merge_memories(&self, memories: &[&MemoryEntry]) -> Result<Option<MemoryEntry>> {
+        if memories.len() < 2 {
+            return Ok(None);
+        }
+        
+        let memories_text = memories
+            .iter()
+            .map(|m| format!("[{}] {}", m.category.display_name(), m.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        let request = build_ai_request(
+            MEMORY_MERGE_SYSTEM_PROMPT,
+            &format!("请判断以下记忆是否应该合并，如果应该则生成合并后的记忆：\n\n{}", memories_text),
+        );
+        
+        let response = self.provider.chat(request).await?;
+        let response_text = extract_response_text(&response);
+        
+        let result: MemoryMergeResult = parse_json_response(&response_text)?;
+        
+        if result.merged_content.is_empty() || result.merged_from_count == 0 {
+            return Ok(None);
+        }
+        
+        let category = parse_category(&result.category)?;
+        let mut entry = MemoryEntry::new(category, result.merged_content, None);
+        entry.importance = result.importance.clamp(0.0, 100.0);
+        
+        Ok(Some(entry))
+    }
+    
+    /// Get the model name.
+    pub fn model_name(&self) -> &str {
+        &self.model
+    }
+}
+
+/// Build a standard AI request for memory processing.
+fn build_ai_request(system_prompt: &str, user_input: &str) -> crate::providers::ChatRequest {
+    use crate::providers::{ChatRequest, Message, MessageContent, Role};
+    
+    ChatRequest {
+        messages: vec![Message {
+            role: Role::User,
+            content: MessageContent::Text(user_input.to_string()),
+        }],
+        tools: vec![],
+        system: Some(system_prompt.to_string()),
+        think: false,
+        max_tokens: 512,
+        server_tools: vec![],
+        enable_caching: false,
+    }
+}
+
+/// Extract text from AI response.
+fn extract_response_text(response: &crate::providers::ChatResponse) -> String {
+    response.content
+        .iter()
+        .filter_map(|block| {
+            if let crate::providers::ContentBlock::Text { text } = block {
+                Some(text.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+/// Parse JSON response with cleanup.
+fn parse_json_response<T: serde::de::DeserializeOwned>(json_text: &str) -> Result<T> {
+    let cleaned = json_text
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    
+    serde_json::from_str(cleaned).map_err(|e| anyhow::anyhow!("JSON parse error: {}", e))
+}
+
+/// Parse category string to MemoryCategory.
+fn parse_category(s: &str) -> Result<MemoryCategory> {
+    match s.to_lowercase().as_str() {
+        "decision" | "决策" => Ok(MemoryCategory::Decision),
+        "preference" | "偏好" => Ok(MemoryCategory::Preference),
+        "solution" | "解决方案" => Ok(MemoryCategory::Solution),
+        "finding" | "发现" => Ok(MemoryCategory::Finding),
+        "technical" | "技术" => Ok(MemoryCategory::Technical),
+        "structure" | "结构" => Ok(MemoryCategory::Structure),
+        _ => anyhow::bail!("Unknown category: {}", s),
+    }
+}
+
+/// Configuration for AI-enhanced memory processing.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AiMemoryConfig {
+    /// Enable AI summarization.
+    pub enable_summarization: bool,
+    /// Enable AI conflict detection.
+    pub enable_conflict_detection: bool,
+    /// Enable AI quality assessment.
+    pub enable_quality_assessment: bool,
+    /// Enable AI memory merging.
+    pub enable_merging: bool,
+    /// Minimum memories to trigger summarization.
+    pub summarize_threshold: usize,
+    /// Quality threshold for keeping memories.
+    pub quality_threshold: f64,
+    /// Similarity threshold for merging.
+    pub merge_similarity_threshold: f64,
+}
+
+impl Default for AiMemoryConfig {
+    fn default() -> Self {
+        Self {
+            enable_summarization: true,
+            enable_conflict_detection: true,
+            enable_quality_assessment: false,  // Optional, can be expensive
+            enable_merging: true,
+            summarize_threshold: 5,
+            quality_threshold: 30.0,
+            merge_similarity_threshold: 0.6,
+        }
+    }
+}
+
+impl AiMemoryConfig {
+    /// Create a minimal config (disable all AI features).
+    pub fn minimal() -> Self {
+        Self {
+            enable_summarization: false,
+            enable_conflict_detection: false,
+            enable_quality_assessment: false,
+            enable_merging: false,
+            summarize_threshold: 10,
+            quality_threshold: 20.0,
+            merge_similarity_threshold: 0.8,
+        }
+    }
+    
+    /// Create an aggressive config (enable all AI features).
+    pub fn aggressive() -> Self {
+        Self {
+            enable_summarization: true,
+            enable_conflict_detection: true,
+            enable_quality_assessment: true,
+            enable_merging: true,
+            summarize_threshold: 3,
+            quality_threshold: 40.0,
+            merge_similarity_threshold: 0.5,
+        }
+    }
+    
+    /// Parse from environment variable.
+    pub fn from_env() -> Self {
+        let enable_all = std::env::var("MEMORY_AI_ALL")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        
+        if enable_all {
+            return Self::aggressive();
+        }
+        
+        Self {
+            enable_summarization: std::env::var("MEMORY_AI_SUMMARY")
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true),
+            enable_conflict_detection: std::env::var("MEMORY_AI_CONFLICT")
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true),
+            enable_quality_assessment: std::env::var("MEMORY_AI_QUALITY")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(false),
+            enable_merging: std::env::var("MEMORY_AI_MERGE")
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true),
+            summarize_threshold: std::env::var("MEMORY_SUMMARY_THRESHOLD")
+                .and_then(|v| v.parse().map_err(|_| std::env::VarError::NotPresent))
+                .unwrap_or(5),
+            quality_threshold: std::env::var("MEMORY_QUALITY_THRESHOLD")
+                .and_then(|v| v.parse().map_err(|_| std::env::VarError::NotPresent))
+                .unwrap_or(30.0),
+            merge_similarity_threshold: std::env::var("MEMORY_MERGE_THRESHOLD")
+                .and_then(|v| v.parse().map_err(|_| std::env::VarError::NotPresent))
+                .unwrap_or(0.6),
+        }
+    }
+}
+
+/// Extended AutoMemory with AI-enhanced operations.
+impl AutoMemory {
+    /// Add memory with AI conflict detection.
+    pub async fn add_memory_with_ai_conflict(
+        &mut self,
+        category: MemoryCategory,
+        content: String,
+        source_session: Option<String>,
+        processor: Option<&AiMemoryProcessor>,
+    ) -> Result<()> {
+        // Check for duplicates first (rule-based, fast)
+        if self.has_similar(&content) {
+            return Ok(());
+        }
+        
+        // Create new entry
+        let new_entry = MemoryEntry::new(category, content.clone(), source_session);
+        
+        // Find potential conflicts (same category, similar topic)
+        let potential_conflicts: Vec<(usize, &MemoryEntry)> = self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                e.category == category && 
+                Self::calculate_similarity(&e.content.to_lowercase(), &content.to_lowercase()) > 0.3
+            })
+            .collect();
+        
+        if let Some(processor) = processor {
+            // Use AI to check each potential conflict
+            for (idx, old_entry) in potential_conflicts {
+                let result = processor.detect_conflict(old_entry, &new_entry).await?;
+                
+                if result.should_replace {
+                    log::debug!("AI detected conflict: {} -> replacing '{}' with '{}'", 
+                        result.conflict_type, old_entry.content, content);
+                    self.entries.remove(idx);
+                    self.invalidate_index();
+                    break;
+                }
+            }
+        } else {
+            // Fallback to rule-based conflict detection
+            if let Some(conflict_idx) = self.find_conflict(&content, category) {
+                self.entries.remove(conflict_idx);
+                self.invalidate_index();
+            }
+        }
+        
+        self.add(new_entry);
+        Ok(())
+    }
+    
+    /// Assess and filter memories by quality using AI.
+    pub async fn assess_quality_with_ai(
+        &mut self,
+        processor: &AiMemoryProcessor,
+        config: &AiMemoryConfig,
+    ) -> Result<usize> {
+        if !config.enable_quality_assessment {
+            return Ok(0);
+        }
+        
+        // Collect indices of non-manual entries first
+        let indices_to_assess: Vec<usize> = self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| !entry.is_manual)
+            .map(|(i, _)| i)
+            .collect();
+        
+        // Assess each entry and collect results
+        let mut to_remove: Vec<usize> = Vec::new();
+        let mut importance_updates: Vec<(usize, f64)> = Vec::new();
+        
+        for i in indices_to_assess {
+            let entry = &self.entries[i];
+            let result = processor.assess_quality(entry).await?;
+            
+            if !result.should_keep || result.quality_score < config.quality_threshold {
+                log::debug!("AI quality assessment: removing '{}' (score: {:.1}, reason: {})",
+                    entry.content, result.quality_score, result.reason);
+                to_remove.push(i);
+            } else {
+                // Record importance update
+                importance_updates.push((i, result.quality_score));
+            }
+        }
+        
+        // Apply importance updates
+        for (i, score) in importance_updates {
+            self.entries[i].importance = score;
+        }
+        
+        let removed_count = to_remove.len();
+        
+        // Remove low-quality entries (in reverse order to preserve indices)
+        for idx in to_remove.into_iter().rev() {
+            self.entries.remove(idx);
+        }
+        
+        if removed_count > 0 {
+            self.invalidate_index();
+            self.prune();
+        }
+        
+        Ok(removed_count)
+    }
+    
+    /// Merge similar memories using AI.
+    pub async fn merge_similar_with_ai(
+        &mut self,
+        processor: &AiMemoryProcessor,
+        config: &AiMemoryConfig,
+    ) -> Result<usize> {
+        if !config.enable_merging || self.entries.len() < 2 {
+            return Ok(0);
+        }
+        
+        let mut merged_count = 0;
+        let mut to_remove: Vec<usize> = Vec::new();
+        let mut new_entries: Vec<MemoryEntry> = Vec::new();
+        
+        // Find groups of similar memories
+        let mut processed: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        
+        for i in 0..self.entries.len() {
+            if processed.contains(&i) {
+                continue;
+            }
+            
+            // Find similar entries to this one
+            let mut similar_group: Vec<usize> = vec![i];
+            
+            for j in (i + 1)..self.entries.len() {
+                if processed.contains(&j) {
+                    continue;
+                }
+                
+                let sim = Self::calculate_similarity(
+                    &self.entries[i].content.to_lowercase(),
+                    &self.entries[j].content.to_lowercase(),
+                );
+                
+                if sim >= config.merge_similarity_threshold {
+                    similar_group.push(j);
+                }
+            }
+            
+            // If we have a group, try to merge
+            if similar_group.len() >= 2 {
+                let group_entries: Vec<&MemoryEntry> = similar_group
+                    .iter()
+                    .map(|&idx| &self.entries[idx])
+                    .collect();
+                
+                if let Some(merged) = processor.merge_memories(&group_entries).await? {
+                    log::debug!("AI merged {} memories into: '{}'",
+                        similar_group.len(), merged.content);
+                    
+                    new_entries.push(merged);
+                    to_remove.extend(similar_group.iter().copied());
+                    processed.extend(similar_group.iter().copied());
+                    merged_count += similar_group.len() - 1;
+                }
+            }
+        }
+        
+        // Remove merged entries (sorted and in reverse order)
+        let mut sorted_remove: Vec<usize> = to_remove;
+        sorted_remove.sort();
+        for idx in sorted_remove.into_iter().rev() {
+            self.entries.remove(idx);
+        }
+        
+        // Add new merged entries
+        for entry in new_entries {
+            self.entries.push(entry);
+        }
+        
+        if merged_count > 0 {
+            self.invalidate_index();
+            self.prune();
+        }
+        
+        Ok(merged_count)
+    }
+    
+    /// Generate AI-enhanced summary for prompt.
+    pub async fn generate_ai_summary(
+        &self,
+        max_entries: usize,
+        processor: Option<&AiMemoryProcessor>,
+        config: Option<&AiMemoryConfig>,
+    ) -> Result<String> {
+        if self.entries.is_empty() {
+            return Ok(String::new());
+        }
+        
+        let default_config = AiMemoryConfig::default();
+        let config = config.unwrap_or(&default_config);
+        
+        // If AI summarization is enabled and we have a processor
+        if config.enable_summarization && processor.is_some() && self.entries.len() >= config.summarize_threshold {
+            let processor = processor.unwrap();
+            
+            // Group by category
+            let mut by_category: HashMap<MemoryCategory, Vec<&MemoryEntry>> = HashMap::new();
+            for entry in &self.entries {
+                by_category.entry(entry.category).or_default().push(entry);
+            }
+            
+            let mut summary = String::from("【跨会话记忆 (AI摘要)】\n\n");
+            
+            for (cat, entries) in by_category {
+                if entries.is_empty() {
+                    continue;
+                }
+                
+                // Get top entries by importance
+                let top_entries: Vec<&MemoryEntry> = entries
+                    .iter()
+                    .take(max_entries.min(entries.len()))
+                    .copied()
+                    .collect();
+                
+                // Try AI summarization for this category
+                if let Some(ai_summary) = processor.summarize_memories(&top_entries).await? {
+                    summary.push_str(&format!("{} {}:\n", cat.icon(), cat.display_name()));
+                    summary.push_str(&format!("  {}\n\n", ai_summary.content));
+                } else {
+                    // Fallback to individual entries
+                    summary.push_str(&format!("{} {}:\n", cat.icon(), cat.display_name()));
+                    for entry in top_entries {
+                        summary.push_str(&format!("  {}\n", entry.format_for_prompt()));
+                    }
+                    summary.push('\n');
+                }
+            }
+            
+            Ok(summary)
+        } else {
+            // Fallback to rule-based summary
+            Ok(self.generate_contextual_summary("", max_entries))
+        }
+    }
+}
+
+
+
+// ============================================================================
 // Memory Detection (Fallback - Rule-based)
 // ============================================================================
 

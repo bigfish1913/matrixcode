@@ -89,8 +89,14 @@ impl ToolSpinner {
 
     /// Clear the spinner without printing any message.
     /// Useful when another spinner or output will follow immediately.
-    /// Note: Does NOT wait for minimum display time - immediate cleanup.
+    /// Waits for minimum display time to ensure user sees the feedback.
     pub fn finish_clear(&mut self) {
+        // Ensure spinner has been visible for at least MIN_DISPLAY_MS
+        let elapsed = self.created_at.elapsed();
+        if elapsed < Duration::from_millis(MIN_DISPLAY_MS) {
+            std::thread::sleep(Duration::from_millis(MIN_DISPLAY_MS) - elapsed);
+        }
+
         self.bar.finish_and_clear();
         self.finished = true;
     }
