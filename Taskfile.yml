@@ -13,13 +13,13 @@ tasks:
   login-npm:
     desc: Login to npm from .env
     cmds:
-      - cmd: 'node -e "const os=require(\"os\"); const fs=require(\"fs\"); const token=fs.readFileSync(\".env\",\"utf8\").match(/NPM_TOKEN=(\\S+)/)?.[1]; if(token){fs.writeFileSync(os.homedir()+\"/.npmrc\",\"//registry.npmjs.org/:_authToken=\"+token)}"'
-      - cmd: 'npm whoami'
+      - cmd: node -e "const os=require('os');const fs=require('fs');const m=fs.readFileSync('.env','utf8').match(/NPM_TOKEN=([^\\s]+)/);if(m){fs.writeFileSync(os.homedir()+'/.npmrc','//registry.npmjs.org/:_authToken='+m[1])}"
+      - npm whoami
 
   login-cargo:
     desc: Login to cargo from .env
     cmds:
-      - cmd: 'node -e "const os=require(\"os\"); const fs=require(\"fs\"); const token=fs.readFileSync(\".env\",\"utf8\").match(/CARGO_TOKEN=(\\S+)/)?.[1]; if(token){const path=os.homedir()+\"/.cargo/credentials.toml\"; fs.writeFileSync(path,\"[registry]\\ntoken = \\\"\"+token+\"\\\"\")}"'
+      - cmd: node -e "const os=require('os');const fs=require('fs');const m=fs.readFileSync('.env','utf8').match(/CARGO_TOKEN=([^\\s]+)/);if(m){fs.writeFileSync(os.homedir()+'/.cargo/credentials.toml','[registry]\\n token = '+m[1])}"
 
   login:
     desc: Login to npm and cargo
@@ -30,15 +30,15 @@ tasks:
   bump:
     desc: Bump all versions
     cmds:
-      - cmd: 'node -e "const fs=require(\"fs\"); let c=fs.readFileSync(\"Cargo.toml\",\"utf8\"); c=c.replace(/^(version = )\"[^\"]+\"/,\"$1\"\"{{.CLI_ARGS}}\"\"\"\"); fs.writeFileSync(\"Cargo.toml\",c)"'
-      - cmd: 'node -e "const fs=require(\"fs\"); let p=JSON.parse(fs.readFileSync(\"npm/package.json\")); p.version=\"{{.CLI_ARGS}}\"; fs.writeFileSync(\"npm/package.json\",JSON.stringify(p,null,2))"'
-      - cmd: 'echo Bumped to {{.CLI_ARGS}}'
+      - cmd: node -e "const fs=require('fs');const v='{{.CLI_ARGS}}';const c=fs.readFileSync('Cargo.toml','utf8').replace(/^version = .*/m,'version = \"'+v+'\"');fs.writeFileSync('Cargo.toml',c)"
+      - cmd: node -e "const fs=require('fs');const v='{{.CLI_ARGS}}';const p=JSON.parse(fs.readFileSync('npm/package.json'));p.version=v;fs.writeFileSync('npm/package.json',JSON.stringify(p,null,2))"
+      - echo "Bumped to {{.CLI_ARGS}}"
 
   tag:
     desc: Create git tag
     cmds:
       - 'git add Cargo.toml npm/package.json Cargo.lock'
-      - cmd: 'git commit -m "chore: bump to {{.CLI_ARGS}}"'
+      - 'git commit -m "chore: bump to {{.CLI_ARGS}}"'
       - 'git tag {{.CLI_ARGS}}'
       - 'git push origin dev'
       - 'git push origin {{.CLI_ARGS}}'
