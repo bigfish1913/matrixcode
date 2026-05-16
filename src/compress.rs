@@ -10,7 +10,10 @@ use crate::providers::{ContentBlock, Message, MessageContent, Provider, Role, Ch
 pub const DEFAULT_COMPRESSION_THRESHOLD: f64 = 0.75;
 
 /// Minimum messages to keep after compression.
-pub const MIN_MESSAGES_TO_KEEP: usize = 4;
+pub const MIN_MESSAGES_TO_KEEP: usize = 8;
+
+/// Target ratio after compression (keep this fraction of tokens).
+pub const DEFAULT_TARGET_RATIO: f64 = 0.4;
 
 /// Default model for summarization (cost-effective).
 pub const DEFAULT_COMPRESSOR_MODEL: &str = "claude-3-5-haiku-20241022";
@@ -183,7 +186,7 @@ impl Default for CompressionConfig {
     fn default() -> Self {
         Self {
             threshold: DEFAULT_COMPRESSION_THRESHOLD,
-            target_ratio: 0.5,
+            target_ratio: DEFAULT_TARGET_RATIO,
             min_preserve_messages: MIN_MESSAGES_TO_KEEP,
             use_summarization: true,
             compressor_model: None,
@@ -764,28 +767,48 @@ fn truncate_compress(messages: &[Message], config: &CompressionConfig) -> Result
 }
 
 /// Sliding window: preserve complete conversation turns.
+/// Now uses token-based target instead of turn count for more stable compression.
 fn sliding_window_compress(messages: &[Message], config: &CompressionConfig) -> Result<Vec<Message>> {
     if messages.len() <= config.min_preserve_messages {
         return Ok(messages.to_vec());
     }
 
-    // Find the last complete "turn" boundary
+    // Estimate total tokens
+    let total_tokens = estimate_total_tokens(messages);
+    let target_tokens = (total_tokens as f64 * config.target_ratio) as u32;
+    
+    // Find turn boundaries (user messages mark start of each turn)
     let mut turn_boundaries: Vec<usize> = Vec::new();
-
     for (i, msg) in messages.iter().enumerate() {
         if msg.role == Role::User {
             turn_boundaries.push(i);
         }
     }
 
-    let turns_to_keep = config.min_preserve_messages / 2;
-    let keep_from = turn_boundaries.len().saturating_sub(turns_to_keep.max(1));
-
-    if let Some(&start_idx) = turn_boundaries.get(keep_from) {
-        Ok(messages[start_idx..].to_vec())
-    } else {
-        Ok(messages.to_vec())
+    // Minimum start index to ensure we keep at least min_preserve_messages
+    let min_start_idx = messages.len().saturating_sub(config.min_preserve_messages);
+    
+    // Try to find a turn that:
+    // 1. Starts at or after min_start_idx (ensures enough messages)
+    // 2. Fits within token target
+    // Iterate from the earliest acceptable turn
+    for &start_idx in turn_boundaries.iter() {
+        // Must have enough messages
+        if messages.len() - start_idx < config.min_preserve_messages {
+            continue;
+        }
+        
+        let candidate_messages = &messages[start_idx..];
+        let candidate_tokens = estimate_total_tokens(candidate_messages);
+        
+        // If this turn fits within token target, use it
+        if candidate_tokens <= target_tokens {
+            return Ok(candidate_messages.to_vec());
+        }
     }
+
+    // Fallback: keep exactly min_preserve_messages from the end
+    Ok(messages[min_start_idx..].to_vec())
 }
 
 /// Estimate token count for a message (rough approximation).
@@ -930,22 +953,27 @@ mod tests {
 
     #[test]
     fn test_sliding_window_preserves_turns() {
+        // Create messages with longer content to test token-based compression
         let messages: Vec<Message> = vec![
-            Message { role: Role::User, content: MessageContent::Text("Q1".to_string()) },
-            Message { role: Role::Assistant, content: MessageContent::Text("A1".to_string()) },
-            Message { role: Role::User, content: MessageContent::Text("Q2".to_string()) },
-            Message { role: Role::Assistant, content: MessageContent::Text("A2".to_string()) },
-            Message { role: Role::User, content: MessageContent::Text("Q3".to_string()) },
-            Message { role: Role::Assistant, content: MessageContent::Text("A3".to_string()) },
+            Message { role: Role::User, content: MessageContent::Text("Q1 - this is a longer question to test token estimation".to_string()) },
+            Message { role: Role::Assistant, content: MessageContent::Text("A1 - this is a longer answer with more content for token estimation".to_string()) },
+            Message { role: Role::User, content: MessageContent::Text("Q2 - another longer question for testing".to_string()) },
+            Message { role: Role::Assistant, content: MessageContent::Text("A2 - another longer answer for testing token estimation properly".to_string()) },
+            Message { role: Role::User, content: MessageContent::Text("Q3 - the third question in this test".to_string()) },
+            Message { role: Role::Assistant, content: MessageContent::Text("A3 - the third answer with sufficient content".to_string()) },
         ];
 
         let config = CompressionConfig {
             min_preserve_messages: 4,
+            target_ratio: 0.5,
             ..Default::default()
         };
 
         let compressed = sliding_window_compress(&messages, &config).unwrap();
-        assert!(compressed.len() >= 4);
+        // Should preserve at least min_preserve_messages
+        assert!(compressed.len() >= config.min_preserve_messages);
+        // Should preserve complete turns (user + assistant pairs)
+        assert!(compressed.iter().any(|m| m.role == Role::User));
     }
 
     #[test]
