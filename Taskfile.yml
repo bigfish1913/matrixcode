@@ -5,129 +5,99 @@ vars:
 
 tasks:
   status:
-    desc: Show current version and status
+    desc: Show version and status
     cmds:
       - 'grep "^version" Cargo.toml'
       - 'git status --short'
-      - 'echo ""'
-      - 'grep "^NPM_TOKEN=" .env 2>/dev/null || echo "NPM_TOKEN not set"'
-      - 'grep "^CARGO_TOKEN=" .env 2>/dev/null || echo "CARGO_TOKEN not set"'
 
   login-npm:
-    desc: Login to npm using NPM_TOKEN from .env
+    desc: Login to npm from .env
     cmds:
-      - 'TOKEN=$(grep "^NPM_TOKEN=" .env | cut -d= -f2)'
-      - 'echo "//registry.npmjs.org/:_authToken=$TOKEN" > ~/.npmrc'
-      - 'npm whoami'
-      - 'echo "NPM login complete"'
-    preconditions:
-      - 'grep -q "^NPM_TOKEN=..*" .env'
+      - cmd: 'TOKEN=$(grep "^NPM_TOKEN=" .env | cut -d= -f2) && echo "//registry.npmjs.org/:_authToken=$TOKEN" > ~/.npmrc && npm whoami'
 
   login-cargo:
-    desc: Login to crates.io using CARGO_TOKEN from .env
+    desc: Login to cargo from .env
     cmds:
-      - 'TOKEN=$(grep "^CARGO_TOKEN=" .env | cut -d= -f2)'
-      - 'cargo login --registry crates-io $TOKEN'
-      - 'echo "Cargo login complete"'
-    preconditions:
-      - 'grep -q "^CARGO_TOKEN=..*" .env'
+      - cmd: 'TOKEN=$(grep "^CARGO_TOKEN=" .env | cut -d= -f2) && cargo login --registry crates-io "$TOKEN"'
 
   login:
-    desc: Login to npm and cargo (tokens from .env)
+    desc: Login to npm and cargo
     cmds:
       - task: login-npm
       - task: login-cargo
-      - 'echo "All logins complete"'
-    preconditions:
-      - 'test -f .env'
+
+  bump-version:
+    desc: Bump Cargo.toml version
+    cmds:
+      - cmd: 'sed -i "s/^version = .*/version = \"{{.CLI_ARGS}}\"/" Cargo.toml'
+
+  bump-package:
+    desc: Bump npm package.json version
+    dir: npm
+    cmds:
+      - cmd: 'npm version --no-git-tag-version {{.CLI_ARGS}}'
 
   bump:
-    desc: Bump version (task bump -- v0.2.2)
+    desc: Bump all versions
     cmds:
-      - 'sed -i "s/^version = .*/version = \"{{.CLI_ARGS}}\"/" Cargo.toml'
-      - 'sed -i "s/version\": .*/version\": \"{{.CLI_ARGS}}\"/" npm/package.json'
-      - 'echo "Bumped to {{.CLI_ARGS}}"'
-    preconditions:
-      - 'test -n "{{.CLI_ARGS}}"'
+      - task: bump-version
+        vars: {CLI_ARGS: '{{.CLI_ARGS}}'}
+      - task: bump-package
+        vars: {CLI_ARGS: '{{.CLI_ARGS}}'}
 
   tag:
-    desc: Create git tag (task tag -- v0.2.2)
+    desc: Create git tag
     cmds:
       - 'git add Cargo.toml npm/package.json'
-      - 'git commit -m "chore: bump version to {{.CLI_ARGS}}" || true'
+      - 'git commit -m "chore: bump to {{.CLI_ARGS}}" || true'
       - 'git tag {{.CLI_ARGS}}'
       - 'git push origin dev'
       - 'git push origin {{.CLI_ARGS}}'
-      - 'echo "Tagged: {{.CLI_ARGS}}"'
-    preconditions:
-      - 'test -n "{{.CLI_ARGS}}"'
 
   publish-npm:
-    desc: Publish to npm (auto-login from .env)
+    desc: Publish to npm
     dir: npm
     cmds:
       - task: login-npm
       - 'cp ../LICENSE .'
       - 'npm publish --access=public'
-      - 'echo "NPM published"'
 
   publish-cargo:
-    desc: Publish to crates.io (auto-login from .env)
+    desc: Publish to cargo
     cmds:
       - task: login-cargo
       - 'cargo publish --registry crates-io'
-      - 'echo "Cargo published"'
 
   publish:
-    desc: Publish to npm and cargo (auto-login)
+    desc: Publish npm and cargo
     cmds:
       - task: login
       - task: publish-npm
       - task: publish-cargo
 
   release:
-    desc: Full release workflow with auto-login
+    desc: Full release workflow
     cmds:
       - task: login
       - task: bump
-        vars:
-          CLI_ARGS: "{{.CLI_ARGS}}"
+        vars: {CLI_ARGS: '{{.CLI_ARGS}}'}
       - task: tag
-        vars:
-          CLI_ARGS: "{{.CLI_ARGS}}"
-      - 'echo "Waiting 30s for CI..."'
+        vars: {CLI_ARGS: '{{.CLI_ARGS}}'}
       - 'sleep 30'
       - task: publish-npm
       - task: publish-cargo
-      - 'echo "Release {{.CLI_ARGS}} complete!"'
-    preconditions:
-      - 'test -n "{{.CLI_ARGS}}"'
-      - 'grep -q "^NPM_TOKEN=..*" .env'
-      - 'grep -q "^CARGO_TOKEN=..*" .env'
 
   build:
-    desc: Build release binary
+    desc: Build release
     cmds:
       - 'cargo build --release'
-      - 'ls -la target/release/matrixcode*'
 
   test:
     desc: Run tests
     cmds:
       - 'cargo test'
 
-  check:
-    desc: Check code
-    cmds:
-      - 'cargo check'
-      - 'cargo clippy 2>/dev/null || true'
-
-  install:
-    desc: Install locally
-    cmds:
-      - 'cargo install --path .'
-
   default:
-    desc: Show tasks
+    desc: List tasks
     cmds:
       - 'task --list'
