@@ -1,6 +1,6 @@
 [package]
 name = "matrixcode"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 authors = ["bigfish1913"]
 description = "A smart code agent CLI with multi-model support, context compression, and task planning"
