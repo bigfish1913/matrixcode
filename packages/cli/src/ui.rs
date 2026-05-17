@@ -13,9 +13,19 @@ pub const CYAN: &str = "\x1b[36m";
 pub const GREEN: &str = "\x1b[32m";
 pub const YELLOW: &str = "\x1b[33m";
 pub const BLUE: &str = "\x1b[34m";
+pub const MAGENTA: &str = "\x1b[35m";
+pub const RED: &str = "\x1b[31m";
 pub const BOLD: &str = "\x1b[1m";
 pub const DIM: &str = "\x1b[2;3m";
 pub const RESET: &str = "\x1b[0m";
+
+// Additional styles for better UX
+pub const ITALIC: &str = "\x1b[3m";
+pub const UNDERLINE: &str = "\x1b[4m";
+pub const DIM_GREEN: &str = "\x1b[2;32m";
+pub const DIM_CYAN: &str = "\x1b[2;36m";
+pub const DIM_YELLOW: &str = "\x1b[2;33m";
+pub const DIM_MAGENTA: &str = "\x1b[2;35m";
 
 // ============================================================================
 // Formatting Utilities
@@ -199,12 +209,59 @@ pub fn print_usage_line(
 }
 
 // ============================================================================
+// Tool Icons and Display
+// ============================================================================
+
+/// Get icon for a tool name.
+pub fn tool_icon(name: &str) -> &'static str {
+    match name {
+        "read" => "📖",
+        "write" => "📝",
+        "edit" => "✏️",
+        "multi_edit" => "✏️",
+        "bash" => "⚡",
+        "search" => "🔍",
+        "glob" => "📁",
+        "ls" => "📂",
+        "ask" => "❓",
+        "websearch" => "🌐",
+        "webfetch" => "🔗",
+        "skill" => "🔧",
+        "todo_write" => "📋",
+        _ => "🛠️",
+    }
+}
+
+/// Get color for a tool name.
+pub fn tool_color(name: &str) -> &'static str {
+    match name {
+        "read" => CYAN,
+        "write" => MAGENTA,
+        "edit" | "multi_edit" => MAGENTA,
+        "bash" => YELLOW,
+        "search" => BLUE,
+        "glob" | "ls" => CYAN,
+        "ask" => GREEN,
+        "websearch" | "webfetch" => BLUE,
+        "skill" => MAGENTA,
+        "todo_write" => YELLOW,
+        _ => DIM,
+    }
+}
+
+// ============================================================================
 // Tool Display
 // ============================================================================
 
 /// Print tool input in a readable format, expanding multi-line strings.
 pub fn print_tool_input(name: &str, input: &serde_json::Value) {
-    println!("[tool-input: {}]", name);
+    let icon = tool_icon(name);
+    let color = tool_color(name);
+    println!();
+    println!("{DIM}  ┌─────────────────────────────────────────────────{RESET}");
+    println!("  │ {color}{BOLD}{icon} {name}{RESET}");
+    println!("{DIM}  └─────────────────────────────────────────────────{RESET}");
+    println!();
     
     if let serde_json::Value::Object(map) = input {
         for (key, value) in map {
@@ -256,17 +313,44 @@ pub fn print_tool_input(name: &str, input: &serde_json::Value) {
 
 /// Print tool execution start indicator.
 pub fn print_tool_start(name: &str) {
-    println!("[tool: {}]", name);
+    let icon = tool_icon(name);
+    let color = tool_color(name);
+    println!("  {color}{icon} {name}{RESET} ...");
 }
 
 /// Print tool result header.
 pub fn print_tool_result(name: &str) {
-    println!("[result: {}]", name);
+    let icon = tool_icon(name);
+    println!("  {DIM_GREEN}✓ {icon} {name}{RESET}");
 }
 
 /// Print tool error header.
 pub fn print_tool_error(name: &str) {
-    println!("[error: {}]", name);
+    let icon = tool_icon(name);
+    println!("  {RED}✗ {icon} {name}{RESET}");
+}
+
+/// Print tool result summary (truncated if too long).
+pub fn print_tool_result_summary(result: &str, max_lines: usize) {
+    let lines: Vec<&str> = result.lines().collect();
+    let total_lines = lines.len();
+    
+    if total_lines <= max_lines {
+        for line in lines {
+            println!("    {DIM}{}{RESET}", line);
+        }
+    } else {
+        // Show first few lines
+        for line in lines.iter().take(max_lines / 2) {
+            println!("    {DIM}{}{RESET}", line);
+        }
+        println!("    {DIM_YELLOW}... ({total_lines} lines total, showing {max_lines}){RESET}");
+        // Show last few lines
+        for line in lines.iter().skip(total_lines - max_lines / 2) {
+            println!("    {DIM}{}{RESET}", line);
+        }
+    }
+    println!();
 }
 
 // ============================================================================
@@ -275,17 +359,21 @@ pub fn print_tool_error(name: &str) {
 
 /// Print a message role indicator for thinking blocks.
 pub fn print_thinking_start() {
-    print!("{DIM}[thinking] {RESET}");
+    println!();
+    println!("{DIM}  ┌─ 💭 Thinking ────────────────────────────────{RESET}");
+    print!("{DIM}  │ {RESET}{ITALIC}");
 }
 
 /// Print thinking delta text.
 pub fn print_thinking_delta(text: &str) {
-    print!("{DIM}{text}{RESET}");
+    print!("{DIM}{ITALIC}{text}{RESET}");
 }
 
 /// Print end of thinking block.
 pub fn print_thinking_end() {
-    print!("{RESET}\n\n");
+    println!("{RESET}");
+    println!("{DIM}  └───────────────────────────────────────────────{RESET}");
+    println!();
 }
 
 // ============================================================================
@@ -294,20 +382,32 @@ pub fn print_thinking_end() {
 
 /// Print an info message.
 pub fn info(msg: &str) {
-    println!("[{}]", msg);
+    println!("{DIM_CYAN}  ℹ {}{RESET}", msg);
 }
 
 /// Print a warning message.
 pub fn warn(msg: &str) {
-    eprintln!("[warn] {}", msg);
+    eprintln!("{YELLOW}  ⚠ {}{RESET}", msg);
 }
 
 /// Print an error message.
 pub fn error(msg: &str) {
-    eprintln!("[error] {}", msg);
+    eprintln!("{RED}  ✗ {}{RESET}", msg);
 }
 
 /// Print a success message.
 pub fn success(msg: &str) {
-    println!("{GREEN}[{}] {RESET}", msg);
+    println!("{GREEN}  ✓ {}{RESET}", msg);
+}
+
+/// Print a section divider.
+pub fn divider(title: &str) {
+    println!();
+    println!("{DIM}  ── {} ─────────────────────────────────────{RESET}", title);
+    println!();
+}
+
+/// Print a compact divider (no newlines).
+pub fn compact_divider() {
+    println!("{DIM}  ──────────────────────────────────────────────────{RESET}");
 }

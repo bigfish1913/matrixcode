@@ -153,13 +153,19 @@ export class MatrixCodeClient implements vscode.Disposable {
             
             this.process.stderr?.on('data', (data) => {
                 const msg = data.toString();
-                // Log to console and output channel for debugging
+                // Log to console for debugging
                 console.log('[MatrixCode stderr]', msg.trim());
-                // Also emit as event for debugging
-                this.onEventEmitter.fire({
-                    type: 'error',
-                    content: msg.trim()
-                });
+                
+                // Only emit error event for actual errors/warnings, not info logs
+                // CLI uses stderr for info messages like [loaded project overview]
+                // Only show messages that start with [error] or [warn]
+                const trimmed = msg.trim();
+                if (trimmed.startsWith('[error]') || trimmed.startsWith('[warn]')) {
+                    this.onEventEmitter.fire({
+                        type: 'error',
+                        content: trimmed
+                    });
+                }
             });
             
             this.process.on('exit', (code, signal) => {
@@ -168,11 +174,27 @@ export class MatrixCodeClient implements vscode.Disposable {
                 this.isStarting = false;
             });
             
-            // Give the process a moment to start
-            setTimeout(() => {
+            // Wait for daemon to start with timeout
+            // The daemon sends a session_started event when ready
+            const startupTimeout = setTimeout(() => {
+                // Fallback: if no event received, still resolve after timeout
                 this.isStarting = false;
                 resolve();
-            }, 500);
+            }, 2000);
+            
+            // Listen for the first event to confirm daemon is ready
+            const disposable = this.onEventEmitter.event((event) => {
+                if (event.type === 'session_started') {
+                    clearTimeout(startupTimeout);
+                    this.isStarting = false;
+                    resolve();
+                }
+            });
+            
+            // Clean up listener after timeout
+            setTimeout(() => {
+                disposable.dispose();
+            }, 3000);
         });
     }
     

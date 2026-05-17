@@ -58,6 +58,7 @@ pub struct Agent {
     skills: Arc<Vec<Skill>>,
     total_output_tokens: u64,
     last_input_tokens: u32,
+    pub quiet: bool,  // Suppress UI output for daemon mode
     api_call_count: AtomicUsize,  // 每次 API 调用计数（使用 AtomicUsize 支持 &self 方法中修改）
     compression_config: CompressionConfig,
     enable_caching: bool,
@@ -92,6 +93,7 @@ pub struct AgentBuilder {
     max_tokens: u32,
     project_overview: Option<String>,
     memory_summary: Option<String>,  // 跨会话记忆摘要
+    quiet: bool,
 }
 
 impl AgentBuilder {
@@ -106,6 +108,7 @@ impl AgentBuilder {
             max_tokens: 16384,
             project_overview: None,
             memory_summary: None,
+            quiet: false,
         }
     }
 
@@ -118,6 +121,12 @@ impl AgentBuilder {
     /// Enable or disable markdown rendering.
     pub fn markdown(mut self, enabled: bool) -> Self {
         self.markdown_enabled = enabled;
+        self
+    }
+
+    /// Enable quiet mode (suppress UI output for daemon mode).
+    pub fn quiet(mut self, enabled: bool) -> Self {
+        self.quiet = enabled;
         self
     }
 
@@ -179,6 +188,7 @@ impl AgentBuilder {
             skills: skills_arc,
             total_output_tokens: 0,
             last_input_tokens: 0,
+            quiet: self.quiet,
             api_call_count: AtomicUsize::new(0),
             compression_config: CompressionConfig::default(),
             enable_caching: true,
@@ -708,7 +718,7 @@ impl Agent {
         use crate::protocol::StreamEvent as JsonEvent;
         use std::io::Write;
 
-        let mut spinner = Some(ToolSpinner::new("thinking"));
+        let mut spinner = if self.quiet { None } else { Some(ToolSpinner::new("thinking")) };
         let mut rx = self.request_with_retry(request, &mut spinner).await?;
 
         let mut final_response: Option<ChatResponse> = None;
@@ -1127,7 +1137,7 @@ impl Agent {
     /// thinking deltas (dim) and text deltas (normal) as they arrive.
     /// Returns the assembled final response.
     async fn stream_one_turn(&self, request: ChatRequest) -> Result<ChatResponse> {
-        let mut spinner = Some(ToolSpinner::new("thinking"));
+        let mut spinner = if self.quiet { None } else { Some(ToolSpinner::new("thinking")) };
         let mut rx = self.request_with_retry(&request, &mut spinner).await?;
 
         let mut in_thinking = false;
@@ -1237,7 +1247,7 @@ impl Agent {
                         in_text = false;
                     }
                     println!("[tool: {}]", name);
-                    tool_spinner = Some(ToolSpinner::new(&format!("streaming {} input", name)));
+                    tool_spinner = if self.quiet { None } else { Some(ToolSpinner::new(&format!("streaming {} input", name))) };
                     current_tool_name = Some(name.clone());
                     last_shown_bytes = 0;
                 }
@@ -1402,10 +1412,12 @@ impl Agent {
             match block {
                 ContentBlock::ToolUse { id, name, input } => {
                     // Show parsing spinner while preparing tool execution
-                    let mut parsing_spinner = ToolSpinner::new(&format!("parsing {}", name));
+                    let parsing_spinner: Option<ToolSpinner> = if self.quiet { None } else { Some(ToolSpinner::new(&format!("parsing {}", name))) };
 
                     // Wait and clear spinner BEFORE printing (to avoid interference)
-                    parsing_spinner.finish_clear();
+                    if let Some(mut sp) = parsing_spinner {
+                        sp.finish_clear();
+                    }
 
                     // Print tool input with nice formatting (after spinner cleared)
                     ui::print_tool_input(name, input);

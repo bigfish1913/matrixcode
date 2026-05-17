@@ -30,7 +30,8 @@ pub struct ToolSpinner {
 }
 
 /// Minimum time spinner should be visible (in milliseconds)
-const MIN_DISPLAY_MS: u64 = 100;
+/// 150ms ensures user sees feedback even for fast operations
+const MIN_DISPLAY_MS: u64 = 150;
 
 impl ToolSpinner {
     /// Create a new spinner with the given message.

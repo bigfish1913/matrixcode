@@ -275,6 +275,9 @@ async fn main() -> Result<()> {
         overview.as_ref().map(|o| o.content.as_str()),
         memory_summary.as_deref(),
     );
+    
+    // Set quiet mode for daemon (suppress UI output)
+    agent.quiet = cli.daemon;
 
     // Configure multi-model if enabled or specific models provided
     // Use CLI args > config file > default
@@ -775,7 +778,7 @@ async fn run_repl(agent: &mut agent::Agent, session_manager: &mut SessionManager
         agent.set_cancel_token(cancel_token.clone());
 
         // Show spinner while preparing memory context (covers the gap before chat_once)
-        let mut prep_spinner = Some(matrixcode::tools::spinner::ToolSpinner::new("preparing"));
+        let mut prep_spinner = if !agent.quiet { Some(matrixcode::tools::spinner::ToolSpinner::new("preparing")) } else { None };
 
         // Update memory context based on current user input
         // Use AI-enhanced keyword extraction for better memory matching
