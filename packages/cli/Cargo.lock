@@ -1329,6 +1329,7 @@ dependencies = [
  "rustyline",
  "serde",
  "serde_json",
+ "tempfile",
  "termimad",
  "tokio",
  "uuid",

@@ -154,8 +154,16 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_cancel = cancel_token.clone();
     rt.spawn(async move {
         while let Some(msg) = task_rx.recv().await {
+            // Check cancellation - if cancelled, send interrupted event and continue
             if agent_cancel.is_cancelled() {
-                break;
+                event_tx.send(AgentEvent::error(
+                    "Operation interrupted by user".to_string(),
+                    Some("interrupted".to_string()),
+                    None,
+                )).await.ok();
+                // Reset the token so we can continue processing new messages
+                agent_cancel.reset();
+                continue;
             }
             // Simplified Agent simulation - send mock events
             event_tx.send(AgentEvent::session_started()).await.ok();

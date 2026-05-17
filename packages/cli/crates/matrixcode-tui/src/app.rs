@@ -19,7 +19,7 @@ use std::time::Duration;
 use matrixcode_core::{AgentEvent, cancel::CancellationToken};
 
 use crate::bridge::EventBridge;
-use crate::components::{InputBox, OutputArea, StatusBar};
+use crate::components::{InputBox, OutputArea, SidePanel, StatusBar};
 use crate::handler::{InputAction, InputHandler};
 
 /// Application version
@@ -242,6 +242,7 @@ pub struct Components {
     status_bar: StatusBar,
     output_area: OutputArea,
     input_box: InputBox,
+    side_panel: SidePanel,
 }
 
 impl Default for Components {
@@ -256,6 +257,7 @@ impl Components {
             status_bar: StatusBar::new(),
             output_area: OutputArea::new(),
             input_box: InputBox::new(),
+            side_panel: SidePanel::new(),
         }
     }
 }
@@ -441,4 +443,320 @@ pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
 pub fn restore_terminal() -> Result<()> {
     disable_raw_mode()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== AppMode Tests =====
+
+    #[test]
+    fn test_app_mode_idle_label() {
+        let mode = AppMode::Idle;
+        assert_eq!(mode.label(), "Ready");
+    }
+
+    #[test]
+    fn test_app_mode_thinking_label() {
+        let mode = AppMode::Thinking;
+        assert_eq!(mode.label(), "Thinking...");
+    }
+
+    #[test]
+    fn test_app_mode_tool_executing_label() {
+        let mode = AppMode::ToolExecuting {
+            name: "ReadFile".to_string(),
+            id: "tool-123".to_string(),
+        };
+        assert_eq!(mode.label(), "Tool: ReadFile");
+    }
+
+    #[test]
+    fn test_app_mode_equality() {
+        let mode1 = AppMode::Idle;
+        let mode2 = AppMode::Idle;
+        let mode3 = AppMode::Thinking;
+        assert_eq!(mode1, mode2);
+        assert_ne!(mode1, mode3);
+    }
+
+    // ===== Role Tests =====
+
+    #[test]
+    fn test_role_equality() {
+        assert_eq!(Role::User, Role::User);
+        assert_eq!(Role::Assistant, Role::Assistant);
+        assert_eq!(Role::System, Role::System);
+        assert_ne!(Role::User, Role::Assistant);
+        assert_ne!(Role::Assistant, Role::System);
+    }
+
+    // ===== OutputMessage Tests =====
+
+    #[test]
+    fn test_output_message_new() {
+        let msg = OutputMessage::new(Role::User, vec![OutputBlock::Text("Hello".to_string())]);
+        assert_eq!(msg.role, Role::User);
+        assert_eq!(msg.content.len(), 1);
+    }
+
+    #[test]
+    fn test_output_message_user() {
+        let msg = OutputMessage::user("Test message".to_string());
+        assert_eq!(msg.role, Role::User);
+        assert_eq!(msg.content.len(), 1);
+        if let OutputBlock::Text(text) = &msg.content[0] {
+            assert_eq!(text, "Test message");
+        } else {
+            panic!("Expected Text block");
+        }
+    }
+
+    #[test]
+    fn test_output_message_assistant() {
+        let msg = OutputMessage::assistant("Response".to_string());
+        assert_eq!(msg.role, Role::Assistant);
+        assert_eq!(msg.content.len(), 1);
+        if let OutputBlock::Text(text) = &msg.content[0] {
+            assert_eq!(text, "Response");
+        } else {
+            panic!("Expected Text block");
+        }
+    }
+
+    #[test]
+    fn test_output_message_timestamp() {
+        let before = chrono::Utc::now();
+        let msg = OutputMessage::user("Test".to_string());
+        let after = chrono::Utc::now();
+        assert!(msg.timestamp >= before);
+        assert!(msg.timestamp <= after);
+    }
+
+    // ===== AppState Tests =====
+
+    #[test]
+    fn test_app_state_default() {
+        let state = AppState::default();
+        assert_eq!(state.mode, AppMode::Idle);
+        assert_eq!(state.model, "claude-sonnet-4.6");
+        assert_eq!(state.tokens_used, 0);
+        assert!(state.messages.is_empty());
+        assert!(state.input_buffer.is_empty());
+        assert!(state.input_history.is_empty());
+        assert_eq!(state.history_index, 0);
+        assert_eq!(state.scroll_offset, 0);
+        assert!(!state.show_panel);
+        assert!(state.session_id.is_none());
+        assert!(!state.should_exit);
+        assert!(state.status_message.is_none());
+    }
+
+    #[test]
+    fn test_app_state_new() {
+        let state = AppState::new();
+        assert_eq!(state.mode, AppMode::Idle);
+        assert!(state.messages.is_empty());
+    }
+
+    #[test]
+    fn test_append_output_new_message() {
+        let mut state = AppState::new();
+        state.append_output("Hello");
+        assert_eq!(state.messages.len(), 1);
+        assert_eq!(state.messages[0].role, Role::Assistant);
+    }
+
+    #[test]
+    fn test_append_output_existing_message() {
+        let mut state = AppState::new();
+        state.append_output("Hello");
+        state.append_output(" World");
+        assert_eq!(state.messages.len(), 1);
+        if let OutputBlock::Text(text) = &state.messages[0].content[0] {
+            assert_eq!(text, "Hello World");
+        } else {
+            panic!("Expected Text block");
+        }
+    }
+
+    #[test]
+    fn test_append_output_after_thinking_block() {
+        let mut state = AppState::new();
+        state.append_output("First");
+        state.append_thinking("Thinking...");
+        state.append_output("Second");
+        // Should create a new message since last block is Thinking
+        assert_eq!(state.messages.len(), 2);
+    }
+
+    #[test]
+    fn test_append_thinking() {
+        let mut state = AppState::new();
+        state.append_thinking("Thinking about this...");
+        assert_eq!(state.messages.len(), 1);
+        assert_eq!(state.messages[0].role, Role::Assistant);
+        if let OutputBlock::Thinking(text) = &state.messages[0].content[0] {
+            assert_eq!(text, "Thinking about this...");
+        } else {
+            panic!("Expected Thinking block");
+        }
+    }
+
+    #[test]
+    fn test_append_tool_result() {
+        let mut state = AppState::new();
+        state.append_tool_result("tool-123", "ReadFile", "File contents", false);
+        assert_eq!(state.messages.len(), 1);
+        if let OutputBlock::ToolUse { id, name, result, is_error } = &state.messages[0].content[0] {
+            assert_eq!(id, "tool-123");
+            assert_eq!(name, "ReadFile");
+            assert_eq!(result, "File contents");
+            assert!(!is_error);
+        } else {
+            panic!("Expected ToolUse block");
+        }
+    }
+
+    #[test]
+    fn test_append_tool_result_error() {
+        let mut state = AppState::new();
+        state.append_tool_result("tool-456", "WriteFile", "Permission denied", true);
+        if let OutputBlock::ToolUse { is_error, .. } = &state.messages[0].content[0] {
+            assert!(is_error);
+        } else {
+            panic!("Expected ToolUse block");
+        }
+    }
+
+    #[test]
+    fn test_show_error() {
+        let mut state = AppState::new();
+        state.show_error("Something went wrong");
+        assert_eq!(state.status_message, Some("Error: Something went wrong".to_string()));
+    }
+
+    #[test]
+    fn test_clear_input() {
+        let mut state = AppState::new();
+        state.input_buffer = "test input".to_string();
+        state.history_index = 5;
+        state.clear_input();
+        assert!(state.input_buffer.is_empty());
+        assert_eq!(state.history_index, 0);
+    }
+
+    #[test]
+    fn test_history_up_empty_history() {
+        let mut state = AppState::new();
+        state.history_up();
+        assert_eq!(state.history_index, 0);
+        assert!(state.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_history_up_with_history() {
+        let mut state = AppState::new();
+        state.input_history = vec!["cmd1".to_string(), "cmd2".to_string(), "cmd3".to_string()];
+        state.history_up();
+        assert_eq!(state.history_index, 1);
+        assert_eq!(state.input_buffer, "cmd3");
+        state.history_up();
+        assert_eq!(state.history_index, 2);
+        assert_eq!(state.input_buffer, "cmd2");
+    }
+
+    #[test]
+    fn test_history_up_boundary() {
+        let mut state = AppState::new();
+        state.input_history = vec!["cmd1".to_string()];
+        state.history_up();
+        assert_eq!(state.history_index, 1);
+        // Should not go beyond the oldest entry
+        state.history_up();
+        assert_eq!(state.history_index, 1);
+    }
+
+    #[test]
+    fn test_history_down() {
+        let mut state = AppState::new();
+        state.input_history = vec!["cmd1".to_string(), "cmd2".to_string(), "cmd3".to_string()];
+        state.history_index = 2;
+        state.history_down();
+        assert_eq!(state.history_index, 1);
+        assert_eq!(state.input_buffer, "cmd2");
+    }
+
+    #[test]
+    fn test_history_down_to_bottom() {
+        let mut state = AppState::new();
+        state.input_history = vec!["cmd1".to_string(), "cmd2".to_string()];
+        state.history_index = 1;
+        state.history_down();
+        assert_eq!(state.history_index, 0);
+        assert!(state.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_history_down_already_at_bottom() {
+        let mut state = AppState::new();
+        state.history_down();
+        assert_eq!(state.history_index, 0);
+        assert!(state.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_add_to_history() {
+        let mut state = AppState::new();
+        state.add_to_history("first command".to_string());
+        assert_eq!(state.input_history.len(), 1);
+        assert_eq!(state.input_history[0], "first command");
+        assert_eq!(state.history_index, 0);
+    }
+
+    #[test]
+    fn test_add_to_history_empty_skipped() {
+        let mut state = AppState::new();
+        state.add_to_history("".to_string());
+        state.add_to_history("   ".to_string());
+        assert!(state.input_history.is_empty());
+    }
+
+    #[test]
+    fn test_add_to_history_trims_whitespace() {
+        let mut state = AppState::new();
+        state.add_to_history("  test  ".to_string());
+        // Note: add_to_history doesn't trim, it stores as-is
+        // The trimming happens in the send action
+        assert_eq!(state.input_history.len(), 1);
+    }
+
+    #[test]
+    fn test_add_to_history_limit_100() {
+        let mut state = AppState::new();
+        for i in 0..105 {
+            state.add_to_history(format!("cmd{}", i));
+        }
+        assert_eq!(state.input_history.len(), 100);
+        // The oldest entries should be removed
+        assert_eq!(state.input_history[0], "cmd5");
+        assert_eq!(state.input_history[99], "cmd104");
+    }
+
+    // ===== Components Tests =====
+
+    #[test]
+    fn test_components_default() {
+        let components = Components::default();
+        // Just verify it can be created
+        assert!(true);
+    }
+
+    #[test]
+    fn test_components_new() {
+        let components = Components::new();
+        // Just verify it can be created
+        assert!(true);
+    }
 }

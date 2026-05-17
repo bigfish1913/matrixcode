@@ -162,6 +162,9 @@ fn parse_command(input: &str) -> Option<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::crossterm::event::{KeyEventKind, KeyEventState};
+
+    // ===== Command Parsing Tests =====
 
     #[test]
     fn test_parse_help_command() {
@@ -178,13 +181,310 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_clear_command() {
+        assert!(matches!(parse_command("/clear"), Some(Command::Clear)));
+        assert!(matches!(parse_command("/cls"), Some(Command::Clear)));
+    }
+
+    #[test]
     fn test_parse_model_command() {
         let result = parse_command("/model gpt-4");
         assert!(matches!(result, Some(Command::Model(m)) if m == "gpt-4"));
+
+        let result = parse_command("/model");
+        assert!(matches!(result, Some(Command::Model(m)) if m == "claude-sonnet-4.6"));
+    }
+
+    #[test]
+    fn test_parse_session_list_command() {
+        assert!(matches!(parse_command("/session list"), Some(Command::Session(SessionCmd::List))));
+        assert!(matches!(parse_command("/session ls"), Some(Command::Session(SessionCmd::List))));
+        assert!(matches!(parse_command("/session"), Some(Command::Session(SessionCmd::List))));
+    }
+
+    #[test]
+    fn test_parse_session_save_command() {
+        assert!(matches!(parse_command("/session save"), Some(Command::Session(SessionCmd::Save))));
+    }
+
+    #[test]
+    fn test_parse_session_new_command() {
+        assert!(matches!(parse_command("/session new"), Some(Command::Session(SessionCmd::New))));
+    }
+
+    #[test]
+    fn test_parse_session_load_command() {
+        let result = parse_command("/session load abc123");
+        assert!(matches!(result, Some(Command::Session(SessionCmd::Load(id))) if id == "abc123"));
+
+        let result = parse_command("/session load");
+        assert!(matches!(result, Some(Command::Session(SessionCmd::Load(id))) if id.is_empty()));
+    }
+
+    #[test]
+    fn test_parse_session_delete_command() {
+        let result = parse_command("/session delete xyz789");
+        assert!(matches!(result, Some(Command::Session(SessionCmd::Delete(id))) if id == "xyz789"));
+
+        let result = parse_command("/session del test-id");
+        assert!(matches!(result, Some(Command::Session(SessionCmd::Delete(id))) if id == "test-id"));
+
+        let result = parse_command("/session rm another-id");
+        assert!(matches!(result, Some(Command::Session(SessionCmd::Delete(id))) if id == "another-id"));
     }
 
     #[test]
     fn test_parse_unknown_command() {
         assert!(parse_command("/unknown").is_none());
+        assert!(parse_command("/invalid-cmd").is_none());
+        assert!(parse_command("/foo").is_none());
+    }
+
+    #[test]
+    fn test_parse_command_with_extra_whitespace() {
+        // Split whitespace should handle this
+        let result = parse_command("/help  ");
+        // Extra whitespace after command is trimmed by split_whitespace
+        assert!(matches!(result, Some(Command::Help)));
+    }
+
+    // ===== InputHandler Tests =====
+
+    fn create_key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent { code, modifiers, kind: KeyEventKind::Press, state: KeyEventState::empty() }
+    }
+
+    #[test]
+    fn test_input_handler_new() {
+        let handler = InputHandler::new();
+        // Just verify it can be created
+        assert!(true);
+    }
+
+    #[test]
+    fn test_input_handler_default() {
+        let handler = InputHandler::default();
+        // Just verify it can be created
+        assert!(true);
+    }
+
+    #[test]
+    fn test_handle_enter_send_message() {
+        let handler = InputHandler::new();
+        let mut state = AppState::new();
+        state.input_buffer = "Hello world".to_string();
+
+        let event = create_key_event(KeyCode::Enter, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::Send(msg)) if msg == "Hello world"));
+    }
+
+    #[test]
+    fn test_handle_enter_empty_input() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::Enter, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_handle_enter_whitespace_only() {
+        let handler = InputHandler::new();
+        let mut state = AppState::new();
+        state.input_buffer = "   ".to_string();
+
+        let event = create_key_event(KeyCode::Enter, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_handle_enter_command() {
+        let handler = InputHandler::new();
+        let mut state = AppState::new();
+        state.input_buffer = "/help".to_string();
+
+        let event = create_key_event(KeyCode::Enter, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::Command(Command::Help))));
+    }
+
+    #[test]
+    fn test_handle_up_arrow_empty_input() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::Up, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::HistoryUp)));
+    }
+
+    #[test]
+    fn test_handle_up_arrow_with_input_ignored() {
+        let handler = InputHandler::new();
+        let mut state = AppState::new();
+        state.input_buffer = "test".to_string();
+
+        let event = create_key_event(KeyCode::Up, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_handle_down_arrow_empty_input() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::Down, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::HistoryDown)));
+    }
+
+    #[test]
+    fn test_handle_down_arrow_with_input_ignored() {
+        let handler = InputHandler::new();
+        let mut state = AppState::new();
+        state.input_buffer = "test".to_string();
+
+        let event = create_key_event(KeyCode::Down, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_handle_tab() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::Tab, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::TogglePanel)));
+    }
+
+    #[test]
+    fn test_handle_escape() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::Esc, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::ClearInput)));
+    }
+
+    #[test]
+    fn test_handle_backspace() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::Backspace, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::Backspace)));
+    }
+
+    #[test]
+    fn test_handle_ctrl_c() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::Interrupt)));
+    }
+
+    #[test]
+    fn test_handle_ctrl_d() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::Quit)));
+    }
+
+    #[test]
+    fn test_handle_char() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::Char('a'), KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::TypeChar('a'))));
+
+        let event = create_key_event(KeyCode::Char('Z'), KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::TypeChar('Z'))));
+    }
+
+    #[test]
+    fn test_handle_page_up() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::PageUp, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::ScrollUp)));
+    }
+
+    #[test]
+    fn test_handle_page_down() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::PageDown, KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(matches!(result, Some(InputAction::ScrollDown)));
+    }
+
+    #[test]
+    fn test_handle_unsupported_key() {
+        let handler = InputHandler::new();
+        let state = AppState::new();
+
+        let event = create_key_event(KeyCode::F(1), KeyModifiers::empty());
+        let result = handler.handle(event, &state);
+
+        assert!(result.is_none());
+    }
+
+    // ===== InputAction Debug/Clone Tests =====
+
+    #[test]
+    fn test_input_action_clone() {
+        let action = InputAction::Send("test".to_string());
+        let cloned = action.clone();
+        assert!(matches!(cloned, InputAction::Send(msg) if msg == "test"));
+    }
+
+    #[test]
+    fn test_command_clone() {
+        let cmd = Command::Model("gpt-4".to_string());
+        let cloned = cmd.clone();
+        assert!(matches!(cloned, Command::Model(m) if m == "gpt-4"));
+    }
+
+    #[test]
+    fn test_session_cmd_clone() {
+        let cmd = SessionCmd::Load("session-123".to_string());
+        let cloned = cmd.clone();
+        assert!(matches!(cloned, SessionCmd::Load(id) if id == "session-123"));
     }
 }
