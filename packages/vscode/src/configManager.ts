@@ -29,7 +29,7 @@ export class ConfigManager {
     }
     
     getModel(): string {
-        return this.config.get<string>('model') || 'claude-sonnet-4-20250514';
+        return this.config.get<string>('model') || '';
     }
     
     getThink(): boolean {

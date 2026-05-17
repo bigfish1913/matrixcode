@@ -10,6 +10,8 @@ import * as path from 'path';
 export interface StreamEvent {
     type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'error' | 'done' | 'session_started';
     content?: string;
+    message?: string;  // For error events
+    code?: string | null;  // For error events
     id?: string;
     name?: string;
     input?: unknown;
@@ -88,19 +90,20 @@ export class MatrixCodeClient implements vscode.Disposable {
     
     async checkAvailability(): Promise<boolean> {
         try {
-            const result = execSync(`"${this.config.cliPath}" --version`, {
+            // Use --help instead of --version (CLI doesn't have --version)
+            const result = execSync(`"${this.config.cliPath}" --help`, {
                 encoding: 'utf-8',
                 timeout: 5000
             });
-            return result.includes('matrixcode');
+            return result.includes('matrixcode') || result.includes('code agent');
         } catch {
             // Try with 'matrixcode' directly if the path doesn't work
             try {
-                const result = execSync('matrixcode --version', {
+                const result = execSync('matrixcode --help', {
                     encoding: 'utf-8',
                     timeout: 5000
                 });
-                return result.includes('matrixcode');
+                return result.includes('matrixcode') || result.includes('code agent');
             } catch {
                 return false;
             }
@@ -124,6 +127,13 @@ export class MatrixCodeClient implements vscode.Disposable {
                     stdio: ['pipe', 'pipe', 'pipe'],
                     env: { ...process.env }
                 });
+                
+                // Keep stdin open
+                if (this.process.stdin) {
+                    this.process.stdin.on('error', (err) => {
+                        console.error('[MatrixCode] stdin error:', err);
+                    });
+                }
             } catch (err) {
                 this.isStarting = false;
                 reject(err);
@@ -143,8 +153,13 @@ export class MatrixCodeClient implements vscode.Disposable {
             
             this.process.stderr?.on('data', (data) => {
                 const msg = data.toString();
-                // Non-JSON stderr is just log output
-                console.log('[MatrixCode]', msg.trim());
+                // Log to console and output channel for debugging
+                console.log('[MatrixCode stderr]', msg.trim());
+                // Also emit as event for debugging
+                this.onEventEmitter.fire({
+                    type: 'error',
+                    content: msg.trim()
+                });
             });
             
             this.process.on('exit', (code, signal) => {
@@ -165,17 +180,19 @@ export class MatrixCodeClient implements vscode.Disposable {
         const args: string[] = ['--daemon', '--json'];
         
         args.push('--provider', this.config.provider);
-        args.push('--model', this.config.model);
+        if (this.config.model) {
+            args.push('--model', this.config.model);
+        }
         args.push('--max-tokens', String(this.config.maxTokens));
         
         if (this.config.think) {
-            args.push('--think');
+            args.push('--think', 'true');
         } else {
             args.push('--think', 'false');
         }
         
         if (this.config.markdown) {
-            args.push('--markdown');
+            args.push('--markdown', 'true');
         } else {
             args.push('--markdown', 'false');
         }
@@ -188,7 +205,9 @@ export class MatrixCodeClient implements vscode.Disposable {
     }
     
     private handleStdout(data: Buffer): void {
-        this.buffer += data.toString();
+        const str = data.toString();
+        console.log('[MatrixClient] stdout raw:', str.substring(0, 200));
+        this.buffer += str;
         
         // Process complete JSON lines
         const lines = this.buffer.split('\n');
@@ -198,10 +217,11 @@ export class MatrixCodeClient implements vscode.Disposable {
             if (line.trim()) {
                 try {
                     const event: StreamEvent = JSON.parse(line);
+                    console.log('[MatrixClient]Parsed event:', event.type);
                     this.onEventEmitter.fire(event);
                 } catch (e) {
                     // Not a JSON line, could be a log message
-                    console.log('[MatrixCode stdout]', line);
+                    console.log('[MatrixClient stdout non-JSON]:', line.substring(0, 100));
                 }
             }
         }
@@ -209,11 +229,20 @@ export class MatrixCodeClient implements vscode.Disposable {
     
     async sendRequest(request: ClientRequest): Promise<void> {
         if (!this.process?.stdin) {
+            console.error('MatrixCode daemon is not running');
             throw new Error('MatrixCode daemon is not running');
         }
         
         const json = JSON.stringify(request) + '\n';
-        this.process.stdin.write(json);
+        console.log('[MatrixCode] Sending request:', json.trim());
+        
+        try {
+            const written = this.process.stdin.write(json);
+            console.log('[MatrixCode] Write result:', written);
+        } catch (err) {
+            console.error('[MatrixCode] Write error:', err);
+            throw err;
+        }
     }
     
     async chat(message: string, context?: RequestContext): Promise<void> {

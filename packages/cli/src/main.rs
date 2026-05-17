@@ -30,13 +30,13 @@ struct Cli {
     #[arg(short, long, env = "PROVIDER", default_value = "anthropic")]
     provider: String,
 
-    #[arg(short, long, env = "MODEL_NAME")]
+    #[arg(short, long, env = "ANTHROPIC_MODEL")]
     model: Option<String>,
 
-    #[arg(long, env = "API_KEY")]
+    #[arg(long, env = "ANTHROPIC_AUTH_TOKEN")]
     api_key: Option<String>,
 
-    #[arg(long, env = "BASE_URL")]
+    #[arg(long, env = "ANTHROPIC_BASE_URL")]
     base_url: Option<String>,
 
     /// Enable Anthropic extended thinking (default on). Pass --think false to disable.
@@ -132,12 +132,14 @@ struct Cli {
 
     /// Model for planning tasks (defaults to same as main model).
     /// Use a capable model like claude-sonnet-4 for better planning.
-    #[arg(long, env = "PLAN_MODEL")]
+    /// Claude Code style: ANTHROPIC_REASONING_MODEL
+    #[arg(long, env = "ANTHROPIC_REASONING_MODEL")]
     plan_model: Option<String>,
 
     /// Model for compression/summarization (defaults to claude-3-5-haiku).
     /// Use a smaller, cheaper model for cost efficiency.
-    #[arg(long, env = "COMPRESS_MODEL")]
+    /// Claude Code style: ANTHROPIC_DEFAULT_HAIKU_MODEL
+    #[arg(long, env = "ANTHROPIC_DEFAULT_HAIKU_MODEL")]
     compress_model: Option<String>,
 
     /// Model for quick operations (defaults to claude-3-5-haiku).
@@ -244,7 +246,7 @@ async fn main() -> Result<()> {
         if let Some(ref root) = project_root {
             match ProjectOverview::load(root) {
                 Ok(Some(ov)) => {
-                    println!("[loaded project overview from {}]", ov.path.display());
+                    eprintln!("[loaded project overview from {}]", ov.path.display());
                     Some(ov)
                 }
                 Ok(None) => None,
@@ -288,25 +290,25 @@ async fn main() -> Result<()> {
         // Override plan model if specified
         if let Some(ref plan_model_name) = plan_model {
             model_config.set(ModelRole::Plan, ModelConfig::new(plan_model_name.clone()));
-            println!("[plan model: {}]", plan_model_name);
+            eprintln!("[plan model: {}]", plan_model_name);
         } else if multi_model {
-            println!("[plan model: {} (using main model)]", model);
+            eprintln!("[plan model: {} (using main model)]", model);
         }
         
         // Override compress model if specified
         if let Some(ref compress_model_name) = compress_model {
             model_config.set(ModelRole::Compress, ModelConfig::new(compress_model_name.clone()));
-            println!("[compress model: {}]", compress_model_name);
+            eprintln!("[compress model: {}]", compress_model_name);
         } else if multi_model {
-            println!("[compress model: {} (using main model)]", model);
+            eprintln!("[compress model: {} (using main model)]", model);
         }
         
         // Override fast model if specified
         if let Some(ref fast_model_name) = fast_model {
             model_config.set(ModelRole::Fast, ModelConfig::new(fast_model_name.clone()));
-            println!("[fast model: {}]", fast_model_name);
+            eprintln!("[fast model: {}]", fast_model_name);
         } else if multi_model {
-            println!("[fast model: {} (using main model)]", model);
+            eprintln!("[fast model: {} (using main model)]", model);
         }
         
         // Create providers for plan and compress if multi-model is enabled
@@ -335,7 +337,7 @@ async fn main() -> Result<()> {
             };
             agent = agent.with_compress_provider(compress_provider);
             
-            println!("[multi-model enabled: all models default to main model]");
+            eprintln!("[multi-model enabled: all models default to main model]");
         } else if compress_model.is_some() {
             // Only compress model specified, create compress provider
             let compress_model_name = model_config.compress.name.clone();
@@ -356,7 +358,7 @@ async fn main() -> Result<()> {
     // Enable server-side web search by default for Anthropic provider
     if provider_name == "anthropic" && !cli.no_web_search {
         agent = agent.with_web_search(Some(cli.web_search_max_uses));
-        println!("[server web search enabled, max {} uses per turn]", cli.web_search_max_uses);
+        eprintln!("[server web search enabled, max {} uses per turn]", cli.web_search_max_uses);
     }
 
     // Configure context compression
@@ -375,7 +377,7 @@ async fn main() -> Result<()> {
     // Configure prompt caching
     if provider_name == "anthropic" && !cli.no_caching {
         agent.set_caching(true);
-        println!("[prompt caching enabled for Anthropic]");
+        eprintln!("[prompt caching enabled for Anthropic]");
     } else if cli.no_caching {
         agent.set_caching(false);
     }
@@ -389,7 +391,7 @@ async fn main() -> Result<()> {
     let approve_mode = matrixcode::approval::ApproveMode::from_str(&approve_mode_str);
     agent.set_approve_mode(approve_mode);
     if approve_mode != matrixcode::approval::ApproveMode::Ask {
-        println!("[approve mode: {}]", approve_mode);
+        eprintln!("[approve mode: {}]", approve_mode);
     }
 
     // Initialize session manager

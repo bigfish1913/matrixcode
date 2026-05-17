@@ -1,35 +1,43 @@
 //! Configuration loading for matrixcode.
 //!
+//! Variable names are aligned with Claude Code for consistency:
+//! - ANTHROPIC_AUTH_TOKEN (API key)
+//! - ANTHROPIC_BASE_URL
+//! - ANTHROPIC_MODEL
+//! - ANTHROPIC_DEFAULT_SONNET_MODEL
+//! - ANTHROPIC_DEFAULT_HAIKU_MODEL (compress model)
+//! - ANTHROPIC_REASONING_MODEL (plan model)
+//!
 //! Priority:
 //! 1. CLI arguments (highest priority)
 //! 2. ~/.matrix/config.json (matrixcode's own config)
-//! 3. ~/.claude/settings.json (cc-switch config)
-//! 4. Environment variables (.env file loaded by dotenvy)
+//! 3. ~/.claude/settings.json (Claude Code config)
+//! 4. Environment variables
 //!
-//! This allows users to share API keys and settings between
-//! matrixcode and cc-switch (Claude Code).
+//! This allows seamless sharing of settings between matrixcode and Claude Code.
 
 use std::path::PathBuf;
 use std::env;
 use serde::{Deserialize, Serialize};
 
 /// Matrixcode configuration file structure.
+/// Field names align with Claude Code conventions.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MatrixConfig {
     /// LLM provider: "anthropic" or "openai"
     #[serde(default)]
     pub provider: Option<String>,
     
-    /// API key for the provider
-    #[serde(default)]
+    /// API key (Claude Code style: ANTHROPIC_AUTH_TOKEN)
+    #[serde(default, rename = "ANTHROPIC_AUTH_TOKEN")]
     pub api_key: Option<String>,
     
     /// Base URL for API endpoint
-    #[serde(default)]
+    #[serde(default, rename = "ANTHROPIC_BASE_URL")]
     pub base_url: Option<String>,
     
-    /// Model name
-    #[serde(default)]
+    /// Main model name
+    #[serde(default, rename = "ANTHROPIC_MODEL")]
     pub model: Option<String>,
     
     /// Enable extended thinking
@@ -52,15 +60,15 @@ pub struct MatrixConfig {
     #[serde(default)]
     pub multi_model: Option<bool>,
     
-    /// Plan model name
-    #[serde(default)]
+    /// Plan/reasoning model (Claude Code style: ANTHROPIC_REASONING_MODEL)
+    #[serde(default, rename = "ANTHROPIC_REASONING_MODEL")]
     pub plan_model: Option<String>,
     
-    /// Compress model name
-    #[serde(default)]
+    /// Compress/haiku model (Claude Code style: ANTHROPIC_DEFAULT_HAIKU_MODEL)
+    #[serde(default, rename = "ANTHROPIC_DEFAULT_HAIKU_MODEL")]
     pub compress_model: Option<String>,
     
-    /// Fast model name
+    /// Fast model
     #[serde(default)]
     pub fast_model: Option<String>,
     
@@ -72,34 +80,36 @@ pub struct MatrixConfig {
 fn default_true() -> bool { true }
 fn default_max_tokens() -> u32 { 16384 }
 
-/// cc-switch (Claude Code) settings.json structure.
-/// We only extract relevant env variables.
+/// Claude Code settings.json structure.
 #[derive(Debug, Clone, Deserialize)]
 struct ClaudeSettings {
     #[serde(default)]
     env: Option<ClaudeEnv>,
+    
+    /// If true, skip dangerous mode permission prompts -> approve_mode = "auto"
+    #[serde(default, rename = "skipDangerousModePermissionPrompt")]
+    skip_dangerous_mode_permission_prompt: Option<bool>,
 }
 
-/// Environment variables from cc-switch settings.
+/// Environment variables from Claude Code settings.
+/// Uses SCREAMING_SNAKE_CASE to match Claude Code convention.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_snake_case)]
 struct ClaudeEnv {
     #[serde(default)]
-    anthropic_auth_token: Option<String>,
+    ANTHROPIC_AUTH_TOKEN: Option<String>,
     
     #[serde(default)]
-    anthropic_base_url: Option<String>,
+    ANTHROPIC_BASE_URL: Option<String>,
     
     #[serde(default)]
-    anthropic_model: Option<String>,
+    ANTHROPIC_MODEL: Option<String>,
     
-    #[serde(rename = "ANTHROPIC_DEFAULT_HAIKU_MODEL")]
     #[serde(default)]
-    pub compress_model: Option<String>,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: Option<String>,
     
-    #[serde(rename = "ANTHROPIC_REASONING_MODEL")]
     #[serde(default)]
-    pub plan_model: Option<String>,
+    ANTHROPIC_REASONING_MODEL: Option<String>,
 }
 
 impl MatrixConfig {
@@ -130,14 +140,11 @@ impl MatrixConfig {
         let content = std::fs::read_to_string(&path).ok()?;
         let config: Self = serde_json::from_str(&content).ok()?;
         
-        if config.api_key.is_some() || config.model.is_some() {
-            println!("[loaded config from ~/.matrix/config.json]");
-        }
-        
+        // Don't print here - we'll print after merge
         Some(config)
     }
     
-    /// Load cc-switch settings and convert to matrixcode config.
+    /// Load Claude Code settings and convert to matrixcode config.
     fn load_ccswitch_config() -> Option<Self> {
         let path = Self::claude_settings_path()?;
         if !path.exists() {
@@ -149,71 +156,120 @@ impl MatrixConfig {
         
         let env = settings.env?;
         
-        // Convert cc-switch env to matrixcode config
+        // Convert skip_dangerous_mode_permission_prompt to approve_mode
+        let approve_mode = if settings.skip_dangerous_mode_permission_prompt == Some(true) {
+            Some("auto".to_string())
+        } else {
+            None
+        };
+        
+        // Convert Claude Code env to matrixcode config (same field names now)
         let config = Self {
             provider: Some("anthropic".to_string()),
-            api_key: env.anthropic_auth_token,
-            base_url: env.anthropic_base_url,
-            model: env.anthropic_model,
+            api_key: env.ANTHROPIC_AUTH_TOKEN,
+            base_url: env.ANTHROPIC_BASE_URL,
+            model: env.ANTHROPIC_MODEL,
             think: true,
             markdown: true,
             max_tokens: 16384,
             context_size: None,
             multi_model: None,
-            plan_model: env.plan_model,
-            compress_model: env.compress_model,
+            plan_model: env.ANTHROPIC_REASONING_MODEL,
+            compress_model: env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
             fast_model: None,
-            approve_mode: None,
+            approve_mode,
         };
-        
-        if config.api_key.is_some() {
-            println!("[loaded config from ~/.claude/settings.json (cc-switch)]");
-        }
         
         Some(config)
     }
     
     /// Load configuration with fallback chain.
     /// Priority: CLI args > ~/.matrix/config.json > ~/.claude/settings.json > env vars
+    /// 
+    /// Fields are merged: matrix config values take precedence, missing fields
+    /// fall back to Claude settings, then to defaults/env vars.
     pub fn load() -> Self {
         // Try matrixcode's own config first
-        Self::load_matrix_config()
-            // Fallback to cc-switch config
-            .or_else(Self::load_ccswitch_config)
-            // Default if no config files found
-            .unwrap_or_default()
+        let matrix_config = Self::load_matrix_config();
+        // Load Claude settings as fallback source
+        let claude_config = Self::load_ccswitch_config();
+        
+        // Merge: matrix config takes precedence, fallback to Claude for missing fields
+        match (matrix_config, claude_config) {
+            (Some(mx), Some(cc)) => {
+                // Check if we need fallback
+                let needs_fallback = mx.api_key.is_none() || mx.model.is_none() || mx.base_url.is_none();
+                
+                // Merge: matrix values take precedence
+                let merged = Self {
+                    provider: mx.provider.or(cc.provider),
+                    api_key: mx.api_key.or(cc.api_key),
+                    base_url: mx.base_url.or(cc.base_url),
+                    model: mx.model.or(cc.model),
+                    think: mx.think,
+                    markdown: mx.markdown,
+                    max_tokens: mx.max_tokens,
+                    context_size: mx.context_size.or(cc.context_size),
+                    multi_model: mx.multi_model.or(cc.multi_model),
+                    plan_model: mx.plan_model.or(cc.plan_model),
+                    compress_model: mx.compress_model.or(cc.compress_model),
+                    fast_model: mx.fast_model.or(cc.fast_model),
+                    approve_mode: mx.approve_mode.or(cc.approve_mode),
+                };
+                
+                // Show which config source(s) are being used
+                if needs_fallback {
+                    println!("[config: ~/.matrix/config.json + fallback from ~/.claude/settings.json]");
+                } else {
+                    println!("[config: ~/.matrix/config.json]");
+                }
+                merged
+            }
+            (Some(mx), None) => {
+                println!("[config: ~/.matrix/config.json]");
+                mx
+            }
+            (None, Some(cc)) => {
+                println!("[config: ~/.claude/settings.json (Claude Code)]");
+                cc
+            }
+            (None, None) => {
+                println!("[config: using defaults and environment variables]");
+                Self::default()
+            }
+        }
     }
     
     /// Get API key, with fallback to environment variable.
+    /// Uses Claude Code style: ANTHROPIC_AUTH_TOKEN
     pub fn get_api_key(&self, provider: &str) -> Option<String> {
-        // Check environment variable first (dotenvy already loaded .env)
         match provider {
             "openai" => env::var("OPENAI_API_KEY").ok(),
-            _ => env::var("ANTHROPIC_API_KEY")
-                .or_else(|_| env::var("API_KEY"))
+            _ => env::var("ANTHROPIC_AUTH_TOKEN")
+                .or_else(|_| env::var("ANTHROPIC_API_KEY"))  // fallback for compatibility
                 .ok(),
         }
-        // Then use config file value if env var not set
         .or(self.api_key.clone())
     }
     
-    /// Get model name, with fallback to default.
+    /// Get model name, with fallback to environment variable.
+    /// Uses Claude Code style: ANTHROPIC_MODEL
     pub fn get_model(&self, provider: &str) -> String {
-        // Check environment variable
-        env::var("MODEL_NAME")
+        env::var("ANTHROPIC_MODEL")
+            .or_else(|_| env::var("MODEL_NAME"))  // fallback for compatibility
             .ok()
-            // Then config file
             .or(self.model.clone())
-            // Then provider default
             .unwrap_or_else(|| match provider {
                 "openai" => "gpt-4o".to_string(),
                 _ => "claude-sonnet-4-20250514".to_string(),
             })
     }
     
-    /// Get base URL, with fallback to default.
+    /// Get base URL, with fallback to environment variable.
+    /// Uses Claude Code style: ANTHROPIC_BASE_URL
     pub fn get_base_url(&self, provider: &str) -> String {
-        env::var("BASE_URL")
+        env::var("ANTHROPIC_BASE_URL")
+            .or_else(|_| env::var("BASE_URL"))  // fallback for compatibility
             .ok()
             .or(self.base_url.clone())
             .unwrap_or_else(|| match provider {
@@ -242,25 +298,33 @@ impl MatrixConfig {
 }
 
 /// Create a default config file for new users.
+/// Uses Claude Code style field names.
 pub fn create_default_config() -> anyhow::Result<()> {
     let config = MatrixConfig {
         provider: Some("anthropic".to_string()),
-        api_key: None,  // User should fill this
-        base_url: None,
-        model: Some("claude-sonnet-4-20250514".to_string()),
+        api_key: None,  // ANTHROPIC_AUTH_TOKEN - user should fill
+        base_url: None, // ANTHROPIC_BASE_URL
+        model: None,    // ANTHROPIC_MODEL - will fallback to Claude settings
         think: true,
         markdown: true,
         max_tokens: 16384,
         context_size: None,
         multi_model: Some(false),
-        plan_model: None,
-        compress_model: None,
+        plan_model: None,    // ANTHROPIC_REASONING_MODEL
+        compress_model: None, // ANTHROPIC_DEFAULT_HAIKU_MODEL
         fast_model: None,
         approve_mode: Some("ask".to_string()),
     };
     
     config.save()?;
-    println!("\nEdit ~/.matrix/config.json to set your API key.");
+    println!("\nConfig file created at ~/.matrix/config.json");
+    println!("Fields use Claude Code naming convention:");
+    println!("  ANTHROPIC_AUTH_TOKEN      - API key");
+    println!("  ANTHROPIC_BASE_URL        - API endpoint");
+    println!("  ANTHROPIC_MODEL           - Main model");
+    println!("  ANTHROPIC_REASONING_MODEL - Planning model");
+    println!("  ANTHROPIC_DEFAULT_HAIKU_MODEL - Compression model");
+    println!("\nLeave fields as null to fallback to ~/.claude/settings.json");
     Ok(())
 }
 
@@ -269,8 +333,22 @@ mod tests {
     use super::*;
     
     #[test]
-    fn test_default_config() {
-        let config = MatrixConfig::default();
+    fn test_default_config_values() {
+        let config = MatrixConfig {
+            provider: None,
+            api_key: None,
+            base_url: None,
+            model: None,
+            think: true,
+            markdown: true,
+            max_tokens: 16384,
+            context_size: None,
+            multi_model: None,
+            plan_model: None,
+            compress_model: None,
+            fast_model: None,
+            approve_mode: None,
+        };
         assert!(config.api_key.is_none());
         assert!(config.model.is_none());
         assert!(config.think);
@@ -279,12 +357,35 @@ mod tests {
     }
     
     #[test]
-    fn test_model_fallback() {
-        let config = MatrixConfig::default();
-        let model = config.get_model("anthropic");
-        assert_eq!(model, "claude-sonnet-4-20250514");
+    fn test_claude_code_field_names() {
+        // Verify serde renames work correctly
+        let json = r#"{
+            "ANTHROPIC_AUTH_TOKEN": "test-key",
+            "ANTHROPIC_BASE_URL": "https://test.com",
+            "ANTHROPIC_MODEL": "test-model",
+            "ANTHROPIC_REASONING_MODEL": "reasoning-model",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "haiku-model"
+        }"#;
         
-        let model = config.get_model("openai");
-        assert_eq!(model, "gpt-4o");
+        let config: MatrixConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.api_key, Some("test-key".to_string()));
+        assert_eq!(config.base_url, Some("https://test.com".to_string()));
+        assert_eq!(config.model, Some("test-model".to_string()));
+        assert_eq!(config.plan_model, Some("reasoning-model".to_string()));
+        assert_eq!(config.compress_model, Some("haiku-model".to_string()));
+    }
+    
+    #[test]
+    fn test_serialization_uses_claude_names() {
+        let config = MatrixConfig {
+            api_key: Some("key".to_string()),
+            model: Some("model".to_string()),
+            ..Default::default()
+        };
+        
+        let json = serde_json::to_string(&config).unwrap();
+        // Should use Claude Code field names
+        assert!(json.contains("ANTHROPIC_AUTH_TOKEN"));
+        assert!(json.contains("ANTHROPIC_MODEL"));
     }
 }

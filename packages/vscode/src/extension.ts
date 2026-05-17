@@ -1,74 +1,126 @@
 /**
  * MatrixCode VSCode Extension Entry Point
+ * 
+ * This extension provides an AI code agent in a dedicated editor tab,
+ * similar to Claude Code's approach.
  */
 
 import * as vscode from 'vscode';
 import { MatrixCodeClient } from './matrixcodeClient';
-import { ChatViewProvider } from './chatView';
+import { ChatPanelProvider } from './chatPanel';
 import { ConfigManager } from './configManager';
 
 let client: MatrixCodeClient;
-let chatProvider: ChatViewProvider;
+let chatPanel: ChatPanelProvider;
 let configManager: ConfigManager;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-    console.log('MatrixCode extension is activating...');
-    
-    // Initialize configuration manager
-    configManager = new ConfigManager();
-    
-    // Initialize CLI client
-    client = new MatrixCodeClient(configManager);
-    
-    // Register chat view
-    chatProvider = new ChatViewProvider(context.extensionUri, client, configManager);
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider('matrixcode.chat', chatProvider)
-    );
-    
-    // Register all commands
-    registerCommands(context);
-    
-    // Check CLI availability
-    const available = await client.checkAvailability();
-    if (!available) {
-        const result = await vscode.window.showWarningMessage(
-            'MatrixCode CLI not found. The extension requires the MatrixCode CLI to function.',
-            'Install CLI',
-            'Configure Path',
-            'Ignore'
-        );
+    try {
+        // Create output channel for debugging
+        const outputChannel = vscode.window.createOutputChannel('MatrixCode');
+        context.subscriptions.push(outputChannel);
         
-        handleCliNotFound(result);
-    } else {
-        console.log('MatrixCode CLI found, starting daemon...');
+        outputChannel.appendLine('MatrixCode extension is activating...');
+        outputChannel.appendLine(`Extension path: ${context.extensionPath}`);
         
-        // Start daemon if enabled
-        if (configManager.get('daemonMode')) {
-            try {
-                await client.startDaemon();
-                vscode.window.setStatusBarMessage('$(check) MatrixCode connected', 3000);
-            } catch (error) {
-                const errMsg = error instanceof Error ? error.message : String(error);
-                vscode.window.showErrorMessage(`Failed to start MatrixCode daemon: ${errMsg}`);
+        // Initialize configuration manager
+        configManager = new ConfigManager();
+        outputChannel.appendLine('ConfigManager initialized');
+        
+        // Initialize CLI client with config object
+        client = new MatrixCodeClient({
+            cliPath: configManager.getCliPath(),
+            provider: configManager.getProvider(),
+            model: configManager.getModel(),
+            think: configManager.getThink(),
+            markdown: configManager.getMarkdown(),
+            maxTokens: configManager.getMaxTokens(),
+            compressModel: configManager.getCompressModel(),
+            daemonMode: configManager.getDaemonMode()
+        });
+        outputChannel.appendLine('MatrixCodeClient initialized');
+        outputChannel.appendLine(`Config: cliPath=${configManager.getCliPath()}, provider=${configManager.getProvider()}, model=${configManager.getModel()}`);
+        
+        // Initialize chat panel provider
+        chatPanel = new ChatPanelProvider(context.extensionUri, client, configManager, outputChannel);
+        outputChannel.appendLine('ChatPanelProvider initialized');
+        
+        // Register all commands
+        registerCommands(context);
+        outputChannel.appendLine('Commands registered');
+        
+        // Check CLI availability
+        const available = await client.checkAvailability();
+        outputChannel.appendLine(`CLI availability: ${available}`);
+        
+        if (!available) {
+            const result = await vscode.window.showWarningMessage(
+                'MatrixCode CLI not found. The extension requires the MatrixCode CLI to function.',
+                'Install CLI',
+                'Configure Path',
+                'Ignore'
+            );
+            
+            handleCliNotFound(result);
+        } else {
+            outputChannel.appendLine('MatrixCode CLI found, starting daemon...');
+            
+            // Start daemon if enabled
+            if (configManager.get('daemonMode')) {
+                try {
+                    await client.startDaemon();
+                    vscode.window.setStatusBarMessage('$(check) MatrixCode connected', 3000);
+                    outputChannel.appendLine('Daemon started successfully');
+                } catch (error) {
+                    const errMsg = error instanceof Error ? error.message : String(error);
+                    outputChannel.appendLine(`Failed to start daemon: ${errMsg}`);
+                    vscode.window.showErrorMessage(`Failed to start MatrixCode daemon: ${errMsg}`);
+                }
             }
         }
+        
+        // Listen for configuration changes
+        context.subscriptions.push(
+            vscode.workspace.onDidChangeConfiguration(e => {
+                if (e.affectsConfiguration('matrixcode')) {
+                    configManager.reload();
+                    client.updateConfig(configManager);
+                }
+            })
+        );
+        
+        // Add status bar button with custom icon
+        const statusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Left,
+            100
+        );
+        
+        // Use the matrix grid icon representation
+        statusBarItem.text = '◈ MatrixCode';
+        statusBarItem.tooltip = 'Open MatrixCode AI Chat (Tab)';
+        statusBarItem.command = 'matrixcode.openChat';
+        statusBarItem.show();
+        context.subscriptions.push(statusBarItem);
+        outputChannel.appendLine('StatusBar item added');
+        
+        outputChannel.appendLine('MatrixCode extension activated successfully!');
+        console.log('MatrixCode extension activated');
+        
+    } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        console.error('MatrixCode activation failed:', errMsg);
+        vscode.window.showErrorMessage(`MatrixCode activation failed: ${errMsg}`);
     }
-    
-    // Listen for configuration changes
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('matrixcode')) {
-                configManager.reload();
-                client.updateConfig(configManager);
-            }
-        })
-    );
-    
-    console.log('MatrixCode extension activated');
 }
 
 function registerCommands(context: vscode.ExtensionContext): void {
+    // Open chat in a new tab
+    context.subscriptions.push(
+        vscode.commands.registerCommand('matrixcode.openChat', () => {
+            chatPanel.openOrCreate();
+        })
+    );
+    
     // Explain code command
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.explain', async () => {
@@ -85,9 +137,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
             }
             
             const text = editor.document.getText(selection);
-            const context = buildEditorContext(editor);
+            const ctx = buildEditorContext(editor);
             
-            await chatProvider.sendQuickAction('explain', text, context);
+            // Open chat panel first
+            chatPanel.openOrCreate();
+            
+            // Send quick action
+            await chatPanel.sendQuickAction('explain', text, ctx);
         })
     );
     
@@ -107,7 +163,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
             }
             
             const text = editor.document.getText(selection);
-            const context = buildEditorContext(editor);
+            const ctx = buildEditorContext(editor);
             
             // Add diagnostics to context
             const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
@@ -117,7 +173,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
                     return selection.contains(range.start) || selection.contains(range.end);
                 });
                 if (relevantDiagnostics.length > 0) {
-                    context.diagnostics = relevantDiagnostics.map(d => ({
+                    ctx.diagnostics = relevantDiagnostics.map(d => ({
                         severity: vscode.DiagnosticSeverity[d.severity].toLowerCase(),
                         message: d.message,
                         range: {
@@ -128,7 +184,11 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 }
             }
             
-            await chatProvider.sendQuickAction('fix', text, context);
+            // Open chat panel first
+            chatPanel.openOrCreate();
+            
+            // Send quick action
+            await chatPanel.sendQuickAction('fix', text, ctx);
         })
     );
     
@@ -145,9 +205,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
             const text = selection.isEmpty 
                 ? editor.document.getText() 
                 : editor.document.getText(selection);
-            const context = buildEditorContext(editor);
+            const ctx = buildEditorContext(editor);
             
-            await chatProvider.sendQuickAction('generateTests', text, context);
+            // Open chat panel first
+            chatPanel.openOrCreate();
+            
+            // Send quick action
+            await chatPanel.sendQuickAction('generateTests', text, ctx);
         })
     );
     
@@ -167,7 +231,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
             }
             
             const text = editor.document.getText(selection);
-            const context = buildEditorContext(editor);
+            const ctx = buildEditorContext(editor);
             
             // Prompt for refactor instructions
             const instructions = await vscode.window.showInputBox({
@@ -175,24 +239,19 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 placeHolder: 'e.g., Extract method, Rename variables, etc.'
             });
             
-            await chatProvider.sendQuickAction('refactor', text, context, instructions);
+            // Open chat panel first
+            chatPanel.openOrCreate();
+            
+            // Send quick action
+            await chatPanel.sendQuickAction('refactor', text, ctx, instructions);
         })
     );
     
     // New session command
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.newSession', async () => {
-            await client.newSession();
-            chatProvider.clearHistory();
+            chatPanel.clearHistory();
             vscode.window.showInformationMessage('MatrixCode: Started new session');
-        })
-    );
-    
-    // Show history command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('matrixcode.showHistory', async () => {
-            await vscode.commands.executeCommand('workbench.view.extension.matrixcode');
-            // TODO: Show session history in webview
         })
     );
     
@@ -237,6 +296,9 @@ async function handleCliNotFound(result: string | undefined): Promise<void> {
 export function deactivate(): void {
     if (client) {
         client.dispose();
+    }
+    if (chatPanel) {
+        chatPanel.dispose();
     }
     console.log('MatrixCode extension deactivated');
 }

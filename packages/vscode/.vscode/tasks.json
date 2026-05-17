@@ -1,0 +1,47 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "npm",
+            "script": "compile-dev",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$tsc",
+            "label": "npm: compile-dev",
+            "detail": "esbuild with sourcemap (for debugging)"
+        },
+        {
+            "type": "npm",
+            "script": "watch",
+            "group": "build",
+            "problemMatcher": "$tsc-watch",
+            "label": "npm: watch",
+            "detail": "Watch mode with sourcemap",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "silent"
+            }
+        },
+        {
+            "type": "npm",
+            "script": "compile",
+            "group": "build",
+            "problemMatcher": "$tsc",
+            "label": "npm: compile",
+            "detail": "esbuild minified (for production)"
+        },
+        {
+            "type": "npm",
+            "script": "lint",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": ["$eslint-stylish"],
+            "label": "npm: lint",
+            "detail": "ESLint code check"
+        }
+    ]
+}

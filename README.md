@@ -121,6 +121,41 @@ cargo publish && cd npm && npm publish
 cd packages/vscode && npm run publish
 ```
 
+### 使用 Taskfile
+
+```bash
+# 安装 task (如果未安装)
+# macOS/Linux: brew install go-task/tap/go-task
+# Windows: scoop install task
+
+# 构建所有
+task build
+
+# 构建 CLI
+task build-cli
+
+# 构建 VSCode 扩展
+task build-vscode
+
+# 运行测试
+task test
+
+# 清理
+task clean
+
+# 发布 CLI + VSCode 扩展（自动升级版本）
+task publish
+
+# 发布指定版本
+task release -- 0.2.6
+
+# 仅发布 VSCode 扩展
+task publish-vscode
+
+# 查看所有任务
+task --list
+```
+
 ## 文档
 
 - [CLI 使用指南](docs/)

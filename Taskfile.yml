@@ -68,13 +68,14 @@ tasks:
       - 'npm run publish'
 
   publish:
-    desc: Auto bump version and publish all
+    desc: Auto bump version and publish all (CLI + VSCode)
     cmds:
       - cmd: 'node -e "const fs=require(\"fs\");const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const p=m[1].split(\".\");p[2]=parseInt(p[2])+1;const nv=p.join(\".\");fs.writeFileSync(\"{{.CLI_DIR}}/Cargo.toml\",c.replace(/^version = .*/m,\"version = \\\"\"+nv+\"\\\"\"));const pkg=JSON.parse(fs.readFileSync(\"{{.CLI_DIR}}/npm/package.json\"));pkg.version=nv;fs.writeFileSync(\"{{.CLI_DIR}}/npm/package.json\",JSON.stringify(pkg,null,2));const vsc=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));vsc.version=nv;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(vsc,null,2));console.log(\"New version: \"+nv)}"'
       - cmd: 'node -e "const fs=require(\"fs\");const execSync=require(\"child_process\").execSync;const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const v=m[1];execSync(\"cd {{.CLI_DIR}} && cargo update -w\");execSync(\"git add {{.CLI_DIR}}/Cargo.toml {{.CLI_DIR}}/npm/package.json {{.CLI_DIR}}/Cargo.lock {{.VSCODE_DIR}}/package.json\");execSync(\"git commit -m \\\"chore: bump to \"+v+\"\\\"\");execSync(\"git tag \"+v);execSync(\"git push origin dev\");execSync(\"git push origin \"+v)}"'
       - task: login
       - task: publish-npm
       - task: publish-cargo
+      - task: publish-vscode
 
   release:
     desc: Full release workflow (task release -- 0.2.5)
@@ -87,6 +88,7 @@ tasks:
       - 'sleep 30'
       - task: publish-npm
       - task: publish-cargo
+      - task: publish-vscode
 
   build:
     desc: Build CLI release

@@ -58,8 +58,9 @@ echo   1. Edit packages\cli\.env to add your API key
 echo   2. Run CLI: cd packages\cli && cargo run --release
 echo   3. Debug VSCode extension: Open VSCode, press F5
 echo.
-echo Useful commands:
+echo Useful commands (using Taskfile):
 echo   task build          - Build CLI
 echo   task build-vscode   - Build VSCode extension
 echo   task test           - Run CLI tests
 echo   task clean          - Clean build artifacts
+echo   task --list         - Show all available tasks

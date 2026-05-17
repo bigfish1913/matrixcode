@@ -93,11 +93,25 @@ npm run lint
 # 在 VSCode 中调试: 按 F5
 ```
 
-### 4. 提交代码
+### 4. 使用 Taskfile
+
+```bash
+# 查看所有可用任务
+task --list
+
+# 常用任务
+task build          # 构建 CLI
+task build-vscode   # 构建 VSCode 扩展
+task test           # 运行 CLI 测试
+task test-vscode    # 运行 VSCode lint
+task clean          # 清理构建产物
+```
+
+### 5. 提交代码
 
 ```bash
 # 确保所有测试通过
-cargo test && npm run lint
+task test
 
 # 提交
 git add .

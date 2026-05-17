@@ -123,6 +123,7 @@ mod tests {
             description: "desc".to_string(),
             dir: PathBuf::from("/nonexistent"),
             body: body.to_string(),
+            source_file: PathBuf::from("/nonexistent/SKILL.md"),
         }
     }
 

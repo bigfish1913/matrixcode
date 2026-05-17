@@ -1,20 +1,9 @@
 //! Skill discovery and loading.
 //!
-//! A "skill" is a directory containing a `SKILL.md` file with a YAML
-//! frontmatter block. The frontmatter declares at least a `name` and a
-//! `description`; the body contains instructions the model should follow
-//! when the skill is active. Additional files in the skill directory
-//! (scripts, templates, reference docs) can be read on demand by the
-//! normal `read` tool.
+//! A "skill" is a markdown file with a YAML frontmatter block, or a directory
+//! containing skill files. Two formats are supported:
 //!
-//! Skills are surfaced to the model in two stages:
-//! 1. At startup every skill's name + description is injected into the
-//!    system prompt so the model knows what's available.
-//! 2. The `skill` tool loads the full `SKILL.md` body (and lists the
-//!    skill's files) when the model decides to use one. This keeps
-//!    baseline token cost low even with many skills installed.
-//!
-//! Directory layout:
+//! **Format 1: Single-file skill (SKILL.md)**
 //! ```text
 //! skills/
 //!   my-skill/
@@ -22,6 +11,23 @@
 //!     helper.py           # optional support files
 //!     templates/...       # optional subdirs
 //! ```
+//!
+//! **Format 2: Multi-file skills (like Claude Code plugins)**
+//! ```text
+//! skills/
+//!   om/
+//!     debug.md            # each .md file is a separate skill
+//!     feature.md
+//!     plan.md
+//!     ...
+//! ```
+//!
+//! Skills are surfaced to the model in two stages:
+//! 1. At startup every skill's name + description is injected into the
+//!    system prompt so the model knows what's available.
+//! 2. The `skill` tool loads the full skill body (and lists the
+//!    skill's files) when the model decides to use one. This keeps
+//!    baseline token cost low even with many skills installed.
 
 use std::path::{Path, PathBuf};
 
@@ -30,25 +36,30 @@ use anyhow::{Context, Result};
 /// A loaded skill ready to be advertised to the model.
 #[derive(Debug, Clone)]
 pub struct Skill {
-    /// Canonical identifier, taken from frontmatter `name`. Used as the
-    /// argument to the `skill` tool.
+    /// Canonical identifier, taken from frontmatter `name` or file name.
+    /// Used as the argument to the `skill` tool.
     pub name: String,
     /// Short one-line description shown in the system prompt.
     pub description: String,
     /// Absolute path to the skill directory.
     pub dir: PathBuf,
-    /// Full markdown body (without frontmatter) of `SKILL.md`.
+    /// Full markdown body (without frontmatter).
     pub body: String,
+    /// The source .md file path (SKILL.md or other .md file).
+    pub source_file: PathBuf,
 }
 
 impl Skill {
-    /// Path to this skill's `SKILL.md`.
+    /// Path to this skill's source file.
     pub fn skill_md(&self) -> PathBuf {
-        self.dir.join("SKILL.md")
+        self.source_file.clone()
     }
 }
 
-/// Walk the given roots and load every `SKILL.md` found one level deep.
+/// Walk the given roots and load skills from both formats:
+/// - Format 1: directories with `SKILL.md` (backward compatible)
+/// - Format 2: directories with multiple `.md` files (Claude Code style)
+///
 /// Missing roots are silently skipped so users can keep a personal
 /// `~/.matrix/skills` directory without the project-local one (or
 /// vice versa). Skills with duplicate names: first one wins, later ones
@@ -72,26 +83,23 @@ pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {
             if !path.is_dir() {
                 continue;
             }
-            let md = path.join("SKILL.md");
-            if !md.is_file() {
+            
+            // Try Format 1: SKILL.md exists
+            let skill_md = path.join("SKILL.md");
+            if skill_md.is_file() {
+                match load_skill_from_file(&skill_md, &path) {
+                    Ok(skill) => {
+                        add_skill(&mut out, skill);
+                    }
+                    Err(e) => {
+                        eprintln!("[warn] skipping skill at {}: {e}", path.display());
+                    }
+                }
                 continue;
             }
-            match load_skill(&path) {
-                Ok(skill) => {
-                    if out.iter().any(|s| s.name == skill.name) {
-                        eprintln!(
-                            "[warn] duplicate skill name '{}' at {} (ignored)",
-                            skill.name,
-                            path.display()
-                        );
-                        continue;
-                    }
-                    out.push(skill);
-                }
-                Err(e) => {
-                    eprintln!("[warn] skipping skill at {}: {e}", path.display());
-                }
-            }
+            
+            // Try Format 2: multiple .md files in directory
+            load_multi_file_skills(&path, &mut out);
         }
     }
 
@@ -99,19 +107,81 @@ pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {
     out
 }
 
-/// Load a single skill directory. Public so tests and the `skill` tool
-/// can reload a specific skill without rescanning everything.
-pub fn load_skill(dir: &Path) -> Result<Skill> {
-    let md_path = dir.join("SKILL.md");
-    let raw = std::fs::read_to_string(&md_path)
+/// Add a skill to the list, checking for duplicates.
+fn add_skill(out: &mut Vec<Skill>, skill: Skill) {
+    if out.iter().any(|s| s.name == skill.name) {
+        eprintln!(
+            "[warn] duplicate skill name '{}' at {} (ignored)",
+            skill.name,
+            skill.source_file.display()
+        );
+        return;
+    }
+    out.push(skill);
+}
+
+/// Load skills from a directory containing multiple .md files.
+/// Each .md file with frontmatter becomes a separate skill.
+fn load_multi_file_skills(dir: &Path, out: &mut Vec<Skill>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("[warn] could not read skill dir {}: {e}", dir.display());
+            return;
+        }
+    };
+    
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        
+        // Only process .md files
+        let ext = path.extension().and_then(|e| e.to_str());
+        if ext != Some("md") {
+            continue;
+        }
+        
+        // Skip SKILL.md (already handled in Format 1)
+        if path.file_name().and_then(|n| n.to_str()) == Some("SKILL.md") {
+            continue;
+        }
+        
+        match load_skill_from_file(&path, dir) {
+            Ok(skill) => {
+                add_skill(out, skill);
+            }
+            Err(e) => {
+                // Only warn if the file has frontmatter (indicating it's meant to be a skill)
+                let raw = std::fs::read_to_string(&path).unwrap_or_default();
+                if raw.trim_start().starts_with("---") {
+                    eprintln!("[warn] skipping skill file {}: {e}", path.display());
+                }
+            }
+        }
+    }
+}
+
+/// Load a skill from a specific .md file.
+/// Public so tests and the `skill` tool can reload a specific skill.
+pub fn load_skill_from_file(md_path: &Path, dir: &Path) -> Result<Skill> {
+    let raw = std::fs::read_to_string(md_path)
         .with_context(|| format!("reading {}", md_path.display()))?;
     let (front, body) = split_frontmatter(&raw)
         .with_context(|| format!("parsing frontmatter of {}", md_path.display()))?;
 
+    // Name: frontmatter > filename (without .md) > directory name
     let name = front
         .get("name")
         .cloned()
         .filter(|s| !s.is_empty())
+        .or_else(|| {
+            md_path
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string())
+        })
         .or_else(|| {
             dir.file_name()
                 .and_then(|n| n.to_str())
@@ -129,7 +199,14 @@ pub fn load_skill(dir: &Path) -> Result<Skill> {
         description,
         dir: dir.to_path_buf(),
         body: body.to_string(),
+        source_file: md_path.to_path_buf(),
     })
+}
+
+/// Load a skill from a directory with SKILL.md (backward compatible).
+pub fn load_skill(dir: &Path) -> Result<Skill> {
+    let md_path = dir.join("SKILL.md");
+    load_skill_from_file(&md_path, dir)
 }
 
 /// Minimal YAML-frontmatter parser: supports the shape
@@ -317,6 +394,46 @@ mod tests {
     }
 
     #[test]
+    fn discover_loads_multi_file_skills() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("skills");
+        write_file(
+            &root.join("om/debug.md"),
+            "---\nname: debug\ndescription: debug issues\n---\nDebug workflow.\n",
+        );
+        write_file(
+            &root.join("om/feature.md"),
+            "---\nname: feature\ndescription: build features\n---\nFeature workflow.\n",
+        );
+
+        let skills = discover_skills(&[root]);
+        assert_eq!(skills.len(), 2);
+        
+        let debug_skill = skills.iter().find(|s| s.name == "debug").unwrap();
+        assert_eq!(debug_skill.description, "debug issues");
+        assert!(debug_skill.body.contains("Debug workflow"));
+        
+        let feature_skill = skills.iter().find(|s| s.name == "feature").unwrap();
+        assert_eq!(feature_skill.description, "build features");
+        assert!(feature_skill.body.contains("Feature workflow"));
+    }
+
+    #[test]
+    fn multi_file_skill_name_from_filename() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("skills");
+        // No 'name' in frontmatter - should use filename
+        write_file(
+            &root.join("utils/helper.md"),
+            "---\ndescription: a helper\n---\nHelper content.\n",
+        );
+
+        let skills = discover_skills(&[root]);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "helper");
+    }
+
+    #[test]
     fn duplicate_names_are_dropped() {
         let tmp = tempdir().unwrap();
         let a = tmp.path().join("a");
@@ -348,6 +465,7 @@ mod tests {
             description: "does stuff".into(),
             dir: PathBuf::from("/tmp"),
             body: String::new(),
+            source_file: PathBuf::from("/tmp/demo.md"),
         };
         let cat = format_catalogue(&[s]).unwrap();
         assert!(cat.contains("Use the `skill` tool"));
