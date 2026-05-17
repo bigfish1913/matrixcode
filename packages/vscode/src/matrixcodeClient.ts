@@ -1,314 +1,230 @@
 /**
- * MatrixCode CLI Client
- * Manages communication with the MatrixCode CLI process
+ * MatrixCode CLI Client - Daemon Mode
+ * Communicates with matrixcode CLI via stdin/stdout JSON stream
  */
 
-import * as vscode from 'vscode';
-import { spawn, ChildProcess, execSync } from 'child_process';
-import * as path from 'path';
+import { spawn, ChildProcess } from 'child_process';
+import { AgentEvent, DaemonRequest, RequestContext } from './types';
 
-export interface StreamEvent {
-    type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'error' | 'done' | 'session_started';
-    content?: string;
-    message?: string;  // For error events
-    code?: string | null;  // For error events
-    id?: string;
-    name?: string;
-    input?: unknown;
-    tool_use_id?: string;
-    usage?: { input: number; output: number };
-}
+export class MatrixCodeClient {
+  private process: ChildProcess | null = null;
+  private eventHandlers: Map<string, (event: AgentEvent) => void> = new Map();
+  private pendingRequests: Map<string, (events: AgentEvent[]) => void> = new Map();
+  private eventBuffer: AgentEvent[] = [];
+  private isProcessingRequest = false;
 
-export interface ClientRequest {
-    type: 'chat' | 'quick_action' | 'new_session' | 'memory' | 'status';
-    content?: string;
-    action?: string;
-    context?: RequestContext;
-    instructions?: string;
-}
+  constructor(private cliPath: string = 'matrixcode') {}
 
-export interface RequestContext {
-    workspace?: string;
-    file?: string;
-    language?: string;
-    selection?: Selection;
-    diagnostics?: Diagnostic[];
-}
+  /**
+   * Start the daemon process
+   */
+  async start(): Promise<void> {
+    if (this.process) {
+      return;
+    }
 
-export interface Selection {
-    start: Position;
-    end: Position;
-}
+    this.process = spawn(this.cliPath, ['--mode', 'daemon'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
 
-export interface Position {
-    line: number;
-    character: number;
-}
+    if (!this.process.stdout || !this.process.stdin) {
+      throw new Error('Failed to create daemon process pipes');
+    }
 
-export interface Diagnostic {
-    severity: string;
-    message: string;
-    range: Selection;
-}
+    // Handle stdout - JSON event stream
+    let buffer = '';
+    this.process.stdout.on('data', (data: Buffer) => {
+      buffer += data.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-export interface Config {
-    cliPath: string;
-    provider: string;
-    model: string;
-    think: boolean;
-    markdown: boolean;
-    maxTokens: number;
-    compressModel?: string;
-    daemonMode: boolean;
-}
+      for (const line of lines) {
+        this.handleLine(line);
+      }
+    });
 
-export class MatrixCodeClient implements vscode.Disposable {
-    private process: ChildProcess | null = null;
-    private config: Config;
-    private onEventEmitter = new vscode.EventEmitter<StreamEvent>();
-    private onErrorEmitter = new vscode.EventEmitter<Error>();
-    private buffer: string = '';
-    private isStarting: boolean = false;
-    
-    public readonly onEvent = this.onEventEmitter.event;
-    public readonly onError = this.onErrorEmitter.event;
-    
-    constructor(config: Config) {
-        this.config = config;
+    // Handle stderr - debug logs
+    this.process.stderr?.on('data', (data: Buffer) => {
+      console.debug('[MatrixCode Daemon]', data.toString());
+    });
+
+    // Handle process exit
+    this.process.on('exit', (code) => {
+      console.debug(`[MatrixCode Daemon] exited with code ${code}`);
+      this.process = null;
+    });
+
+    // Handle errors
+    this.process.on('error', (err) => {
+      console.error('[MatrixCode Daemon] error:', err);
+      this.emit('error', { event_type: 'error', timestamp: Date.now(), data: { error: { message: err.message } } });
+    });
+  }
+
+  /**
+   * Handle a line from daemon output
+   */
+  private handleLine(line: string): void {
+    if (line.trim() === '---END---') {
+      // Request completed
+      this.isProcessingRequest = false;
+      const events = [...this.eventBuffer];
+      this.eventBuffer = [];
+      
+      // Emit completion event
+      this.emit('requestComplete', events);
+      return;
     }
-    
-    updateConfig(config: Config): void {
-        const wasRunning = this.process !== null;
-        if (wasRunning) {
-            this.dispose();
-        }
-        this.config = config;
-        if (wasRunning && config.daemonMode) {
-            this.startDaemon();
-        }
+
+    if (!line.trim()) {
+      return;
     }
-    
-    async checkAvailability(): Promise<boolean> {
-        try {
-            // Use --help instead of --version (CLI doesn't have --version)
-            const result = execSync(`"${this.config.cliPath}" --help`, {
-                encoding: 'utf-8',
-                timeout: 5000
-            });
-            return result.includes('matrixcode') || result.includes('code agent');
-        } catch {
-            // Try with 'matrixcode' directly if the path doesn't work
-            try {
-                const result = execSync('matrixcode --help', {
-                    encoding: 'utf-8',
-                    timeout: 5000
-                });
-                return result.includes('matrixcode') || result.includes('code agent');
-            } catch {
-                return false;
-            }
-        }
+
+    try {
+      const event: AgentEvent = JSON.parse(line);
+      this.handleEvent(event);
+      this.eventBuffer.push(event);
+    } catch (e) {
+      console.warn('[MatrixCode Daemon] Failed to parse:', line);
     }
-    
-    async startDaemon(): Promise<void> {
-        if (this.process || this.isStarting) {
-            return;
-        }
-        
-        this.isStarting = true;
-        
-        return new Promise((resolve, reject) => {
-            const args = this.buildDaemonArgs();
-            
-            console.log(`Starting MatrixCode daemon: ${this.config.cliPath} ${args.join(' ')}`);
-            
-            try {
-                this.process = spawn(this.config.cliPath, args, {
-                    stdio: ['pipe', 'pipe', 'pipe'],
-                    env: { ...process.env }
-                });
-                
-                // Keep stdin open
-                if (this.process.stdin) {
-                    this.process.stdin.on('error', (err) => {
-                        console.error('[MatrixCode] stdin error:', err);
-                    });
-                }
-            } catch (err) {
-                this.isStarting = false;
-                reject(err);
-                return;
-            }
-            
-            this.process.on('error', (err) => {
-                console.error('MatrixCode process error:', err);
-                this.isStarting = false;
-                this.onErrorEmitter.fire(err);
-                reject(err);
-            });
-            
-            this.process.stdout?.on('data', (data) => {
-                this.handleStdout(data);
-            });
-            
-            this.process.stderr?.on('data', (data) => {
-                const msg = data.toString();
-                // Log to console for debugging
-                console.log('[MatrixCode stderr]', msg.trim());
-                
-                // Only emit error event for actual errors/warnings, not info logs
-                // CLI uses stderr for info messages like [loaded project overview]
-                // Only show messages that start with [error] or [warn]
-                const trimmed = msg.trim();
-                if (trimmed.startsWith('[error]') || trimmed.startsWith('[warn]')) {
-                    this.onEventEmitter.fire({
-                        type: 'error',
-                        content: trimmed
-                    });
-                }
-            });
-            
-            this.process.on('exit', (code, signal) => {
-                console.log(`MatrixCode process exited: code=${code}, signal=${signal}`);
-                this.process = null;
-                this.isStarting = false;
-            });
-            
-            // Wait for daemon to start with timeout
-            // The daemon sends a session_started event when ready
-            const startupTimeout = setTimeout(() => {
-                // Fallback: if no event received, still resolve after timeout
-                this.isStarting = false;
-                resolve();
-            }, 2000);
-            
-            // Listen for the first event to confirm daemon is ready
-            const disposable = this.onEventEmitter.event((event) => {
-                if (event.type === 'session_started') {
-                    clearTimeout(startupTimeout);
-                    this.isStarting = false;
-                    resolve();
-                }
-            });
-            
-            // Clean up listener after timeout
-            setTimeout(() => {
-                disposable.dispose();
-            }, 3000);
-        });
+  }
+
+  /**
+   * Handle an AgentEvent
+   */
+  private handleEvent(event: AgentEvent): void {
+    // Emit to specific handler
+    const handler = this.eventHandlers.get(event.event_type);
+    if (handler) {
+      handler(event);
     }
-    
-    private buildDaemonArgs(): string[] {
-        const args: string[] = ['--daemon', '--json'];
-        
-        args.push('--provider', this.config.provider);
-        if (this.config.model) {
-            args.push('--model', this.config.model);
-        }
-        args.push('--max-tokens', String(this.config.maxTokens));
-        
-        if (this.config.think) {
-            args.push('--think', 'true');
-        } else {
-            args.push('--think', 'false');
-        }
-        
-        if (this.config.markdown) {
-            args.push('--markdown', 'true');
-        } else {
-            args.push('--markdown', 'false');
-        }
-        
-        if (this.config.compressModel) {
-            args.push('--compress-model', this.config.compressModel);
-        }
-        
-        return args;
+
+    // Emit to general handler
+    this.emit('event', event);
+  }
+
+  /**
+   * Send a request to the daemon
+   */
+  async sendRequest(request: DaemonRequest): Promise<AgentEvent[]> {
+    if (!this.process?.stdin) {
+      await this.start();
     }
-    
-    private handleStdout(data: Buffer): void {
-        const str = data.toString();
-        console.log('[MatrixClient] stdout raw:', str.substring(0, 200));
-        this.buffer += str;
-        
-        // Process complete JSON lines
-        const lines = this.buffer.split('\n');
-        this.buffer = lines.pop() || ''; // Keep incomplete line in buffer
-        
-        for (const line of lines) {
-            if (line.trim()) {
-                try {
-                    const event: StreamEvent = JSON.parse(line);
-                    console.log('[MatrixClient]Parsed event:', event.type);
-                    this.onEventEmitter.fire(event);
-                } catch (e) {
-                    // Not a JSON line, could be a log message
-                    console.log('[MatrixClient stdout non-JSON]:', line.substring(0, 100));
-                }
-            }
-        }
+
+    if (!this.process?.stdin) {
+      throw new Error('Daemon process not running');
     }
-    
-    async sendRequest(request: ClientRequest): Promise<void> {
-        if (!this.process?.stdin) {
-            console.error('MatrixCode daemon is not running');
-            throw new Error('MatrixCode daemon is not running');
-        }
-        
-        const json = JSON.stringify(request) + '\n';
-        console.log('[MatrixCode] Sending request:', json.trim());
-        
-        try {
-            const written = this.process.stdin.write(json);
-            console.log('[MatrixCode] Write result:', written);
-        } catch (err) {
-            console.error('[MatrixCode] Write error:', err);
-            throw err;
-        }
+
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      
+      // Store resolver
+      const eventBuffer: AgentEvent[] = [];
+      const handler = (events: AgentEvent[]) => {
+        resolve(events);
+      };
+
+      this.once('requestComplete', handler);
+
+      // Send request
+      const json = JSON.stringify(request);
+      this.process!.stdin!.write(json + '\n');
+      this.isProcessingRequest = true;
+    });
+  }
+
+  /**
+   * Send a chat message
+   */
+  async chat(content: string, context?: RequestContext): Promise<AgentEvent[]> {
+    return this.sendRequest({
+      type: 'chat',
+      content,
+      context,
+    });
+  }
+
+  /**
+   * Send a quick action
+   */
+  async quickAction(action: string, code: string, context?: RequestContext): Promise<AgentEvent[]> {
+    return this.sendRequest({
+      type: 'quick_action',
+      action,
+      content: code,
+      context,
+    });
+  }
+
+  /**
+   * Get daemon status
+   */
+  async status(): Promise<AgentEvent[]> {
+    return this.sendRequest({ type: 'status' });
+  }
+
+  /**
+   * Create new session
+   */
+  async newSession(): Promise<void> {
+    await this.sendRequest({ type: 'new_session' });
+  }
+
+  /**
+   * Check if CLI is available
+   */
+  async checkAvailability(): Promise<boolean> {
+    try {
+      const result = await this.status();
+      return result.some(e => e.event_type === 'session_started');
+    } catch {
+      return false;
     }
-    
-    async chat(message: string, context?: RequestContext): Promise<void> {
-        await this.sendRequest({
-            type: 'chat',
-            content: message,
-            context
-        });
+  }
+
+  /**
+   * Register event handler
+   */
+  on(eventType: string, handler: (event: AgentEvent) => void): void {
+    this.eventHandlers.set(eventType, handler);
+  }
+
+  /**
+   * Register one-time event handler
+   */
+  once(eventType: string, handler: (data: any) => void): void {
+    const wrappedHandler = (data: any) => {
+      this.eventHandlers.delete(eventType + '_once');
+      handler(data);
+    };
+    this.eventHandlers.set(eventType + '_once', wrappedHandler as any);
+  }
+
+  /**
+   * Emit event to handlers
+   */
+  private emit(eventType: string, data: any): void {
+    const handler = this.eventHandlers.get(eventType);
+    if (handler) {
+      handler(data as AgentEvent);
     }
-    
-    async quickAction(
-        action: string, 
-        code: string, 
-        context?: RequestContext, 
-        instructions?: string
-    ): Promise<void> {
-        await this.sendRequest({
-            type: 'quick_action',
-            action,
-            content: code,
-            context,
-            instructions
-        });
+  }
+
+  /**
+   * Stop the daemon
+   */
+  stop(): void {
+    if (this.process) {
+      this.process.kill();
+      this.process = null;
     }
-    
-    async newSession(): Promise<void> {
-        await this.sendRequest({ type: 'new_session' });
-    }
-    
-    async getStatus(): Promise<void> {
-        await this.sendRequest({ type: 'status' });
-    }
-    
-    isRunning(): boolean {
-        return this.process !== null && !this.isStarting;
-    }
-    
-    dispose(): void {
-        if (this.process) {
-            this.process.kill();
-            this.process = null;
-        }
-        this.buffer = '';
-        this.onEventEmitter.dispose();
-        this.onErrorEmitter.dispose();
-    }
+  }
+
+  /**
+   * Cleanup
+   */
+  dispose(): void {
+    this.stop();
+    this.eventHandlers.clear();
+  }
 }

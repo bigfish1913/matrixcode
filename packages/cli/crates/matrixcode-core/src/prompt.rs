@@ -381,3 +381,37 @@ impl SystemPromptBuilder {
         parts.join("\n\n")
     }
 }
+
+/// Convenience function to build full system prompt
+pub fn build_system_prompt(
+    profile: &PromptProfile,
+    skills: &[crate::skills::Skill],
+    project_overview: Option<&str>,
+    memory_summary: Option<&str>,
+) -> String {
+    let builder = SystemPromptBuilder::new(profile.clone());
+    
+    let mut result = builder.build();
+    
+    // Add project overview if provided
+    if let Some(overview) = project_overview {
+        result.push_str("\n\n[PROJECT CONTEXT]\n");
+        result.push_str(overview);
+    }
+    
+    // Add memory summary if provided
+    if let Some(memory) = memory_summary {
+        result.push_str("\n\n[ACCUMULATED MEMORY]\n");
+        result.push_str(memory);
+    }
+    
+    // Add available skills
+    if !skills.is_empty() {
+        result.push_str("\n\n[AVAILABLE SKILLS]\n");
+        for skill in skills {
+            result.push_str(&format!("- {}: {}\n", skill.name, skill.description));
+        }
+    }
+    
+    result
+}

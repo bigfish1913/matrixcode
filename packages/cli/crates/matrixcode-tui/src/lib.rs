@@ -1,51 +1,47 @@
 //! MatrixCode Terminal UI - Rendering and Animation
 //!
-//! 这个 crate 处理所有终端渲染：
-//! - Spinner/进度指示
-//! - Markdown 渲染
-//! - Tool Use 可视化
-//! - 颜色/样式
+//! This crate handles all terminal rendering:
+//! - Spinner/progress indicators
+//! - Markdown rendering
+//! - Tool Use visualization
+//! - Colors/styles
 //!
-//! 它接收 Core 的 AgentEvent，负责渲染到终端。
+//! It receives AgentEvent from Core and renders to terminal.
+
+pub mod ui;
+pub mod markdown;
 
 use matrixcode_core::{AgentEvent, EventData, EventType};
 
-/// TUI 版本信息
+/// TUI version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Terminal UI 处理器
-///
-/// 接收 AgentEvent 并渲染到终端
+/// Terminal UI handler
 pub struct TerminalUI {
-    // TODO: 迁移后添加字段
-    // spinner: Spinner,
-    // markdown_renderer: MarkdownRenderer,
+    // Will add spinner and markdown renderer after migration
 }
 
 impl TerminalUI {
-    /// 创建新的 Terminal UI
+    /// Create new Terminal UI
     pub fn new() -> Self {
         Self {}
     }
 
-    /// 处理事件并渲染
+    /// Handle event and render
     pub fn handle_event(&mut self, event: &AgentEvent) {
         match event.event_type {
             EventType::TextStart => {
-                // 停止 spinner，准备显示文本
+                // Stop spinner, prepare for text
             }
             EventType::TextDelta => {
                 if let Some(EventData::Text { delta }) = &event.data {
-                    // 直接打印文本
                     print!("{}", delta);
                 }
             }
             EventType::TextEnd => {
-                // 文本结束，可以换行
                 println!();
             }
             EventType::ThinkingStart => {
-                // 显示 thinking 开始
                 eprintln!("[Thinking...]");
             }
             EventType::ThinkingDelta => {
@@ -64,9 +60,9 @@ impl TerminalUI {
             EventType::ToolResult => {
                 if let Some(EventData::ToolResult { content, is_error, .. }) = &event.data {
                     if *is_error {
-                        eprintln!("[Error: {}]", content);
+                        eprintln!("[Error: {}]", truncate(content, 100));
                     } else {
-                        eprintln!("[Result: {}]", truncate(&content, 100));
+                        eprintln!("[Result: {}]", truncate(content, 100));
                     }
                 }
             }
@@ -95,20 +91,18 @@ impl TerminalUI {
                     }
                 }
             }
-            _ => {
-                // 其他事件类型
-            }
+            _ => {}
         }
     }
 
-    /// 处理 JSON 字符串（从 Core 输出）
+    /// Handle JSON string (from Core output)
     pub fn handle_json(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let event = AgentEvent::from_json(json)?;
         self.handle_event(&event);
         Ok(())
     }
 
-    /// 处理事件列表
+    /// Handle event list
     pub fn handle_events(&mut self, events: &[AgentEvent]) {
         for event in events {
             self.handle_event(event);
@@ -122,10 +116,10 @@ impl Default for TerminalUI {
     }
 }
 
-/// 截断字符串
+/// Truncate string
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() > max_len {
-        format!("{}...", &s[..max_len])
+        format!("{}...", &s[..max_len.saturating_sub(3)])
     } else {
         s.to_string()
     }
@@ -138,7 +132,7 @@ mod tests {
     #[test]
     fn test_handle_text_event() {
         let mut ui = TerminalUI::new();
-        let event = AgentEvent::text_delta("Hello".to_string());
+        let event = AgentEvent::text_delta("Hello");
         ui.handle_event(&event);
     }
 

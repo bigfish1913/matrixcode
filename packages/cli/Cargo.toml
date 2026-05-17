@@ -29,8 +29,30 @@ log = "0.4"
 env_logger = "0.11"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+tempfile = "3"
+mockito = "1"
+tokio-test = "0.4"
+base64 = "0.22"
+sha2 = "0.10"
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
+hyper = "1"
+hyper-util = "0.1"
+http-body-util = "0.1"
+tower = "0.5"
+tower-http = "0.6"
+pin-project-lite = "0.2"
 crossterm = "0.28"
+bytes = "1"
+mime = "0.3"
+mime_guess = "2"
+percent-encoding = "2"
+url = "2"
+once_cell = "1"
+parking_lot = "0.12"
 
-# Workspace 内部依赖
+# Workspace crates
 matrixcode-core = { path = "crates/matrixcode-core" }
 matrixcode-tui = { path = "crates/matrixcode-tui" }
+matrixcode-cli = { path = "crates/matrixcode-cli" }
