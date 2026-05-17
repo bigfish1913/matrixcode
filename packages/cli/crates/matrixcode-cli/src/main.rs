@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use matrixcode_core::{AgentEvent, Config};
-use matrixcode_tui::TerminalUI;
+use matrixcode_core::{AgentEvent, Config, cancel::CancellationToken};
+use matrixcode_tui::{TerminalUI, App, SessionStore};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -109,34 +109,75 @@ fn list_sessions() {
     println!("Sessions: (not implemented)");
 }
 
-/// Terminal mode with REPL
+/// Terminal mode with TUI
 fn run_terminal_mode(cli: Cli) -> Result<()> {
-    let mut ui = TerminalUI::new();
-    
     // Load config
     let _config = Config::load();
-    
+
     // Load skills (simplified)
     let _skills_count = load_skills(&Vec::new());
-    
-    println!("MatrixCode {}", env!("CARGO_PKG_VERSION"));
-    println!("Mode: terminal");
-    println!("Type '/help' for commands, '/exit' to quit.\n");
-    
-    // Session manager (simplified)
-    let _project_root = std::env::current_dir().ok();
-    
-    // Handle single command
+
+    // Handle single command without TUI
     if let Some(cmd) = cli.command {
+        let mut ui = TerminalUI::new();
         handle_command(cmd, &mut ui);
         return Ok(());
     }
-    
-    // REPL loop (simplified - real implementation needs rustyline)
-    println!("REPL not fully implemented. Use daemon mode for now.");
-    println!("Example: matrixcode --mode daemon");
-    
-    Ok(())
+
+    // Setup tokio runtime
+    let rt = tokio::runtime::Runtime::new()?;
+
+    // Create channels for Agent communication
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
+    let (task_tx, mut task_rx) = tokio::sync::mpsc::channel(10);
+
+    // Create cancellation token
+    let cancel_token = CancellationToken::new();
+
+    // Session store
+    let session_store = SessionStore::new();
+
+    // Load session if --continue or --resume
+    if cli.continue_session || cli.resume.is_some() {
+        let session = if let Some(id) = &cli.resume {
+            session_store.load(id)?
+        } else {
+            session_store.load_latest()?
+        };
+        // Session loading will be handled by AppState in future
+        if session.is_none() && cli.continue_session {
+            println!("No previous session found. Starting new session.");
+        }
+    }
+
+    // Spawn Agent task (simplified - without full Agent for now)
+    let agent_cancel = cancel_token.clone();
+    rt.spawn(async move {
+        while let Some(msg) = task_rx.recv().await {
+            if agent_cancel.is_cancelled() {
+                break;
+            }
+            // Simplified Agent simulation - send mock events
+            event_tx.send(AgentEvent::session_started()).await.ok();
+            event_tx.send(AgentEvent::text_delta(format!("Processing: {}", msg))).await.ok();
+            event_tx.send(AgentEvent::text_end()).await.ok();
+            event_tx.send(AgentEvent::session_ended()).await.ok();
+        }
+    });
+
+    // Setup terminal for TUI
+    let mut terminal = matrixcode_tui::app::setup_terminal()?;
+
+    // Create and run App
+    let mut app = App::new(task_tx, event_rx, cancel_token);
+
+    // Run the TUI
+    let result = app.run(&mut terminal);
+
+    // Restore terminal
+    matrixcode_tui::app::restore_terminal()?;
+
+    result
 }
 
 /// Handle single command

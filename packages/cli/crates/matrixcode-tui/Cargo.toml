@@ -21,3 +21,7 @@ termimad = { workspace = true }
 is-terminal = { workspace = true }
 crossterm = { workspace = true }
 log = { workspace = true }
+ratatui = "0.28"
+chrono = { workspace = true }
+dirs = { workspace = true }
+uuid = { workspace = true }

@@ -1,22 +1,34 @@
-//! MatrixCode Terminal UI - Rendering and Animation
+//! MatrixCode Terminal UI - Full TUI Implementation
 //!
 //! This crate handles all terminal rendering:
-//! - Spinner/progress indicators
-//! - Markdown rendering
-//! - Tool Use visualization
-//! - Colors/styles
+//! - TUI application with ratatui
+//! - Components (StatusBar, OutputArea, InputBox)
+//! - Input handling and event bridge
+//! - Session persistence
 //!
 //! It receives AgentEvent from Core and renders to terminal.
 
+pub mod app;
+pub mod components;
+pub mod handler;
+pub mod bridge;
+pub mod session;
 pub mod ui;
 pub mod markdown;
+
+// Re-export main types
+pub use app::{App, AppState, AppMode, OutputMessage, OutputBlock, Role};
+pub use handler::{InputHandler, InputAction, Command, SessionCmd};
+pub use bridge::EventBridge;
+pub use session::{SessionStore, SessionData, SessionMessage};
+pub use components::{StatusBar, OutputArea, InputBox};
 
 use matrixcode_core::{AgentEvent, EventData, EventType};
 
 /// TUI version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Terminal UI handler
+/// Legacy Terminal UI handler (for backward compatibility)
 pub struct TerminalUI {
     // Will add spinner and markdown renderer after migration
 }
@@ -68,7 +80,7 @@ impl TerminalUI {
             }
             EventType::Error => {
                 if let Some(EventData::Error { message, .. }) = &event.data {
-                    eprintln!("\n❌ Error: {}", message);
+                    eprintln!("\nError: {}", message);
                 }
             }
             EventType::SessionStarted => {
@@ -79,7 +91,7 @@ impl TerminalUI {
             }
             EventType::Usage => {
                 if let Some(EventData::Usage { input_tokens, output_tokens, .. }) = &event.data {
-                    eprintln!("\n📊 Tokens: {} in, {} out", input_tokens, output_tokens);
+                    eprintln!("\nTokens: {} in, {} out", input_tokens, output_tokens);
                 }
             }
             EventType::Progress => {
@@ -87,7 +99,7 @@ impl TerminalUI {
                     if let Some(p) = percentage {
                         eprintln!("[{}%] {}", p, message);
                     } else {
-                        eprintln!("⏳ {}", message);
+                        eprintln!("[...] {}", message);
                     }
                 }
             }

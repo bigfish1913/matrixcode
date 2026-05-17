@@ -26,6 +26,7 @@ pub use agent::{Agent, AgentBuilder};
 pub use config::Config;
 pub use session::Session;
 pub use providers::{Provider, Message, ContentBlock, ChatRequest, ChatResponse};
+pub use cancel::CancellationToken;
 
 /// Core version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
