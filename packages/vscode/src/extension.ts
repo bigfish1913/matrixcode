@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import { MatrixCodeClient } from './matrixcodeClient';
 import { ChatPanelProvider } from './chatPanel';
 import { ConfigManager } from './configManager';
+import { SessionManager } from './sessionManager';
 
 let client: MatrixCodeClient;
 let chatPanel: ChatPanelProvider;
@@ -25,6 +26,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         
         // Initialize configuration manager
         configManager = new ConfigManager();
+        const sessionManager = new SessionManager(context);
         outputChannel.appendLine('ConfigManager initialized');
         
         // Initialize CLI client with config object
@@ -42,7 +44,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         outputChannel.appendLine(`Config: cliPath=${configManager.getCliPath()}, provider=${configManager.getProvider()}, model=${configManager.getModel()}`);
         
         // Initialize chat panel provider
-        chatPanel = new ChatPanelProvider(context.extensionUri, client, configManager, outputChannel);
+        chatPanel = new ChatPanelProvider(context.extensionUri, client, configManager, sessionManager, outputChannel);
         outputChannel.appendLine('ChatPanelProvider initialized');
         
         // Register all commands

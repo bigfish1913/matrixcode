@@ -1122,31 +1122,59 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "matrixcode"
-version = "0.2.5"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dotenvy",
+ "env_logger",
+ "is-terminal",
+ "log",
+ "matrixcode-core",
+ "matrixcode-tui",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "matrixcode-core"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
  "clap",
- "crossterm 0.28.1",
  "dotenvy",
- "env_logger",
  "futures-util",
  "glob",
- "indicatif",
- "is-terminal",
  "log",
  "mockito",
  "regex",
  "reqwest",
- "rustyline",
  "serde",
  "serde_json",
  "tempfile",
- "termimad",
  "tokio",
  "tokio-test",
  "uuid",
+]
+
+[[package]]
+name = "matrixcode-tui"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "crossterm 0.28.1",
+ "indicatif",
+ "is-terminal",
+ "log",
+ "matrixcode-core",
+ "rustyline",
+ "serde",
+ "serde_json",
+ "termimad",
+ "tokio",
 ]
 
 [[package]]

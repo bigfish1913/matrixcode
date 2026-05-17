@@ -1,0 +1,32 @@
+[package]
+name = "matrixcode-core"
+version = "0.3.0"
+edition = "2024"
+authors = ["bigfish1913"]
+license = "MIT"
+repository = "https://github.com/bigfish1913/matrixcode"
+description = "MatrixCode Agent Core - Pure logic, no UI"
+publish = true
+
+[lib]
+
+[dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+futures-util = { workspace = true }
+glob = { workspace = true }
+regex = { workspace = true }
+log = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+mockito = "1"
+tempfile = "3"
+tokio-test = "0.4"

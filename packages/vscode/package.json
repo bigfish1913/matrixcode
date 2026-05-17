@@ -197,13 +197,14 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "compile": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
     "compile-dev": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
     "lint": "eslint src --ext ts",
     "convert-icon": "node scripts/convert-icon.js",
     "package": "npm run convert-icon && vsce package",
-    "publish": "vsce publish"
+    "publish": "vsce publish",
+    "debugCompile": "esbuild ./src/extension.ts --bundle --outfile=dist/extension-debug.js --external:vscode --format=cjs --platform=node"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",

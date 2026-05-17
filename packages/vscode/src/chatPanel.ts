@@ -7,6 +7,7 @@
 
 import * as vscode from 'vscode';
 import { MatrixCodeClient, StreamEvent, RequestContext } from './matrixcodeClient';
+import { SessionManager, Session } from './sessionManager';
 import { ConfigManager } from './configManager';
 
 interface ChatMessage {
@@ -53,6 +54,8 @@ export class ChatPanelProvider implements vscode.Disposable {
     private extensionUri: vscode.Uri;
     private disposables: vscode.Disposable[] = [];
     private outputChannel: vscode.OutputChannel;
+    private sessionManager: SessionManager;
+    private currentSession: Session | null = null;
     
     constructor(
         extensionUri: vscode.Uri,
@@ -64,6 +67,8 @@ export class ChatPanelProvider implements vscode.Disposable {
         this.client = client;
         this.configManager = configManager;
         this.outputChannel = outputChannel;
+        this.sessionManager = sessionManager;
+        this.currentSession = sessionManager.createSession();
         
         // Listen to client events
         this.client.onEvent(this.handleStreamEvent.bind(this));
@@ -420,6 +425,60 @@ export class ChatPanelProvider implements vscode.Disposable {
     /**
      * Generate unique ID for messages.
      */
+
+    /**
+     * Save current session.
+     */
+    private async saveCurrentSession(): Promise<void> {
+        if (!this.currentSession) {
+            this.currentSession = this.sessionManager.createSession(this.messages);
+        }
+        this.currentSession.messages = this.messages;
+        this.currentSession.updatedAt = Date.now();
+        const name = await this.sessionManager.promptSessionName(this.currentSession.name);
+        if (name) {
+            this.currentSession.name = name;
+        }
+        await this.sessionManager.saveSession(this.currentSession);
+        vscode.window.showInformationMessage('Session saved: ' + this.currentSession.name);
+    }
+    
+    private async loadSession(): Promise<void> {
+        const session = await this.sessionManager.showSessionPicker();
+        if (session) {
+            this.currentSession = session;
+            this.messages = session.messages;
+            this.postMessage({ type: 'clearMessages' });
+            for (const msg of this.messages) {
+                this.postMessage({ type: 'newMessage', message: msg });
+            }
+            vscode.window.showInformationMessage('Session loaded: ' + session.name);
+        }
+    }
+    
+    private async newSession(): Promise<void> {
+        if (this.messages.length > 0) {
+            const save = await vscode.window.showQuickPick(['Save and start new', 'Discard and start new', 'Cancel'], { placeHolder: 'Current session has messages' });
+            if (save === 'Cancel') return;
+            if (save === 'Save and start new') await this.saveCurrentSession();
+        }
+        this.currentSession = this.sessionManager.createSession();
+        this.messages = [];
+        this.postMessage({ type: 'clearMessages' });
+        vscode.window.showInformationMessage('New session started');
+    }
+    
+    private async deleteSession(): Promise<void> {
+        const session = await this.sessionManager.showSessionPicker();
+        if (session) {
+            const confirm = await vscode.window.showQuickPick(['Delete', 'Cancel'], { placeHolder: 'Delete session?' });
+            if (confirm === 'Delete') {
+                await this.sessionManager.deleteSession(session.id);
+                vscode.window.showInformationMessage('Session deleted');
+            }
+        }
+    }
+    
     private generateId(): string {
         return Math.random().toString(36).substring(2, 9);
     }
@@ -1084,7 +1143,7 @@ export class ChatPanelProvider implements vscode.Disposable {
                 thinkingDiv.className = 'thinking-block';
                 thinkingDiv.id = 'thinking-' + message.id;
                 thinkingDiv.innerHTML = '<div class="thinking-header">💭 Thinking</div>' +
-                    message.thinking.map(t => escapeHtml(t)).join('<br>');
+                    message.thinking.map(t => escapeHtml(t)).join(' ');
                 msgDiv.appendChild(thinkingDiv);
             }
             
@@ -1115,7 +1174,7 @@ export class ChatPanelProvider implements vscode.Disposable {
                 const thinkingDiv = document.getElementById('thinking-' + messageId);
                 if (thinkingDiv && value && value.length > 0) {
                     thinkingDiv.innerHTML = '<div class="thinking-header">💭 Thinking</div>' +
-                        value.map(t => escapeHtml(t)).join('<br>');
+                        value.map(t => escapeHtml(t)).join(' ');
                 } else if (!thinkingDiv && value && value.length > 0) {
                     // Create thinking div
                     const msgDiv = document.getElementById('msg-' + messageId);
@@ -1172,7 +1231,7 @@ export class ChatPanelProvider implements vscode.Disposable {
                 if (inCodeBlock) {
                     codeContent += line + '\\n';
                 } else {
-                    result += escapeHtml(line) + '<br>';
+                    result += processInlineMarkdown(escapeHtml(line)) + '<br>';
                 }
             }
             
