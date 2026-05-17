@@ -78,7 +78,8 @@ async fn skill_tool_loads_body_and_lists_files() {
     assert!(out.contains("Do the thing."));
     assert!(out.contains("SKILL.md"));
     assert!(out.contains("helper.sh"));
-    assert!(out.contains("templates/note.md"));
+    // Accept both Unix and Windows path separators
+    assert!(out.contains("templates/note.md") || out.contains("templates\\note.md"));
 }
 
 #[tokio::test]

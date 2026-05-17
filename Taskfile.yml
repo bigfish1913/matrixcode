@@ -96,6 +96,44 @@ tasks:
     cmds:
       - 'cargo build --release'
 
+  dev:
+    desc: Build CLI debug
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo build'
+
+  run:
+    desc: Run CLI
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo run --release'
+
+  daemon:
+    desc: Test daemon mode
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - cmd: 'echo {"type":"chat","content":"test"} | cargo run --release -- --mode daemon'
+        silent: true
+
+  check:
+    desc: Run clippy and format check
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo clippy --all -- -D warnings'
+      - 'cargo fmt --all -- --check'
+
+  fmt:
+    desc: Format code
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo fmt --all'
+
+  install:
+    desc: Install CLI locally
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo install --path crates/matrixcode-cli'
+
   build-vscode:
     desc: Build VSCode extension
     dir: '{{.VSCODE_DIR}}'
@@ -104,10 +142,22 @@ tasks:
       - 'npm run compile'
 
   test:
-    desc: Run CLI tests
+    desc: Run all CLI tests
     dir: '{{.CLI_DIR}}'
     cmds:
-      - 'cargo test'
+      - 'cargo test --all'
+
+  test-core:
+    desc: Run core module tests
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo test -p matrixcode-core'
+
+  test-tui:
+    desc: Run TUI module tests
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo test -p matrixcode-tui'
 
   test-vscode:
     desc: Run VSCode lint

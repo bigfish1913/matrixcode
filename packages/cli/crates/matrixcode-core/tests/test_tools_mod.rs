@@ -5,7 +5,7 @@ fn test_all_tools_returns_twelve() {
     // `all_tools()` includes the `skill` tool bound to an empty skills
     // catalogue, giving the full set of twelve.
     let all = tools::all_tools();
-    assert_eq!(all.len(), 12);
+    assert_eq!(all.len(), 13);
 }
 
 #[test]
@@ -41,6 +41,7 @@ fn test_all_tools_have_valid_parameters() {
 fn test_expected_tool_names() {
     let all = tools::all_tools();
     let names: Vec<String> = all.iter().map(|t| t.definition().name).collect();
+    assert!(names.contains(&"ask".to_string()));
     assert!(names.contains(&"read".to_string()));
     assert!(names.contains(&"write".to_string()));
     assert!(names.contains(&"edit".to_string()));
