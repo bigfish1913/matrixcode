@@ -532,13 +532,14 @@ impl Agent {
                     if let Some(rx) = &mut self.ask_rx {
                         match rx.recv().await {
                             Some(answer) => {
+                                let answer_lower = answer.trim().to_lowercase();
                                 let approved = matches!(
-                                    answer.trim().to_lowercase().as_str(),
-                                    "y" | "yes" | "ok" | "approve" | ""
+                                    answer_lower.as_str(),
+                                    "y" | "yes" | "ok" | "approve"
                                 );
                                 if !approved {
                                     return Err(anyhow::anyhow!(
-                                        "Tool '{}' rejected by user", name
+                                        "Tool '{}' rejected by user (answer: '{}')", name, answer_lower
                                     ));
                                 }
                             }

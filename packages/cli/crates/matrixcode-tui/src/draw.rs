@@ -51,8 +51,10 @@ impl TuiApp {
 
     fn draw_usage(&self, f: &mut ratatui::Frame, area: Rect) {
         if self.tokens_in == 0 && self.tokens_out == 0 {
-            let hints = " /help │ PgUp/PgDn: scroll │ Home/End: top/bot │ Alt+T: thinking";
-            f.render_widget(Paragraph::new(Line::styled(hints, Style::default().fg(Color::DarkGray))), area);
+            f.render_widget(Paragraph::new(Line::styled(
+                " /help │ PgUp/PgDn: scroll │ Home/End: top/bot │ Use terminal for text selection",
+                Style::default().fg(Color::DarkGray)
+            )), area);
             return;
         }
         
@@ -152,10 +154,14 @@ impl TuiApp {
             let label = msg.role.label();
             let color = msg.role.color();
             
+            // Check if this is an approval request message
+            let is_approval = msg.content.contains("APPROVAL REQUIRED");
+            let header_color = if is_approval { Color::Red } else { color };
+            
             lines.push(Line::from(vec![
-                Span::styled(icon, Style::default().fg(color)),
+                Span::styled(icon, Style::default().fg(header_color)),
                 Span::raw(" "),
-                Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                Span::styled(label, Style::default().fg(header_color).add_modifier(Modifier::BOLD)),
             ]));
             
             if matches!(msg.role, Role::Thinking) {
@@ -182,10 +188,12 @@ impl TuiApp {
                     let md_lines = render_markdown(&msg.content, max_w);
                     lines.extend(md_lines);
                 } else {
+                    // Use different style for approval messages
+                    let content_color = if is_approval { Color::Yellow } else { Color::White };
                     for line in msg.content.lines() {
                         lines.push(Line::styled(
                             format!("  {}", truncate(line, max_w)),
-                            Style::default().fg(Color::White)
+                            Style::default().fg(content_color)
                         ));
                     }
                 }
@@ -264,6 +272,9 @@ impl TuiApp {
             0
         };
         
+        // Store max_scroll for scroll detection in on_mouse
+        self.max_scroll.set(max_scroll);
+        
         let scroll_offset = if self.auto_scroll {
             max_scroll
         } else {
@@ -278,23 +289,45 @@ impl TuiApp {
     }
 
     fn draw_input(&self, f: &mut ratatui::Frame, area: Rect) {
+        let mut spans: Vec<Span> = vec![];
+        
+        // Always show input area
         if self.activity == Activity::Idle {
-            let mut spans: Vec<Span> = vec![];
             spans.push(Span::styled("❯ ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
-            
-            if self.input.is_empty() {
-                spans.push(Span::styled("_", Style::default().fg(Color::Cyan)));
-            } else {
-                spans.push(Span::styled(&self.input, Style::default().fg(Color::White)));
-            }
-            
-            if !self.auto_scroll {
-                spans.push(Span::styled(" [viewing history]", Style::default().fg(Color::DarkGray)));
-            }
-            
-            f.render_widget(Paragraph::new(Line::from(spans)), area);
+        } else if self.activity == Activity::Asking {
+            spans.push(Span::styled("❯ ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled("[waiting] ", Style::default().fg(Color::Yellow)));
         } else {
-            f.render_widget(Paragraph::new(Line::raw("")), area);
+            // AI is processing - show input with queue indicator
+            spans.push(Span::styled("❯ ", Style::default().fg(Color::Gray)));
+            if self.pending_messages.is_empty() {
+                spans.push(Span::styled("[AI busy, queue available] ", Style::default().fg(Color::DarkGray)));
+            } else {
+                spans.push(Span::styled(format!("[{} queued] ", self.pending_messages.len()), Style::default().fg(Color::Magenta)));
+            }
         }
+        
+        // Handle multi-line input display
+        if self.input.is_empty() {
+            spans.push(Span::styled("_", Style::default().fg(Color::Cyan)));
+        } else {
+            let display_input = if self.input.contains('\n') {
+                let lines = self.input.lines().count();
+                let last_line = self.input.lines().last().unwrap_or("");
+                if last_line.is_empty() {
+                    format!("{} lines ▌", lines)
+                } else {
+                    format!("{} lines ▌ {}", lines, last_line)
+                }
+            } else {
+                self.input.clone()
+            };
+            spans.push(Span::styled(truncate(&display_input, area.width as usize - 20), Style::default().fg(Color::White)));
+        }
+        
+        // Show hints
+        spans.push(Span::styled(" Shift+Enter↵", Style::default().fg(Color::DarkGray)));
+        
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 }

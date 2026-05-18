@@ -32,6 +32,7 @@ pub enum EventType {
     CompressionTriggered,
     CompressionCompleted,
     MemoryLoaded,
+    MemoryDetected,  // Memory extracted from conversation
     Error,
     Usage,
     Progress,

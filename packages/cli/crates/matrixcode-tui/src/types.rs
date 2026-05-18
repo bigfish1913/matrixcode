@@ -14,6 +14,7 @@ pub enum Activity {
     WebSearch,
     WebFetch,
     Tool(String),
+    Asking,  // Waiting for approval/ask response
 }
 
 impl Activity {
@@ -29,6 +30,7 @@ impl Activity {
             Activity::WebSearch => "🌐 WebSearch".into(),
             Activity::WebFetch => "🔗 Fetching".into(),
             Activity::Tool(name) => format!("🔧 {}", name),
+            Activity::Asking => "❓ Waiting input".into(),
         }
     }
 
@@ -41,6 +43,7 @@ impl Activity {
             Activity::Running => Color::Red,
             Activity::WebSearch | Activity::WebFetch => Color::Blue,
             Activity::Tool(_) => Color::Cyan,
+            Activity::Asking => Color::Yellow,
         }
     }
 

@@ -309,6 +309,15 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                     
                                     // Debug log: memory save
                                     matrixcode_core::debug_memory!(detected_count, text.len());
+                                    
+                                    // Send event to TUI
+                                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                                        matrixcode_core::EventType::MemoryDetected,
+                                        matrixcode_core::EventData::Memory {
+                                            summary: format!("Detected {} memory entries", detected_count),
+                                            entries_count: detected_count,
+                                        },
+                                    )).await;
                                 }
                             }
                         }

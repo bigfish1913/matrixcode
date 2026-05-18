@@ -204,15 +204,16 @@ fn render_table(rows: &[Vec<String>], max_w: usize) -> Vec<Line<'static>> {
         }
     }
     
-    // Render top border
-    let mut top = String::from("┌");
+    // Use simple ASCII borders for better compatibility
+    // Render top border: +---+---+
+    let mut top = String::from("+");
     for (i, w) in col_widths.iter().enumerate() {
-        top.push_str(&"─".repeat(*w));
+        top.push_str(&"-".repeat(*w + 2)); // +2 for padding
         if i < num_cols - 1 {
-            top.push('┬');
+            top.push('+');
         }
     }
-    top.push('┐');
+    top.push('+');
     lines.push(Line::styled(top, Style::default().fg(Color::DarkGray)));
     
     // Render rows
@@ -224,14 +225,15 @@ fn render_table(rows: &[Vec<String>], max_w: usize) -> Vec<Line<'static>> {
             Style::default().fg(Color::White)
         };
         
-        let mut spans: Vec<Span<'static>> = vec![Span::styled("│", Style::default().fg(Color::DarkGray))];
+        // Row: | cell | cell |
+        let mut spans: Vec<Span<'static>> = vec![Span::styled("| ", Style::default().fg(Color::DarkGray))];
         
         for (i, cell) in row.iter().enumerate() {
             let w = col_widths.get(i).copied().unwrap_or(3);
             let padded = pad_cell(cell, w);
             spans.push(Span::styled(padded, style));
             if i < num_cols - 1 {
-                spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
             }
         }
         
@@ -240,36 +242,36 @@ fn render_table(rows: &[Vec<String>], max_w: usize) -> Vec<Line<'static>> {
             let w = col_widths.get(i).copied().unwrap_or(3);
             spans.push(Span::styled(" ".repeat(w), Style::default()));
             if i < num_cols - 1 {
-                spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
             }
         }
         
-        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(" |", Style::default().fg(Color::DarkGray)));
         lines.push(Line::from(spans));
         
         // Add separator after header
         if is_header {
-            let mut sep = String::from("├");
+            let mut sep = String::from("+");
             for (i, w) in col_widths.iter().enumerate() {
-                sep.push_str(&"─".repeat(*w));
+                sep.push_str(&"-".repeat(*w + 2));
                 if i < num_cols - 1 {
-                    sep.push('┼');
+                    sep.push('+');
                 }
             }
-            sep.push('┤');
+            sep.push('+');
             lines.push(Line::styled(sep, Style::default().fg(Color::DarkGray)));
         }
     }
     
     // Render bottom border
-    let mut bottom = String::from("└");
+    let mut bottom = String::from("+");
     for (i, w) in col_widths.iter().enumerate() {
-        bottom.push_str(&"─".repeat(*w));
+        bottom.push_str(&"-".repeat(*w + 2));
         if i < num_cols - 1 {
-            bottom.push('┴');
+            bottom.push('+');
         }
     }
-    bottom.push('┘');
+    bottom.push('+');
     lines.push(Line::styled(bottom, Style::default().fg(Color::DarkGray)));
     
     lines.push(Line::raw(""));
@@ -296,9 +298,9 @@ mod tests {
     fn test_table() {
         let md = "| Name | Value |\n|------|-------|\n| A | 1 |\n| B | 2 |";
         let lines = render_markdown(md, 80);
-        // Should have table borders
+        // Should have borders (ASCII |)
         let has_border = lines.iter().any(|l| {
-            l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains('│')
+            l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains('|')
         });
         assert!(has_border, "Should render table borders");
         // Should have header styled differently
@@ -339,7 +341,7 @@ mod tests {
             l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains("Title")
         });
         let has_table = lines.iter().any(|l| {
-            l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains('│')
+            l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains('|')
         });
         let has_text = lines.iter().any(|l| {
             l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains("Text")

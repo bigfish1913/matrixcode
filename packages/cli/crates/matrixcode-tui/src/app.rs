@@ -42,6 +42,7 @@ pub struct TuiApp {
     // Scroll state
     pub(crate) scroll_offset: u16,
     pub(crate) auto_scroll: bool,
+    pub(crate) max_scroll: std::cell::Cell<u16>,  // Interior mutability for draw to update
     // Thinking display state
     pub(crate) thinking_collapsed: bool,
     // Approval mode
@@ -53,6 +54,8 @@ pub struct TuiApp {
     pub(crate) tx: tokio::sync::mpsc::Sender<String>,
     pub(crate) rx: tokio::sync::mpsc::Receiver<AgentEvent>,
     pub(crate) cancel: CancellationToken,
+    // Message queue for pending inputs while AI is processing
+    pub(crate) pending_messages: Vec<String>,
 }
 
 impl TuiApp {
@@ -85,11 +88,13 @@ impl TuiApp {
             exit: false,
             scroll_offset: 0,
             auto_scroll: true,
+            max_scroll: std::cell::Cell::new(0),
             thinking_collapsed: true,
             approve_mode: ApproveMode::Ask,
             ask_tx: None,
             waiting_for_ask: false,
             tx, rx, cancel,
+            pending_messages: Vec::new(),
         }
     }
 
@@ -209,31 +214,51 @@ impl TuiApp {
     fn on_key(&mut self, k: KeyEvent) {
         if k.kind != KeyEventKind::Press { return; }
         match k.code {
-            KeyCode::Enter if !self.input.trim().is_empty() && self.activity == Activity::Idle => {
-                self.show_welcome = false;
-                let input = self.input.trim().to_string();
-                self.input.clear();
-                
-                // Check if waiting for ask tool response
-                if self.waiting_for_ask {
-                    self.waiting_for_ask = false;
-                    self.messages.push(Message { role: Role::User, content: input.clone() });
-                    // Send answer through ask channel
-                    if let Some(ask_tx) = &self.ask_tx {
-                        ask_tx.try_send(input).ok();
+            KeyCode::Enter => {
+                // Shift+Enter: add newline instead of sending
+                if k.modifiers.contains(KeyModifiers::SHIFT) {
+                    self.input.push('\n');
+                } else if !self.input.trim().is_empty() {
+                    self.show_welcome = false;
+                    let input = self.input.trim().to_string();
+                    self.input.clear();
+                    
+                    if self.activity == Activity::Idle {
+                        // Can send immediately
+                        if self.waiting_for_ask {
+                            self.waiting_for_ask = false;
+                            self.messages.push(Message { role: Role::User, content: input.clone() });
+                            if let Some(ask_tx) = &self.ask_tx {
+                                ask_tx.try_send(input).ok();
+                            }
+                            self.activity = Activity::Thinking;
+                            self.auto_scroll = true;
+                        } else if input.starts_with('/') {
+                            self.handle_command(&input);
+                        } else {
+                            self.auto_scroll = true;
+                            self.scroll_offset = 0;
+                            self.messages.push(Message { role: Role::User, content: input.clone() });
+                            self.tx.try_send(input).ok();
+                            self.activity = Activity::Thinking;
+                        }
+                    } else if self.activity == Activity::Asking {
+                        // Respond to approval question
+                        self.waiting_for_ask = false;
+                        self.messages.push(Message { role: Role::User, content: input.clone() });
+                        if let Some(ask_tx) = &self.ask_tx {
+                            ask_tx.try_send(input).ok();
+                        }
+                        self.activity = Activity::Thinking;
+                        self.auto_scroll = true;
+                    } else {
+                        // AI is processing - queue the message
+                        self.pending_messages.push(input);
+                        self.messages.push(Message { 
+                            role: Role::System, 
+                            content: format!("⏳ Queued ({} pending)", self.pending_messages.len())
+                        });
                     }
-                    self.activity = Activity::Thinking;
-                    self.auto_scroll = true;
-                } else if input.starts_with('/') {
-                    // Command
-                    self.handle_command(&input);
-                } else {
-                    // Normal message
-                    self.auto_scroll = true;
-                    self.scroll_offset = 0;
-                    self.messages.push(Message { role: Role::User, content: input.clone() });
-                    self.tx.try_send(input).ok();
-                    self.activity = Activity::Thinking;
                 }
             }
             KeyCode::Esc => {
@@ -254,28 +279,50 @@ impl TuiApp {
             }
             KeyCode::Char('d') if k.modifiers.contains(KeyModifiers::CONTROL) => self.exit = true,
             KeyCode::Backspace => { self.input.pop(); }
-            KeyCode::Char(c) if self.activity == Activity::Idle => self.input.push(c),
+            KeyCode::Char(c) => self.input.push(c),  // Always allow input
             // Scroll controls (任何时候都可用)
             KeyCode::PageUp => {
-                // 向上滚动（查看历史）- 减小 offset（跳过更少行）
-                self.auto_scroll = false;
+                // PageUp = 查看更早的内容
+                if self.auto_scroll {
+                    self.scroll_offset = self.max_scroll.get();
+                    self.auto_scroll = false;
+                }
                 self.scroll_offset = self.scroll_offset.saturating_sub(10);
             }
             KeyCode::PageDown => {
-                // 向下滚动（查看新消息）- 增加 offset（跳过更多行）
+                // PageDown = 查看更新的内容
+                if self.auto_scroll {
+                    return; // 已经在底部
+                }
                 self.scroll_offset = self.scroll_offset.saturating_add(10);
+                let max = self.max_scroll.get();
+                if self.scroll_offset >= max {
+                    self.scroll_offset = 0;
+                    self.auto_scroll = true;
+                }
             }
             KeyCode::Up if k.modifiers.contains(KeyModifiers::ALT) || self.activity != Activity::Idle => {
-                // Alt+Up: 向上滚动一行
-                self.auto_scroll = false;
+                // Alt+Up: 查看更早的内容
+                if self.auto_scroll {
+                    self.scroll_offset = self.max_scroll.get();
+                    self.auto_scroll = false;
+                }
                 self.scroll_offset = self.scroll_offset.saturating_sub(1);
             }
             KeyCode::Down if k.modifiers.contains(KeyModifiers::ALT) || self.activity != Activity::Idle => {
-                // Alt+Down: 向下滚动一行
+                // Alt+Down: 查看更新的内容
+                if self.auto_scroll {
+                    return; // 已经在底部
+                }
                 self.scroll_offset = self.scroll_offset.saturating_add(1);
+                let max = self.max_scroll.get();
+                if self.scroll_offset >= max {
+                    self.scroll_offset = 0;
+                    self.auto_scroll = true;
+                }
             }
             KeyCode::Home => {
-                // 滚动到顶部（查看最早的历史）
+                // 滚动到顶部
                 self.auto_scroll = false;
                 self.scroll_offset = 0;
             }
@@ -309,13 +356,29 @@ impl TuiApp {
     fn on_mouse(&mut self, m: MouseEvent) {
         match m.kind {
             MouseEventKind::ScrollUp => {
-                // 向上滚动（查看更早的内容）- 减少 offset
-                self.auto_scroll = false;
+                // 向上滚动 = 查看更早的历史
+                // 先同步 offset 到当前位置（如果之前是 auto_scroll）
+                if self.auto_scroll {
+                    self.scroll_offset = self.max_scroll.get();
+                    self.auto_scroll = false;
+                }
+                // 减少 offset = 显示更上面的内容
                 self.scroll_offset = self.scroll_offset.saturating_sub(3);
             }
             MouseEventKind::ScrollDown => {
-                // 向下滚动（查看更新的内容）- 增加 offset
+                // 向下滚动 = 查看更新的内容
+                if self.auto_scroll {
+                    // 已经在底部，不需要处理
+                    return;
+                }
+                // 增加 offset = 显示更下面的内容
                 self.scroll_offset = self.scroll_offset.saturating_add(3);
+                // 如果到达底部，恢复自动滚动
+                let max = self.max_scroll.get();
+                if self.scroll_offset >= max {
+                    self.scroll_offset = 0;  // 重置，让 auto_scroll 控制位置
+                    self.auto_scroll = true;
+                }
             }
             _ => {}
         }
@@ -460,12 +523,17 @@ impl TuiApp {
                         "  /new              Start new session\n",
                         "\n⌨️ Shortcuts:\n",
                         "  Enter             Send message\n",
+                        "  Shift+Enter       Insert newline (multi-line input)\n",
                         "  Shift+Tab         Toggle mode\n",
                         "  PgUp/PgDn         Scroll history\n",
                         "  Home/End          Top/Bottom\n",
                         "  Esc               Clear input / Interrupt\n",
                         "  Ctrl+C            Interrupt request\n",
-                        "  Ctrl+D            Exit",
+                        "  Ctrl+D            Exit\n",
+                        "\n📝 Features:\n",
+                        "  • Multi-line input: Shift+Enter to add newline\n",
+                        "  • Message queue: Send while AI is processing\n",
+                        "  • Text selection: Use terminal's native selection",
                     ).into()
                 });
                 self.auto_scroll = true;
@@ -538,6 +606,7 @@ impl TuiApp {
                         role: Role::Tool { name: tool_name, is_error }, 
                         content: truncate(&content, 100) 
                     });
+                    self.tool_calls += 1;
                     self.activity = Activity::Thinking;
                     self.activity_detail.clear();
                 }
@@ -553,7 +622,25 @@ impl TuiApp {
                     self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
                     self.thinking.clear();
                 }
-                self.activity = Activity::Idle;
+                
+                // Check for pending messages in queue
+                if !self.pending_messages.is_empty() {
+                    let next_msg = self.pending_messages.remove(0);
+                    self.messages.push(Message { role: Role::User, content: next_msg.clone() });
+                    self.tx.try_send(next_msg).ok();
+                    self.activity = Activity::Thinking;
+                    self.auto_scroll = true;
+                    if self.pending_messages.is_empty() {
+                        self.messages.push(Message { role: Role::System, content: "✓ Queue cleared".into() });
+                    } else {
+                        self.messages.push(Message { 
+                            role: Role::System, 
+                            content: format!("⏳ Processing queued message ({} remaining)", self.pending_messages.len())
+                        });
+                    }
+                } else {
+                    self.activity = Activity::Idle;
+                }
                 self.activity_detail.clear();
             }
             EventType::Error => {
@@ -569,9 +656,9 @@ impl TuiApp {
                     cache_creation_input_tokens,
                     cache_read_input_tokens,
                 }) = e.data {
-                    // input_tokens 是当前请求的输入，包含历史消息，反映当前上下文大小
-                    // 取最大值以显示会话的实际上下文使用峰值
-                    self.tokens_in = self.tokens_in.max(input_tokens);
+                    // input_tokens 反映当前上下文大小
+                    // 压缩后会变小，所以直接更新（不再取最大值）
+                    self.tokens_in = input_tokens;
                     self.tokens_out = output_tokens;
                     self.session_total_out += output_tokens;
                     // 累积 cache 数据
@@ -595,7 +682,7 @@ impl TuiApp {
                 }
             }
             EventType::MemoryLoaded => {
-                if let Some(EventData::Memory { summary, entries_count }) = e.data {
+                if let Some(EventData::Memory { summary: _, entries_count }) = e.data {
                     self.memory_saves += 1;
                     if entries_count > 0 {
                         self.messages.push(Message {
@@ -605,11 +692,29 @@ impl TuiApp {
                     }
                 }
             }
+            EventType::MemoryDetected => {
+                if let Some(EventData::Memory { summary, entries_count }) = e.data {
+                    self.memory_saves += 1;
+                    self.messages.push(Message {
+                        role: Role::System,
+                        content: format!("🧠 Memory detected: {} entries ({})", entries_count, summary)
+                    });
+                    self.auto_scroll = true;
+                }
+            }
             EventType::SessionStarted => self.activity = Activity::Thinking,
             EventType::AskQuestion => {
                 if let Some(EventData::AskQuestion { question, options }) = e.data {
-                    // Display the question as a message
-                    let mut content = format!("❓ {}", question);
+                    // Check if this is an approval request (contains "requires approval")
+                    let is_approval = question.contains("requires approval") || question.contains("Allow?");
+                    
+                    // Display the question with appropriate styling
+                    let mut content = if is_approval {
+                        format!("⚠️ APPROVAL REQUIRED\n\n{}", question)
+                    } else {
+                        format!("❓ {}", question)
+                    };
+                    
                     if let Some(opts) = options
                         && let Some(arr) = opts.as_array() {
                             content.push_str("\n\nOptions:");
@@ -618,11 +723,17 @@ impl TuiApp {
                                 let label = opt["label"].as_str().unwrap_or("");
                                 content.push_str(&format!("\n  {}) {}", id, label));
                             }
-                        }
-                    self.messages.push(Message { role: Role::System, content });
-                    // Switch to waiting for ask input
+                    }
+                    
+                    // Use a distinctive marker for approval requests
+                    self.messages.push(Message { 
+                        role: if is_approval { Role::System } else { Role::System }, 
+                        content 
+                    });
+                    
+                    // Switch to asking state
                     self.waiting_for_ask = true;
-                    self.activity = Activity::Idle;  // Allow input
+                    self.activity = Activity::Asking;
                     self.auto_scroll = true;
                 }
             }
