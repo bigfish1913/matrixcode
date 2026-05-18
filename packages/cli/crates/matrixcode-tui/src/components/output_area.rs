@@ -411,3 +411,301 @@ impl Default for OutputArea {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== truncate_line Tests =====
+
+    #[test]
+    fn test_truncate_line_short() {
+        let line = "This is a short line";
+        let result = OutputArea::truncate_line(line);
+        assert_eq!(result, "This is a short line");
+    }
+
+    #[test]
+    fn test_truncate_line_long() {
+        let line = "x".repeat(600);
+        let result = OutputArea::truncate_line(&line);
+        assert!(result.ends_with("..."));
+        assert_eq!(result.len(), MAX_LINE_WIDTH);
+        assert!(result.starts_with(&"x".repeat(MAX_LINE_WIDTH - 3)));
+    }
+
+    #[test]
+    fn test_truncate_line_boundary() {
+        // Exactly MAX_LINE_WIDTH chars - should not be truncated
+        let line = "x".repeat(MAX_LINE_WIDTH);
+        let result = OutputArea::truncate_line(&line);
+        assert_eq!(result.len(), MAX_LINE_WIDTH);
+        assert!(!result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_truncate_line_one_over_boundary() {
+        let line = "x".repeat(MAX_LINE_WIDTH + 1);
+        let result = OutputArea::truncate_line(&line);
+        assert!(result.ends_with("..."));
+        assert_eq!(result.len(), MAX_LINE_WIDTH);
+    }
+
+    #[test]
+    fn test_truncate_line_empty() {
+        let result = OutputArea::truncate_line("");
+        assert_eq!(result, "");
+    }
+
+    // ===== role_icon Tests =====
+
+    #[test]
+    fn test_role_icon_user() {
+        assert_eq!(OutputArea::role_icon(&Role::User), "👤");
+    }
+
+    #[test]
+    fn test_role_icon_assistant() {
+        assert_eq!(OutputArea::role_icon(&Role::Assistant), "🤖");
+    }
+
+    #[test]
+    fn test_role_icon_system() {
+        assert_eq!(OutputArea::role_icon(&Role::System), "⚙");
+    }
+
+    // ===== tool_icon Tests =====
+
+    #[test]
+    fn test_tool_icon_read() {
+        assert_eq!(OutputArea::tool_icon("read"), "📖");
+    }
+
+    #[test]
+    fn test_tool_icon_readfile() {
+        assert_eq!(OutputArea::tool_icon("readfile"), "📖");
+    }
+
+    #[test]
+    fn test_tool_icon_write() {
+        assert_eq!(OutputArea::tool_icon("write"), "📝");
+    }
+
+    #[test]
+    fn test_tool_icon_writefile() {
+        assert_eq!(OutputArea::tool_icon("writefile"), "📝");
+    }
+
+    #[test]
+    fn test_tool_icon_edit() {
+        assert_eq!(OutputArea::tool_icon("edit"), "✏️");
+    }
+
+    #[test]
+    fn test_tool_icon_editfile() {
+        assert_eq!(OutputArea::tool_icon("editfile"), "✏️");
+    }
+
+    #[test]
+    fn test_tool_icon_bash() {
+        assert_eq!(OutputArea::tool_icon("bash"), "⚡");
+    }
+
+    #[test]
+    fn test_tool_icon_shell() {
+        assert_eq!(OutputArea::tool_icon("shell"), "⚡");
+    }
+
+    #[test]
+    fn test_tool_icon_search() {
+        assert_eq!(OutputArea::tool_icon("search"), "🔍");
+    }
+
+    #[test]
+    fn test_tool_icon_grep() {
+        assert_eq!(OutputArea::tool_icon("grep"), "🔍");
+    }
+
+    #[test]
+    fn test_tool_icon_glob() {
+        assert_eq!(OutputArea::tool_icon("glob"), "📁");
+    }
+
+    #[test]
+    fn test_tool_icon_ls() {
+        assert_eq!(OutputArea::tool_icon("ls"), "📁");
+    }
+
+    #[test]
+    fn test_tool_icon_websearch() {
+        assert_eq!(OutputArea::tool_icon("websearch"), "🌐");
+    }
+
+    #[test]
+    fn test_tool_icon_webfetch() {
+        assert_eq!(OutputArea::tool_icon("webfetch"), "🔗");
+    }
+
+    #[test]
+    fn test_tool_icon_unknown() {
+        assert_eq!(OutputArea::tool_icon("unknown_tool"), "🔧");
+    }
+
+    #[test]
+    fn test_tool_icon_case_insensitive() {
+        assert_eq!(OutputArea::tool_icon("READ"), "📖");
+        assert_eq!(OutputArea::tool_icon("Write"), "📝");
+        assert_eq!(OutputArea::tool_icon("BASH"), "⚡");
+    }
+
+    // ===== format_tool_result Tests =====
+
+    #[test]
+    fn test_format_tool_result_short() {
+        let result = "Line 1\nLine 2\nLine 3";
+        let formatted = OutputArea::format_tool_result(result, 10);
+        assert_eq!(formatted.len(), 3);
+        assert_eq!(formatted[0], "Line 1");
+        assert_eq!(formatted[1], "Line 2");
+        assert_eq!(formatted[2], "Line 3");
+    }
+
+    #[test]
+    fn test_format_tool_result_exact_limit() {
+        let result = (1..=10).map(|i| format!("Line {}", i)).collect::<Vec<_>>().join("\n");
+        let formatted = OutputArea::format_tool_result(&result, 10);
+        assert_eq!(formatted.len(), 10);
+        assert_eq!(formatted[0], "Line 1");
+        assert_eq!(formatted[9], "Line 10");
+        // No omitted message
+        assert!(!formatted.iter().any(|l| l.contains("omitted")));
+    }
+
+    #[test]
+    fn test_format_tool_result_long() {
+        let result = (1..=20).map(|i| format!("Line {}", i)).collect::<Vec<_>>().join("\n");
+        let formatted = OutputArea::format_tool_result(&result, 10);
+        // Should have omitted message
+        assert!(formatted.iter().any(|l| l.contains("omitted")));
+        // Should show first 5 lines and last 5 lines
+        assert!(formatted.contains(&"Line 1".to_string()));
+        assert!(formatted.contains(&"Line 5".to_string()));
+        assert!(formatted.contains(&"Line 16".to_string()));
+        assert!(formatted.contains(&"Line 20".to_string()));
+    }
+
+    #[test]
+    fn test_format_tool_result_single_line() {
+        let result = "Single line result";
+        let formatted = OutputArea::format_tool_result(result, 10);
+        assert_eq!(formatted.len(), 1);
+        assert_eq!(formatted[0], "Single line result");
+    }
+
+    #[test]
+    fn test_format_tool_result_empty() {
+        let formatted = OutputArea::format_tool_result("", 10);
+        // Empty string has no lines, so result is empty
+        assert!(formatted.is_empty());
+    }
+
+    #[test]
+    fn test_format_tool_result_truncates_long_lines() {
+        let long_line = "x".repeat(600);
+        let formatted = OutputArea::format_tool_result(&long_line, 10);
+        assert_eq!(formatted.len(), 1);
+        assert!(formatted[0].ends_with("..."));
+    }
+
+    // ===== format_markdown_line Tests =====
+
+    #[test]
+    fn test_format_markdown_line_plain() {
+        let spans = OutputArea::format_markdown_line("Hello world");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, "Hello world");
+    }
+
+    #[test]
+    fn test_format_markdown_line_empty() {
+        let spans = OutputArea::format_markdown_line("");
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn test_format_markdown_line_bold() {
+        let spans = OutputArea::format_markdown_line("This is **bold** text");
+        assert!(!spans.is_empty());
+        // Check that bold text was parsed - verify content contains "bold"
+        let content: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(content.contains("bold"));
+    }
+
+    #[test]
+    fn test_format_markdown_line_code() {
+        let spans = OutputArea::format_markdown_line("Use `code` here");
+        assert!(!spans.is_empty());
+        // Check that inline code was parsed - verify content contains "code"
+        let content: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(content.contains("code"));
+    }
+
+    #[test]
+    fn test_format_markdown_line_link() {
+        let spans = OutputArea::format_markdown_line("Click [here](https://example.com) for more");
+        assert!(!spans.is_empty());
+        // Check that link text was extracted
+        let content: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(content.contains("here"));
+        // URL should not appear in content
+        assert!(!content.contains("https://example.com"));
+    }
+
+    #[test]
+    fn test_format_markdown_line_multiple_formatting() {
+        let spans = OutputArea::format_markdown_line("Use **bold** and `code` together");
+        assert!(!spans.is_empty());
+        let content: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(content.contains("bold"));
+        assert!(content.contains("code"));
+    }
+
+    #[test]
+    fn test_format_markdown_line_unclosed_bold() {
+        // Unclosed bold should be treated as normal text
+        let spans = OutputArea::format_markdown_line("This **is unclosed");
+        let content: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(content.contains("**"));
+    }
+
+    #[test]
+    fn test_format_markdown_line_unclosed_code() {
+        // Unclosed code should be treated as normal text
+        let spans = OutputArea::format_markdown_line("This `is unclosed");
+        let content: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(content.contains("`"));
+    }
+
+    #[test]
+    fn test_format_markdown_line_unclosed_link() {
+        // Unclosed link should be treated as normal text
+        let spans = OutputArea::format_markdown_line("Click [here for more");
+        let content: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(content.contains("["));
+    }
+
+    // ===== OutputArea Construction Tests =====
+
+    #[test]
+    fn test_output_area_new() {
+        let output_area = OutputArea::new();
+        // Just verify it can be created
+        let _ = output_area;
+    }
+
+    #[test]
+    fn test_output_area_default() {
+        let output_area = OutputArea::default();
+        let _ = output_area;
+    }
+}

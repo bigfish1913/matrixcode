@@ -115,3 +115,180 @@ impl Default for StatusBar {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== mode_bg_color Tests =====
+
+    #[test]
+    fn test_mode_bg_color_idle() {
+        let mode = AppMode::Idle;
+        assert_eq!(StatusBar::mode_bg_color(&mode), Color::Blue);
+    }
+
+    #[test]
+    fn test_mode_bg_color_thinking() {
+        let mode = AppMode::Thinking;
+        assert_eq!(StatusBar::mode_bg_color(&mode), Color::Yellow);
+    }
+
+    #[test]
+    fn test_mode_bg_color_tool_executing() {
+        let mode = AppMode::ToolExecuting {
+            name: "Read".to_string(),
+            id: "tool-123".to_string(),
+        };
+        assert_eq!(StatusBar::mode_bg_color(&mode), Color::Cyan);
+    }
+
+    #[test]
+    fn test_mode_bg_color_tool_executing_various_names() {
+        // Color should be the same regardless of tool name
+        let mode1 = AppMode::ToolExecuting {
+            name: "Bash".to_string(),
+            id: "tool-1".to_string(),
+        };
+        let mode2 = AppMode::ToolExecuting {
+            name: "Read".to_string(),
+            id: "tool-2".to_string(),
+        };
+        assert_eq!(StatusBar::mode_bg_color(&mode1), StatusBar::mode_bg_color(&mode2));
+    }
+
+    // ===== mode_fg_color Tests =====
+
+    #[test]
+    fn test_mode_fg_color_idle() {
+        let mode = AppMode::Idle;
+        assert_eq!(StatusBar::mode_fg_color(&mode), Color::White);
+    }
+
+    #[test]
+    fn test_mode_fg_color_thinking() {
+        let mode = AppMode::Thinking;
+        assert_eq!(StatusBar::mode_fg_color(&mode), Color::Black);
+    }
+
+    #[test]
+    fn test_mode_fg_color_tool_executing() {
+        let mode = AppMode::ToolExecuting {
+            name: "Read".to_string(),
+            id: "tool-123".to_string(),
+        };
+        assert_eq!(StatusBar::mode_fg_color(&mode), Color::Black);
+    }
+
+    #[test]
+    fn test_mode_fg_color_consistency() {
+        // Thinking and ToolExecuting should have same foreground
+        let mode_thinking = AppMode::Thinking;
+        let mode_tool = AppMode::ToolExecuting {
+            name: "Test".to_string(),
+            id: "tool-1".to_string(),
+        };
+        assert_eq!(StatusBar::mode_fg_color(&mode_thinking), StatusBar::mode_fg_color(&mode_tool));
+    }
+
+    // ===== status_indicator Tests =====
+
+    #[test]
+    fn test_status_indicator_idle() {
+        let mode = AppMode::Idle;
+        assert_eq!(StatusBar::status_indicator(&mode), "●");
+    }
+
+    #[test]
+    fn test_status_indicator_thinking() {
+        let mode = AppMode::Thinking;
+        assert_eq!(StatusBar::status_indicator(&mode), "◉");
+    }
+
+    #[test]
+    fn test_status_indicator_tool_executing() {
+        let mode = AppMode::ToolExecuting {
+            name: "Read".to_string(),
+            id: "tool-123".to_string(),
+        };
+        assert_eq!(StatusBar::status_indicator(&mode), "⚙");
+    }
+
+    #[test]
+    fn test_status_indicator_tool_executing_various_names() {
+        // Indicator should be the same regardless of tool name
+        let mode1 = AppMode::ToolExecuting {
+            name: "Bash".to_string(),
+            id: "tool-1".to_string(),
+        };
+        let mode2 = AppMode::ToolExecuting {
+            name: "VeryLongToolName".to_string(),
+            id: "tool-2".to_string(),
+        };
+        assert_eq!(StatusBar::status_indicator(&mode1), StatusBar::status_indicator(&mode2));
+    }
+
+    #[test]
+    fn test_status_indicator_distinct_for_each_mode() {
+        // Each mode should have a distinct indicator
+        let idle_indicator = StatusBar::status_indicator(&AppMode::Idle);
+        let thinking_indicator = StatusBar::status_indicator(&AppMode::Thinking);
+        let tool_indicator = StatusBar::status_indicator(&AppMode::ToolExecuting {
+            name: "Test".to_string(),
+            id: "tool-1".to_string(),
+        });
+
+        assert_ne!(idle_indicator, thinking_indicator);
+        assert_ne!(thinking_indicator, tool_indicator);
+        assert_ne!(idle_indicator, tool_indicator);
+    }
+
+    // ===== Color Contrast Tests =====
+
+    #[test]
+    fn test_idle_colors_contrast() {
+        // Idle: Blue bg + White fg should be readable
+        let bg = StatusBar::mode_bg_color(&AppMode::Idle);
+        let fg = StatusBar::mode_fg_color(&AppMode::Idle);
+        assert_eq!(bg, Color::Blue);
+        assert_eq!(fg, Color::White);
+    }
+
+    #[test]
+    fn test_thinking_colors_contrast() {
+        // Thinking: Yellow bg + Black fg should be readable
+        let bg = StatusBar::mode_bg_color(&AppMode::Thinking);
+        let fg = StatusBar::mode_fg_color(&AppMode::Thinking);
+        assert_eq!(bg, Color::Yellow);
+        assert_eq!(fg, Color::Black);
+    }
+
+    #[test]
+    fn test_tool_executing_colors_contrast() {
+        // ToolExecuting: Cyan bg + Black fg should be readable
+        let bg = StatusBar::mode_bg_color(&AppMode::ToolExecuting {
+            name: "Test".to_string(),
+            id: "tool-1".to_string(),
+        });
+        let fg = StatusBar::mode_fg_color(&AppMode::ToolExecuting {
+            name: "Test".to_string(),
+            id: "tool-1".to_string(),
+        });
+        assert_eq!(bg, Color::Cyan);
+        assert_eq!(fg, Color::Black);
+    }
+
+    // ===== StatusBar Construction Tests =====
+
+    #[test]
+    fn test_status_bar_new() {
+        let status_bar = StatusBar::new();
+        let _ = status_bar;
+    }
+
+    #[test]
+    fn test_status_bar_default() {
+        let status_bar = StatusBar::default();
+        let _ = status_bar;
+    }
+}

@@ -243,3 +243,202 @@ impl Default for InputBox {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== get_prompt Tests =====
+
+    #[test]
+    fn test_get_prompt_idle() {
+        let mode = AppMode::Idle;
+        assert_eq!(InputBox::get_prompt(&mode), ">");
+    }
+
+    #[test]
+    fn test_get_prompt_thinking() {
+        let mode = AppMode::Thinking;
+        assert_eq!(InputBox::get_prompt(&mode), "⏳");
+    }
+
+    #[test]
+    fn test_get_prompt_tool_executing_short_name() {
+        let mode = AppMode::ToolExecuting {
+            name: "Read".to_string(),
+            id: "tool-123".to_string(),
+        };
+        assert_eq!(InputBox::get_prompt(&mode), "⚙");
+    }
+
+    #[test]
+    fn test_get_prompt_tool_executing_long_name() {
+        let mode = AppMode::ToolExecuting {
+            name: "VeryLongToolName".to_string(),
+            id: "tool-456".to_string(),
+        };
+        assert_eq!(InputBox::get_prompt(&mode), "🔧");
+    }
+
+    #[test]
+    fn test_get_prompt_tool_executing_boundary_eight_chars() {
+        let mode = AppMode::ToolExecuting {
+            name: "12345678".to_string(), // Exactly 8 chars
+            id: "tool-789".to_string(),
+        };
+        assert_eq!(InputBox::get_prompt(&mode), "⚙");
+    }
+
+    #[test]
+    fn test_get_prompt_tool_executing_nine_chars() {
+        let mode = AppMode::ToolExecuting {
+            name: "123456789".to_string(), // 9 chars, > 8
+            id: "tool-000".to_string(),
+        };
+        assert_eq!(InputBox::get_prompt(&mode), "🔧");
+    }
+
+    // ===== get_input_color Tests =====
+
+    #[test]
+    fn test_get_input_color_idle() {
+        let mode = AppMode::Idle;
+        assert_eq!(InputBox::get_input_color(&mode), Color::Yellow);
+    }
+
+    #[test]
+    fn test_get_input_color_thinking() {
+        let mode = AppMode::Thinking;
+        assert_eq!(InputBox::get_input_color(&mode), Color::DarkGray);
+    }
+
+    #[test]
+    fn test_get_input_color_tool_executing() {
+        let mode = AppMode::ToolExecuting {
+            name: "Read".to_string(),
+            id: "tool-123".to_string(),
+        };
+        assert_eq!(InputBox::get_input_color(&mode), Color::Cyan);
+    }
+
+    // ===== is_command Tests =====
+
+    #[test]
+    fn test_is_command_true() {
+        assert!(InputBox::is_command("/help"));
+        assert!(InputBox::is_command("/exit"));
+        assert!(InputBox::is_command("/model claude-sonnet"));
+    }
+
+    #[test]
+    fn test_is_command_false() {
+        assert!(!InputBox::is_command("hello"));
+        assert!(!InputBox::is_command("help"));
+        assert!(!InputBox::is_command(""));
+    }
+
+    #[test]
+    fn test_is_command_whitespace() {
+        assert!(InputBox::is_command("  /help"));
+        assert!(InputBox::is_command("\t/exit"));
+        assert!(InputBox::is_command("   /clear   "));
+    }
+
+    #[test]
+    fn test_is_command_empty_string() {
+        assert!(!InputBox::is_command(""));
+    }
+
+    #[test]
+    fn test_is_command_whitespace_only() {
+        assert!(!InputBox::is_command("   "));
+        assert!(!InputBox::is_command("\t\n"));
+    }
+
+    // ===== get_command_suggestion Tests =====
+
+    #[test]
+    fn test_get_command_suggestion_partial_help() {
+        let suggestion = InputBox::get_command_suggestion("/hel");
+        assert_eq!(suggestion, Some("Show available commands"));
+    }
+
+    #[test]
+    fn test_get_command_suggestion_partial_exit() {
+        let suggestion = InputBox::get_command_suggestion("/ex");
+        assert_eq!(suggestion, Some("Exit the terminal"));
+    }
+
+    #[test]
+    fn test_get_command_suggestion_partial_clear() {
+        let suggestion = InputBox::get_command_suggestion("/cle");
+        assert_eq!(suggestion, Some("Clear the screen"));
+    }
+
+    #[test]
+    fn test_get_command_suggestion_partial_model() {
+        let suggestion = InputBox::get_command_suggestion("/mod");
+        assert_eq!(suggestion, Some("Change model (e.g., /model claude-sonnet-4.6)"));
+    }
+
+    #[test]
+    fn test_get_command_suggestion_partial_session() {
+        let suggestion = InputBox::get_command_suggestion("/ses");
+        assert_eq!(suggestion, Some("Session management (list, save, load, new)"));
+    }
+
+    #[test]
+    fn test_get_command_suggestion_complete() {
+        // Complete command should have no suggestion
+        assert_eq!(InputBox::get_command_suggestion("/help"), None);
+        assert_eq!(InputBox::get_command_suggestion("/exit"), None);
+        assert_eq!(InputBox::get_command_suggestion("/clear"), None);
+        assert_eq!(InputBox::get_command_suggestion("/model"), None);
+        assert_eq!(InputBox::get_command_suggestion("/session"), None);
+    }
+
+    #[test]
+    fn test_get_command_suggestion_non_command() {
+        assert_eq!(InputBox::get_command_suggestion("hello"), None);
+        assert_eq!(InputBox::get_command_suggestion("world"), None);
+    }
+
+    #[test]
+    fn test_get_command_suggestion_invalid_prefix() {
+        assert_eq!(InputBox::get_command_suggestion("help"), None);
+        assert_eq!(InputBox::get_command_suggestion(" /help"), None);
+    }
+
+    #[test]
+    fn test_get_command_suggestion_empty_string() {
+        assert_eq!(InputBox::get_command_suggestion(""), None);
+    }
+
+    #[test]
+    fn test_get_command_suggestion_slash_only() {
+        // "/" alone should match all commands but only returns first suggestion
+        let suggestion = InputBox::get_command_suggestion("/");
+        assert!(suggestion.is_some());
+    }
+
+    // ===== InputBox Construction Tests =====
+
+    #[test]
+    fn test_input_box_new() {
+        let input_box = InputBox::new();
+        assert_eq!(input_box.cursor_position(), 0);
+    }
+
+    #[test]
+    fn test_input_box_default() {
+        let input_box = InputBox::default();
+        assert_eq!(input_box.cursor_position(), 0);
+    }
+
+    #[test]
+    fn test_input_box_update_cursor() {
+        let mut input_box = InputBox::new();
+        input_box.update_cursor(5);
+        assert_eq!(input_box.cursor_position(), 5);
+    }
+}
