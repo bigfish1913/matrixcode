@@ -191,7 +191,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Spawn Agent task with real Agent
     let _agent_task = rt.spawn(async move {
         // Create provider
-        let provider = AnthropicProvider::new(agent_api_key, agent_model, agent_base_url);
+        let provider = AnthropicProvider::new(agent_api_key, agent_model.clone(), agent_base_url);
 
         // Load memory
         let project_path_ref = agent_project_path.as_deref();
@@ -214,6 +214,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         // Build agent with external event sender
         let mut agent = AgentBuilder::new(Box::new(provider))
             .system_prompt(system_prompt)
+            .model_name(agent_model.clone())
             .max_tokens(agent_max_tokens)
             .think(agent_think)
             .tools(all_tools())
@@ -269,9 +270,13 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     // Auto-save session after each turn
                     if let Some(ref mut mgr) = session_mgr {
                         let (input_tokens, output_tokens) = agent.get_token_counts();
-                        mgr.set_messages(agent.get_messages().to_vec());
+                        let messages = agent.get_messages();
+                        mgr.set_messages(messages.to_vec());
                         mgr.update_stats(input_tokens as u32, output_tokens);
                         let _ = mgr.save_current();
+                        
+                        // Debug log: session save
+                        matrixcode_core::debug::debug_log().session_save(messages.len(), output_tokens);
                     }
                     
                     // Auto-detect and save memories
@@ -292,11 +297,15 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                 &text, None
                             );
                             if !detected.is_empty() {
+                                let detected_count = detected.len();
                                 if let Ok(mut mem) = ms.load_global() {
                                     for entry in detected {
                                         mem.add(entry);
                                     }
                                     let _ = ms.save_global(&mem);
+                                    
+                                    // Debug log: memory save
+                                    matrixcode_core::debug_memory!(detected_count, text.len());
                                 }
                             }
                         }
@@ -322,7 +331,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Create App and run it (TUI runs in sync context, but tokio channels are usable)
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token)
         .with_ask_channel(ask_tx)
-        .with_config(&model, cli.think, cli.max_tokens)
+        .with_config(&model, cli.think, cli.max_tokens, None)
         .with_session_messages(&restored_messages);
     let result = app.run(&mut terminal);
 
@@ -451,7 +460,7 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
         }
         "quick_action" => {
             if let Some(action) = request.action {
-                events.push(AgentEvent::tool_use_start("action_1", action));
+                events.push(AgentEvent::tool_use_start("action_1", action, None));
                 events.push(AgentEvent::tool_result("action_1", "Result".to_string(), false));
             }
         }

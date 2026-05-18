@@ -79,8 +79,8 @@ impl AgentEvent {
         Self::with_data(EventType::ThinkingDelta, EventData::Thinking { delta: delta.into(), signature })
     }
 
-    pub fn tool_use_start(id: impl Into<String>, name: impl Into<String>) -> Self {
-        Self::with_data(EventType::ToolUseStart, EventData::ToolUse { id: id.into(), name: name.into(), input: None })
+    pub fn tool_use_start(id: impl Into<String>, name: impl Into<String>, input: Option<serde_json::Value>) -> Self {
+        Self::with_data(EventType::ToolUseStart, EventData::ToolUse { id: id.into(), name: name.into(), input })
     }
 
     pub fn tool_result(tool_use_id: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {

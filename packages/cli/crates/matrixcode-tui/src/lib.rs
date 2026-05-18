@@ -39,13 +39,6 @@ enum Activity {
 }
 
 impl Activity {
-    fn spinner(&self, frame: usize) -> String {
-        match self {
-            Activity::Idle => "".into(),
-            _ => SPINNER[frame].to_string(),
-        }
-    }
-
     fn label(&self) -> String {
         match self {
             Activity::Idle => "Ready".into(),
@@ -173,6 +166,7 @@ impl ApproveMode {
 
 pub struct TuiApp {
     activity: Activity,
+    activity_detail: String,  // 工具执行明细 (文件名、搜索词等)
     messages: Vec<Message>,
     thinking: String,
     streaming: String,
@@ -214,6 +208,7 @@ impl TuiApp {
     ) -> Self {
         Self {
             activity: Activity::Idle,
+            activity_detail: String::new(),
             messages: Vec::new(),
             thinking: String::new(),
             streaming: String::new(),
@@ -281,12 +276,23 @@ impl TuiApp {
         self
     }
 
-    pub fn with_config(mut self, model: &str, _think: bool, _max_tokens: u32) -> Self {
+    pub fn with_config(mut self, model: &str, _think: bool, _max_tokens: u32, context_size: Option<u64>) -> Self {
         self.model = model.to_string();
-        // Estimate context size based on model
-        self.context_size = if model.contains("opus") { 200_000 } 
-                           else if model.contains("sonnet") { 200_000 }
-                           else { 100_000 };
+        // Use provided context_size, or estimate from model name
+        self.context_size = context_size.unwrap_or_else(|| {
+            let m = model.to_ascii_lowercase();
+            if m.contains("[1m]") || m.contains("opus-4-7") || m.contains("opus-4.7") {
+                1_000_000
+            } else if m.contains("claude-3") || m.contains("claude-4") || m.contains("claude-sonnet") || m.contains("claude-opus") {
+                200_000
+            } else if m.contains("kimi") {
+                128_000
+            } else if m.contains("deepseek") {
+                64_000
+            } else {
+                128_000
+            }
+        });
         self
     }
 
@@ -609,6 +615,7 @@ impl TuiApp {
         match e.event_type {
             EventType::ThinkingStart => {
                 self.activity = Activity::Thinking;
+                self.activity_detail.clear();
                 self.thinking.clear();
             }
             EventType::ThinkingDelta => {
@@ -639,8 +646,10 @@ impl TuiApp {
                 }
             }
             EventType::ToolUseStart => {
-                if let Some(EventData::ToolUse { name, .. }) = e.data {
+                if let Some(EventData::ToolUse { name, input, .. }) = e.data {
                     self.activity = Activity::from_tool(&name);
+                    // 提取工具执行明细
+                    self.activity_detail = extract_tool_detail(&name, input.as_ref());
                 }
             }
             EventType::ToolResult => {
@@ -661,6 +670,7 @@ impl TuiApp {
                         content: truncate(&content, 100) 
                     });
                     self.activity = Activity::Thinking;
+                    self.activity_detail.clear();
                 }
             }
             EventType::SessionEnded => {
@@ -675,6 +685,7 @@ impl TuiApp {
                     self.thinking.clear();
                 }
                 self.activity = Activity::Idle;
+                self.activity_detail.clear();
             }
             EventType::Error => {
                 if let Some(EventData::Error { message, .. }) = e.data {
@@ -689,7 +700,9 @@ impl TuiApp {
                     cache_creation_input_tokens,
                     cache_read_input_tokens,
                 }) = e.data {
-                    self.tokens_in = input_tokens;
+                    // input_tokens 是当前请求的输入，包含历史消息，反映当前上下文大小
+                    // 取最大值以显示会话的实际上下文使用峰值
+                    self.tokens_in = self.tokens_in.max(input_tokens);
                     self.tokens_out = output_tokens;
                     self.session_total_out += output_tokens;
                     // 累积 cache 数据
@@ -724,14 +737,10 @@ impl TuiApp {
     }
 
     fn draw(&self, f: &mut ratatui::Frame) {
-        // Welcome 只在初始时显示，发送消息后隐藏（不占用空间）
-        let welcome_height = if self.show_welcome { 8 } else { 0 };
-        
         // 简化布局：Status + Messages + Usage + Input
         let constraints = vec![
-            Constraint::Length(1),           // Status (含 spinner)
-            Constraint::Length(welcome_height), // Welcome (动态高度)
-            Constraint::Min(5),              // Messages (弹性高度)
+            Constraint::Length(1),           // Status
+            Constraint::Min(3),              // Messages (弹性高度，最大化)
             Constraint::Length(1),           // Usage + Hints
             Constraint::Length(1),           // Input
         ];
@@ -742,34 +751,45 @@ impl TuiApp {
             .split(f.area());
 
         self.draw_status(f, chunks[0]);
-        
-        if self.show_welcome {
-            self.draw_welcome(f, chunks[1]);
-        }
-        
-        self.draw_messages(f, chunks[2]);
-        self.draw_usage(f, chunks[3]);
-        self.draw_input(f, chunks[4]);
+        self.draw_messages(f, chunks[1]);
+        self.draw_usage(f, chunks[2]);
+        self.draw_input(f, chunks[3]);
     }
 
     fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
-        // 状态栏：MatrixCode + Model + Activity + ApproveMode + Thinking toggle
-        let spans = vec![
+        // 状态栏：MatrixCode + Model + Activity(detail) + mode
+        let mut spans = vec![
             Span::styled(" MatrixCode ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled("│", Style::default().fg(Color::DarkGray)),
             Span::styled(format!(" {} ", self.model), Style::default().fg(Color::White)),
             Span::styled("│", Style::default().fg(Color::DarkGray)),
-            // Activity with spinner inline
-            Span::styled(
-                format!(" {}{} ", self.activity.spinner(self.frame), self.activity.label()),
-                Style::default().fg(self.activity.color())
-            ),
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                format!(" mode:{} ", self.approve_mode.label()),
-                Style::default().fg(self.approve_mode.color())
-            ),
         ];
+        
+        // Activity + spinner + detail
+        if self.activity != Activity::Idle {
+            spans.push(Span::styled(
+                format!(" {}", SPINNER[self.frame]),
+                Style::default().fg(self.activity.color())
+            ));
+            spans.push(Span::styled(
+                format!(" {} ", self.activity.label()),
+                Style::default().fg(self.activity.color())
+            ));
+            if !self.activity_detail.is_empty() {
+                spans.push(Span::styled(
+                    format!("({})", self.activity_detail),
+                    Style::default().fg(Color::DarkGray)
+                ));
+            }
+        } else {
+            spans.push(Span::styled(" Ready ", Style::default().fg(Color::Green)));
+        }
+        
+        spans.push(Span::styled(" │", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            format!(" mode:{} ", self.approve_mode.label()),
+            Style::default().fg(self.approve_mode.color())
+        ));
         
         f.render_widget(Paragraph::new(Line::from(spans)), area);
     }
@@ -827,6 +847,7 @@ impl TuiApp {
         f.render_widget(Paragraph::new(Line::from(parts)), area);
     }
 
+    #[allow(dead_code)]
     fn draw_welcome(&self, f: &mut ratatui::Frame, area: Rect) {
         // 根据 show_welcome 状态决定显示内容，但始终保留空间避免布局跳动
         if !self.show_welcome {
@@ -868,6 +889,36 @@ impl TuiApp {
     fn draw_messages(&self, f: &mut ratatui::Frame, area: Rect) {
         let mut lines: Vec<Line> = Vec::new();
         let max_w = area.width.saturating_sub(5) as usize;
+
+        // Welcome 内容（只在初始状态显示）
+        if self.show_welcome && self.messages.is_empty() {
+            lines.push(Line::styled(
+                "╭─────────────────────────────────────────────────────────────╮",
+                Style::default().fg(Color::Cyan)
+            ));
+            lines.push(Line::styled(
+                "│                     🤖 MatrixCode                           │",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            ));
+            lines.push(Line::styled(
+                "│   AI-powered coding assistant with extended thinking       │",
+                Style::default().fg(Color::DarkGray)
+            ));
+            lines.push(Line::raw("│                                                             │"));
+            lines.push(Line::styled(
+                "│   Commands: /help /clear /history /mode /new /exit         │",
+                Style::default().fg(Color::Gray)
+            ));
+            lines.push(Line::styled(
+                "│   Shortcuts: Enter=send │ PgUp/PgDn=scroll │ Alt+T=thinking │",
+                Style::default().fg(Color::Gray)
+            ));
+            lines.push(Line::styled(
+                "╰─────────────────────────────────────────────────────────────╯",
+                Style::default().fg(Color::Cyan)
+            ));
+            lines.push(Line::raw(""));
+        }
 
         // Render all messages (including thinking as part of messages)
         for msg in &self.messages {
@@ -966,15 +1017,31 @@ impl TuiApp {
 
         // Streaming text (after thinking) - markdown rendered
         if !self.streaming.is_empty() {
+            // Assistant 标题 + 动画
+            let spinner = if self.activity != Activity::Idle {
+                format!(" {} ", SPINNER[self.frame])
+            } else {
+                " ".to_string()
+            };
             lines.push(Line::from(vec![
                 Span::styled("🤖", Style::default().fg(Color::Blue)),
                 Span::raw(" "),
                 Span::styled("Assistant", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+                Span::styled(spinner, Style::default().fg(self.activity.color())),
             ]));
             let md_lines = render_markdown(&self.streaming, max_w);
             lines.extend(md_lines);
             // Cursor
             lines.push(Line::styled("  ▌", Style::default().fg(Color::Cyan)));
+        }
+        
+        // 如果正在活动但没有 streaming/thinking，显示状态
+        if self.activity != Activity::Idle && self.streaming.is_empty() && self.thinking.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled(SPINNER[self.frame], Style::default().fg(self.activity.color())),
+                Span::raw(" "),
+                Span::styled(self.activity.label(), Style::default().fg(self.activity.color())),
+            ]));
         }
 
         // 计算滚动偏移 - 支持自动滚动和手动滚动
@@ -1176,6 +1243,32 @@ fn parse_inline_markdown<'a>(line: &'a str, max_w: usize) -> Vec<Span<'a>> {
     }
     
     spans
+}
+
+/// 从工具输入中提取明细信息
+fn extract_tool_detail(tool_name: &str, input: Option<&serde_json::Value>) -> String {
+    let Some(input) = input else { return String::new() };
+    match tool_name.to_lowercase().as_str() {
+        "read" => input.get("path").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 40)).unwrap_or_default(),
+        "write" => input.get("path").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 40)).unwrap_or_default(),
+        "edit" | "multi_edit" => input.get("path").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 40)).unwrap_or_default(),
+        "search" => input.get("pattern").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 30)).unwrap_or_default(),
+        "glob" => input.get("pattern").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 30)).unwrap_or_default(),
+        "ls" => input.get("path").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 40)).unwrap_or_default(),
+        "bash" => input.get("command").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 40)).unwrap_or_default(),
+        "websearch" => input.get("query").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 30)).unwrap_or_default(),
+        "webfetch" => input.get("url").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 40)).unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 fn truncate(s: &str, n: usize) -> String {

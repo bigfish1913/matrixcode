@@ -16,7 +16,7 @@ pub mod workspace;
 pub mod overview;
 pub mod prompt;
 pub mod skills;
-pub mod protocol;
+pub mod debug;
 pub mod providers;
 pub mod tools;
 
@@ -25,9 +25,9 @@ pub use event::{AgentEvent, EventCollector, EventData, EventType};
 pub use agent::{Agent, AgentBuilder};
 pub use config::Config;
 pub use session::{Session, SessionManager};
-pub use providers::{Provider, Message, ContentBlock, ChatRequest, ChatResponse};
+pub use providers::{Provider, Message, MessageContent, ContentBlock, Role, ChatRequest, ChatResponse};
 pub use providers::anthropic::AnthropicProvider;
-pub use cancel::CancellationToken;
+pub use debug::{DebugLog, DebugStats, debug_log};
 
 /// Core version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use crate::event::{AgentEvent, EventType, EventData};
 use crate::providers::{ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, StopReason, Usage};
 use crate::tools::{Tool, ToolDefinition};
-use crate::approval::{ApproveMode, RiskLevel, needs_approval};
+use crate::approval::{ApproveMode, needs_approval};
 use crate::compress::{CompressionConfig, should_compress};
 use crate::cancel::CancellationToken;
 
@@ -20,6 +20,7 @@ const MAX_ITERATIONS: usize = 50;
 #[allow(dead_code)]  // Some fields are for future features
 pub struct Agent {
     provider: Box<dyn Provider>,
+    model_name: String,  // For debug logging
     tools: Vec<Arc<dyn Tool>>,
     messages: Vec<Message>,
     system_prompt: String,
@@ -49,6 +50,7 @@ pub struct Agent {
 /// Agent builder
 pub struct AgentBuilder {
     provider: Box<dyn Provider>,
+    model_name: String,
     tools: Vec<Arc<dyn Tool>>,
     system_prompt: String,
     max_tokens: u32,
@@ -66,6 +68,7 @@ impl AgentBuilder {
     pub fn new(provider: Box<dyn Provider>) -> Self {
         Self {
             provider,
+            model_name: "unknown".to_string(),
             tools: Vec::new(),
             system_prompt: "You are a helpful AI coding assistant.".to_string(),
             max_tokens: 4096,
@@ -81,6 +84,11 @@ impl AgentBuilder {
 
     pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = prompt.into();
+        self
+    }
+
+    pub fn model_name(mut self, name: impl Into<String>) -> Self {
+        self.model_name = name.into();
         self
     }
 
@@ -155,6 +163,7 @@ impl Agent {
 
         Self {
             provider: builder.provider,
+            model_name: builder.model_name,
             tools: builder.tools,
             messages: Vec::new(),
             system_prompt: builder.system_prompt,
@@ -260,6 +269,13 @@ impl Agent {
             // Track usage
             self.track_usage(&response.usage);
 
+            // Debug log: API call
+            crate::debug::debug_log().api_call(
+                &self.model_name,
+                response.usage.input_tokens,
+                response.usage.cache_read_input_tokens > 0
+            );
+
             // Process response
             should_continue = self.process_response(&response).await?;
 
@@ -283,6 +299,10 @@ impl Agent {
                         self.messages = compressed;
                         self.total_input_tokens.store(compressed_tokens as u64, Ordering::Relaxed);
                         self.last_input_tokens.store(compressed_tokens as u64, Ordering::Relaxed);
+                        
+                        // Debug log: compression
+                        let ratio = compressed_tokens as f32 / original_tokens as f32;
+                        crate::debug::debug_log().compression(original_tokens, compressed_tokens, ratio);
                         
                         self.emit(AgentEvent::with_data(
                             crate::event::EventType::CompressionCompleted,
@@ -366,7 +386,7 @@ impl Agent {
                         });
                         current_thinking.clear();
                     }
-                    self.emit(AgentEvent::tool_use_start(&id, &name))?;
+                    self.emit(AgentEvent::tool_use_start(&id, &name, None))?;
                 }
                 StreamEvent::ToolInputDelta { bytes_so_far: _ } => {
                     // Tool input progress - could emit progress event
@@ -430,7 +450,7 @@ impl Agent {
                 ContentBlock::ToolUse { id, name, input } => {
                     has_tool_use = true;
                     
-                    self.emit(AgentEvent::tool_use_start(id.clone(), name.clone()))?;
+                    self.emit(AgentEvent::tool_use_start(id.clone(), name.clone(), Some(input.clone())))?;
                     
                     // Execute tool
                     let result = self.execute_tool(name, input.clone()).await;
@@ -487,58 +507,52 @@ impl Agent {
         if let Some(tool) = tool {
             // Check approval
             if needs_approval(self.approve_mode, tool.risk_level()) {
-                if self.approve_mode == ApproveMode::Strict ||
-                   (self.approve_mode == ApproveMode::Ask && tool.risk_level() == RiskLevel::Dangerous) {
+                // Ask user for approval via TUI
+                if self.ask_rx.is_some() {
+                    // Build approval question with tool details
+                    let detail = match name {
+                        "bash" => format!("Command: {}", input["command"].as_str().unwrap_or("?")),
+                        "write" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
+                        "edit" | "multi_edit" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
+                        _ => format!("Tool: {}", name),
+                    };
                     
-                    // If we have ask channel, ask user for approval
-                    if self.ask_rx.is_some() {
-                        // Build approval question with tool details
-                        let detail = match name {
-                            "bash" => format!("Command: {}", input["command"].as_str().unwrap_or("?")),
-                            "write" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
-                            "edit" | "multi_edit" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
-                            _ => format!("Tool: {}", name),
-                        };
-                        
-                        let question = format!(
-                            "⚠️ Tool '{}' requires approval (risk: {:?})\n{}\n\nAllow? (y/n)",
-                            name, tool.risk_level(), detail
-                        );
-                        
-                        // Send approval request to TUI
-                        self.emit(AgentEvent::with_data(
-                            EventType::AskQuestion,
-                            EventData::AskQuestion { question, options: None },
-                        ))?;
-                        
-                        // Wait for user response
-                        if let Some(rx) = &mut self.ask_rx {
-                            match rx.recv().await {
-                                Some(answer) => {
-                                    let approved = matches!(
-                                        answer.trim().to_lowercase().as_str(),
-                                        "y" | "yes" | "ok" | "approve" | ""
-                                    );
-                                    if !approved {
-                                        return Err(anyhow::anyhow!(
-                                            "Tool '{}' rejected by user", name
-                                        ));
-                                    }
-                                }
-                                None => {
-                                    return Err(anyhow::anyhow!("Approval channel closed"));
+                    let question = format!(
+                        "⚠️ Tool '{}' requires approval (risk: {})\n{}\n\nAllow? (y/n)",
+                        name, tool.risk_level(), detail
+                    );
+                    
+                    // Send approval request to TUI
+                    self.emit(AgentEvent::with_data(
+                        EventType::AskQuestion,
+                        EventData::AskQuestion { question, options: None },
+                    ))?;
+                    
+                    // Wait for user response
+                    if let Some(rx) = &mut self.ask_rx {
+                        match rx.recv().await {
+                            Some(answer) => {
+                                let approved = matches!(
+                                    answer.trim().to_lowercase().as_str(),
+                                    "y" | "yes" | "ok" | "approve" | ""
+                                );
+                                if !approved {
+                                    return Err(anyhow::anyhow!(
+                                        "Tool '{}' rejected by user", name
+                                    ));
                                 }
                             }
-                        }
-                    } else {
-                        // No ask channel - reject dangerous tools
-                        if tool.risk_level() == RiskLevel::Dangerous && self.approve_mode != ApproveMode::Auto {
-                            return Err(anyhow::anyhow!(
-                                "Tool '{}' requires manual approval (dangerous operation). Use --approve-mode auto to auto-approve.",
-                                name
-                            ));
+                            None => {
+                                return Err(anyhow::anyhow!("Approval channel closed"));
+                            }
                         }
                     }
+                } else {
+                    // No ask channel - reject dangerous/mutating tools
+                    return Err(anyhow::anyhow!(
+                        "Tool '{}' requires manual approval (risk: {}). Use --approve-mode auto to auto-approve.",
+                        name, tool.risk_level()
+                    ));
                 }
             }
 
