@@ -9,11 +9,13 @@ description = "Terminal UI for MatrixCode"
 
 [dependencies]
 matrixcode-core = { path = "../matrixcode-core" }
-ratatui = "0.29"
+ratatui = "0.30"
+ratatui-core = "0.1"
 crossterm = { workspace = true, features = ["event-stream"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
+tui-markdown = "0.3"
 
 [dev-dependencies]
 tokio-test = { workspace = true }

@@ -187,6 +187,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_max_tokens = cli.max_tokens;
     let agent_restored_messages = restored_messages.clone();
     let agent_project_path = project_path.clone();
+    let agent_approve_mode = config.approve_mode.as_ref()
+        .map(|m| matrixcode_core::approval::ApproveMode::from_str(m))
+        .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
 
     // Spawn Agent task with real Agent
     let _agent_task = rt.spawn(async move {
@@ -219,6 +222,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             .think(agent_think)
             .tools(all_tools())
             .event_tx(agent_event_tx.clone())
+            .approve_mode(agent_approve_mode)
             .build();
 
         // Restore messages from pre-loaded session
