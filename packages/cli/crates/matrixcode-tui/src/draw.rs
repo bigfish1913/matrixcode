@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::types::{Activity, ApproveMode, Role};
-use crate::utils::{truncate, wrap_line, fmt_tokens, progress_bar};
+use crate::utils::{truncate, fmt_tokens, progress_bar};
 use crate::markdown::render_markdown;
 use crate::app::TuiApp;
 use crate::SPINNER;
@@ -68,15 +68,26 @@ impl TuiApp {
         
         let mut parts: Vec<Span> = vec![
             Span::styled(
-                format!("in {} / out {} (session: {})", 
+                format!("api:{} ", self.api_calls),
+                Style::default().fg(Color::Magenta)
+            ),
+            Span::styled(
+                format!("in {} / out {}", 
                     fmt_tokens(self.tokens_in), 
-                    fmt_tokens(self.tokens_out),
-                    fmt_tokens(self.session_total_out)
+                    fmt_tokens(self.tokens_out)
                 ),
                 Style::default().fg(Color::Gray)
             ),
             Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
         ];
+        
+        // Show compression count if any
+        if self.compressions > 0 {
+            parts.push(Span::styled(
+                format!("compress:{} ", self.compressions),
+                Style::default().fg(Color::Yellow)
+            ));
+        }
         
         parts.push(Span::styled(
             format!("cache r/w {}/{}", fmt_tokens(self.cache_read), fmt_tokens(self.cache_created)),
@@ -85,14 +96,18 @@ impl TuiApp {
         parts.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
         
         parts.push(Span::styled(
-            format!("ctx {} / {} ({:.1}%) {}", 
-                fmt_tokens(self.tokens_in),
-                fmt_tokens(self.context_size),
-                context_pct,
-                bar
-            ),
+            format!("ctx {:.0}% {}", context_pct, bar),
             Style::default().fg(ctx_color)
         ));
+        
+        // Show tool count if any
+        if self.tool_calls > 0 {
+            parts.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            parts.push(Span::styled(
+                format!("tools:{}", self.tool_calls),
+                Style::default().fg(Color::Blue)
+            ));
+        }
         
         f.render_widget(Paragraph::new(Line::from(parts)), area);
     }
@@ -144,29 +159,22 @@ impl TuiApp {
             ]));
             
             if matches!(msg.role, Role::Thinking) {
+                // Thinking uses markdown rendering with dim style
+                let md_lines = render_markdown(&msg.content, max_w);
                 if self.thinking_collapsed {
-                    for line in msg.content.lines().take(2) {
-                        for wrapped in wrap_line(line, max_w) {
-                            lines.push(Line::styled(
-                                format!("  {}", wrapped),
-                                Style::default().fg(Color::DarkGray)
-                            ));
-                        }
+                    // Show only first 2 lines when collapsed
+                    for line in md_lines.iter().take(2) {
+                        lines.push(line.clone().style(Style::default().fg(Color::DarkGray)));
                     }
-                    if msg.content.lines().count() > 2 {
+                    if md_lines.len() > 2 {
                         lines.push(Line::styled(
-                            format!("  ... ({} lines)", msg.content.lines().count()),
+                            format!("  ... ({} more lines)", md_lines.len() - 2),
                             Style::default().fg(Color::DarkGray)
                         ));
                     }
                 } else {
-                    for line in msg.content.lines() {
-                        for wrapped in wrap_line(line, max_w) {
-                            lines.push(Line::styled(
-                                format!("  {}", wrapped),
-                                Style::default().fg(Color::DarkGray)
-                            ));
-                        }
+                    for line in md_lines {
+                        lines.push(line.style(Style::default().fg(Color::DarkGray)));
                     }
                 }
             } else {
@@ -186,36 +194,28 @@ impl TuiApp {
             lines.push(Line::raw(""));
         }
 
-        // Current thinking (streaming)
+        // Current thinking (streaming) - markdown rendered
         if !self.thinking.is_empty() {
             lines.push(Line::from(vec![
                 Span::styled("💭 ", Style::default().fg(Color::Magenta)),
                 Span::styled("Thinking", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
             ]));
             
+            let md_lines = render_markdown(&self.thinking, max_w);
             if self.thinking_collapsed {
-                for line in self.thinking.lines().take(1) {
-                    for wrapped in wrap_line(line, max_w) {
-                        lines.push(Line::styled(
-                            format!("  {}", wrapped),
-                            Style::default().fg(Color::DarkGray)
-                        ));
-                    }
+                // Show only first line when collapsed
+                for line in md_lines.iter().take(1) {
+                    lines.push(line.clone().style(Style::default().fg(Color::DarkGray)));
                 }
-                if self.thinking.lines().count() > 1 {
+                if md_lines.len() > 1 {
                     lines.push(Line::styled(
-                        format!("  ... ({} lines)", self.thinking.lines().count()),
+                        format!("  ... ({} more lines)", md_lines.len() - 1),
                         Style::default().fg(Color::DarkGray)
                     ));
                 }
             } else {
-                for line in self.thinking.lines() {
-                    for wrapped in wrap_line(line, max_w) {
-                        lines.push(Line::styled(
-                            format!("  {}", wrapped),
-                            Style::default().fg(Color::DarkGray)
-                        ));
-                    }
+                for line in md_lines {
+                    lines.push(line.style(Style::default().fg(Color::DarkGray)));
                 }
             }
             lines.push(Line::raw(""));

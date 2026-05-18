@@ -6,23 +6,6 @@ pub fn truncate(s: &str, n: usize) -> String {
     else { s.chars().take(n.saturating_sub(3)).collect::<String>() + "..." }
 }
 
-/// Wrap a long line into multiple lines at char boundary
-pub fn wrap_line(s: &str, max_w: usize) -> Vec<String> {
-    if max_w == 0 { return vec![s.to_string()]; }
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= max_w {
-        return vec![s.to_string()];
-    }
-    let mut result = Vec::new();
-    let mut start = 0;
-    while start < chars.len() {
-        let end = (start + max_w).min(chars.len());
-        result.push(chars[start..end].iter().collect());
-        start = end;
-    }
-    result
-}
-
 /// Format token count for display
 pub fn fmt_tokens(n: u64) -> String {
     if n < 1_000 { n.to_string() }

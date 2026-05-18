@@ -29,6 +29,11 @@ pub struct TuiApp {
     pub(crate) cache_read: u64,
     pub(crate) cache_created: u64,
     pub(crate) context_size: u64,
+    // Debug stats
+    pub(crate) api_calls: u64,
+    pub(crate) compressions: u64,
+    pub(crate) memory_saves: u64,
+    pub(crate) tool_calls: u64,
     // UI state
     pub(crate) frame: usize,
     pub(crate) last_anim: Instant,
@@ -70,6 +75,10 @@ impl TuiApp {
             cache_read: 0,
             cache_created: 0,
             context_size: 200_000,
+            api_calls: 0,
+            compressions: 0,
+            memory_saves: 0,
+            tool_calls: 0,
             frame: 0,
             last_anim: Instant::now(),
             show_welcome: true,
@@ -300,16 +309,13 @@ impl TuiApp {
     fn on_mouse(&mut self, m: MouseEvent) {
         match m.kind {
             MouseEventKind::ScrollUp => {
-                // 向上滚动（查看历史）
+                // 向上滚动（查看更早的内容）- 减少 offset
                 self.auto_scroll = false;
-                self.scroll_offset = self.scroll_offset.saturating_add(3);
+                self.scroll_offset = self.scroll_offset.saturating_sub(3);
             }
             MouseEventKind::ScrollDown => {
-                // 向下滚动（查看最新）
-                self.scroll_offset = self.scroll_offset.saturating_sub(3);
-                if self.scroll_offset == 0 {
-                    self.auto_scroll = true;
-                }
+                // 向下滚动（查看更新的内容）- 增加 offset
+                self.scroll_offset = self.scroll_offset.saturating_add(3);
             }
             _ => {}
         }
@@ -571,6 +577,32 @@ impl TuiApp {
                     // 累积 cache 数据
                     self.cache_read += cache_read_input_tokens.unwrap_or(0);
                     self.cache_created += cache_creation_input_tokens.unwrap_or(0);
+                    // API call count
+                    self.api_calls += 1;
+                }
+            }
+            EventType::CompressionCompleted => {
+                if let Some(EventData::Compression { original_tokens, compressed_tokens, ratio }) = e.data {
+                    self.compressions += 1;
+                    // Log compression info to messages (brief)
+                    self.messages.push(Message { 
+                        role: Role::System, 
+                        content: format!("📦 Context compressed: {} → {} tokens ({:.0}% saved)", 
+                            fmt_tokens(original_tokens), 
+                            fmt_tokens(compressed_tokens), 
+                            (1.0 - ratio) * 100.0)
+                    });
+                }
+            }
+            EventType::MemoryLoaded => {
+                if let Some(EventData::Memory { summary, entries_count }) = e.data {
+                    self.memory_saves += 1;
+                    if entries_count > 0 {
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: format!("🧠 Memory loaded: {} entries", entries_count)
+                        });
+                    }
                 }
             }
             EventType::SessionStarted => self.activity = Activity::Thinking,
