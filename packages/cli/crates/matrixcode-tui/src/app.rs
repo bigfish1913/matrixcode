@@ -165,16 +165,22 @@ impl AppState {
                 return;
             }
         }
-        // Create new message if no existing one
+        // Create new message if no existing one or last block is not Text
         self.messages.push(OutputMessage::assistant(text.to_string()));
     }
 
     /// Add thinking block
     pub fn append_thinking(&mut self, text: &str) {
-        self.messages.push(OutputMessage::new(
-            Role::Assistant,
-            vec![OutputBlock::Thinking(text.to_string())],
-        ));
+        if let Some(last) = self.messages.last_mut() {
+            // Append thinking to existing message
+            last.content.push(OutputBlock::Thinking(text.to_string()));
+        } else {
+            // Create new message if none exists
+            self.messages.push(OutputMessage::new(
+                Role::Assistant,
+                vec![OutputBlock::Thinking(text.to_string())],
+            ));
+        }
     }
 
     /// Add tool result
@@ -203,9 +209,9 @@ impl AppState {
 
     /// Navigate history up
     pub fn history_up(&mut self) {
-        if !self.input_history.is_empty() && self.history_index < self.input_history.len() - 1 {
+        if !self.input_history.is_empty() && self.history_index < self.input_history.len() {
             self.history_index += 1;
-            if let Some(text) = self.input_history.iter().rev().nth(self.history_index) {
+            if let Some(text) = self.input_history.iter().rev().nth(self.history_index - 1) {
                 self.input_buffer = text.clone();
             }
         }
@@ -215,12 +221,11 @@ impl AppState {
     pub fn history_down(&mut self) {
         if self.history_index > 0 {
             self.history_index -= 1;
-            if let Some(text) = self.input_history.iter().rev().nth(self.history_index) {
+            if self.history_index == 0 {
+                self.input_buffer.clear();
+            } else if let Some(text) = self.input_history.iter().rev().nth(self.history_index - 1) {
                 self.input_buffer = text.clone();
             }
-        } else if self.history_index == 0 {
-            self.history_index = 0;
-            self.input_buffer.clear();
         }
     }
 
@@ -685,7 +690,7 @@ mod tests {
         state.history_index = 2;
         state.history_down();
         assert_eq!(state.history_index, 1);
-        assert_eq!(state.input_buffer, "cmd2");
+        assert_eq!(state.input_buffer, "cmd3");  // Going down shows newer command
     }
 
     #[test]
