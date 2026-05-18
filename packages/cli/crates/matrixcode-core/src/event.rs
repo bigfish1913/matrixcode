@@ -33,6 +33,7 @@ pub enum EventType {
     CompressionCompleted,
     MemoryLoaded,
     MemoryDetected,  // Memory extracted from conversation
+    KeywordsExtracted,  // Keywords extracted from context (for debug)
     Error,
     Usage,
     Progress,
@@ -53,6 +54,7 @@ pub enum EventData {
     Progress { message: String, percentage: Option<u8> },
     Compression { original_tokens: u64, compressed_tokens: u64, ratio: f32 },
     Memory { summary: String, entries_count: usize },
+    Keywords { keywords: Vec<String>, source: String },  // Extracted keywords
     AskQuestion { question: String, options: Option<serde_json::Value> },
 }
 

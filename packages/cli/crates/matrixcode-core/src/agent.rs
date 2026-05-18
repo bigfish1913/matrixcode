@@ -340,91 +340,134 @@ impl Agent {
     async fn call_streaming(&mut self, request: &ChatRequest) -> Result<ChatResponse> {
         use crate::providers::StreamEvent;
         
-        let mut rx = self.provider.chat_stream(request.clone()).await?;
-        let mut response_content: Vec<ContentBlock> = Vec::new();
-        let mut current_text = String::new();
-        let mut current_thinking = String::new();
-        let mut usage = Usage {
-            input_tokens: 0,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        };
+        const MAX_RETRIES: u32 = 5;
+        const RETRY_DELAY_MS: u64 = 1000;  // 1 second base delay
+        
+        let mut attempt = 0;
+        
+        loop {
+            attempt += 1;
+            
+            // Try to start streaming
+            let rx_result = self.provider.chat_stream(request.clone()).await;
+            
+            match rx_result {
+                Ok(mut rx) => {
+                    // Successfully started streaming
+                    let mut response_content: Vec<ContentBlock> = Vec::new();
+                    let mut current_text = String::new();
+                    let mut current_thinking = String::new();
+                    let mut usage = Usage {
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_creation_input_tokens: 0,
+                        cache_read_input_tokens: 0,
+                    };
 
-        while let Some(event) = rx.recv().await {
-            match event {
-                StreamEvent::FirstByte => {
-                    // First byte received, streaming starts
-                }
-                StreamEvent::ThinkingDelta(delta) => {
-                    if current_thinking.is_empty() {
-                        self.emit(AgentEvent::thinking_start())?;
-                    }
-                    current_thinking.push_str(&delta);
-                    self.emit(AgentEvent::thinking_delta(delta, None))?;
-                }
-                StreamEvent::TextDelta(delta) => {
-                    if current_text.is_empty() {
-                        self.emit(AgentEvent::text_start())?;
-                    }
-                    current_text.push_str(&delta);
-                    self.emit(AgentEvent::text_delta(delta))?;
-                }
-                StreamEvent::ToolUseStart { id, name } => {
-                    // Finish any pending text
-                    if !current_text.is_empty() {
-                        self.emit(AgentEvent::text_end())?;
-                        response_content.push(ContentBlock::Text { text: current_text.clone() });
-                        current_text.clear();
-                    }
-                    // Finish any pending thinking
-                    if !current_thinking.is_empty() {
-                        self.emit(AgentEvent::thinking_end())?;
-                        response_content.push(ContentBlock::Thinking {
-                            thinking: current_thinking.clone(),
-                            signature: None,
-                        });
-                        current_thinking.clear();
-                    }
-                    self.emit(AgentEvent::tool_use_start(&id, &name, None))?;
-                }
-                StreamEvent::ToolInputDelta { bytes_so_far: _ } => {
-                    // Tool input progress - could emit progress event
-                }
-                StreamEvent::Done(resp) => {
-                    // Finish any pending text
-                    if !current_text.is_empty() {
-                        self.emit(AgentEvent::text_end())?;
-                        response_content.push(ContentBlock::Text { text: current_text.clone() });
-                    }
-                    // Finish any pending thinking
-                    if !current_thinking.is_empty() {
-                        self.emit(AgentEvent::thinking_end())?;
-                        response_content.push(ContentBlock::Thinking {
-                            thinking: current_thinking.clone(),
-                            signature: None,
-                        });
-                    }
-                    // Add any remaining blocks from response
-                    for block in &resp.content {
-                        if !response_content.iter().any(|b| b == block) {
-                            response_content.push(block.clone());
+                    while let Some(event) = rx.recv().await {
+                        match event {
+                            StreamEvent::FirstByte => {
+                                // First byte received, streaming starts
+                            }
+                            StreamEvent::ThinkingDelta(delta) => {
+                                if current_thinking.is_empty() {
+                                    self.emit(AgentEvent::thinking_start())?;
+                                }
+                                current_thinking.push_str(&delta);
+                                self.emit(AgentEvent::thinking_delta(delta, None))?;
+                            }
+                            StreamEvent::TextDelta(delta) => {
+                                if current_text.is_empty() {
+                                    self.emit(AgentEvent::text_start())?;
+                                }
+                                current_text.push_str(&delta);
+                                self.emit(AgentEvent::text_delta(delta))?;
+                            }
+                            StreamEvent::ToolUseStart { id, name } => {
+                                // Finish any pending text
+                                if !current_text.is_empty() {
+                                    self.emit(AgentEvent::text_end())?;
+                                    response_content.push(ContentBlock::Text { text: current_text.clone() });
+                                    current_text.clear();
+                                }
+                                // Finish any pending thinking
+                                if !current_thinking.is_empty() {
+                                    self.emit(AgentEvent::thinking_end())?;
+                                    response_content.push(ContentBlock::Thinking {
+                                        thinking: current_thinking.clone(),
+                                        signature: None,
+                                    });
+                                    current_thinking.clear();
+                                }
+                                self.emit(AgentEvent::tool_use_start(&id, &name, None))?;
+                            }
+                            StreamEvent::ToolInputDelta { bytes_so_far: _ } => {
+                                // Tool input progress - could emit progress event
+                            }
+                            StreamEvent::Done(resp) => {
+                                // Finish any pending text
+                                if !current_text.is_empty() {
+                                    self.emit(AgentEvent::text_end())?;
+                                    response_content.push(ContentBlock::Text { text: current_text.clone() });
+                                }
+                                // Finish any pending thinking
+                                if !current_thinking.is_empty() {
+                                    self.emit(AgentEvent::thinking_end())?;
+                                    response_content.push(ContentBlock::Thinking {
+                                        thinking: current_thinking.clone(),
+                                        signature: None,
+                                    });
+                                }
+                                // Add any remaining blocks from response
+                                for block in &resp.content {
+                                    if !response_content.iter().any(|b| b == block) {
+                                        response_content.push(block.clone());
+                                    }
+                                }
+                                usage = resp.usage;
+                            }
+                            StreamEvent::Error(msg) => {
+                                // Stream error - might be retryable
+                                if attempt < MAX_RETRIES {
+                                    self.emit(AgentEvent::progress(
+                                        format!("⚠️ Stream error, retrying ({}/{}): {}", attempt, MAX_RETRIES, &msg),
+                                        None,
+                                    ))?;
+                                    // Exponential backoff
+                                    let delay = RETRY_DELAY_MS * (1 << (attempt - 1));
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                                    continue;  // Retry the outer loop
+                                } else {
+                                    self.emit(AgentEvent::error(msg.clone(), None, None))?;
+                                    return Err(anyhow::anyhow!("Stream error after {} retries: {}", MAX_RETRIES, msg));
+                                }
+                            }
                         }
                     }
-                    usage = resp.usage;
+
+                    return Ok(ChatResponse {
+                        content: response_content,
+                        stop_reason: StopReason::EndTurn,
+                        usage,
+                    });
                 }
-                StreamEvent::Error(msg) => {
-                    self.emit(AgentEvent::error(msg.clone(), None, None))?;
-                    return Err(anyhow::anyhow!("Stream error: {}", msg));
+                Err(e) => {
+                    // Failed to start streaming
+                    if attempt < MAX_RETRIES {
+                        let error_msg = e.to_string();
+                        self.emit(AgentEvent::progress(
+                            format!("⚠️ API error, retrying ({}/{}): {}", attempt, MAX_RETRIES, &error_msg),
+                            None,
+                        ))?;
+                        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                        let delay = RETRY_DELAY_MS * (1 << (attempt - 1));
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                    } else {
+                        return Err(anyhow::anyhow!("API error after {} retries: {}", MAX_RETRIES, e));
+                    }
                 }
             }
         }
-
-        Ok(ChatResponse {
-            content: response_content,
-            stop_reason: StopReason::EndTurn,
-            usage,
-        })
     }
 
     /// Process response and handle tool_use (Text/Thinking events already sent via streaming)
@@ -533,11 +576,21 @@ impl Agent {
                         match rx.recv().await {
                             Some(answer) => {
                                 let answer_lower = answer.trim().to_lowercase();
+                                // Check for abort
+                                if matches!(answer_lower.as_str(), "a" | "abort" | "q" | "quit" | "stop") {
+                                    self.emit(AgentEvent::with_data(
+                                        EventType::Error,
+                                        EventData::Error { message: "Aborted by user".into(), code: None, source: None },
+                                    ))?;
+                                    return Err(anyhow::anyhow!("Session aborted by user"));
+                                }
+                                // Check for approval
                                 let approved = matches!(
                                     answer_lower.as_str(),
-                                    "y" | "yes" | "ok" | "approve"
+                                    "y" | "yes" | "ok" | "approve" | ""
                                 );
                                 if !approved {
+                                    // Rejected - return error to AI so it can try alternative approach
                                     return Err(anyhow::anyhow!(
                                         "Tool '{}' rejected by user (answer: '{}')", name, answer_lower
                                     ));

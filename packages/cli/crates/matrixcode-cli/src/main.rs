@@ -8,11 +8,72 @@ use matrixcode_core::{
     AnthropicProvider,
     SessionManager,
     tools::all_tools,
+    memory::MemoryStorage,
 };
 use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 
-
+// Handle /init commands for project setup
+fn handle_init_command(cmd: &str, project_path: Option<&Path>) -> String {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    let subcmd = parts.get(1).copied().unwrap_or("status");
+    
+    match subcmd {
+        "status" => {
+            // Show current project status
+            if let Some(path) = project_path {
+                let session_file = path.join(".matrix").join("session.json");
+                let memory_file = path.join(".matrix").join("memory.json");
+                let has_session = session_file.exists();
+                let has_memory = memory_file.exists();
+                let memory_info = if has_memory {
+                    if let Ok(storage) = MemoryStorage::new(Some(path)) {
+                        if let Ok(mem) = storage.load_combined() {
+                            format!("✓ {} entries", mem.entries.len())
+                        } else {
+                            "✓ exists (empty)".into()
+                        }
+                    } else {
+                        "✓ exists".into()
+                    }
+                } else {
+                    "❌ missing".into()
+                };
+                format!(
+                    "📊 Project: {}\n  Session: {}\n  Memory: {}",
+                    path.display(),
+                    if has_session { "✓ exists" } else { "❌ missing" },
+                    memory_info
+                )
+            } else {
+                "⚠️ No project path set. Use: matrixcode --project <path>".into()
+            }
+        }
+        "reset" => {
+            // Reset project configuration
+            if let Some(path) = project_path {
+                let matrix_dir = path.join(".matrix");
+                if matrix_dir.exists() {
+                    let mut cleared = 0;
+                    if let Ok(entries) = std::fs::read_dir(&matrix_dir) {
+                        for entry in entries.flatten() {
+                            let _ = std::fs::remove_file(entry.path());
+                            cleared += 1;
+                        }
+                    }
+                    format!("✓ Reset project: {} files cleared from {}", cleared, path.display())
+                } else {
+                    format!("⚠️ No .matrix directory found at {}", path.display())
+                }
+            } else {
+                "⚠️ No project path set. Cannot reset.".into()
+            }
+        }
+        _ => {
+            "⚠️ Unknown init command. Use: /init status, /init reset".into()
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "matrixcode")]
@@ -199,8 +260,22 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         // Load memory
         let project_path_ref = agent_project_path.as_deref();
         let mut memory_storage = matrixcode_core::memory::MemoryStorage::new(project_path_ref).ok();
-        let memory_summary = memory_storage.as_ref()
-            .and_then(|ms| ms.load_combined().ok())
+        let memory = memory_storage.as_ref()
+            .and_then(|ms| ms.load_combined().ok());
+        
+        // Send MemoryLoaded event if we have entries
+        if let Some(ref mem) = memory
+            && !mem.entries.is_empty() {
+            let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                matrixcode_core::EventType::MemoryLoaded,
+                matrixcode_core::EventData::Memory {
+                    summary: mem.generate_prompt_summary(10),
+                    entries_count: mem.entries.len(),
+                },
+            )).await;
+        }
+        
+        let memory_summary = memory
             .map(|mem| mem.generate_prompt_summary(20))
             .unwrap_or_default();
 
@@ -249,11 +324,93 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 continue;
             }
 
+            // Extract keywords from user message for debug
+            let keywords = matrixcode_core::memory::extract_context_keywords(&msg);
+            if !keywords.is_empty() {
+                matrixcode_core::debug_keywords!(&keywords, &msg);
+                // Send KeywordsExtracted event to TUI
+                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                    matrixcode_core::EventType::KeywordsExtracted,
+                    matrixcode_core::EventData::Keywords {
+                        keywords: keywords.clone(),
+                        source: msg.clone(),
+                    },
+                )).await;
+            }
+
             // Handle special commands from TUI
             if msg == "/new" {
                 agent.clear_history();
                 if let Some(ref mut mgr) = session_mgr {
                     let _ = mgr.start_new(agent_project_path.as_deref());
+                }
+                // Send session ended event
+                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::session_ended()).await;
+                continue;
+            }
+            
+            // Handle /init commands
+            if msg.starts_with("/init") {
+                let result = handle_init_command(&msg, agent_project_path.as_deref());
+                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                    matrixcode_core::EventType::Progress,
+                    matrixcode_core::EventData::Progress {
+                        message: result,
+                        percentage: None,
+                    },
+                )).await;
+                continue;
+            }
+            if msg == "/compact" || msg == "/compress" {
+                // Manual compression request
+                let original_tokens = matrixcode_core::compress::estimate_total_tokens(agent.get_messages());
+                if original_tokens > 100 {
+                    // Send compression triggered event
+                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                        matrixcode_core::EventType::CompressionTriggered,
+                        matrixcode_core::EventData::Progress {
+                            message: format!("Compressing {} tokens...", original_tokens),
+                            percentage: None,
+                        },
+                    )).await;
+                    
+                    // Perform compression
+                    match matrixcode_core::compress::compress_messages(
+                        agent.get_messages(),
+                        matrixcode_core::compress::CompressionStrategy::SlidingWindow,
+                        &matrixcode_core::compress::CompressionConfig::default(),
+                    ) {
+                        Ok(compressed) => {
+                            let compressed_tokens = matrixcode_core::compress::estimate_total_tokens(&compressed);
+                            agent.set_messages(compressed);
+                            let ratio = compressed_tokens as f32 / original_tokens as f32;
+                            
+                            // Send completion event
+                            let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                                matrixcode_core::EventType::CompressionCompleted,
+                                matrixcode_core::EventData::Compression {
+                                    original_tokens: original_tokens as u64,
+                                    compressed_tokens: compressed_tokens as u64,
+                                    ratio,
+                                },
+                            )).await;
+                            
+                            // Debug log
+                            matrixcode_core::debug_compress!(original_tokens as u32, compressed_tokens, ratio);
+                        }
+                        Err(e) => {
+                            let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
+                                format!("Compression failed: {}", e),
+                                None,
+                                None,
+                            )).await;
+                        }
+                    }
+                } else {
+                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                        "Context too small, no need to compress",
+                        None,
+                    )).await;
                 }
                 continue;
             }
@@ -343,8 +500,12 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Create App and run it (TUI runs in sync context, but tokio channels are usable)
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token)
         .with_ask_channel(ask_tx)
-        .with_config(&model, cli.think, cli.max_tokens, None)
-        .with_session_messages(&restored_messages);
+        .with_config(&model, cli.think, cli.max_tokens, None);
+    
+    // Load restored messages if any
+    if !restored_messages.is_empty() {
+        app.load_messages(restored_messages);
+    }
     let result = app.run(&mut terminal);
 
     // Restore terminal

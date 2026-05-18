@@ -6,6 +6,50 @@ pub fn truncate(s: &str, n: usize) -> String {
     else { s.chars().take(n.saturating_sub(3)).collect::<String>() + "..." }
 }
 
+/// Word wrap text to specified width
+/// Returns vector of lines, each at most `width` characters
+pub fn word_wrap(text: &str, width: usize) -> Vec<String> {
+    if width <= 2 { return text.lines().map(|s| s.to_string()).collect(); }
+    
+    let mut result: Vec<String> = Vec::new();
+    
+    for line in text.lines() {
+        if line.is_empty() {
+            result.push(String::new());
+            continue;
+        }
+        
+        if line.chars().count() <= width {
+            result.push(line.to_string());
+            continue;
+        }
+        
+        // Wrap long line
+        let mut current = String::new();
+        let mut visual_width = 0;
+        
+        for ch in line.chars() {
+            // Estimate visual width: Chinese = 2, ASCII = 1
+            let ch_width = if ch > '\u{7F}' { 2 } else { 1 };
+            
+            if visual_width + ch_width > width && !current.is_empty() {
+                result.push(current.clone());
+                current.clear();
+                visual_width = 0;
+            }
+            
+            current.push(ch);
+            visual_width += ch_width;
+        }
+        
+        if !current.is_empty() {
+            result.push(current);
+        }
+    }
+    
+    result
+}
+
 /// Format token count for display
 pub fn fmt_tokens(n: u64) -> String {
     if n < 1_000 { n.to_string() }

@@ -84,6 +84,18 @@ impl DebugLog {
         self.write(&msg);
     }
 
+    /// Log keyword extraction
+    pub fn keywords_extracted(&self, keywords: &[String], source: &str) {
+        let msg = format!(
+            "[{}] KEYWORDS: {} extracted from {}chars | keywords: {}",
+            Self::timestamp(), 
+            keywords.len(), 
+            source.len(),
+            keywords.join(", ")
+        );
+        self.write(&msg);
+    }
+
     /// Log tool execution
     pub fn tool_call(&self, tool: &str, input_preview: &str, result_preview: &str) {
         let count = TOOL_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
@@ -193,6 +205,13 @@ macro_rules! debug_compress {
 macro_rules! debug_memory {
     ($entries:expr, $len:expr) => {
         $crate::debug::debug_log().memory_save($entries, $len)
+    };
+}
+
+#[macro_export]
+macro_rules! debug_keywords {
+    ($keywords:expr, $source:expr) => {
+        $crate::debug::debug_log().keywords_extracted($keywords, $source)
     };
 }
 

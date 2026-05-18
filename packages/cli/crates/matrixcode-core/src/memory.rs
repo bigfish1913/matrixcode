@@ -1628,7 +1628,8 @@ pub fn calculate_similarity(a: &str, b: &str) -> f64 {
 
 /// Extract meaningful keywords from conversation context.
 /// Filters out common stop words and short tokens.
-fn extract_context_keywords(context: &str) -> Vec<String> {
+/// Public for external use (e.g., TUI keyword display).
+pub fn extract_context_keywords(context: &str) -> Vec<String> {
     use std::collections::HashSet;
     
     // Common stop words (Chinese + English)

@@ -444,6 +444,15 @@ async fn handle_sse_event(
             // `output_tokens` starts near 0 and is updated by
             // subsequent `message_delta` events.
             *usage = merge_usage(usage.clone(), &evt["message"]["usage"]);
+            debug!(
+                "message_start: usage_json={}",
+                serde_json::to_string(&evt["message"]["usage"]).unwrap_or_default()
+            );
+            debug!(
+                "message_start parsed: input={}, output={}, cache_read={}, cache_created={}",
+                usage.input_tokens, usage.output_tokens,
+                usage.cache_read_input_tokens, usage.cache_creation_input_tokens
+            );
         }
         "content_block_start" => {
             let idx = evt["index"].as_u64().unwrap_or(0) as usize;
@@ -552,6 +561,11 @@ async fn handle_sse_event(
             // counts for the current message — most notably
             // the final `output_tokens`.
             *usage = merge_usage(usage.clone(), &evt["usage"]);
+            debug!(
+                "message_delta: input={}, output={}, cache_read={}, cache_created={}",
+                usage.input_tokens, usage.output_tokens,
+                usage.cache_read_input_tokens, usage.cache_creation_input_tokens
+            );
         }
         "message_stop" => {
             debug!(
@@ -562,6 +576,10 @@ async fn handle_sse_event(
                     StopReason::MaxTokens => "max_tokens",
                 },
                 usage.output_tokens
+            );
+            debug!(
+                "message_stop final usage: cache_read={}, cache_created={}",
+                usage.cache_read_input_tokens, usage.cache_creation_input_tokens
             );
             let _ = tx
                 .send(StreamEvent::Done(finalize_incomplete_stream(

@@ -4,7 +4,9 @@ use ratatui::{
 };
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
-/// Render markdown with table support
+use crate::utils::word_wrap;
+
+/// Render markdown with table support and word wrap
 pub fn render_markdown(text: &str, max_w: usize) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     
@@ -93,10 +95,50 @@ pub fn render_markdown(text: &str, max_w: usize) -> Vec<Line<'static>> {
         if chunk.trim().is_empty() {
             continue;
         }
-        let md_lines = tui_markdown::from_str(&chunk);
+        
+        // Pre-wrap long lines before rendering
+        let wrapped_chunk = word_wrap_markdown(&chunk, max_w);
+        
+        // Process and render markdown with heading styling
+        let md_lines = tui_markdown::from_str(&wrapped_chunk);
         for line in md_lines.lines {
             let content = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-            if !content.trim().starts_with("```") {
+            
+            // Skip code fence markers
+            if content.trim().starts_with("```") {
+                continue;
+            }
+            
+            // Check for headings and apply style
+            let trimmed = content.trim();
+            let heading_level = if trimmed.starts_with("###### ") { 6 }
+                               else if trimmed.starts_with("##### ") { 5 }
+                               else if trimmed.starts_with("#### ") { 4 }
+                               else if trimmed.starts_with("### ") { 3 }
+                               else if trimmed.starts_with("## ") { 2 }
+                               else if trimmed.starts_with("# ") { 1 }
+                               else { 0 };
+            
+            if heading_level > 0 {
+                // Apply heading style based on level
+                let heading_style = match heading_level {
+                    1 => Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    2 => Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+                    3 => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    4 => Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    5 => Style::default().fg(Color::Magenta),
+                    6 => Style::default().fg(Color::DarkGray),
+                    _ => Style::default(),
+                };
+                
+                // Remove heading marker (#) and render with style
+                let heading_text = trimmed[heading_level + 1..].trim();  // Skip "# " (level + 1 space)
+                lines.push(Line::styled(
+                    format!("  {}", heading_text),
+                    heading_style
+                ));
+                lines.push(Line::raw(""));  // Add spacing after heading
+            } else {
                 // Convert to owned Line
                 let owned_spans: Vec<Span<'static>> = line.spans.iter().map(|s| {
                     Span::styled(s.content.to_string(), s.style)
@@ -107,6 +149,52 @@ pub fn render_markdown(text: &str, max_w: usize) -> Vec<Line<'static>> {
     }
     
     lines
+}
+
+/// Word wrap markdown content while preserving structure
+fn word_wrap_markdown(text: &str, width: usize) -> String {
+    if width == 0 { return text.to_string(); }
+    
+    let mut result = String::new();
+    let mut in_code_block = false;
+    
+    for line in text.lines() {
+        // Check for code block markers
+        if line.trim().starts_with("```") {
+            in_code_block = !in_code_block;
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+        
+        // Don't wrap code block content
+        if in_code_block {
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+        
+        // Don't wrap headings, list markers, blockquotes
+        let is_special = line.trim().starts_with('#') 
+            || line.trim().starts_with('-') 
+            || line.trim().starts_with('*')
+            || line.trim().starts_with('>')
+            || line.trim().is_empty();
+        
+        if is_special || line.chars().count() <= width {
+            result.push_str(line);
+            result.push('\n');
+        } else {
+            // Wrap long paragraph lines
+            let wrapped = word_wrap(line, width);
+            for w in wrapped {
+                result.push_str(&w);
+                result.push('\n');
+            }
+        }
+    }
+    
+    result
 }
 
 fn reconstruct_event(s: &mut String, event: Event<'_>) {
@@ -285,7 +373,7 @@ fn pad_cell(s: &str, width: usize) -> String {
         chars.iter().collect()
     } else {
         let mut result: String = chars.iter().collect();
-        result.extend(std::iter::repeat(' ').take(width - len));
+        result.extend(std::iter::repeat_n(' ', width - len));
         result
     }
 }
@@ -328,9 +416,42 @@ mod tests {
         let md = "# Heading\n\nContent";
         let lines = render_markdown(md, 80);
         let has_heading = lines.iter().any(|l| {
-            l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains("Heading")
+            let content = l.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            content.contains("Heading")
         });
         assert!(has_heading);
+        
+        // Check heading is styled (cyan bold for level 1)
+        let heading_line = lines.iter().find(|l| {
+            l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().contains("Heading")
+        });
+        if let Some(line) = heading_line {
+            // Should not contain # marker
+            let content = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            assert!(!content.trim().starts_with("#"), "Heading should not have # marker");
+        }
+    }
+    
+    #[test]
+    fn test_heading_levels() {
+        let md = "# Title 1\n## Title 2\n### Title 3\n#### Title 4\n##### Title 5\n###### Title 6";
+        let lines = render_markdown(md, 80);
+        
+        // All headings should be present without # markers
+        for i in 1..=6 {
+            let has_title = lines.iter().any(|l| {
+                let content = l.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+                content.contains(&format!("Title {}", i))
+            });
+            assert!(has_title, "Should have Title {}", i);
+        }
+        
+        // No # markers should appear
+        for line in &lines {
+            let content = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            let trimmed = content.trim();
+            assert!(!trimmed.starts_with("# "), "Should not have # markers");
+        }
     }
     
     #[test]
