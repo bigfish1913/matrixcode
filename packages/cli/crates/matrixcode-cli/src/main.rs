@@ -154,6 +154,29 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Create cancellation token
     let cancel_token = CancellationToken::new();
 
+    // Load session BEFORE spawning agent task so TUI can also display restored messages
+    let project_path = std::env::current_dir().ok();
+    let (restored_messages, session_mgr_state) = {
+        let mut mgr = SessionManager::new().ok();
+        let mut messages = Vec::new();
+        
+        if let Some(ref mut mgr) = mgr {
+            if cli.continue_session || cli.resume.is_some() {
+                let session = if let Some(ref query) = cli.resume {
+                    mgr.resume(query, project_path.as_deref()).ok().flatten()
+                } else {
+                    mgr.continue_last(project_path.as_deref()).ok().flatten()
+                };
+                if let Some(s) = session {
+                    messages = s.messages.clone();
+                }
+            } else {
+                let _ = mgr.start_new(project_path.as_deref());
+            }
+        }
+        (messages, mgr)
+    };
+
     // Clone things needed in the agent task
     let agent_cancel = cancel_token.clone();
     let agent_event_tx = event_tx.clone();
@@ -162,44 +185,48 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_base_url = base_url.clone();
     let agent_think = cli.think;
     let agent_max_tokens = cli.max_tokens;
-    let continue_session = cli.continue_session;
-    let resume_query = cli.resume.clone();
+    let agent_restored_messages = restored_messages.clone();
+    let agent_project_path = project_path.clone();
 
     // Spawn Agent task with real Agent
     let _agent_task = rt.spawn(async move {
         // Create provider
         let provider = AnthropicProvider::new(agent_api_key, agent_model, agent_base_url);
 
+        // Load memory
+        let project_path_ref = agent_project_path.as_deref();
+        let mut memory_storage = matrixcode_core::memory::MemoryStorage::new(project_path_ref).ok();
+        let memory_summary = memory_storage.as_ref()
+            .and_then(|ms| ms.load_combined().ok())
+            .map(|mem| mem.generate_prompt_summary(20))
+            .unwrap_or_default();
+
+        // Build system prompt with memory
+        let system_prompt = if memory_summary.is_empty() {
+            "You are a helpful AI coding assistant named MatrixCode.".to_string()
+        } else {
+            format!(
+                "You are a helpful AI coding assistant named MatrixCode.\n\n{}", 
+                memory_summary
+            )
+        };
+
         // Build agent with external event sender
         let mut agent = AgentBuilder::new(Box::new(provider))
-            .system_prompt("You are a helpful AI coding assistant named MatrixCode.")
+            .system_prompt(system_prompt)
             .max_tokens(agent_max_tokens)
             .think(agent_think)
             .tools(all_tools())
             .event_tx(agent_event_tx.clone())
             .build();
 
-        // Session management
-        let project_path = std::env::current_dir().ok();
-        let mut session_mgr = SessionManager::new().ok();
-        
-        // Create or continue session, restore messages
-        if let Some(ref mut mgr) = session_mgr {
-            if continue_session || resume_query.is_some() {
-                // Load existing session
-                let session = if let Some(ref query) = resume_query {
-                    mgr.resume(query, project_path.as_deref()).ok().flatten()
-                } else {
-                    mgr.continue_last(project_path.as_deref()).ok().flatten()
-                };
-                if let Some(s) = session {
-                    agent.set_messages(s.messages.clone());
-                }
-            } else {
-                // Start new session
-                let _ = mgr.start_new(project_path.as_deref());
-            }
+        // Restore messages from pre-loaded session
+        if !agent_restored_messages.is_empty() {
+            agent.set_messages(agent_restored_messages);
         }
+
+        // Re-open session manager inside the task for saving
+        let mut session_mgr = session_mgr_state;
 
         // Set cancel token
         agent.set_cancel_token(agent_cancel.clone());
@@ -221,7 +248,17 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             if msg == "/new" {
                 agent.clear_history();
                 if let Some(ref mut mgr) = session_mgr {
-                    let _ = mgr.start_new(project_path.as_deref());
+                    let _ = mgr.start_new(agent_project_path.as_deref());
+                }
+                continue;
+            }
+            if msg.starts_with("/mode:") {
+                let mode = &msg[6..];
+                match mode {
+                    "ask" => agent.set_approve_mode(matrixcode_core::approval::ApproveMode::Ask),
+                    "auto" => agent.set_approve_mode(matrixcode_core::approval::ApproveMode::Auto),
+                    "strict" => agent.set_approve_mode(matrixcode_core::approval::ApproveMode::Strict),
+                    _ => {}
                 }
                 continue;
             }
@@ -235,6 +272,34 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                         mgr.set_messages(agent.get_messages().to_vec());
                         mgr.update_stats(input_tokens as u32, output_tokens);
                         let _ = mgr.save_current();
+                    }
+                    
+                    // Auto-detect and save memories
+                    if let Some(ref mut ms) = memory_storage {
+                        let messages = agent.get_messages();
+                        // Detect from last assistant message
+                        if let Some(last_msg) = messages.last() {
+                            let text = match &last_msg.content {
+                                matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                    blocks.iter().filter_map(|b| match b {
+                                        matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                        _ => None,
+                                    }).collect::<Vec<_>>().join("\n")
+                                }
+                            };
+                            let detected = matrixcode_core::memory::detect_memories_from_text(
+                                &text, None
+                            );
+                            if !detected.is_empty() {
+                                if let Ok(mut mem) = ms.load_global() {
+                                    for entry in detected {
+                                        mem.add(entry);
+                                    }
+                                    let _ = ms.save_global(&mem);
+                                }
+                            }
+                        }
                     }
                 }
                 Err(e) => {
@@ -257,7 +322,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Create App and run it (TUI runs in sync context, but tokio channels are usable)
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token)
         .with_ask_channel(ask_tx)
-        .with_config(&model, cli.think, cli.max_tokens);
+        .with_config(&model, cli.think, cli.max_tokens)
+        .with_session_messages(&restored_messages);
     let result = app.run(&mut terminal);
 
     // Restore terminal

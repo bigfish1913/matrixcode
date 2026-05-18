@@ -4,14 +4,14 @@ use anyhow::Result;
 use ratatui::{
     backend::CrosstermBackend,
     crossterm::{
-        event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
+        event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind},
         terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
         execute, cursor::Show,
     },
     layout::{Constraint, Direction, Layout, Rect, Alignment},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Paragraph, Wrap},
+    widgets::Paragraph,
     Terminal,
 };
 use std::io::Stdout;
@@ -39,6 +39,13 @@ enum Activity {
 }
 
 impl Activity {
+    fn spinner(&self, frame: usize) -> String {
+        match self {
+            Activity::Idle => "".into(),
+            _ => SPINNER[frame].to_string(),
+        }
+    }
+
     fn label(&self) -> String {
         match self {
             Activity::Idle => "Ready".into(),
@@ -224,11 +231,48 @@ impl TuiApp {
             exit: false,
             scroll_offset: 0,
             auto_scroll: true,
-            thinking_collapsed: false,
+            thinking_collapsed: true,
             approve_mode: ApproveMode::Ask,
             ask_tx: None,
             waiting_for_ask: false,
             tx, rx, cancel,
+        }
+    }
+
+    /// Load restored messages from session (converts core Message to TUI Message)
+    pub fn load_messages(&mut self, core_messages: Vec<matrixcode_core::Message>) {
+        for msg in core_messages {
+            // Convert MessageContent to String
+            let content = match &msg.content {
+                matrixcode_core::MessageContent::Text(t) => t.clone(),
+                matrixcode_core::MessageContent::Blocks(blocks) => {
+                    // Extract text from content blocks
+                    blocks.iter()
+                        .filter_map(|b| match b {
+                            matrixcode_core::ContentBlock::Text { text } => Some(text.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            };
+            
+            if content.is_empty() { continue; }
+            
+            // Convert core Role to TUI Role
+            let role = match msg.role {
+                matrixcode_core::Role::User => Role::User,
+                matrixcode_core::Role::Assistant => Role::Assistant,
+                matrixcode_core::Role::System => Role::System,
+                matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), is_error: false },
+            };
+            
+            self.messages.push(Message { role, content });
+        }
+        
+        // Hide welcome if we have messages
+        if !self.messages.is_empty() {
+            self.show_welcome = false;
         }
     }
 
@@ -281,7 +325,11 @@ impl TuiApp {
             }
             term.draw(|f| self.draw(f))?;
             if event::poll(Duration::from_millis(16))? {
-                if let Event::Key(k) = event::read()? { self.on_key(k); }
+                match event::read()? {
+                    Event::Key(k) => self.on_key(k),
+                    Event::Mouse(m) => self.on_mouse(m),
+                    _ => {}
+                }
             }
             while let Ok(e) = self.rx.try_recv() { self.on_event(e); }
             if self.exit { break; }
@@ -340,12 +388,12 @@ impl TuiApp {
             KeyCode::Char(c) if self.activity == Activity::Idle => self.input.push(c),
             // Scroll controls (任何时候都可用)
             KeyCode::PageUp => {
-                // 向上滚动（查看历史）- 减小 offset
+                // 向上滚动（查看历史）- 减小 offset（跳过更少行）
                 self.auto_scroll = false;
                 self.scroll_offset = self.scroll_offset.saturating_sub(10);
             }
             KeyCode::PageDown => {
-                // 向下滚动（查看新消息）- 增加 offset
+                // 向下滚动（查看新消息）- 增加 offset（跳过更多行）
                 self.scroll_offset = self.scroll_offset.saturating_add(10);
             }
             KeyCode::Up if k.modifiers.contains(KeyModifiers::ALT) || self.activity != Activity::Idle => {
@@ -370,17 +418,38 @@ impl TuiApp {
             // Toggle approve mode with Shift+Tab or Alt+M
             KeyCode::Tab if k.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.approve_mode = self.approve_mode.next();
+                self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
             }
             // BackTab 是 Shift+Tab 在某些终端中的表示
             KeyCode::BackTab => {
                 self.approve_mode = self.approve_mode.next();
+                self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
             }
             KeyCode::Char('m') if k.modifiers.contains(KeyModifiers::ALT) => {
                 self.approve_mode = self.approve_mode.next();
+                self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
             }
             // Toggle thinking collapse/expand with Alt+T
             KeyCode::Char('t') if k.modifiers.contains(KeyModifiers::ALT) => {
                 self.thinking_collapsed = !self.thinking_collapsed;
+            }
+            _ => {}
+        }
+    }
+
+    fn on_mouse(&mut self, m: MouseEvent) {
+        match m.kind {
+            MouseEventKind::ScrollUp => {
+                // 向上滚动（查看历史）
+                self.auto_scroll = false;
+                self.scroll_offset = self.scroll_offset.saturating_add(3);
+            }
+            MouseEventKind::ScrollDown => {
+                // 向下滚动（查看最新）
+                self.scroll_offset = self.scroll_offset.saturating_sub(3);
+                if self.scroll_offset == 0 {
+                    self.auto_scroll = true;
+                }
             }
             _ => {}
         }
@@ -445,6 +514,8 @@ impl TuiApp {
                             return;
                         }
                     }
+                    // Sync mode to agent
+                    self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
                     self.messages.push(Message { 
                         role: Role::System, 
                         content: format!("✓ Mode set to: {}", self.approve_mode.label())
@@ -621,8 +692,9 @@ impl TuiApp {
                     self.tokens_in = input_tokens;
                     self.tokens_out = output_tokens;
                     self.session_total_out += output_tokens;
-                    self.cache_read = cache_read_input_tokens.unwrap_or(0);
-                    self.cache_created = cache_creation_input_tokens.unwrap_or(0);
+                    // 累积 cache 数据
+                    self.cache_read += cache_read_input_tokens.unwrap_or(0);
+                    self.cache_created += cache_creation_input_tokens.unwrap_or(0);
                 }
             }
             EventType::SessionStarted => self.activity = Activity::Thinking,
@@ -653,15 +725,14 @@ impl TuiApp {
 
     fn draw(&self, f: &mut ratatui::Frame) {
         // Welcome 只在初始时显示，发送消息后隐藏（不占用空间）
-        let welcome_height = if self.show_welcome { 10 } else { 0 };
+        let welcome_height = if self.show_welcome { 8 } else { 0 };
         
+        // 简化布局：Status + Messages + Usage + Input
         let constraints = vec![
-            Constraint::Length(1),           // Status
+            Constraint::Length(1),           // Status (含 spinner)
             Constraint::Length(welcome_height), // Welcome (动态高度)
-            Constraint::Min(10),             // Messages (至少 10 行)
-            Constraint::Length(1),           // Spinner
-            Constraint::Length(1),           // Usage
-            Constraint::Length(1),           // Hints
+            Constraint::Min(5),              // Messages (弹性高度)
+            Constraint::Length(1),           // Usage + Hints
             Constraint::Length(1),           // Input
         ];
 
@@ -677,10 +748,8 @@ impl TuiApp {
         }
         
         self.draw_messages(f, chunks[2]);
-        self.draw_spinner(f, chunks[3]);
-        self.draw_usage(f, chunks[4]);
-        self.draw_hints(f, chunks[5]);
-        self.draw_input(f, chunks[6]);
+        self.draw_usage(f, chunks[3]);
+        self.draw_input(f, chunks[4]);
     }
 
     fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -690,8 +759,9 @@ impl TuiApp {
             Span::styled("│", Style::default().fg(Color::DarkGray)),
             Span::styled(format!(" {} ", self.model), Style::default().fg(Color::White)),
             Span::styled("│", Style::default().fg(Color::DarkGray)),
+            // Activity with spinner inline
             Span::styled(
-                format!(" {} ", self.activity.label()),
+                format!(" {}{} ", self.activity.spinner(self.frame), self.activity.label()),
                 Style::default().fg(self.activity.color())
             ),
             Span::styled("│", Style::default().fg(Color::DarkGray)),
@@ -699,20 +769,17 @@ impl TuiApp {
                 format!(" mode:{} ", self.approve_mode.label()),
                 Style::default().fg(self.approve_mode.color())
             ),
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                format!(" 💭{} ", if self.thinking_collapsed { "▶" } else { "▼" }),
-                Style::default().fg(Color::Magenta)
-            ),
         ];
         
         f.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 
     fn draw_usage(&self, f: &mut ratatui::Frame, area: Rect) {
-        // 始终保留区域，避免布局跳动
+        // Usage + Hints 合并显示
         if self.tokens_in == 0 && self.tokens_out == 0 {
-            f.render_widget(Paragraph::new(Line::raw("")), area);
+            // 只显示 hints
+            let hints = " /help │ PgUp/PgDn: scroll │ Home/End: top/bot │ Alt+T: thinking";
+            f.render_widget(Paragraph::new(Line::styled(hints, Style::default().fg(Color::DarkGray))), area);
             return;
         }
         
@@ -814,38 +881,48 @@ impl TuiApp {
                 Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
             ]));
             
-            // Thinking 内容：默认展开显示全部，可通过 Alt+T 折叠
+            // Thinking 内容：可通过 Alt+T 折叠/展开
             if matches!(msg.role, Role::Thinking) {
                 if self.thinking_collapsed {
-                    // 折叠模式：只显示前2行
                     for line in msg.content.lines().take(2) {
-                        lines.push(Line::styled(
-                            format!("  {}", truncate(line, max_w)),
-                            Style::default().fg(Color::DarkGray)
-                        ));
+                        // 自动换行而不是截断
+                        for wrapped in wrap_line(line, max_w) {
+                            lines.push(Line::styled(
+                                format!("  {}", wrapped),
+                                Style::default().fg(Color::DarkGray)
+                            ));
+                        }
                     }
                     if msg.content.lines().count() > 2 {
                         lines.push(Line::styled(
-                            format!("  ▶ ... ({} lines, Alt+T to expand)", msg.content.lines().count()),
+                            format!("  ... ({} lines)", msg.content.lines().count()),
                             Style::default().fg(Color::DarkGray)
                         ));
                     }
                 } else {
-                    // 展开模式：显示全部内容
                     for line in msg.content.lines() {
-                        lines.push(Line::styled(
-                            format!("  {}", truncate(line, max_w)),
-                            Style::default().fg(Color::DarkGray)
-                        ));
+                        for wrapped in wrap_line(line, max_w) {
+                            lines.push(Line::styled(
+                                format!("  {}", wrapped),
+                                Style::default().fg(Color::DarkGray)
+                            ));
+                        }
                     }
                 }
             } else {
-                // 非 Thinking 消息：完整显示
-                for line in msg.content.lines() {
-                    lines.push(Line::styled(
-                        format!("  {}", truncate(line, max_w)),
-                        Style::default().fg(Color::White)
-                    ));
+                // 非 Thinking 消息
+                if msg.role == Role::Assistant {
+                    // Assistant 消息使用 markdown 渲染
+                    let md_lines = render_markdown(&msg.content, max_w);
+                    lines.extend(md_lines);
+                } else {
+                    // User/Tool/System 消息：纯文本
+                    for line in msg.content.lines() {
+                        lines.push(Line::styled(
+                            format!("  {}", truncate(line, max_w)),
+                            Style::default().fg(Color::White)
+                        ));
+                    }
                 }
             }
             
@@ -857,53 +934,46 @@ impl TuiApp {
             lines.push(Line::from(vec![
                 Span::styled("💭 ", Style::default().fg(Color::Magenta)),
                 Span::styled("Thinking", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-                Span::styled(
-                    if self.thinking_collapsed { " [collapsed]" } else { "" },
-                    Style::default().fg(Color::DarkGray)
-                ),
             ]));
             
             if self.thinking_collapsed {
-                // 折叠模式：只显示前1行
                 for line in self.thinking.lines().take(1) {
-                    lines.push(Line::styled(
-                        format!("  {}", truncate(line, max_w)),
-                        Style::default().fg(Color::DarkGray)
-                    ));
+                    for wrapped in wrap_line(line, max_w) {
+                        lines.push(Line::styled(
+                            format!("  {}", wrapped),
+                            Style::default().fg(Color::DarkGray)
+                        ));
+                    }
                 }
                 if self.thinking.lines().count() > 1 {
                     lines.push(Line::styled(
-                        format!("  ▶ ... ({} lines, Alt+T to expand)", self.thinking.lines().count()),
+                        format!("  ... ({} lines)", self.thinking.lines().count()),
                         Style::default().fg(Color::DarkGray)
                     ));
                 }
             } else {
-                // 展开模式：显示全部内容
                 for line in self.thinking.lines() {
-                    lines.push(Line::styled(
-                        format!("  {}", truncate(line, max_w)),
-                        Style::default().fg(Color::DarkGray)
-                    ));
+                    for wrapped in wrap_line(line, max_w) {
+                        lines.push(Line::styled(
+                            format!("  {}", wrapped),
+                            Style::default().fg(Color::DarkGray)
+                        ));
+                    }
                 }
             }
             lines.push(Line::raw(""));
         }
 
-        // Streaming text (after thinking)
+        // Streaming text (after thinking) - markdown rendered
         if !self.streaming.is_empty() {
             lines.push(Line::from(vec![
                 Span::styled("🤖", Style::default().fg(Color::Blue)),
                 Span::raw(" "),
                 Span::styled("Assistant", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
             ]));
-            for line in self.streaming.lines() {
-                lines.push(Line::styled(
-                    format!("  {}", truncate(line, max_w)),
-                    Style::default().fg(Color::White)
-                ));
-            }
-            // Cursor - 使用稳定的显示方式，避免闪烁
-            // 不再使用 frame % 2 的闪烁逻辑，始终保持光标可见
+            let md_lines = render_markdown(&self.streaming, max_w);
+            lines.extend(md_lines);
+            // Cursor
             lines.push(Line::styled("  ▌", Style::default().fg(Color::Cyan)));
         }
 
@@ -927,54 +997,9 @@ impl TuiApp {
 
         f.render_widget(
             Paragraph::new(lines)
-                .wrap(Wrap { trim: false })
                 .scroll((scroll_offset, 0)),
             area
         );
-    }
-
-    fn draw_spinner(&self, f: &mut ratatui::Frame, area: Rect) {
-        // 始终保留区域，避免布局跳动
-        if self.activity != Activity::Idle {
-            let line = Line::from(vec![
-                Span::styled(SPINNER[self.frame], Style::default().fg(self.activity.color())),
-                Span::raw(" "),
-                Span::styled(self.activity.label(), Style::default().fg(self.activity.color())),
-            ]);
-            f.render_widget(Paragraph::new(line), area);
-        } else {
-            // 空闲时渲染空行，保持布局稳定
-            f.render_widget(Paragraph::new(Line::raw("")), area);
-        }
-    }
-
-    fn draw_hints(&self, f: &mut ratatui::Frame, area: Rect) {
-        // 操作提示行
-        let hints = if self.activity == Activity::Idle {
-            vec![
-                Span::styled("/help", Style::default().fg(Color::Gray)),
-                Span::styled(": commands ", Style::default().fg(Color::DarkGray)),
-                Span::styled("│", Style::default().fg(Color::DarkGray)),
-                Span::styled(" Enter", Style::default().fg(Color::Gray)),
-                Span::styled(": send ", Style::default().fg(Color::DarkGray)),
-                Span::styled("│", Style::default().fg(Color::DarkGray)),
-                Span::styled(" Shift+Tab", Style::default().fg(Color::Gray)),
-                Span::styled(": mode ", Style::default().fg(Color::DarkGray)),
-                Span::styled("│", Style::default().fg(Color::DarkGray)),
-                Span::styled(" PgUp/PgDn", Style::default().fg(Color::Gray)),
-                Span::styled(": scroll", Style::default().fg(Color::DarkGray)),
-            ]
-        } else {
-            vec![
-                Span::styled("Esc/Ctrl+C", Style::default().fg(Color::Gray)),
-                Span::styled(": interrupt ", Style::default().fg(Color::DarkGray)),
-                Span::styled("│", Style::default().fg(Color::DarkGray)),
-                Span::styled(" PgUp/PgDn/Home/End", Style::default().fg(Color::Gray)),
-                Span::styled(": scroll history", Style::default().fg(Color::DarkGray)),
-            ]
-        };
-        
-        f.render_widget(Paragraph::new(Line::from(hints)), area);
     }
 
     fn draw_input(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -1002,9 +1027,177 @@ impl TuiApp {
     }
 }
 
+/// Simple markdown renderer for ratatui
+fn render_markdown<'a>(text: &'a str, max_w: usize) -> Vec<Line<'a>> {
+    let mut lines: Vec<Line> = Vec::new();
+    let mut in_code_block = false;
+    
+    for line in text.lines() {
+        if line.starts_with("```") {
+            in_code_block = !in_code_block;
+            if in_code_block {
+                // Code block start - show language hint
+                let lang = line.trim_start_matches("```").trim();
+                if !lang.is_empty() {
+                    lines.push(Line::styled(
+                        format!("  ┌─ {} ", lang),
+                        Style::default().fg(Color::DarkGray)
+                    ));
+                } else {
+                    lines.push(Line::styled(
+                        "  ┌─────",
+                        Style::default().fg(Color::DarkGray)
+                    ));
+                }
+            } else {
+                lines.push(Line::styled(
+                    "  └─────",
+                    Style::default().fg(Color::DarkGray)
+                ));
+            }
+            continue;
+        }
+        
+        if in_code_block {
+            // Code block content - cyan on dark background
+            lines.push(Line::styled(
+                format!("  │ {}", truncate(line, max_w.saturating_sub(4))),
+                Style::default().fg(Color::Cyan)
+            ));
+            continue;
+        }
+        
+        // Headers
+        if line.starts_with("### ") {
+            lines.push(Line::styled(
+                format!("  {}", &line[4..]),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            ));
+            continue;
+        }
+        if line.starts_with("## ") {
+            lines.push(Line::styled(
+                format!("  {}", &line[3..]),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            ));
+            continue;
+        }
+        if line.starts_with("# ") {
+            lines.push(Line::styled(
+                format!("  {}", &line[2..]),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            ));
+            continue;
+        }
+        
+        // Bullet lists
+        if line.starts_with("- ") || line.starts_with("* ") {
+            let content = &line[2..];
+            lines.push(Line::from(vec![
+                Span::styled("  • ", Style::default().fg(Color::Green)),
+                Span::styled(truncate(content, max_w.saturating_sub(4)), Style::default().fg(Color::White)),
+            ]));
+            continue;
+        }
+        
+        // Numbered lists
+        if line.len() > 2 && line.chars().next().map_or(false, |c| c.is_ascii_digit()) 
+            && (line.contains(". ") || line.contains(") ")) {
+            lines.push(Line::styled(
+                format!("  {}", truncate(line, max_w.saturating_sub(2))),
+                Style::default().fg(Color::White)
+            ));
+            continue;
+        }
+        
+        // Regular text with inline formatting
+        let spans = parse_inline_markdown(line, max_w);
+        lines.push(Line::from(spans));
+    }
+    
+    lines
+}
+
+/// Parse inline markdown (bold, code, etc.) into spans
+fn parse_inline_markdown<'a>(line: &'a str, max_w: usize) -> Vec<Span<'a>> {
+    // Truncate safely at char boundary
+    let line = if line.chars().count() > max_w {
+        let end = line.char_indices().nth(max_w).map(|(i, _)| i).unwrap_or(line.len());
+        &line[..end]
+    } else {
+        line
+    };
+    let mut spans: Vec<Span> = Vec::new();
+    let mut current = String::new();
+    let mut chars = line.chars().peekable();
+    
+    spans.push(Span::raw("  ")); // indent
+    
+    while let Some(ch) = chars.next() {
+        match ch {
+            '`' => {
+                // Inline code
+                if !current.is_empty() {
+                    spans.push(Span::styled(current.clone(), Style::default().fg(Color::White)));
+                    current.clear();
+                }
+                let mut code = String::new();
+                while let Some(&next) = chars.peek() {
+                    if next == '`' { chars.next(); break; }
+                    code.push(chars.next().unwrap());
+                }
+                spans.push(Span::styled(code, Style::default().fg(Color::Cyan)));
+            }
+            '*' if chars.peek() == Some(&'*') => {
+                // Bold
+                chars.next(); // consume second *
+                if !current.is_empty() {
+                    spans.push(Span::styled(current.clone(), Style::default().fg(Color::White)));
+                    current.clear();
+                }
+                let mut bold = String::new();
+                while let Some(next) = chars.next() {
+                    if next == '*' && chars.peek() == Some(&'*') { chars.next(); break; }
+                    bold.push(next);
+                }
+                spans.push(Span::styled(bold, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)));
+            }
+            _ => current.push(ch),
+        }
+    }
+    
+    if !current.is_empty() {
+        spans.push(Span::styled(current, Style::default().fg(Color::White)));
+    }
+    
+    if spans.len() == 1 {
+        // Only indent, add empty content
+        spans.push(Span::raw(""));
+    }
+    
+    spans
+}
+
 fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n { s.into() }
     else { s.chars().take(n.saturating_sub(3)).collect::<String>() + "..." }
+}
+
+/// Wrap a long line into multiple lines at char boundary
+fn wrap_line(s: &str, max_w: usize) -> Vec<String> {
+    if max_w == 0 { return vec![s.to_string()]; }
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max_w {
+        return vec![s.to_string()];
+    }
+    let mut result = Vec::new();
+    let mut start = 0;
+    while start < chars.len() {
+        let end = (start + max_w).min(chars.len());
+        result.push(chars[start..end].iter().collect());
+        start = end;
+    }
+    result
 }
 
 fn fmt_tokens(n: u64) -> String {
@@ -1025,6 +1218,7 @@ fn progress_bar(pct: f64, width: usize) -> String {
 
 pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
+    execute!(std::io::stdout(), event::EnableMouseCapture)?;
     let mut t = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
     t.clear()?;
     Ok(t)
@@ -1032,6 +1226,6 @@ pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
 
 pub fn restore_terminal() -> Result<()> {
     disable_raw_mode()?;
-    execute!(std::io::stdout(), Clear(ClearType::All), Show)?;
+    execute!(std::io::stdout(), event::DisableMouseCapture, Clear(ClearType::All), Show)?;
     Ok(())
 }

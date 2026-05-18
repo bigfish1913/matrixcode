@@ -37,6 +37,8 @@ pub struct Agent {
     // State tracking
     total_input_tokens: AtomicU64,
     total_output_tokens: AtomicU64,
+    /// The most recent API call's input_tokens — represents actual context window usage.
+    last_input_tokens: AtomicU64,
     cancel_token: Option<CancellationToken>,
     compression_config: CompressionConfig,
     
@@ -166,6 +168,7 @@ impl Agent {
             memory_summary: builder.memory_summary,
             total_input_tokens: AtomicU64::new(0),
             total_output_tokens: AtomicU64::new(0),
+            last_input_tokens: AtomicU64::new(0),
             cancel_token: None,
             compression_config: CompressionConfig::default(),
             ask_rx: None,
@@ -185,6 +188,11 @@ impl Agent {
     /// Set cancellation token
     pub fn set_cancel_token(&mut self, token: CancellationToken) {
         self.cancel_token = Some(token);
+    }
+
+    /// Set approve mode at runtime
+    pub fn set_approve_mode(&mut self, mode: ApproveMode) {
+        self.approve_mode = mode;
     }
 
     /// Build full system prompt with profile, overview, memory
@@ -255,19 +263,51 @@ impl Agent {
             // Process response
             should_continue = self.process_response(&response).await?;
 
-            // Check compression
-            let context_size = self.estimate_context_size();
-            let current_tokens = self.total_input_tokens.load(Ordering::Relaxed) as u32;
-            if should_compress(current_tokens, Some(context_size), &self.compression_config) {
+            // Check compression (use last_input_tokens = actual context window usage)
+            let context_size = self.provider.context_size();
+            let current_tokens = self.last_input_tokens.load(Ordering::Relaxed) as u32;
+            if should_compress(current_tokens, context_size, &self.compression_config) {
                 self.emit(AgentEvent::progress("Compressing context...", None))?;
-                // TODO: implement compression
+                
+                let _original_count = self.messages.len();
+                let original_tokens = current_tokens;
+                
+                // Use sliding window compression (no AI needed)
+                match crate::compress::compress_messages(
+                    &self.messages,
+                    crate::compress::CompressionStrategy::SlidingWindow,
+                    &self.compression_config,
+                ) {
+                    Ok(compressed) => {
+                        let compressed_tokens = crate::compress::estimate_total_tokens(&compressed);
+                        self.messages = compressed;
+                        self.total_input_tokens.store(compressed_tokens as u64, Ordering::Relaxed);
+                        self.last_input_tokens.store(compressed_tokens as u64, Ordering::Relaxed);
+                        
+                        self.emit(AgentEvent::with_data(
+                            crate::event::EventType::CompressionCompleted,
+                            crate::event::EventData::Compression {
+                                original_tokens: original_tokens as u64,
+                                compressed_tokens: compressed_tokens as u64,
+                                ratio: compressed_tokens as f32 / original_tokens as f32,
+                            },
+                        ))?;
+                    }
+                    Err(e) => {
+                        self.emit(AgentEvent::progress(
+                            format!("Compression failed: {}", e),
+                            None,
+                        ))?;
+                    }
+                }
             }
         }
 
-        // Send final usage stats
-        self.emit(AgentEvent::usage(
-            self.total_input_tokens.load(Ordering::Relaxed),
+        // Send final usage stats (use last_input_tokens for accurate context display)
+        self.emit(AgentEvent::usage_with_cache(
+            self.last_input_tokens.load(Ordering::Relaxed),
             self.total_output_tokens.load(Ordering::Relaxed),
+            0, 0,  // Cache info already sent per-request
         ))?;
 
         // Send session ended
@@ -449,16 +489,55 @@ impl Agent {
             if needs_approval(self.approve_mode, tool.risk_level()) {
                 if self.approve_mode == ApproveMode::Strict ||
                    (self.approve_mode == ApproveMode::Ask && tool.risk_level() == RiskLevel::Dangerous) {
-                    self.emit(AgentEvent::progress(
-                        format!("Tool '{}' requires approval", name),
-                        None,
-                    ))?;
                     
-                    if tool.risk_level() == RiskLevel::Dangerous && self.approve_mode != ApproveMode::Auto {
-                        return Err(anyhow::anyhow!(
-                            "Tool '{}' requires manual approval (dangerous operation). Use --approve-mode auto to auto-approve.",
-                            name
-                        ));
+                    // If we have ask channel, ask user for approval
+                    if self.ask_rx.is_some() {
+                        // Build approval question with tool details
+                        let detail = match name {
+                            "bash" => format!("Command: {}", input["command"].as_str().unwrap_or("?")),
+                            "write" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
+                            "edit" | "multi_edit" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
+                            _ => format!("Tool: {}", name),
+                        };
+                        
+                        let question = format!(
+                            "⚠️ Tool '{}' requires approval (risk: {:?})\n{}\n\nAllow? (y/n)",
+                            name, tool.risk_level(), detail
+                        );
+                        
+                        // Send approval request to TUI
+                        self.emit(AgentEvent::with_data(
+                            EventType::AskQuestion,
+                            EventData::AskQuestion { question, options: None },
+                        ))?;
+                        
+                        // Wait for user response
+                        if let Some(rx) = &mut self.ask_rx {
+                            match rx.recv().await {
+                                Some(answer) => {
+                                    let approved = matches!(
+                                        answer.trim().to_lowercase().as_str(),
+                                        "y" | "yes" | "ok" | "approve" | ""
+                                    );
+                                    if !approved {
+                                        return Err(anyhow::anyhow!(
+                                            "Tool '{}' rejected by user", name
+                                        ));
+                                    }
+                                }
+                                None => {
+                                    return Err(anyhow::anyhow!("Approval channel closed"));
+                                }
+                            }
+                        }
+                    } else {
+                        // No ask channel - reject dangerous tools
+                        if tool.risk_level() == RiskLevel::Dangerous && self.approve_mode != ApproveMode::Auto {
+                            return Err(anyhow::anyhow!(
+                                "Tool '{}' requires manual approval (dangerous operation). Use --approve-mode auto to auto-approve.",
+                                name
+                            ));
+                        }
                     }
                 }
             }
@@ -495,8 +574,10 @@ impl Agent {
     fn track_usage(&self, usage: &Usage) {
         self.total_input_tokens.fetch_add(usage.input_tokens as u64, Ordering::Relaxed);
         self.total_output_tokens.fetch_add(usage.output_tokens as u64, Ordering::Relaxed);
+        // Store the latest request's input tokens — this is the actual context window usage.
+        self.last_input_tokens.store(usage.input_tokens as u64, Ordering::Relaxed);
 
-        // Emit usage event with cache info
+        // Emit usage event with cache info (use last_input_tokens for context display)
         let _ = self.event_tx.try_send(AgentEvent::usage_with_cache(
             usage.input_tokens as u64,
             usage.output_tokens as u64,
@@ -506,6 +587,7 @@ impl Agent {
     }
 
     /// Estimate context size
+    #[allow(dead_code)]
     fn estimate_context_size(&self) -> u32 {
         // Rough estimate: each message ~100 tokens average
         (self.messages.len() as u32) * 100 + self.total_input_tokens.load(Ordering::Relaxed) as u32
@@ -550,6 +632,7 @@ impl Agent {
         self.messages.clear();
         self.total_input_tokens.store(0, Ordering::Relaxed);
         self.total_output_tokens.store(0, Ordering::Relaxed);
+        self.last_input_tokens.store(0, Ordering::Relaxed);
     }
 
     /// Get message count
