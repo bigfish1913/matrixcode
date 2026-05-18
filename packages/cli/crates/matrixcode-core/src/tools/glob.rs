@@ -49,18 +49,7 @@ impl Tool for GlobTool {
 
         let result = tokio::task::spawn_blocking(move || find_files(&pattern, &path)).await?;
 
-        // Count results for summary
-        let count = if let Ok(ref r) = result {
-            if r.contains("No files matched") {
-                0
-            } else {
-                r.lines().filter(|l| !l.contains("showing") && !l.contains("matches")).count()
-            }
-        } else {
-            0
-        };
-
-        // spinner.finish_success(&format!("{} files", count));
+        // Return result directly
         result
     }
 }

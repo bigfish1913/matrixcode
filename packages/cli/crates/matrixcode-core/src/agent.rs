@@ -7,8 +7,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use crate::event::{AgentEvent, EventData, EventType};
-use crate::providers::{ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, StreamEvent, StopReason, Usage};
+use crate::event::{AgentEvent, EventType, EventData};
+use crate::providers::{ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role, StopReason, Usage};
 use crate::tools::{Tool, ToolDefinition};
 use crate::approval::{ApproveMode, RiskLevel, needs_approval};
 use crate::compress::{CompressionConfig, should_compress};
@@ -17,6 +17,7 @@ use crate::cancel::CancellationToken;
 const MAX_ITERATIONS: usize = 50;
 
 /// Full Agent with event output
+#[allow(dead_code)]  // Some fields are for future features
 pub struct Agent {
     provider: Box<dyn Provider>,
     tools: Vec<Arc<dyn Tool>>,
@@ -38,6 +39,9 @@ pub struct Agent {
     total_output_tokens: AtomicU64,
     cancel_token: Option<CancellationToken>,
     compression_config: CompressionConfig,
+    
+    // Ask tool channel: receives user answers from TUI
+    ask_rx: Option<mpsc::Receiver<String>>,
 }
 
 /// Agent builder
@@ -48,6 +52,7 @@ pub struct AgentBuilder {
     max_tokens: u32,
     think: bool,
     approve_mode: ApproveMode,
+    event_tx: Option<mpsc::Sender<AgentEvent>>,
     // New fields
     skills: Vec<crate::skills::Skill>,
     profile: crate::prompt::PromptProfile,
@@ -64,6 +69,7 @@ impl AgentBuilder {
             max_tokens: 4096,
             think: false,
             approve_mode: ApproveMode::Ask,
+            event_tx: None,
             skills: Vec::new(),
             profile: crate::prompt::PromptProfile::Default,
             project_overview: None,
@@ -93,6 +99,18 @@ impl AgentBuilder {
 
     pub fn tool(mut self, tool: Arc<dyn Tool>) -> Self {
         self.tools.push(tool);
+        self
+    }
+
+    /// Add multiple tools
+    pub fn tools(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
+        self.tools.extend(tools.into_iter().map(Arc::from));
+        self
+    }
+
+    /// Set external event sender for streaming events
+    pub fn event_tx(mut self, tx: mpsc::Sender<AgentEvent>) -> Self {
+        self.event_tx = Some(tx);
         self
     }
 
@@ -127,8 +145,12 @@ impl AgentBuilder {
 
 impl Agent {
     fn new(builder: AgentBuilder) -> Self {
-        let (event_tx, _) = mpsc::channel(100);
-        
+        // Use external event_tx if provided, otherwise create internal one
+        let event_tx = builder.event_tx.unwrap_or_else(|| {
+            let (tx, _) = mpsc::channel(100);
+            tx
+        });
+
         Self {
             provider: builder.provider,
             tools: builder.tools,
@@ -146,6 +168,7 @@ impl Agent {
             total_output_tokens: AtomicU64::new(0),
             cancel_token: None,
             compression_config: CompressionConfig::default(),
+            ask_rx: None,
         }
     }
 
@@ -154,12 +177,18 @@ impl Agent {
         self.event_tx.clone()
     }
 
+    /// Set ask response channel (for TUI mode)
+    pub fn set_ask_channel(&mut self, rx: mpsc::Receiver<String>) {
+        self.ask_rx = Some(rx);
+    }
+
     /// Set cancellation token
     pub fn set_cancel_token(&mut self, token: CancellationToken) {
         self.cancel_token = Some(token);
     }
 
     /// Build full system prompt with profile, overview, memory
+    #[allow(dead_code)]  // For future features
     fn build_full_system_prompt(&self) -> String {
         use crate::prompt::build_system_prompt;
         
@@ -171,9 +200,9 @@ impl Agent {
         )
     }
 
-    /// Run chat loop with tool execution
+    /// Run chat loop with tool execution (streaming version)
     pub async fn run(&mut self, user_input: String) -> Result<Vec<AgentEvent>> {
-        let mut collector = EventCollector::new();
+        let collector = EventCollector::new();
         
         // Send session started
         self.emit(AgentEvent::session_started())?;
@@ -207,17 +236,18 @@ impl Agent {
                 max_tokens: self.max_tokens,
                 tools: tool_defs,
                 think: self.think,
-                enable_caching: false,
+                enable_caching: true,
                 server_tools: Vec::new(),
             };
 
-            // Call provider
+            // Call provider with streaming
             self.emit(AgentEvent::progress(
                 if iterations == 1 { "Thinking..." } else { "Processing..." },
                 None,
             ))?;
 
-            let response = self.provider.chat(request).await?;
+            // Use streaming API for real-time output
+            let response = self.call_streaming(&request).await?;
 
             // Track usage
             self.track_usage(&response.usage);
@@ -246,24 +276,111 @@ impl Agent {
         Ok(collector.events().to_vec())
     }
 
-    /// Process response and handle tool_use
+    /// Call provider with streaming and emit events in real-time
+    async fn call_streaming(&mut self, request: &ChatRequest) -> Result<ChatResponse> {
+        use crate::providers::StreamEvent;
+        
+        let mut rx = self.provider.chat_stream(request.clone()).await?;
+        let mut response_content: Vec<ContentBlock> = Vec::new();
+        let mut current_text = String::new();
+        let mut current_thinking = String::new();
+        let mut usage = Usage {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        };
+
+        while let Some(event) = rx.recv().await {
+            match event {
+                StreamEvent::FirstByte => {
+                    // First byte received, streaming starts
+                }
+                StreamEvent::ThinkingDelta(delta) => {
+                    if current_thinking.is_empty() {
+                        self.emit(AgentEvent::thinking_start())?;
+                    }
+                    current_thinking.push_str(&delta);
+                    self.emit(AgentEvent::thinking_delta(delta, None))?;
+                }
+                StreamEvent::TextDelta(delta) => {
+                    if current_text.is_empty() {
+                        self.emit(AgentEvent::text_start())?;
+                    }
+                    current_text.push_str(&delta);
+                    self.emit(AgentEvent::text_delta(delta))?;
+                }
+                StreamEvent::ToolUseStart { id, name } => {
+                    // Finish any pending text
+                    if !current_text.is_empty() {
+                        self.emit(AgentEvent::text_end())?;
+                        response_content.push(ContentBlock::Text { text: current_text.clone() });
+                        current_text.clear();
+                    }
+                    // Finish any pending thinking
+                    if !current_thinking.is_empty() {
+                        self.emit(AgentEvent::thinking_end())?;
+                        response_content.push(ContentBlock::Thinking {
+                            thinking: current_thinking.clone(),
+                            signature: None,
+                        });
+                        current_thinking.clear();
+                    }
+                    self.emit(AgentEvent::tool_use_start(&id, &name))?;
+                }
+                StreamEvent::ToolInputDelta { bytes_so_far: _ } => {
+                    // Tool input progress - could emit progress event
+                }
+                StreamEvent::Done(resp) => {
+                    // Finish any pending text
+                    if !current_text.is_empty() {
+                        self.emit(AgentEvent::text_end())?;
+                        response_content.push(ContentBlock::Text { text: current_text.clone() });
+                    }
+                    // Finish any pending thinking
+                    if !current_thinking.is_empty() {
+                        self.emit(AgentEvent::thinking_end())?;
+                        response_content.push(ContentBlock::Thinking {
+                            thinking: current_thinking.clone(),
+                            signature: None,
+                        });
+                    }
+                    // Add any remaining blocks from response
+                    for block in &resp.content {
+                        if !response_content.iter().any(|b| b == block) {
+                            response_content.push(block.clone());
+                        }
+                    }
+                    usage = resp.usage;
+                }
+                StreamEvent::Error(msg) => {
+                    self.emit(AgentEvent::error(msg.clone(), None, None))?;
+                    return Err(anyhow::anyhow!("Stream error: {}", msg));
+                }
+            }
+        }
+
+        Ok(ChatResponse {
+            content: response_content,
+            stop_reason: StopReason::EndTurn,
+            usage,
+        })
+    }
+
+    /// Process response and handle tool_use (Text/Thinking events already sent via streaming)
     async fn process_response(&mut self, response: &ChatResponse) -> Result<bool> {
         let mut has_tool_use = false;
         let mut assistant_content: Vec<ContentBlock> = Vec::new();
+        let mut tool_results: Vec<Message> = Vec::new();
 
         for block in &response.content {
             match block {
+                // Text and Thinking events already sent via streaming, just add to history
                 ContentBlock::Text { text } => {
-                    self.emit(AgentEvent::text_start())?;
-                    self.emit(AgentEvent::text_delta(text.clone()))?;
-                    self.emit(AgentEvent::text_end())?;
                     assistant_content.push(ContentBlock::Text { text: text.clone() });
                 }
 
                 ContentBlock::Thinking { thinking, signature } => {
-                    self.emit(AgentEvent::thinking_start())?;
-                    self.emit(AgentEvent::thinking_delta(thinking.clone(), signature.clone()))?;
-                    self.emit(AgentEvent::thinking_end())?;
                     assistant_content.push(ContentBlock::Thinking {
                         thinking: thinking.clone(),
                         signature: signature.clone(),
@@ -285,14 +402,15 @@ impl Agent {
 
                     self.emit(AgentEvent::tool_result(id.clone(), content.clone(), is_error))?;
 
-                    // Add to message history
+                    // Add tool_use to assistant content
                     assistant_content.push(ContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: input.clone(),
                     });
 
-                    self.messages.push(Message {
+                    // Collect tool results (will be added after assistant message)
+                    tool_results.push(Message {
                         role: Role::User,
                         content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
                             tool_use_id: id.clone(),
@@ -305,7 +423,7 @@ impl Agent {
             }
         }
 
-        // Add assistant message to history
+        // Add assistant message to history FIRST
         if !assistant_content.is_empty() {
             self.messages.push(Message {
                 role: Role::Assistant,
@@ -313,34 +431,28 @@ impl Agent {
             });
         }
 
+        // Then add tool results (User messages)
+        for msg in tool_results {
+            self.messages.push(msg);
+        }
+
         // Continue if there were tool calls
         Ok(has_tool_use)
     }
 
     /// Execute a tool
-    async fn execute_tool(&self, name: &str, input: serde_json::Value) -> Result<String> {
+    async fn execute_tool(&mut self, name: &str, input: serde_json::Value) -> Result<String> {
         let tool = self.tools.iter().find(|t| t.definition().name == name);
 
         if let Some(tool) = tool {
             // Check approval
             if needs_approval(self.approve_mode, tool.risk_level()) {
-                // In daemon mode, we auto-approve based on mode
-                // Auto mode: approve all
-                // Ask mode: approve safe/mutating, ask for dangerous
-                // Strict mode: ask for all
-                
                 if self.approve_mode == ApproveMode::Strict ||
                    (self.approve_mode == ApproveMode::Ask && tool.risk_level() == RiskLevel::Dangerous) {
-                    // Send approval request event
                     self.emit(AgentEvent::progress(
                         format!("Tool '{}' requires approval", name),
                         None,
                     ))?;
-                    
-                    // In daemon mode without interactive approval, we:
-                    // - Auto-approve safe tools
-                    // - Auto-approve mutating tools in Auto mode
-                    // - Reject dangerous tools in Ask mode
                     
                     if tool.risk_level() == RiskLevel::Dangerous && self.approve_mode != ApproveMode::Auto {
                         return Err(anyhow::anyhow!(
@@ -351,7 +463,27 @@ impl Agent {
                 }
             }
 
-            // Execute tool
+            // Special handling for "ask" tool in TUI mode
+            if name == "ask" && self.ask_rx.is_some() {
+                let question = input["question"].as_str().unwrap_or("").to_string();
+                let options = input.get("options").cloned();
+                
+                // Send AskQuestion event to TUI
+                self.emit(AgentEvent::with_data(
+                    EventType::AskQuestion,
+                    EventData::AskQuestion { question, options },
+                ))?;
+                
+                // Wait for user answer from TUI
+                if let Some(rx) = &mut self.ask_rx {
+                    match rx.recv().await {
+                        Some(answer) => return Ok(answer),
+                        None => return Err(anyhow::anyhow!("Ask channel closed")),
+                    }
+                }
+            }
+
+            // Execute tool normally
             self.emit(AgentEvent::progress(format!("Executing: {}", name), None))?;
             tool.execute(input).await
         } else {
@@ -363,11 +495,13 @@ impl Agent {
     fn track_usage(&self, usage: &Usage) {
         self.total_input_tokens.fetch_add(usage.input_tokens as u64, Ordering::Relaxed);
         self.total_output_tokens.fetch_add(usage.output_tokens as u64, Ordering::Relaxed);
-        
-        // Emit usage event
-        let _ = self.event_tx.blocking_send(AgentEvent::usage(
+
+        // Emit usage event with cache info
+        let _ = self.event_tx.try_send(AgentEvent::usage_with_cache(
             usage.input_tokens as u64,
             usage.output_tokens as u64,
+            usage.cache_read_input_tokens as u64,
+            usage.cache_creation_input_tokens as u64,
         ));
     }
 
@@ -377,10 +511,38 @@ impl Agent {
         (self.messages.len() as u32) * 100 + self.total_input_tokens.load(Ordering::Relaxed) as u32
     }
 
-    /// Emit event
+    /// Emit event (non-blocking)
     fn emit(&self, event: AgentEvent) -> Result<()> {
-        self.event_tx.blocking_send(event)?;
-        Ok(())
+        // Use try_send to avoid blocking in async context
+        match self.event_tx.try_send(event) {
+            Ok(_) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                // Channel full, drop event - not critical
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                // Channel closed, receiver dropped
+                Err(anyhow::anyhow!("Event channel closed"))
+            }
+        }
+    }
+
+    /// Restore message history (for session continue/resume)
+    pub fn set_messages(&mut self, messages: Vec<Message>) {
+        self.messages = messages;
+    }
+
+    /// Get current messages (for session saving)
+    pub fn get_messages(&self) -> &[Message] {
+        &self.messages
+    }
+
+    /// Get current token counts
+    pub fn get_token_counts(&self) -> (u64, u64) {
+        (
+            self.total_input_tokens.load(Ordering::Relaxed),
+            self.total_output_tokens.load(Ordering::Relaxed),
+        )
     }
 
     /// Clear message history

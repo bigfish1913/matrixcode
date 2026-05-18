@@ -1,30 +1,18 @@
 [package]
 name = "matrixcode-tui"
-version = "0.3.0"
-edition = "2024"
-authors = ["bigfish1913"]
-license = "MIT"
-repository = "https://github.com/bigfish1913/matrixcode"
-description = "MatrixCode Terminal UI - Handles all rendering and animation"
-
-[lib]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Terminal UI for MatrixCode"
 
 [dependencies]
-matrixcode-core = { workspace = true }
+matrixcode-core = { path = "../matrixcode-core" }
+ratatui = "0.29"
+crossterm = { workspace = true, features = ["event-stream"] }
 tokio = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 anyhow = { workspace = true }
-indicatif = { workspace = true }
-rustyline = { workspace = true }
-termimad = { workspace = true }
-is-terminal = { workspace = true }
-crossterm = { workspace = true }
-log = { workspace = true }
-ratatui = "0.28"
-chrono = { workspace = true }
-dirs = { workspace = true }
-uuid = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
+tokio-test = { workspace = true }

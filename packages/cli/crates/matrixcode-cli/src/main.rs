@@ -2,9 +2,17 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use matrixcode_core::{AgentEvent, Config, cancel::CancellationToken};
-use matrixcode_tui::{TerminalUI, App, SessionStore};
+use matrixcode_core::{
+    AgentEvent, Config, cancel::CancellationToken,
+    agent::AgentBuilder,
+    AnthropicProvider,
+    SessionManager,
+    tools::all_tools,
+};
+use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
 use std::path::PathBuf;
+
+
 
 #[derive(Parser)]
 #[command(name = "matrixcode")]
@@ -100,7 +108,6 @@ fn main() -> Result<()> {
 /// Load skills from directories (simplified)
 fn load_skills(_extra_dirs: &[PathBuf]) -> usize {
     // Skills loading is complex, return 0 for now
-    // Full implementation in _src_old/main.rs
     0
 }
 
@@ -112,15 +119,27 @@ fn list_sessions() {
 /// Terminal mode with TUI
 fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Load config
-    let _config = Config::load();
+    let config = Config::load();
+
+    // Get API configuration
+    let api_key = config.api_key.clone()
+        .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
+        .ok_or_else(|| anyhow::anyhow!("No API key found. Set ANTHROPIC_AUTH_TOKEN or configure in ~/.matrix/config.json"))?;
+
+    let model = config.model.clone()
+        .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+        .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+
+    let base_url = config.base_url.clone()
+        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+        .unwrap_or_else(|| "https://api.anthropic.com".to_string());
 
     // Load skills (simplified)
     let _skills_count = load_skills(&Vec::new());
 
     // Handle single command without TUI
     if let Some(cmd) = cli.command {
-        let mut ui = TerminalUI::new();
-        handle_command(cmd, &mut ui);
+        handle_command(cmd);
         return Ok(());
     }
 
@@ -129,79 +148,133 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
     // Create channels for Agent communication
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
-    let (task_tx, mut task_rx) = tokio::sync::mpsc::channel(10);
+    let (task_tx, mut task_rx) = tokio::sync::mpsc::channel::<String>(10);
+    let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(1);
 
     // Create cancellation token
     let cancel_token = CancellationToken::new();
 
-    // Session store
-    let session_store = SessionStore::new();
-
-    // Load session if --continue or --resume
-    if cli.continue_session || cli.resume.is_some() {
-        let session = if let Some(id) = &cli.resume {
-            session_store.load(id)?
-        } else {
-            session_store.load_latest()?
-        };
-        // Session loading will be handled by AppState in future
-        if session.is_none() && cli.continue_session {
-            println!("No previous session found. Starting new session.");
-        }
-    }
-
-    // Spawn Agent task (simplified - without full Agent for now)
+    // Clone things needed in the agent task
     let agent_cancel = cancel_token.clone();
-    rt.spawn(async move {
+    let agent_event_tx = event_tx.clone();
+    let agent_api_key = api_key.clone();
+    let agent_model = model.clone();
+    let agent_base_url = base_url.clone();
+    let agent_think = cli.think;
+    let agent_max_tokens = cli.max_tokens;
+    let continue_session = cli.continue_session;
+    let resume_query = cli.resume.clone();
+
+    // Spawn Agent task with real Agent
+    let _agent_task = rt.spawn(async move {
+        // Create provider
+        let provider = AnthropicProvider::new(agent_api_key, agent_model, agent_base_url);
+
+        // Build agent with external event sender
+        let mut agent = AgentBuilder::new(Box::new(provider))
+            .system_prompt("You are a helpful AI coding assistant named MatrixCode.")
+            .max_tokens(agent_max_tokens)
+            .think(agent_think)
+            .tools(all_tools())
+            .event_tx(agent_event_tx.clone())
+            .build();
+
+        // Session management
+        let project_path = std::env::current_dir().ok();
+        let mut session_mgr = SessionManager::new().ok();
+        
+        // Create or continue session, restore messages
+        if let Some(ref mut mgr) = session_mgr {
+            if continue_session || resume_query.is_some() {
+                // Load existing session
+                let session = if let Some(ref query) = resume_query {
+                    mgr.resume(query, project_path.as_deref()).ok().flatten()
+                } else {
+                    mgr.continue_last(project_path.as_deref()).ok().flatten()
+                };
+                if let Some(s) = session {
+                    agent.set_messages(s.messages.clone());
+                }
+            } else {
+                // Start new session
+                let _ = mgr.start_new(project_path.as_deref());
+            }
+        }
+
+        // Set cancel token
+        agent.set_cancel_token(agent_cancel.clone());
+        agent.set_ask_channel(ask_rx);
+
         while let Some(msg) = task_rx.recv().await {
-            // Check cancellation - if cancelled, send interrupted event and continue
+            // Check cancellation
             if agent_cancel.is_cancelled() {
-                event_tx.send(AgentEvent::error(
+                agent_event_tx.send(AgentEvent::error(
                     "Operation interrupted by user".to_string(),
                     Some("interrupted".to_string()),
                     None,
                 )).await.ok();
-                // Reset the token so we can continue processing new messages
                 agent_cancel.reset();
                 continue;
             }
-            // Simplified Agent simulation - send mock events
-            event_tx.send(AgentEvent::session_started()).await.ok();
-            event_tx.send(AgentEvent::text_delta(format!("Processing: {}", msg))).await.ok();
-            event_tx.send(AgentEvent::text_end()).await.ok();
-            event_tx.send(AgentEvent::session_ended()).await.ok();
+
+            // Handle special commands from TUI
+            if msg == "/new" {
+                agent.clear_history();
+                if let Some(ref mut mgr) = session_mgr {
+                    let _ = mgr.start_new(project_path.as_deref());
+                }
+                continue;
+            }
+
+            // Run agent - events are sent directly via event_tx during run()
+            match agent.run(msg.clone()).await {
+                Ok(_) => {
+                    // Auto-save session after each turn
+                    if let Some(ref mut mgr) = session_mgr {
+                        let (input_tokens, output_tokens) = agent.get_token_counts();
+                        mgr.set_messages(agent.get_messages().to_vec());
+                        mgr.update_stats(input_tokens as u32, output_tokens);
+                        let _ = mgr.save_current();
+                    }
+                }
+                Err(e) => {
+                    agent_event_tx.send(AgentEvent::error(
+                        format!("Agent error: {}", e),
+                        Some("agent_error".to_string()),
+                        None,
+                    )).await.ok();
+                }
+            }
         }
     });
 
+    // Enter runtime context so tokio channels work in sync code
+    let _guard = rt.enter();
+
     // Setup terminal for TUI
-    let mut terminal = matrixcode_tui::app::setup_terminal()?;
+    let mut terminal = setup_terminal()?;
 
-    // Create and run App
-    let mut app = App::new(task_tx, event_rx, cancel_token);
-
-    // Run the TUI
+    // Create App and run it (TUI runs in sync context, but tokio channels are usable)
+    let mut app = TuiApp::new(task_tx, event_rx, cancel_token)
+        .with_ask_channel(ask_tx)
+        .with_config(&model, cli.think, cli.max_tokens);
     let result = app.run(&mut terminal);
 
     // Restore terminal
-    matrixcode_tui::app::restore_terminal()?;
+    restore_terminal()?;
 
     result
 }
 
 /// Handle single command
-fn handle_command(cmd: Commands, ui: &mut TerminalUI) {
+fn handle_command(cmd: Commands) {
     match cmd {
         Commands::Chat { message } => {
-            let events = if let Some(msg) = message {
-                vec![
-                    AgentEvent::session_started(),
-                    AgentEvent::text_delta(format!("Processing: {}", msg)),
-                    AgentEvent::session_ended(),
-                ]
+            if let Some(msg) = message {
+                println!("Processing: {}", msg);
             } else {
-                vec![AgentEvent::text_delta("Please provide a message.")]
-            };
-            ui.handle_events(&events);
+                println!("Please provide a message with --message");
+            }
         }
         Commands::Status => {
             println!("Status: Ready");

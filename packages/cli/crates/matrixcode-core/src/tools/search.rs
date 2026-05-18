@@ -39,11 +39,6 @@ impl Tool for SearchTool {
         let glob_pattern = params["glob"].as_str();
 
         // Show spinner while searching - RAII guard ensures cleanup on error
-        let msg = if let Some(g) = glob_pattern {
-            format!("searching '{}' in {} (glob: {})", pattern, path, g)
-        } else {
-            format!("searching '{}' in {}", pattern, path)
-        };
         // let mut spinner = ToolSpinner::new(&msg);
 
         let pattern = pattern.to_string();
@@ -53,14 +48,6 @@ impl Tool for SearchTool {
         let result = tokio::task::spawn_blocking(move || search_files(&pattern, &path, glob_pattern.as_deref()))
             .await?;
 
-        // Count results for summary
-        let count = if let Ok(ref r) = result {
-            r.lines().filter(|l| !l.contains("truncated")).count()
-        } else {
-            0
-        };
-
-        // spinner.finish_success(&format!("{} matches", count));
         result
     }
 }

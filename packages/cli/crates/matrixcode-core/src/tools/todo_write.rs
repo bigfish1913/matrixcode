@@ -58,8 +58,8 @@ impl Tool for TodoWriteTool {
         // let mut spinner = ToolSpinner::new(&format!("updating todos ({} items)", todos.len()));
 
         let mut in_progress_count = 0;
-        let mut completed_count = 0;
-        let mut pending_count = 0;
+        let _completed_count = 0;
+        let _pending_count = 0;
         let mut lines = Vec::with_capacity(todos.len() + 1);
 
         for (i, todo) in todos.iter().enumerate() {
@@ -74,18 +74,12 @@ impl Tool for TodoWriteTool {
                 .ok_or_else(|| anyhow::anyhow!("todo {}: missing 'status'", i))?;
 
             let (marker, display) = match status {
-                "pending" => {
-                    pending_count += 1;
-                    ("[ ]", content)
-                }
+                "pending" => ("[ ]", content),
                 "in_progress" => {
                     in_progress_count += 1;
                     ("[~]", active)
                 }
-                "completed" => {
-                    completed_count += 1;
-                    ("[x]", content)
-                }
+                "completed" => ("[x]", content),
                 other => anyhow::bail!("todo {}: invalid status '{}'", i, other),
             };
 

@@ -200,7 +200,8 @@ impl Provider for AnthropicProvider {
             req = req.header("Authorization", format!("Bearer {}", self.api_key));
         } else {
             req = req.header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2023-06-01");
+                .header("anthropic-version", "2023-06-01")
+                .header("anthropic-beta", "prompt-caching-2024-07-31");
         }
 
         let response = req.send().await?;
@@ -280,7 +281,8 @@ impl Provider for AnthropicProvider {
                 .header("X-DashScope-SSE", "enable");
         } else {
             req = req.header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2023-06-01");
+                .header("anthropic-version", "2023-06-01")
+                .header("anthropic-beta", "prompt-caching-2024-07-31");
         }
 
         let response = req.send().await?;

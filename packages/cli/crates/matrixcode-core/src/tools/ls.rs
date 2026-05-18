@@ -53,8 +53,6 @@ impl Tool for LsTool {
         dirs.sort();
         files.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let total = dirs.len() + files.len();
-
         if dirs.is_empty() && files.is_empty() {
             // spinner.finish_success("(empty)");
             return Ok(format!("(empty) {}", path));

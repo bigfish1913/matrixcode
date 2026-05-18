@@ -35,6 +35,7 @@ pub enum EventType {
     Error,
     Usage,
     Progress,
+    AskQuestion,  // Ask tool: waiting for user input
 }
 
 /// Event data
@@ -51,6 +52,7 @@ pub enum EventData {
     Progress { message: String, percentage: Option<u8> },
     Compression { original_tokens: u64, compressed_tokens: u64, ratio: f32 },
     Memory { summary: String, entries_count: usize },
+    AskQuestion { question: String, options: Option<serde_json::Value> },
 }
 
 impl AgentEvent {
@@ -100,6 +102,14 @@ impl AgentEvent {
             input_tokens, output_tokens,
             cache_creation_input_tokens: None,
             cache_read_input_tokens: None,
+        })
+    }
+
+    pub fn usage_with_cache(input_tokens: u64, output_tokens: u64, cache_read: u64, cache_created: u64) -> Self {
+        Self::with_data(EventType::Usage, EventData::Usage {
+            input_tokens, output_tokens,
+            cache_creation_input_tokens: if cache_created > 0 { Some(cache_created) } else { None },
+            cache_read_input_tokens: if cache_read > 0 { Some(cache_read) } else { None },
         })
     }
 

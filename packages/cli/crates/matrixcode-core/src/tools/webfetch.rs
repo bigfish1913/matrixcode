@@ -45,7 +45,6 @@ impl Tool for WebFetchTool {
         }
 
         let body = response.text().await?;
-        let bytes = body.len();
 
         let truncated = if body.len() > max_length {
             // 找到不超过 max_length 的最后一个有效字符边界

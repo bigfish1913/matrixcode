@@ -56,3 +56,6 @@ parking_lot = "0.12"
 matrixcode-core = { path = "crates/matrixcode-core" }
 matrixcode-tui = { path = "crates/matrixcode-tui" }
 matrixcode-cli = { path = "crates/matrixcode-cli" }
+
+# TUI dependencies
+ratatui = "0.29"
