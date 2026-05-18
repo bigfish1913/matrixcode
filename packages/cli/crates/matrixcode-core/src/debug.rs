@@ -113,12 +113,11 @@ impl DebugLog {
 
     fn write(&self, msg: &str) {
         // Write to file
-        if let Some(ref file) = self.file {
-            if let Ok(mut f) = file.lock() {
+        if let Some(ref file) = self.file
+            && let Ok(mut f) = file.lock() {
                 let _ = f.write_all(msg.as_bytes());
                 let _ = f.write_all(b"\n");
             }
-        }
         // Print to console if verbose
         if self.verbose {
             println!("{}", msg);

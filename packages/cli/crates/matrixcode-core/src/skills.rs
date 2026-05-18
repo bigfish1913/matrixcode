@@ -324,11 +324,10 @@ fn walk(root: &Path, cur: &Path, out: &mut Vec<String>) {
         };
         if file_type.is_dir() {
             walk(root, &p, out);
-        } else if file_type.is_file() {
-            if let Ok(rel) = p.strip_prefix(root) {
+        } else if file_type.is_file()
+            && let Ok(rel) = p.strip_prefix(root) {
                 out.push(rel.display().to_string());
             }
-        }
     }
 }
 

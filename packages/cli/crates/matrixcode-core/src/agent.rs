@@ -238,11 +238,11 @@ impl Agent {
             iterations += 1;
             
             // Check cancellation
-            if let Some(token) = &self.cancel_token {
-                if token.is_cancelled() {
-                    self.emit(AgentEvent::error("Operation cancelled".to_string(), None, None))?;
-                    break;
-                }
+            if let Some(token) = &self.cancel_token
+                && token.is_cancelled()
+            {
+                self.emit(AgentEvent::error("Operation cancelled".to_string(), None, None))?;
+                break;
             }
 
             // Build request
@@ -656,13 +656,14 @@ impl Agent {
 }
 
 /// Event collector for gathering events
+#[derive(Default)]
 pub struct EventCollector {
     events: Vec<AgentEvent>,
 }
 
 impl EventCollector {
     pub fn new() -> Self {
-        Self { events: Vec::new() }
+        Self::default()
     }
 
     pub fn events(&self) -> &[AgentEvent] {

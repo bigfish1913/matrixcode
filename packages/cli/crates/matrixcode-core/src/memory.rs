@@ -2715,8 +2715,10 @@ impl AutoMemory {
         let config = config.unwrap_or(&default_config);
         
         // If AI summarization is enabled and we have a processor
-        if config.enable_summarization && processor.is_some() && self.entries.len() >= config.summarize_threshold {
-            let processor = processor.unwrap();
+        if config.enable_summarization
+            && let Some(processor) = processor
+            && self.entries.len() >= config.summarize_threshold
+        {
             
             // Group by category
             let mut by_category: HashMap<MemoryCategory, Vec<&MemoryEntry>> = HashMap::new();
@@ -3350,12 +3352,11 @@ impl TfIdfSearch {
         let mut similarity = 0.0;
         
         for (word, tf_query) in query_freq {
-            if let Some(tf_doc) = doc_freq.get(word) {
-                if let Some(idf) = self.idf_cache.get(word) {
+            if let Some(tf_doc) = doc_freq.get(word)
+                && let Some(idf) = self.idf_cache.get(word) {
                     // TF-IDF(query) × TF-IDF(doc)
                     similarity += tf_query * idf * tf_doc * idf;
                 }
-            }
         }
         
         similarity

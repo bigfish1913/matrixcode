@@ -45,10 +45,10 @@ impl Tool for SearchTool {
         let path = path.to_string();
         let glob_pattern = glob_pattern.map(|s| s.to_string());
 
-        let result = tokio::task::spawn_blocking(move || search_files(&pattern, &path, glob_pattern.as_deref()))
-            .await?;
+        
 
-        result
+        tokio::task::spawn_blocking(move || search_files(&pattern, &path, glob_pattern.as_deref()))
+            .await?
     }
 }
 
@@ -96,16 +96,14 @@ fn collect_files(root: &std::path::Path, glob_pattern: Option<&str>) -> Result<V
     }
 
     let walker = walkdir(root)?;
-    let glob_matcher = glob_pattern.map(|p| glob::Pattern::new(p)).transpose()?;
+    let glob_matcher = glob_pattern.map(glob::Pattern::new).transpose()?;
 
     for entry in walker {
-        if let Some(ref matcher) = glob_matcher {
-            if let Some(name) = entry.file_name().and_then(|n| n.to_str()) {
-                if !matcher.matches(name) {
+        if let Some(ref matcher) = glob_matcher
+            && let Some(name) = entry.file_name().and_then(|n| n.to_str())
+                && !matcher.matches(name) {
                     continue;
                 }
-            }
-        }
         files.push(entry);
     }
 

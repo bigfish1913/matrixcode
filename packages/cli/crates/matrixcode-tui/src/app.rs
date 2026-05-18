@@ -131,11 +131,9 @@ impl TuiApp {
         // Use provided context_size, env var, or estimate from model name
         self.context_size = context_size.unwrap_or_else(|| {
             // Check env var first
-            if let Ok(raw) = std::env::var("CONTEXT_SIZE") {
-                if let Ok(n) = raw.trim().parse::<u64>() {
-                    if n > 0 { return n; }
-                }
-            }
+            if let Ok(raw) = std::env::var("CONTEXT_SIZE")
+                && let Ok(n) = raw.trim().parse::<u64>()
+                    && n > 0 { return n; }
             let m = model.to_ascii_lowercase();
             if m.contains("[1m]") || m.contains("opus-4-7") || m.contains("opus-4.7") {
                 1_000_000
@@ -319,7 +317,7 @@ impl TuiApp {
 
     fn handle_command(&mut self, cmd: &str) {
         let parts: Vec<&str> = cmd.split_whitespace().collect();
-        let command = parts.get(0).map_or("", |v| v);
+        let command = parts.first().map_or("", |v| v);
         let args = &parts[1..];
 
         match command {
@@ -580,8 +578,8 @@ impl TuiApp {
                 if let Some(EventData::AskQuestion { question, options }) = e.data {
                     // Display the question as a message
                     let mut content = format!("❓ {}", question);
-                    if let Some(opts) = options {
-                        if let Some(arr) = opts.as_array() {
+                    if let Some(opts) = options
+                        && let Some(arr) = opts.as_array() {
                             content.push_str("\n\nOptions:");
                             for opt in arr {
                                 let id = opt["id"].as_str().unwrap_or("?");
@@ -589,7 +587,6 @@ impl TuiApp {
                                 content.push_str(&format!("\n  {}) {}", id, label));
                             }
                         }
-                    }
                     self.messages.push(Message { role: Role::System, content });
                     // Switch to waiting for ask input
                     self.waiting_for_ask = true;

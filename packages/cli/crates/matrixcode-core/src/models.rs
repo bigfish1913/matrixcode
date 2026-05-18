@@ -419,8 +419,8 @@ fn build_plan_prompt(request: &str, available_tools: &[&str]) -> String {
 /// Parse planning response into TaskPlan.
 fn parse_plan_response(request: &str, text: &str) -> Result<TaskPlan> {
     // Try to parse as JSON
-    if let Some(json_start) = text.find('{') {
-        if let Some(json_end) = text.rfind('}') {
+    if let Some(json_start) = text.find('{')
+        && let Some(json_end) = text.rfind('}') {
             let json_str = &text[json_start..=json_end];
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
                 return Ok(TaskPlan {
@@ -435,7 +435,6 @@ fn parse_plan_response(request: &str, text: &str) -> Result<TaskPlan> {
                 });
             }
         }
-    }
     
     // Fallback: create simple plan from text
     Ok(TaskPlan {
@@ -474,7 +473,7 @@ fn parse_steps_from_text(text: &str) -> Vec<PlanStep> {
         .filter(|l| l.trim().starts_with(|c: char| c.is_ascii_digit()))
         .take(5)
         .map(|l| PlanStep {
-            description: l.trim().split_whitespace().skip(1).collect::<Vec<_>>().join(" "),
+            description: l.split_whitespace().skip(1).collect::<Vec<_>>().join(" "),
             tools: vec!["read".to_string()],
             optional: false,
         })

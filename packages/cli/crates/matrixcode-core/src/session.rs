@@ -328,11 +328,10 @@ impl SessionManager {
         if let Some(id) = last_id {
             self.load_session(&id)?;
             // Update project path if provided and different
-            if let Some(path) = project_path {
-                if let Some(ref mut session) = self.current_session {
+            if let Some(path) = project_path
+                && let Some(ref mut session) = self.current_session {
                     session.metadata.project_path = Some(path.to_string_lossy().to_string());
                 }
-            }
             Ok(self.current_session.as_ref())
         } else {
             Ok(None)
@@ -345,11 +344,10 @@ impl SessionManager {
         if let Some(id) = session_id {
             self.load_session(&id)?;
             // Update project path if provided
-            if let Some(path) = project_path {
-                if let Some(ref mut session) = self.current_session {
+            if let Some(path) = project_path
+                && let Some(ref mut session) = self.current_session {
                     session.metadata.project_path = Some(path.to_string_lossy().to_string());
                 }
-            }
             Ok(self.current_session.as_ref())
         } else {
             Ok(None)
@@ -368,11 +366,10 @@ impl SessionManager {
             .with_context(|| format!("parsing session file {}", path.display()))?;
         
         // If session name is null but index has a name, use index's name
-        if session.metadata.name.is_none() {
-            if let Some(index_meta) = self.index.find(id) {
+        if session.metadata.name.is_none()
+            && let Some(index_meta) = self.index.find(id) {
                 session.metadata.name = index_meta.name.clone();
             }
-        }
         
         self.current_session = Some(session);
         Ok(())
@@ -415,11 +412,10 @@ impl SessionManager {
     pub fn set_messages(&mut self, messages: Vec<Message>) {
         if let Some(ref mut session) = self.current_session {
             // Auto-generate name from first user message if name is None
-            if session.metadata.name.is_none() && !messages.is_empty() {
-                if let Some(name) = Self::generate_name_from_messages(&messages) {
+            if session.metadata.name.is_none() && !messages.is_empty()
+                && let Some(name) = Self::generate_name_from_messages(&messages) {
                     session.metadata.name = Some(name);
                 }
-            }
             
             session.messages = messages;
             session.metadata.message_count = session.messages.len();

@@ -337,11 +337,10 @@ impl Provider for AnthropicProvider {
                 }
             }
 
-            if let Some(frame) = take_trailing_sse_frame(&mut buffer) {
-                if handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx).await {
+            if let Some(frame) = take_trailing_sse_frame(&mut buffer)
+                && handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx).await {
                     return;
                 }
-            }
 
             if sent_first_byte {
                 debug!(
@@ -742,13 +741,11 @@ fn parse_web_search_content(value: &serde_json::Value) -> crate::providers::WebS
 /// an Anthropic-shaped endpoint). Returns `None` only when we truly
 /// cannot infer; callers treat that as "hide the fullness bar".
 fn context_window_for(model: &str) -> Option<u32> {
-    if let Ok(raw) = std::env::var("CONTEXT_SIZE") {
-        if let Ok(n) = raw.trim().parse::<u32>() {
-            if n > 0 {
+    if let Ok(raw) = std::env::var("CONTEXT_SIZE")
+        && let Ok(n) = raw.trim().parse::<u32>()
+            && n > 0 {
                 return Some(n);
             }
-        }
-    }
     let m = model.to_ascii_lowercase();
     
     // Claude Opus 4.7 and the 1M-context variants expose a 1M window.

@@ -181,15 +181,12 @@ fn parse_ddg_html(html: &str, max_results: usize) -> Vec<SearchResult> {
 fn clean_url(url: &str) -> String {
     // DuckDuckGo uses redirect URLs like:
     // https://duckduckgo.com/l/?uddg=ENCODED_URL&rut=...
-    if url.contains("duckduckgo.com/l/") {
-        if let Some(query) = url.split("uddg=").nth(1) {
-            if let Some(encoded) = query.split('&').next() {
-                if let Ok(decoded) = urlencoding_decode(encoded) {
+    if url.contains("duckduckgo.com/l/")
+        && let Some(query) = url.split("uddg=").nth(1)
+            && let Some(encoded) = query.split('&').next()
+                && let Ok(decoded) = urlencoding_decode(encoded) {
                     return decoded;
                 }
-            }
-        }
-    }
     url.to_string()
 }
 
@@ -224,9 +221,8 @@ fn urlencoding_decode_simple(s: &str) -> String {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
             if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                let decoded_char = char::try_from(byte);
-                // char::try_from for u8 always succeeds for ASCII
-                result.push(decoded_char.unwrap_or_else(|_| '%' as char));
+                let decoded_char = char::from(byte);
+                result.push(decoded_char);
                 continue;
             }
             result.push('%');

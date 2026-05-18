@@ -47,10 +47,10 @@ impl Tool for GlobTool {
         // Show spinner while globbing - RAII guard ensures cleanup on error
         // let mut spinner = ToolSpinner::new(&format!("glob '{}' in {}", pattern, path));
 
-        let result = tokio::task::spawn_blocking(move || find_files(&pattern, &path)).await?;
+        
 
         // Return result directly
-        result
+        tokio::task::spawn_blocking(move || find_files(&pattern, &path)).await?
     }
 }
 
@@ -110,13 +110,11 @@ fn find_files(pattern: &str, path: &str) -> Result<String> {
 fn should_skip(p: &Path) -> bool {
     const IGNORED: &[&str] = &[".git", ".hg", ".svn", "node_modules", "target"];
     for c in p.components() {
-        if let std::path::Component::Normal(s) = c {
-            if let Some(name) = s.to_str() {
-                if IGNORED.contains(&name) {
+        if let std::path::Component::Normal(s) = c
+            && let Some(name) = s.to_str()
+                && IGNORED.contains(&name) {
                     return true;
                 }
-            }
-        }
     }
     false
 }

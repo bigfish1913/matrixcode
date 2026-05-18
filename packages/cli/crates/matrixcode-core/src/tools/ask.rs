@@ -129,11 +129,10 @@ fn render_question_ui(
     println!("│");
 
     // Print options if provided
-    if let Some(opts) = options {
-        if !opts.is_empty() {
+    if let Some(opts) = options
+        && !opts.is_empty() {
             render_options(opts);
         }
-    }
 
     // Print recommendation if provided
     if let Some(rec) = recommendation {

@@ -329,7 +329,7 @@ fn collect_project_context(project_root: &Path) -> Result<ProjectContext> {
     let directory_structure = build_directory_structure(project_root)?;
     
     // Collect key source files
-    let source_files = collect_key_source_files(project_root, &project_type)?;
+    let source_files = collect_key_source_files(project_root, project_type)?;
     
     Ok(ProjectContext {
         config_files,

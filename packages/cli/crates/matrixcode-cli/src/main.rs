@@ -188,7 +188,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_restored_messages = restored_messages.clone();
     let agent_project_path = project_path.clone();
     let agent_approve_mode = config.approve_mode.as_ref()
-        .map(|m| matrixcode_core::approval::ApproveMode::from_str(m))
+        .map(|m| matrixcode_core::approval::ApproveMode::parse(m))
         .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
 
     // Spawn Agent task with real Agent
@@ -257,8 +257,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 }
                 continue;
             }
-            if msg.starts_with("/mode:") {
-                let mode = &msg[6..];
+            if let Some(mode) = msg.strip_prefix("/mode:") {
                 match mode {
                     "ask" => agent.set_approve_mode(matrixcode_core::approval::ApproveMode::Ask),
                     "auto" => agent.set_approve_mode(matrixcode_core::approval::ApproveMode::Auto),

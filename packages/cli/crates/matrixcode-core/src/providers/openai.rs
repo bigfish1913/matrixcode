@@ -189,11 +189,10 @@ impl Provider for OpenAIProvider {
                 .unwrap_or(0) as u32,
         };
 
-        if let Some(text) = message["content"].as_str() {
-            if !text.is_empty() {
+        if let Some(text) = message["content"].as_str()
+            && !text.is_empty() {
                 content.push(ContentBlock::Text { text: text.to_string() });
             }
-        }
 
         if let Some(tool_calls) = message["tool_calls"].as_array() {
             for tc in tool_calls {
@@ -225,13 +224,11 @@ impl Provider for OpenAIProvider {
 /// Best-effort mapping from an OpenAI model name to its context window size.
 /// Honours the `CONTEXT_SIZE` env variable first so users can override.
 fn context_window_for(model: &str) -> Option<u32> {
-    if let Ok(raw) = std::env::var("CONTEXT_SIZE") {
-        if let Ok(n) = raw.trim().parse::<u32>() {
-            if n > 0 {
+    if let Ok(raw) = std::env::var("CONTEXT_SIZE")
+        && let Ok(n) = raw.trim().parse::<u32>()
+            && n > 0 {
                 return Some(n);
             }
-        }
-    }
     let m = model.to_ascii_lowercase();
     
     // GPT-4o models: 128K context

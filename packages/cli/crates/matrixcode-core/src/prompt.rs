@@ -116,7 +116,9 @@ const REVIEW_SYSTEM_PROMPT_MODULES: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum PromptProfile {
+    #[default]
     Default,
     Safe,
     Fast,
@@ -143,11 +145,6 @@ impl PromptProfile {
     }
 }
 
-impl Default for PromptProfile {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 impl FromStr for PromptProfile {
     type Err = String;
@@ -218,9 +215,9 @@ pub fn build_overview_prompt(context: &OverviewContext) -> String {
     prompt.push_str("要求：\n");
     for req in OVERVIEW_PROMPT_REQUIREMENTS {
         prompt.push_str(req);
-        prompt.push_str("\n");
+        prompt.push('\n');
     }
-    prompt.push_str("\n");
+    prompt.push('\n');
     prompt.push_str(OVERVIEW_PROMPT_FORMAT);
     prompt.push_str("\n\n---\n\n");
 
@@ -265,7 +262,7 @@ pub fn build_overview_prompt(context: &OverviewContext) -> String {
 
     prompt.push_str("---\n\n");
     prompt.push_str(OVERVIEW_PROMPT_FOOTER);
-    prompt.push_str("\n");
+    prompt.push('\n');
 
     prompt
 }
@@ -389,7 +386,7 @@ pub fn build_system_prompt(
     project_overview: Option<&str>,
     memory_summary: Option<&str>,
 ) -> String {
-    let builder = SystemPromptBuilder::new(profile.clone());
+    let builder = SystemPromptBuilder::new(*profile);
     
     let mut result = builder.build();
     
