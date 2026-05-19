@@ -58,6 +58,7 @@ pub fn fmt_tokens(n: u64) -> String {
 }
 
 /// Render a progress bar
+#[allow(dead_code)]
 pub fn progress_bar(pct: f64, width: usize) -> String {
     let filled = ((pct / 100.0) * width as f64).round() as usize;
     let filled = filled.min(width);

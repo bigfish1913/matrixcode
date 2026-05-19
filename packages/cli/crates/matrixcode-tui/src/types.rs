@@ -92,6 +92,7 @@ impl Role {
         }
     }
 
+    #[allow(dead_code)]
     pub fn color(&self) -> Color {
         match self {
             Role::User => Color::Green,

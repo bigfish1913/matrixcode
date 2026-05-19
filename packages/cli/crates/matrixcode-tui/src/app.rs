@@ -243,10 +243,31 @@ impl TuiApp {
             let content = match &msg.content {
                 matrixcode_core::MessageContent::Text(t) => t.clone(),
                 matrixcode_core::MessageContent::Blocks(blocks) => {
-                    blocks.iter().filter_map(|b| match b {
-                        matrixcode_core::ContentBlock::Text { text } => Some(text.clone()),
-                        _ => None,
-                    }).collect::<Vec<_>>().join("\n")
+                    let mut parts: Vec<String> = Vec::new();
+                    for b in blocks {
+                        match b {
+                            matrixcode_core::ContentBlock::Text { text } => {
+                                if !text.is_empty() {
+                                    parts.push(text.clone());
+                                }
+                            }
+                            matrixcode_core::ContentBlock::ToolUse { name, .. } => {
+                                parts.push(format!("[tool_use: {}]", name));
+                            }
+                            matrixcode_core::ContentBlock::ToolResult { content, .. } => {
+                                if !content.is_empty() {
+                                    parts.push(content.clone());
+                                }
+                            }
+                            matrixcode_core::ContentBlock::Thinking { thinking, .. } => {
+                                if !thinking.is_empty() {
+                                    parts.push(thinking.clone());
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    parts.join("\n")
                 }
             };
             if content.is_empty() { continue; }
