@@ -3,6 +3,9 @@ mod utils;
 mod markdown;
 mod app;
 mod draw;
+mod input;
+mod commands;
+mod events;
 
 use anyhow::Result;
 use std::io::Stdout;

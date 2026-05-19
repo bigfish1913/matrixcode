@@ -518,12 +518,12 @@ fn summarize_tool_result(name: &str, content: &str, is_error: &bool, max_w: usiz
     let color = if *is_error { Color::Red } else { Color::Cyan };
     let error_prefix = if *is_error { "❌ " } else { "" };
     
-    // Parse tool name from label (e.g., "📖 Reading" -> "read")
+    // Parse tool name from label
     let tool_type = name.to_lowercase();
     
-    match tool_type {
+    match tool_type.as_str() {
         // Read: show file preview with line count
-        t if t.contains("read") || t.contains("reading") => {
+        "read" => {
             let line_count = content.lines().count();
             if line_count <= 3 {
                 for line in content.lines().take(3) {
@@ -547,7 +547,7 @@ fn summarize_tool_result(name: &str, content: &str, is_error: &bool, max_w: usiz
         }
         
         // Edit: show what was changed
-        t if t.contains("edit") || t.contains("editing") => {
+        "edit" | "multi_edit" => {
             if *is_error {
                 lines.push(Line::styled(
                     format!("  {}{}", error_prefix, truncate(content, max_w - 4)),
@@ -575,7 +575,7 @@ fn summarize_tool_result(name: &str, content: &str, is_error: &bool, max_w: usiz
         }
         
         // Search/Glob: show match count + preview
-        t if t.contains("search") || t.contains("glob") => {
+        "search" | "glob" | "ls" => {
             let matches: Vec<&str> = content.lines().filter(|l| !l.is_empty()).take(10).collect();
             let total = content.lines().filter(|l| !l.is_empty()).count();
             
@@ -592,7 +592,7 @@ fn summarize_tool_result(name: &str, content: &str, is_error: &bool, max_w: usiz
         }
         
         // Bash: show command output preview
-        t if t.contains("run") || t.contains("bash") => {
+        "bash" => {
             let line_count = content.lines().count();
             if line_count <= 5 {
                 for line in content.lines() {
@@ -624,7 +624,7 @@ fn summarize_tool_result(name: &str, content: &str, is_error: &bool, max_w: usiz
         }
         
         // Write: show file created
-        t if t.contains("write") || t.contains("writing") => {
+        "write" => {
             if *is_error {
                 lines.push(Line::styled(
                     format!("  {}{}", error_prefix, truncate(content, max_w - 4)),
@@ -639,7 +639,7 @@ fn summarize_tool_result(name: &str, content: &str, is_error: &bool, max_w: usiz
         }
         
         // Todo_write: show full todo list with colored status markers
-        t if t.contains("todo") => {
+        "todo_write" => {
             // Show full todo list
             for line in content.lines() {
                 let trimmed = line.trim();
@@ -676,7 +676,7 @@ fn summarize_tool_result(name: &str, content: &str, is_error: &bool, max_w: usiz
         }
         
         // WebSearch/WebFetch: show results preview
-        t if t.contains("web") || t.contains("search") || t.contains("fetch") => {
+        "websearch" | "webfetch" => {
             let line_count = content.lines().count();
             for line in content.lines().take(5) {
                 lines.push(Line::styled(
