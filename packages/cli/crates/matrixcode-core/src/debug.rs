@@ -175,8 +175,19 @@ impl DebugStats {
 
 /// Global debug logger (lazy initialized)
 static DEBUG_LOG: once_cell::sync::Lazy<DebugLog> = once_cell::sync::Lazy::new(|| {
+    // Try to load .env file first (from current directory)
+    let _ = dotenvy::dotenv();
+    
+    // Also try project-level .matrix/.env
+    if let Ok(cwd) = std::env::current_dir() {
+        let matrix_env = cwd.join(".matrix").join(".env");
+        if matrix_env.exists() {
+            let _ = dotenvy::from_path(&matrix_env);
+        }
+    }
+    
     let verbose = std::env::var("MATRIXCODE_DEBUG")
-        .map(|v| v == "1" || v == "true")
+        .map(|v| v == "1" || v == "true" || v == "verbose")
         .unwrap_or(false);
     DebugLog::new(verbose)
 });

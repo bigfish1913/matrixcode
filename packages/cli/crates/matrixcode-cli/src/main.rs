@@ -13,66 +13,80 @@ use matrixcode_core::{
 use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
 use std::path::{PathBuf, Path};
 
-// Handle /init commands for project setup
-fn handle_init_command(cmd: &str, project_path: Option<&Path>) -> String {
+// Handle /init commands for project overview generation
+// Note: For async operations, we return a special command that will be handled in the agent task
+fn handle_init_command(cmd: &str, project_path: Option<&Path>) -> InitCommandResult {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
-    let subcmd = parts.get(1).copied().unwrap_or("status");
+    let subcmd = parts.get(1).copied().unwrap_or("");
     
     match subcmd {
+        "" => {
+            // /init without subcommand - generate project overview
+            InitCommandResult::GenerateOverview
+        }
         "status" => {
-            // Show current project status
+            // Show current project overview status
             if let Some(path) = project_path {
-                let session_file = path.join(".matrix").join("session.json");
-                let memory_file = path.join(".matrix").join("memory.json");
-                let has_session = session_file.exists();
-                let has_memory = memory_file.exists();
-                let memory_info = if has_memory {
-                    if let Ok(storage) = MemoryStorage::new(Some(path)) {
-                        if let Ok(mem) = storage.load_combined() {
-                            format!("✓ {} entries", mem.entries.len())
+                let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
+                let matrix_dir = path.join(matrixcode_core::overview::MATRIXCODE_DIR);
+                let has_overview = overview_path.exists();
+                let has_memory = matrix_dir.join("memory.json").exists();
+                let has_session = matrix_dir.join("session.json").exists();
+                
+                let overview_info = if has_overview {
+                    if let Ok(metadata) = std::fs::metadata(&overview_path) {
+                        if let Ok(modified) = metadata.modified() {
+                            let modified_time: chrono::DateTime<chrono::Local> = modified.into();
+                            format!("✓ exists (modified: {})", modified_time.format("%Y-%m-%d %H:%M"))
                         } else {
-                            "✓ exists (empty)".into()
+                            "✓ exists".into()
                         }
                     } else {
                         "✓ exists".into()
                     }
                 } else {
-                    "❌ missing".into()
+                    "❌ not found (use /init to generate)".into()
                 };
-                format!(
-                    "📊 Project: {}\n  Session: {}\n  Memory: {}",
+                
+                InitCommandResult::Message(format!(
+                    "📊 Project: {}\n  Overview: {}\n  Memory: {}\n  Session: {}",
                     path.display(),
-                    if has_session { "✓ exists" } else { "❌ missing" },
-                    memory_info
-                )
+                    overview_info,
+                    if has_memory { "✓ exists" } else { "❌ none" },
+                    if has_session { "✓ exists" } else { "❌ none" }
+                ))
             } else {
-                "⚠️ No project path set. Use: matrixcode --project <path>".into()
+                InitCommandResult::Message("⚠️ No project path set. Use: matrixcode --project <path>".into())
             }
         }
-        "reset" => {
-            // Reset project configuration
+        "clear" | "reset" => {
+            // Clear project overview
             if let Some(path) = project_path {
-                let matrix_dir = path.join(".matrix");
-                if matrix_dir.exists() {
-                    let mut cleared = 0;
-                    if let Ok(entries) = std::fs::read_dir(&matrix_dir) {
-                        for entry in entries.flatten() {
-                            let _ = std::fs::remove_file(entry.path());
-                            cleared += 1;
-                        }
+                let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
+                if overview_path.exists() {
+                    match std::fs::remove_file(&overview_path) {
+                        Ok(_) => InitCommandResult::Message(format!("✓ Project overview cleared: {}", overview_path.display())),
+                        Err(e) => InitCommandResult::Message(format!("❌ Failed to clear overview: {}", e)),
                     }
-                    format!("✓ Reset project: {} files cleared from {}", cleared, path.display())
                 } else {
-                    format!("⚠️ No .matrix directory found at {}", path.display())
+                    InitCommandResult::Message("⚠️ No project overview found to clear.".into())
                 }
             } else {
-                "⚠️ No project path set. Cannot reset.".into()
+                InitCommandResult::Message("⚠️ No project path set.".into())
             }
         }
         _ => {
-            "⚠️ Unknown init command. Use: /init status, /init reset".into()
+            InitCommandResult::Message("⚠️ Unknown init command. Use: /init, /init status, /init clear".into())
         }
     }
+}
+
+/// Result of handling an init command
+enum InitCommandResult {
+    /// A simple message to display
+    Message(String),
+    /// Request to generate project overview (async operation)
+    GenerateOverview,
 }
 
 #[derive(Parser)]
@@ -166,15 +180,70 @@ fn main() -> Result<()> {
     }
 }
 
-/// Load skills from directories (simplified)
-fn load_skills(_extra_dirs: &[PathBuf]) -> usize {
-    // Skills loading is complex, return 0 for now
-    0
+/// Load skills from directories
+fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill> {
+    use matrixcode_core::skills::discover_skills;
+    use std::path::PathBuf;
+    
+    // Build list of skill directories to search
+    let mut roots: Vec<PathBuf> = Vec::new();
+    
+    // 1. User's global skills directory (~/.matrix/skills)
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home.join(".matrix").join("skills"));
+    }
+    
+    // 2. Project-local skills directory (.matrix/skills)
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd.join(".matrix").join("skills"));
+    }
+    
+    // 3. Extra directories from CLI option
+    roots.extend(extra_dirs.iter().cloned());
+    
+    // Discover and load skills
+    let skills = discover_skills(&roots);
+    
+    if !skills.is_empty() {
+        eprintln!("[skills] Loaded {} skill(s)", skills.len());
+    }
+    
+    skills
 }
 
 /// List sessions
 fn list_sessions() {
-    println!("Sessions: (not implemented)");
+    use matrixcode_core::session::SessionManager;
+    
+    let mgr = SessionManager::new().ok();
+    if let Some(mgr) = mgr {
+        let sessions = mgr.list_sessions();
+        if sessions.is_empty() {
+            println!("No sessions found.");
+            println!("\nTip: Use 'matrixcode' to start a new session.");
+        } else {
+            println!("Sessions:\n");
+            for (i, session) in sessions.iter().enumerate() {
+                let status = if mgr.has_current() && mgr.current_id() == Some(session.id.as_str()) { 
+                    " [current]" 
+                } else { 
+                    "" 
+                };
+                let project = session.project_path.as_deref().unwrap_or("unknown");
+                println!("  {}. {} ({}){}", 
+                    i + 1, 
+                    session.short_id(),
+                    project,
+                    status
+                );
+            }
+            println!("\nTotal: {} sessions", sessions.len());
+            println!("\nResume: matrixcode --resume <id>");
+        }
+    } else {
+        println!("No session manager available.");
+        println!("Sessions directory: ~/.matrix/sessions/");
+    }
 }
 
 /// Terminal mode with TUI
@@ -195,12 +264,13 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
         .unwrap_or_else(|| "https://api.anthropic.com".to_string());
 
-    // Load skills (simplified)
-    let _skills_count = load_skills(&Vec::new());
-
+    // Load skills
+    let skills_dirs: Vec<PathBuf> = cli.skills_dir.iter().cloned().collect();
+    let skills = load_skills(&skills_dirs);
+    
     // Handle single command without TUI
     if let Some(cmd) = cli.command {
-        handle_command(cmd);
+        handle_command(cmd, &skills);
         return Ok(());
     }
 
@@ -251,11 +321,14 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_approve_mode = config.approve_mode.as_ref()
         .map(|m| matrixcode_core::approval::ApproveMode::parse(m))
         .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
+    
+    // Clone skills for agent task
+    let agent_skills = skills.clone();
 
     // Spawn Agent task with real Agent
     let _agent_task = rt.spawn(async move {
-        // Create provider
-        let provider = AnthropicProvider::new(agent_api_key, agent_model.clone(), agent_base_url);
+        // Create provider (clone values so they can be reused for overview generation)
+        let provider = AnthropicProvider::new(agent_api_key.clone(), agent_model.clone(), agent_base_url.clone());
 
         // Load memory
         let project_path_ref = agent_project_path.as_deref();
@@ -279,15 +352,22 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             .map(|mem| mem.generate_prompt_summary(20))
             .unwrap_or_default();
 
-        // Build system prompt with memory
-        let system_prompt = if memory_summary.is_empty() {
-            "You are a helpful AI coding assistant named MatrixCode.".to_string()
-        } else {
-            format!(
-                "You are a helpful AI coding assistant named MatrixCode.\n\n{}", 
-                memory_summary
-            )
-        };
+        // Load project overview (MATRIX.md)
+        let project_overview = project_path_ref
+            .and_then(|path| matrixcode_core::overview::ProjectOverview::load(path).ok().flatten());
+        
+        // Log overview loading
+        if let Some(ref overview) = project_overview {
+            matrixcode_core::debug::debug_log().log("overview", &format!("Loaded project overview: {} chars", overview.content.len()));
+        }
+
+        // Build system prompt with memory, project overview and skills
+        let system_prompt = matrixcode_core::prompt::build_system_prompt(
+            &matrixcode_core::prompt::PromptProfile::Default,
+            &agent_skills,
+            project_overview.as_ref().map(|o| o.content.as_str()),
+            if memory_summary.is_empty() { None } else { Some(&memory_summary) },
+        );
 
         // Build agent with external event sender
         let mut agent = AgentBuilder::new(Box::new(provider))
@@ -352,15 +432,117 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             // Handle /init commands
             if msg.starts_with("/init") {
                 let result = handle_init_command(&msg, agent_project_path.as_deref());
+                match result {
+                    InitCommandResult::Message(msg) => {
+                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                            matrixcode_core::EventType::Progress,
+                            matrixcode_core::EventData::Progress {
+                                message: msg,
+                                percentage: None,
+                            },
+                        )).await;
+                    }
+                    InitCommandResult::GenerateOverview => {
+                        // Generate project overview using AI
+                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                            matrixcode_core::EventType::Progress,
+                            matrixcode_core::EventData::Progress {
+                                message: "🔄 Generating project overview...".into(),
+                                percentage: Some(10),
+                            },
+                        )).await;
+                        
+                        if let Some(ref path) = agent_project_path {
+                            // Create a new provider for overview generation
+                            let overview_provider = AnthropicProvider::new(
+                                agent_api_key.clone(),
+                                agent_model.clone(),
+                                agent_base_url.clone(),
+                            );
+                            
+                            match matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), &overview_provider).await {
+                                Ok(overview) => {
+                                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                                        matrixcode_core::EventType::Progress,
+                                        matrixcode_core::EventData::Progress {
+                                            message: format!("✓ Project overview generated: {}", overview.path.display()),
+                                            percentage: Some(100),
+                                        },
+                                    )).await;
+                                    
+                                    // Log overview content for debug
+                                    matrixcode_core::debug::debug_log().log("overview", &format!("Generated overview with {} chars", overview.content.len()));
+                                }
+                                Err(e) => {
+                                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
+                                        format!("Failed to generate overview: {}", e),
+                                        Some("overview_error".into()),
+                                        None,
+                                    )).await;
+                                }
+                            }
+                        } else {
+                            let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
+                                String::from("No project path set. Cannot generate overview."),
+                                Some("no_project".into()),
+                                None,
+                            )).await;
+                        }
+                    }
+                }
+                continue;
+            }
+            
+            // Handle /skills commands
+            if msg == "/skills" || msg.starts_with("/skills ") {
+                let parts: Vec<&str> = msg.split_whitespace().collect();
+                let subcmd = parts.get(1).copied().unwrap_or("");
+                
+                let response = if subcmd.is_empty() || subcmd == "list" {
+                    // List all available skills
+                    if agent_skills.is_empty() {
+                        "📚 No skills loaded.\n\nSkills directories searched:\n  - ~/.matrix/skills\n  - .matrix/skills\n\nTo add a skill, create a SKILL.md file in a subdirectory.".to_string()
+                    } else {
+                        let mut info = format!("📚 Loaded skills ({}):\n\n", agent_skills.len());
+                        for skill in &agent_skills {
+                            info.push_str(&format!("• {}: {}\n", skill.name, skill.description));
+                            info.push_str(&format!("  Source: {}\n", skill.source_file.display()));
+                        }
+                        info.push_str("\nUse `/skills <name>` to view a skill's content.");
+                        info
+                    }
+                } else if subcmd == "reload" {
+                    // Reload skills from directories
+                    let skills_dirs: Vec<PathBuf> = Vec::new();
+                    let new_skills = load_skills(&skills_dirs);
+                    let count = new_skills.len();
+                    // Note: we can't actually update agent_skills in the async task,
+                    // but we can show the reload result
+                    format!("🔄 Skills reloaded: {} skill(s) found.\n\nNote: Restart MatrixCode to use new skills.", count)
+                } else {
+                    // Show specific skill content
+                    let skill_name = subcmd;
+                    if let Some(skill) = agent_skills.iter().find(|s| s.name == skill_name) {
+                        format!("📚 Skill: {}\n\n{}\n\nSource: {}", 
+                            skill.name, 
+                            skill.body,
+                            skill.source_file.display()
+                        )
+                    } else {
+                        format!("❌ Skill '{}' not found.\n\nUse `/skills list` to see available skills.", skill_name)
+                    }
+                };
+                
                 let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
                     matrixcode_core::EventType::Progress,
                     matrixcode_core::EventData::Progress {
-                        message: result,
+                        message: response,
                         percentage: None,
                     },
                 )).await;
                 continue;
             }
+            
             if msg == "/compact" || msg == "/compress" {
                 // Manual compression request
                 let original_tokens = matrixcode_core::compress::estimate_total_tokens(agent.get_messages());
@@ -514,26 +696,331 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     result
 }
 
-/// Handle single command
-fn handle_command(cmd: Commands) {
-    match cmd {
-        Commands::Chat { message } => {
-            if let Some(msg) = message {
-                println!("Processing: {}", msg);
-            } else {
-                println!("Please provide a message with --message");
+/// Handle single command with actual agent execution
+fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
+    // Load config
+    let config = Config::load();
+    
+    // Get API configuration
+    let api_key = config.api_key.clone()
+        .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
+        .unwrap_or_else(|| {
+            eprintln!("❌ No API key found. Set ANTHROPIC_AUTH_TOKEN or configure in ~/.matrix/config.json");
+            std::process::exit(1);
+        });
+
+    let model = config.model.clone()
+        .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+        .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+
+    let base_url = config.base_url.clone()
+        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+        .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+    
+    let approve_mode = config.approve_mode.as_ref()
+        .map(|m| matrixcode_core::approval::ApproveMode::parse(m))
+        .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
+
+    // Create tokio runtime
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    
+    rt.block_on(async {
+        match cmd {
+            Commands::Chat { message } => {
+                // Interactive or single-shot chat
+                if let Some(msg) = message {
+                    // Single-shot chat
+                    println!("🤖 Processing: {}", msg);
+                    
+                    // Build system prompt with skills
+                    let system_prompt = matrixcode_core::prompt::build_system_prompt(
+                        &matrixcode_core::prompt::PromptProfile::Default,
+                        skills,
+                        None,
+                        None,
+                    );
+                    
+                    // Create provider
+                    let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
+                    
+                    // Build agent
+                    let mut agent = AgentBuilder::new(Box::new(provider))
+                        .system_prompt(system_prompt)
+                        .model_name(model.clone())
+                        .max_tokens(4096)
+                        .tools(all_tools())
+                        .approve_mode(approve_mode)
+                        .build();
+                    
+                    // Run agent
+                    match agent.run(msg).await {
+                        Ok(_) => {
+                            // Get last assistant message
+                            let messages = agent.get_messages();
+                            if let Some(last) = messages.last() {
+                                let text = match &last.content {
+                                    matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                    matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                        blocks.iter().filter_map(|b| match b {
+                                            matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                            _ => None,
+                                        }).collect::<Vec<_>>().join("\n")
+                                    }
+                                };
+                                println!("\n{}", text);
+                            }
+                            
+                            let (input, output) = agent.get_token_counts();
+                            println!("\n📊 Tokens: {} in, {} out", input, output);
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Error: {}", e);
+                        }
+                    }
+                } else {
+                    // No message provided - start interactive mode
+                    println!("Starting interactive chat session...");
+                    println!("Note: For interactive chat, run 'matrixcode' without subcommand.");
+                }
+            }
+            Commands::Status => {
+                // Show system status (sync)
+                println!("MatrixCode Status:\n");
+                println!("  Version: {}", env!("CARGO_PKG_VERSION"));
+                println!("  Mode: Ready");
+                
+                // Show configuration
+                if config.api_key.is_some() || std::env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some() {
+                    println!("  API: ✓ configured");
+                } else {
+                    println!("  API: ❌ not configured");
+                    println!("       Set ANTHROPIC_AUTH_TOKEN or configure in ~/.matrix/config.json");
+                }
+                
+                if let Some(model) = &config.model {
+                    println!("  Model: {}", model);
+                } else if let Ok(model) = std::env::var("ANTHROPIC_MODEL") {
+                    println!("  Model: {} (from env)", model);
+                } else {
+                    println!("  Model: claude-sonnet-4-20250514 (default)");
+                }
+                
+                if let Some(base_url) = &config.base_url {
+                    println!("  Base URL: {}", base_url);
+                } else if let Ok(url) = std::env::var("ANTHROPIC_BASE_URL") {
+                    println!("  Base URL: {} (from env)", url);
+                }
+                
+                // Show approve mode
+                if let Some(mode) = &config.approve_mode {
+                    println!("  Approve Mode: {}", mode);
+                } else {
+                    println!("  Approve Mode: ask (default)");
+                }
+                
+                // Show sessions
+                if let Some(mgr) = SessionManager::new().ok() {
+                    println!("  Sessions: {} (current: {})", 
+                        mgr.list_sessions().len(),
+                        if mgr.has_current() { "yes" } else { "no" }
+                    );
+                }
+                
+                // Show memory
+                let project_path = std::env::current_dir().ok();
+                if let Some(path) = &project_path {
+                    if let Ok(storage) = MemoryStorage::new(Some(path.as_path())) {
+                        if let Ok(mem) = storage.load_combined() {
+                            println!("  Memory: {} entries", mem.entries.len());
+                        }
+                    }
+                    
+                    // Show project overview status
+                    let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
+                    if overview_path.exists() {
+                        if let Ok(metadata) = std::fs::metadata(&overview_path) {
+                            let size = metadata.len();
+                            if let Ok(modified) = metadata.modified() {
+                                let modified_time: chrono::DateTime<chrono::Local> = modified.into();
+                                println!("  Overview: ✓ MATRIX.md ({}, modified: {})", 
+                                    if size > 1024 { format!("{} KB", size / 1024) } else { format!("{} bytes", size) },
+                                    modified_time.format("%Y-%m-%d %H:%M")
+                                );
+                            } else {
+                                println!("  Overview: ✓ MATRIX.md ({})", size);
+                            }
+                        }
+                    } else {
+                        println!("  Overview: ❌ not found (use /init to generate)");
+                    }
+                }
+            }
+            Commands::History => {
+                // Show session history (sync)
+                if let Some(mgr) = SessionManager::new().ok() {
+                    let sessions = mgr.list_sessions();
+                    if sessions.is_empty() {
+                        println!("No session history found.");
+                    } else {
+                        println!("Session History:\n");
+                        for session in sessions {
+                            let project = session.project_path.as_deref().unwrap_or("unknown");
+                            let is_current = mgr.has_current() && mgr.current_id() == Some(session.id.as_str());
+                            
+                            println!("Session: {} ({})", session.short_id(), session.id);
+                            println!("  Project: {}", project);
+                            println!("  Created: {}", session.created_at.format("%Y-%m-%d %H:%M"));
+                            println!("  Current: {}", if is_current { "yes" } else { "no" });
+                            println!("  Messages: {}", session.message_count);
+                            println!("  Tokens: {} in, {} out", session.last_input_tokens, session.total_output_tokens);
+                            println!();
+                        }
+                        println!("Total: {} sessions", sessions.len());
+                        println!("\nResume: matrixcode --resume <id>");
+                    }
+                } else {
+                    println!("Session manager not available.");
+                }
+            }
+            Commands::NewSession => {
+                // Create new session (sync)
+                println!("Creating new session...");
+                
+                if let Some(mut mgr) = SessionManager::new().ok() {
+                    let project_path = std::env::current_dir().ok();
+                    if let Ok(_) = mgr.start_new(project_path.as_deref()) {
+                        println!("✓ New session created");
+                        
+                        if let Some(id) = mgr.current_id() {
+                            println!("  Session ID: {}", id);
+                        }
+                        
+                        println!("\nStart chatting with: matrixcode");
+                    } else {
+                        println!("❌ Failed to create new session");
+                    }
+                } else {
+                    println!("Session manager not available.");
+                }
+            }
+            Commands::QuickAction { action, file } => {
+                // Execute quick action
+                println!("⚡ Quick Action: {}", action);
+                if let Some(f) = &file {
+                    println!("  Target: {}", f);
+                }
+                
+                // Build prompt based on action type
+                let prompt = match action.as_str() {
+                    "explain" => {
+                        if let Some(f) = file {
+                            format!("Please explain the code in {} in detail, including its purpose, structure, and key concepts.", f)
+                        } else {
+                            "Please explain the code in detail.".to_string()
+                        }
+                    }
+                    "fix" => {
+                        if let Some(f) = file {
+                            format!("Please analyze {} for bugs or issues and fix them.", f)
+                        } else {
+                            "Please analyze the code for bugs or issues and fix them.".to_string()
+                        }
+                    }
+                    "refactor" => {
+                        if let Some(f) = file {
+                            format!("Please refactor {} to improve its structure, readability, and maintainability.", f)
+                        } else {
+                            "Please refactor the code to improve its structure.".to_string()
+                        }
+                    }
+                    "test" => {
+                        if let Some(f) = file {
+                            format!("Please write unit tests for the code in {}.", f)
+                        } else {
+                            "Please write unit tests for the code.".to_string()
+                        }
+                    }
+                    "doc" | "document" => {
+                        if let Some(f) = file {
+                            format!("Please add documentation and comments to {}.", f)
+                        } else {
+                            "Please add documentation and comments to the code.".to_string()
+                        }
+                    }
+                    "optimize" => {
+                        if let Some(f) = file {
+                            format!("Please optimize {} for performance and efficiency.", f)
+                        } else {
+                            "Please optimize the code for performance.".to_string()
+                        }
+                    }
+                    "review" => {
+                        if let Some(f) = file {
+                            format!("Please review {} and provide feedback on code quality, potential issues, and improvements.", f)
+                        } else {
+                            "Please review the code and provide feedback.".to_string()
+                        }
+                    }
+                    other => {
+                        if let Some(f) = file {
+                            format!("{}: {}", other, f)
+                        } else {
+                            other.to_string()
+                        }
+                    }
+                };
+                
+                println!("\n🤖 Processing...");
+                
+                // Build system prompt with skills for quick action
+                let system_prompt = matrixcode_core::prompt::build_system_prompt(
+                    &matrixcode_core::prompt::PromptProfile::Fast, // Fast profile for quick actions
+                    skills,
+                    None,
+                    None,
+                );
+                
+                // Create provider
+                let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
+                
+                // Build agent
+                let mut agent = AgentBuilder::new(Box::new(provider))
+                    .system_prompt(system_prompt)
+                    .model_name(model.clone())
+                    .max_tokens(4096)
+                    .tools(all_tools())
+                    .approve_mode(matrixcode_core::approval::ApproveMode::Auto)  // Auto mode for quick actions
+                    .build();
+                
+                // Run agent
+                match agent.run(prompt).await {
+                    Ok(_) => {
+                        // Get last assistant message
+                        let messages = agent.get_messages();
+                        if let Some(last) = messages.last() {
+                            let text = match &last.content {
+                                matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                    blocks.iter().filter_map(|b| match b {
+                                        matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                        _ => None,
+                                    }).collect::<Vec<_>>().join("\n")
+                                }
+                            };
+                            println!("\n{}", text);
+                        }
+                        
+                        let (input, output) = agent.get_token_counts();
+                        println!("\n📊 Tokens: {} in, {} out", input, output);
+                        println!("✓ Action completed");
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Error: {}", e);
+                    }
+                }
             }
         }
-        Commands::Status => {
-            println!("Status: Ready");
-        }
-        Commands::History => {
-            println!("History: No history available");
-        }
-        _ => {
-            println!("Command not implemented");
-        }
-    }
+    });
 }
 
 /// Service mode: pure JSON output
