@@ -40,6 +40,8 @@ pub struct TuiApp {
     pub(crate) last_anim: Instant,
     pub(crate) show_welcome: bool,
     pub(crate) exit: bool,
+    // Input cursor position (character index in input string)
+    pub(crate) cursor_pos: usize,
     // Scroll state
     pub(crate) scroll_offset: u16,
     pub(crate) auto_scroll: bool,
@@ -181,6 +183,7 @@ impl TuiApp {
             last_anim: Instant::now(),
             show_welcome: true,
             exit: false,
+            cursor_pos: 0,
             scroll_offset: 0,
             auto_scroll: true,
             max_scroll: std::cell::Cell::new(0),
@@ -311,6 +314,7 @@ impl TuiApp {
                 match event::read()? {
                     Event::Key(k) => self.on_key(k),
                     Event::Mouse(m) => self.on_mouse(m, self.msg_area_top.get()),
+                    Event::Paste(text) => self.on_paste(&text),
                     _ => {}
                 }
             }
@@ -332,8 +336,15 @@ impl TuiApp {
             // Enter: send or newline
             KeyCode::Enter => {
                 if k.modifiers.contains(KeyModifiers::SHIFT) {
-                    // Shift+Enter: add newline
-                    self.input.push('\n');
+                    // Shift+Enter: insert newline at cursor position
+                    if !self.input.is_char_boundary(self.cursor_pos) {
+                        self.cursor_pos = self.input.char_indices()
+                            .rfind(|(i, _)| *i <= self.cursor_pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                    }
+                    self.input.insert(self.cursor_pos, '\n');
+                    self.cursor_pos += 1;  // '\n' is 1 byte
                 } else if !self.input.trim().is_empty() {
                     self.send_input();
                 }
@@ -356,6 +367,7 @@ impl TuiApp {
                     self.messages.push(Message { role: Role::System, content: "⚠️ Interrupted".into() });
                 } else {
                     self.input.clear();
+                    self.cursor_pos = 0;
                 }
             }
 
@@ -365,11 +377,24 @@ impl TuiApp {
                     // Copy selected text
                     let selected_text = self.get_selected_text(sel);
                     if !selected_text.is_empty() {
-                        // Copy to clipboard (using clipboard crate if available, otherwise show in message)
-                        self.messages.push(Message {
-                            role: Role::System,
-                            content: format!("📋 Copied {} chars (clipboard not available in TUI)", selected_text.len())
-                        });
+                        // Try to copy to clipboard
+                        let clipboard_result = arboard::Clipboard::new()
+                            .and_then(|mut cb| cb.set_text(&selected_text));
+                        
+                        match clipboard_result {
+                            Ok(_) => {
+                                self.messages.push(Message {
+                                    role: Role::System,
+                                    content: format!("📋 Copied {} chars to clipboard", selected_text.len())
+                                });
+                            }
+                            Err(_) => {
+                                self.messages.push(Message {
+                                    role: Role::System,
+                                    content: format!("📋 Copied {} chars (clipboard unavailable)", selected_text.len())
+                                });
+                            }
+                        }
                         self.selection = None;
                         self.selecting = false;
                     }
@@ -386,14 +411,162 @@ impl TuiApp {
                 self.exit = true;
             }
 
-            // Backspace: delete char
-            KeyCode::Backspace => {
-                self.input.pop();
+            // Ctrl+V: paste from clipboard
+            KeyCode::Char('v') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Try to get text from clipboard
+                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                    if let Ok(text) = clipboard.get_text() {
+                        self.on_paste(&text);
+                    }
+                }
             }
 
-            // Regular character input (except when Alt is held)
-            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::ALT) => {
-                self.input.push(c);
+            // Backspace: delete char before cursor
+            KeyCode::Backspace => {
+                if self.cursor_pos > 0 {
+                    // Find the previous character boundary
+                    let prev_char_pos = self.input.char_indices()
+                        .rfind(|(i, _)| *i < self.cursor_pos)
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    
+                    // Remove the character (one operation, not loop)
+                    // prev_char_pos to cursor_pos is exactly one character
+                    self.input.drain(prev_char_pos..self.cursor_pos);
+                    self.cursor_pos = prev_char_pos;
+                }
+            }
+
+            // Delete: delete char at cursor
+            KeyCode::Delete => {
+                if self.cursor_pos < self.input.len() {
+                    // Find the next character boundary
+                    let next_char_pos = self.input.char_indices()
+                        .find(|(i, _)| *i > self.cursor_pos)
+                        .map(|(i, _)| i)
+                        .unwrap_or(self.input.len());
+                    
+                    // Remove the character (one operation)
+                    self.input.drain(self.cursor_pos..next_char_pos);
+                }
+            }
+
+            // Left arrow: move cursor left (one character)
+            KeyCode::Left => {
+                if self.cursor_pos > 0 {
+                    // Find previous character boundary
+                    self.cursor_pos = self.input.char_indices()
+                        .rfind(|(i, _)| *i < self.cursor_pos)
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                }
+            }
+
+            // Right arrow: move cursor right (one character)
+            KeyCode::Right => {
+                if self.cursor_pos < self.input.len() {
+                    // Find next character boundary
+                    self.cursor_pos = self.input.char_indices()
+                        .find(|(i, _)| *i > self.cursor_pos)
+                        .map(|(i, _)| i)
+                        .unwrap_or(self.input.len());
+                }
+            }
+
+            // Up arrow: move cursor to previous line (in multiline input)
+            KeyCode::Up if !k.modifiers.contains(KeyModifiers::ALT) => {
+                if self.input.contains('\n') {
+                    // Using char indices for Unicode safety
+                    let char_pos = self.input.char_indices().take(self.cursor_pos).count();
+                    let input_chars: Vec<char> = self.input.chars().collect();
+                    let before_cursor_chars = &input_chars[..char_pos];
+                    let before_cursor_str: String = before_cursor_chars.iter().collect();
+                    
+                    let current_line_num = before_cursor_str.lines().count();
+                    if current_line_num > 1 {
+                        // Get column position in current line (in characters)
+                        let current_line_start_char = before_cursor_str.rfind('\n')
+                            .map(|i| before_cursor_str[i+1..].chars().count())
+                            .unwrap_or(0);
+                        let col_chars = char_pos - current_line_start_char;
+                        
+                        // Find previous line start (in characters)
+                        let prev_lines_str = &before_cursor_str[..before_cursor_str.rfind('\n').unwrap_or(0)];
+                        let prev_line_start_char = prev_lines_str.chars().count();
+                        
+                        // Find previous line end (in characters)
+                        let prev_line_chars = &input_chars[prev_line_start_char..char_pos - col_chars - 1];
+                        let prev_line_len_chars = prev_line_chars.len();
+                        
+                        // Move to same column in previous line (or end of line if shorter)
+                        let target_char_pos = prev_line_start_char + col_chars.min(prev_line_len_chars);
+                        
+                        // Convert char position back to byte position
+                        self.cursor_pos = self.input.char_indices()
+                            .nth(target_char_pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                    }
+                }
+            }
+
+            // Down arrow: move cursor to next line (in multiline input)
+            KeyCode::Down if !k.modifiers.contains(KeyModifiers::ALT) => {
+                if self.input.contains('\n') {
+                    // Find current line and column (using char indices for Unicode safety)
+                    let char_pos = self.input.char_indices().take(self.cursor_pos).count();
+                    let before_cursor_chars: Vec<char> = self.input.chars().take(char_pos).collect();
+                    let before_cursor_str: String = before_cursor_chars.iter().collect();
+                    
+                    let current_line_num = before_cursor_str.lines().count();
+                    let total_lines = self.input.lines().count();                    
+                    if current_line_num < total_lines {
+                        // Get column position in current line (in characters)
+                        let current_line_start_char = before_cursor_str.rfind('\n')
+                            .map(|i| before_cursor_str[i+1..].chars().count())
+                            .unwrap_or(0);
+                        let col_chars = char_pos - current_line_start_char;
+                        
+                        // Find next line start position
+                        let input_chars: Vec<char> = self.input.chars().collect();
+                        let remaining_chars = &input_chars[char_pos..];
+                        let next_line_start_char = remaining_chars.iter().position(|c| *c == '\n')
+                            .map(|i| char_pos + i + 1)
+                            .unwrap_or(input_chars.len());
+                        
+                        // Find next line end
+                        let next_line_chars = &input_chars[next_line_start_char..];
+                        let next_line_end_char = next_line_chars.iter().position(|c| *c == '\n')
+                            .map(|i| next_line_start_char + i)
+                            .unwrap_or(input_chars.len());
+                        
+                        let next_line_len_chars = next_line_end_char - next_line_start_char;
+                        
+                        // Move to same column in next line (or end of line if shorter)
+                        let target_char_pos = next_line_start_char + col_chars.min(next_line_len_chars);
+                        
+                        // Convert char position back to byte position
+                        self.cursor_pos = self.input.char_indices()
+                            .nth(target_char_pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(self.input.len());
+                    }
+                }
+            }
+
+            // Regular character input (except when Alt/Ctrl is held)
+            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::ALT) && !k.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Ensure cursor_pos is at a valid char boundary before insert
+                if !self.input.is_char_boundary(self.cursor_pos) {
+                    // Find the nearest valid boundary
+                    self.cursor_pos = self.input.char_indices()
+                        .rfind(|(i, _)| *i <= self.cursor_pos)
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                }
+                // Insert character at cursor position
+                self.input.insert(self.cursor_pos, c);
+                self.cursor_pos += c.len_utf8();
             }
 
             // Alt+M: toggle approve mode
@@ -457,16 +630,24 @@ impl TuiApp {
                 }
             }
 
-            // Home: scroll to top
+            // Home: move cursor to start (if input has content) or scroll to top
             KeyCode::Home => {
-                self.auto_scroll = false;
-                self.scroll_offset = 0;
+                if !self.input.is_empty() {
+                    self.cursor_pos = 0;
+                } else {
+                    self.auto_scroll = false;
+                    self.scroll_offset = 0;
+                }
             }
 
-            // End: scroll to bottom (auto scroll)
+            // End: move cursor to end (if input has content) or scroll to bottom
             KeyCode::End => {
-                self.auto_scroll = true;
-                self.scroll_offset = 0;
+                if !self.input.is_empty() {
+                    self.cursor_pos = self.input.len();
+                } else {
+                    self.auto_scroll = true;
+                    self.scroll_offset = 0;
+                }
             }
 
             _ => {}
@@ -477,6 +658,7 @@ impl TuiApp {
         self.show_welcome = false;
         let input = self.input.trim().to_string();
         self.input.clear();
+        self.cursor_pos = 0;
 
         if self.waiting_for_ask {
             // Respond to approval/ask question
@@ -527,6 +709,10 @@ impl TuiApp {
             MouseEventKind::Down(MouseButton::Left) => {
                 // Start selection in messages area
                 if m.row >= msg_area_y {
+                    // If auto_scroll is on, sync scroll_offset first before disabling it
+                    if self.auto_scroll {
+                        self.scroll_offset = self.max_scroll.get();
+                    }
                     let line = self.scroll_offset as usize + (m.row - msg_area_y) as usize;
                     let col = m.column as usize;
                     self.selection = Some(Selection::new(line, col));
@@ -537,6 +723,11 @@ impl TuiApp {
             MouseEventKind::Drag(MouseButton::Left) => {
                 // Extend selection
                 if self.selecting && m.row >= msg_area_y {
+                    // Sync scroll_offset if auto_scroll was on
+                    if self.auto_scroll {
+                        self.scroll_offset = self.max_scroll.get();
+                        self.auto_scroll = false;
+                    }
                     let line = self.scroll_offset as usize + (m.row - msg_area_y) as usize;
                     let col = m.column as usize;
                     if let Some(ref mut sel) = self.selection {
@@ -549,6 +740,20 @@ impl TuiApp {
             }
             _ => {}
         }
+    }
+
+    fn on_paste(&mut self, text: &str) {
+        // Ensure cursor_pos is at a valid char boundary
+        if !self.input.is_char_boundary(self.cursor_pos) {
+            self.cursor_pos = self.input.char_indices()
+                .rfind(|(i, _)| *i <= self.cursor_pos)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+        }
+        // Paste text into input buffer at cursor position
+        self.input.insert_str(self.cursor_pos, text);
+        // Update cursor by byte length (cursor_pos is byte position)
+        self.cursor_pos += text.len();
     }
 
     fn handle_command(&mut self, cmd: &str) {
@@ -639,21 +844,22 @@ impl TuiApp {
             "/init" => {
                 // Initialize project configuration
                 if args.is_empty() {
-                    // Show current project status
+                    // Generate project overview
+                    self.tx.try_send("/init".to_string()).ok();
                     self.messages.push(Message {
                         role: Role::System,
-                        content: "/init - Initialize project\n/init status - Show project status\n/init reset - Reset configuration".into()
+                        content: "🔄 Generating project overview...".into()
                     });
                 } else if args[0] == "status" {
                     // Show project status
-                    self.tx.try_send("/init:status".to_string()).ok();
+                    self.tx.try_send("/init status".to_string()).ok();
                     self.messages.push(Message {
                         role: Role::System,
                         content: "⏳ Checking project status...".into()
                     });
-                } else if args[0] == "reset" {
+                } else if args[0] == "reset" || args[0] == "clear" {
                     // Reset configuration
-                    self.tx.try_send("/init:reset".to_string()).ok();
+                    self.tx.try_send("/init reset".to_string()).ok();
                     self.messages.push(Message {
                         role: Role::System,
                         content: "⏳ Resetting project configuration...".into()
@@ -661,7 +867,7 @@ impl TuiApp {
                 } else {
                     self.messages.push(Message {
                         role: Role::System,
-                        content: "Unknown init command. Use: status, reset".into()
+                        content: "Unknown init command. Use: /init, /init status, /init reset".into()
                     });
                 }
                 self.auto_scroll = true;
@@ -719,50 +925,58 @@ impl TuiApp {
                 self.messages.push(Message {
                     role: Role::System,
                     content: concat!(
-                        "📖 Commands: /help /exit /clear /history /mode /model /compact /retry /new /loop /cron /init /skills /debug\n",
-                        "⌨️ Enter=send │ Shift+Enter=newline │ PgUp/PgDn=scroll │ Home/End=top/bot\n",
-                        "📝 Alt+M=mode │ Alt+T=thinking │ Esc=interrupt │ Ctrl+D=exit\n",
-                        "✨ Queue: send while AI processing, /retry to process\n",
-                        "🔄 Loop/Cron: /loop start|stop|status, /cron add|list|remove"
+                        "📖 Commands:\n",
+                        "  /help     - Show this help\n",
+                        "  /exit     - Exit MatrixCode\n",
+                        "  /clear    - Clear messages\n",
+                        "  /history  - Show session history\n",
+                        "  /mode     - Change approve mode (ask/auto/strict)\n",
+                        "  /model    - Show/change model\n",
+                        "  /compact  - Compress context\n",
+                        "  /retry    - Retry last queued message\n",
+                        "  /new      - Start new session\n",
+                        "  /init     - Initialize/reset project\n",
+                        "  /skills   - List loaded skills\n",
+                        "  /memory   - View/manage memories\n",
+                        "  /overview - View project overview\n",
+                        "  /save     - Save current session\n",
+                        "  /sessions - List saved sessions\n",
+                        "  /load <id>- Load a session\n",
+                        "  /debug    - Toggle debug mode\n",
+                        "  /loop     - Start/stop loop task\n",
+                        "  /cron     - Manage scheduled tasks\n",
+                        "\n",
+                        "⌨️ Shortcuts:\n",
+                        "  Enter=send │ Shift+Enter=newline │ PgUp/PgDn=scroll\n",
+                        "  Home/End=top/bot │ Alt+M=mode │ Alt+T=thinking\n",
+                        "  Esc=interrupt │ Ctrl+D=exit"
                     ).into()
                 });
                 self.auto_scroll = true;
             }
             "/skills" => {
-                self.messages.push(Message {
-                    role: Role::System,
-                    content: concat!(
-                        "🔧 Available Tools (12):\n",
-                        "\n",
-                        "📁 File Operations:\n",
-                        "  read       - Read file contents (path, offset, limit)\n",
-                        "  write      - Create/overwrite file (path, content)\n",
-                        "  edit       - Replace string in file (path, old, new)\n",
-                        "  multi_edit - Multiple edits in one call\n",
-                        "\n",
-                        "🔍 Search/Navigation:\n",
-                        "  search     - Grep pattern in files (pattern, path, glob)\n",
-                        "  glob       - Find files by pattern (**/*.rs)\n",
-                        "  ls         - List directory contents\n",
-                        "\n",
-                        "⚡ Execution:\n",
-                        "  bash       - Run shell commands (command, timeout_ms)\n",
-                        "\n",
-                        "🌐 Web:\n",
-                        "  websearch   - Search web via DuckDuckGo (query, max_results)\n",
-                        "  webfetch    - Fetch URL content (url, max_length)\n",
-                        "\n",
-                        "💬 Interaction:\n",
-                        "  ask        - Ask user for info/decision (question, options)\n",
-                        "  todo_write  - Manage task progress (todos array)\n",
-                        "  skill       - Load skill instructions (name)\n",
-                        "\n",
-                        "💡 Tips: Just ask AI to use tools naturally:\n",
-                        "  'Read src/main.rs and explain it'\n",
-                        "  'Find all TODO comments'\n",
-                        "  'Run cargo test'"
-                    ).into()
-                });
+                // Send to backend for processing (shows loaded skills, not tools)
+                self.tx.try_send("/skills".to_string()).ok();
+                self.auto_scroll = true;
+            }
+            "/memory" => {
+                // Send to backend for processing
+                self.tx.try_send("/memory".to_string()).ok();
+                self.auto_scroll = true;
+            }
+            "/overview" => {
+                // Send to backend for processing
+                self.tx.try_send("/overview".to_string()).ok();
+                self.auto_scroll = true;
+            }
+            "/save" => {
+                // Send to backend for processing
+                self.tx.try_send("/save".to_string()).ok();
+                self.auto_scroll = true;
+            }
+            "/sessions" | "/resume" => {
+                // Send to backend for processing
+                self.tx.try_send("/sessions".to_string()).ok();
                 self.auto_scroll = true;
             }
             "/loop" => {
@@ -967,6 +1181,7 @@ impl TuiApp {
             EventType::ThinkingDelta => {
                 if let Some(EventData::Thinking { delta, .. }) = e.data {
                     self.thinking.push_str(&delta);
+                    self.activity = Activity::Thinking;
                 }
             }
             EventType::ThinkingEnd => {
@@ -977,10 +1192,12 @@ impl TuiApp {
             }
             EventType::TextStart => {
                 self.streaming.clear();
+                self.activity = Activity::Thinking;
             }
             EventType::TextDelta => {
                 if let Some(EventData::Text { delta }) = e.data {
                     self.streaming.push_str(&delta);
+                    self.activity = Activity::Thinking;
                 }
             }
             EventType::TextEnd => {
@@ -1061,8 +1278,14 @@ impl TuiApp {
                     self.tokens_in = input_tokens;
                     self.tokens_out = output_tokens;
                     self.session_total_out += output_tokens;
-                    self.cache_read += cache_read_input_tokens.unwrap_or(0);
-                    self.cache_created += cache_creation_input_tokens.unwrap_or(0);
+                    
+                    // Update cache stats (only when actually reported by API)
+                    // Note: DashScope doesn't support prompt caching, so these may always be 0
+                    let cache_read = cache_read_input_tokens.unwrap_or(0);
+                    let cache_created = cache_creation_input_tokens.unwrap_or(0);
+                    
+                    self.cache_read += cache_read;
+                    self.cache_created += cache_created;
                     self.api_calls += 1;
                 }
             }

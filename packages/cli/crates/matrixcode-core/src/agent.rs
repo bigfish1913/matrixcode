@@ -204,17 +204,17 @@ impl Agent {
         self.approve_mode = mode;
     }
 
-    /// Build full system prompt with profile, overview, memory
-    #[allow(dead_code)]  // For future features
-    fn build_full_system_prompt(&self) -> String {
-        use crate::prompt::build_system_prompt;
-        
-        build_system_prompt(
+    /// Update memory summary and rebuild system prompt.
+    /// This is called before each turn to use context-aware memory retrieval.
+    pub fn update_memory_summary(&mut self, summary: Option<String>) {
+        self.memory_summary = summary;
+        // Rebuild system prompt with new memory summary
+        self.system_prompt = crate::prompt::build_system_prompt(
             &self.profile,
             &self.skills,
             self.project_overview.as_deref(),
             self.memory_summary.as_deref(),
-        )
+        );
     }
 
     /// Run chat loop with tool execution (streaming version)

@@ -20,12 +20,21 @@ impl TuiApp {
             Constraint::Length(1)
         };
         
+        // Dynamic input height: expand for multiline content
+        let input_lines = self.input.lines().count().max(1);
+        let input_height = if input_lines <= 1 {
+            Constraint::Length(1)
+        } else {
+            // Max 5 lines for input area
+            Constraint::Length(input_lines.min(5) as u16 + 1)  // +1 for prompt
+        };
+        
         let constraints = vec![
             Constraint::Length(1),           // Status (MatrixCode + Model + mode)
             Constraint::Min(3),              // Messages (弹性高度，最大化)
             queue_height,                    // Queue (pending messages preview)
             Constraint::Length(1),           // Usage + Hints
-            Constraint::Length(1),           // Input
+            input_height,                    // Input (dynamic height)
         ];
 
         let chunks = Layout::default()
@@ -94,21 +103,32 @@ impl TuiApp {
                        else if context_pct < 75.0 { Color::Yellow }
                        else { Color::Red };
         
-        let bar = progress_bar(context_pct, 10);
+        let bar = progress_bar(context_pct, 20);
         
         let mut parts: Vec<Span> = vec![
             Span::styled(
-                format!("in {} / out {}", 
+                format!("in {} / out {} (session: {})", 
                     fmt_tokens(self.tokens_in), 
+                    fmt_tokens(self.tokens_out),
                     fmt_tokens(self.session_total_out)
                 ),
                 Style::default().fg(Color::Gray)
             ),
-            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
         ];
         
-        // Debug mode: show api/tools/compress/cache counts
+        // Cache info: always show
+        parts.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        parts.push(Span::styled(
+            format!("cache r/w {}/{}", 
+                fmt_tokens(self.cache_read), 
+                fmt_tokens(self.cache_created)
+            ),
+            Style::default().fg(Color::Cyan)
+        ));
+        
+        // Debug mode: show api/tools/compress counts
         if self.debug_mode {
+            parts.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
             parts.push(Span::styled(
                 format!("api:{} ", self.api_calls),
                 Style::default().fg(Color::Magenta)
@@ -125,17 +145,17 @@ impl TuiApp {
                     Style::default().fg(Color::Yellow)
                 ));
             }
-            if self.cache_read > 0 || self.cache_created > 0 {
-                parts.push(Span::styled(
-                    format!("cache r/c {}/{} ", fmt_tokens(self.cache_read), fmt_tokens(self.cache_created)),
-                    Style::default().fg(Color::Cyan)
-                ));
-            }
-            parts.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
         }
         
+        parts.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        
         parts.push(Span::styled(
-            format!("ctx {:.0}% {}", context_pct, bar),
+            format!("ctx {} / {} ({:.1}%) {}", 
+                fmt_tokens(self.tokens_in), 
+                fmt_tokens(self.context_size),
+                context_pct,
+                bar
+            ),
             Style::default().fg(ctx_color)
         ));
         
@@ -316,6 +336,17 @@ impl TuiApp {
             Activity::WebFetch | Activity::Tool(_)
         );
         
+        // Show spinner for Thinking state when waiting for AI response (empty content)
+        if self.activity == Activity::Thinking && self.streaming.is_empty() && self.thinking.is_empty() {
+            let spinner = SPINNER[self.frame];
+            lines.push(Line::from(vec![
+                Span::styled(spinner, Style::default().fg(self.activity.color())),
+                Span::raw(" "),
+                Span::styled(self.activity.label(), Style::default().fg(self.activity.color())),
+                Span::styled("  Waiting for AI response...", Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+        
         if is_tool_activity && self.streaming.is_empty() && self.thinking.is_empty() {
             let mut spans = vec![
                 Span::styled(SPINNER[self.frame], Style::default().fg(self.activity.color())),
@@ -343,8 +374,14 @@ impl TuiApp {
         // Store max_scroll for scroll detection in on_mouse
         self.max_scroll.set(max_scroll);
         
-        let scroll_offset = if self.auto_scroll {
-            max_scroll
+        // Force auto_scroll when AI is actively streaming/thinking (but not when user is selecting)
+        let force_auto_scroll = (!self.streaming.is_empty() 
+            || !self.thinking.is_empty() 
+            || self.activity == Activity::Thinking)
+            && !self.selecting;
+        
+        let scroll_offset = if self.auto_scroll || force_auto_scroll {
+            max_scroll  // Scroll to bottom when auto_scroll or AI is active
         } else {
             self.scroll_offset.min(max_scroll)
         };
@@ -399,40 +436,80 @@ impl TuiApp {
     }
 
     fn draw_input(&self, f: &mut ratatui::Frame, area: Rect) {
-        let mut spans: Vec<Span> = vec![];
-        
         // Prompt indicator based on activity
-        match self.activity {
-            Activity::Idle => {
-                spans.push(Span::styled("❯ ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
-            }
-            Activity::Asking => {
-                spans.push(Span::styled("❓ ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        let prompt = match self.activity {
+            Activity::Idle => "❯ ",
+            Activity::Asking => "❓ ",
+            _ => "❯ ",
+        };
+        let prompt_color = match self.activity {
+            Activity::Idle => Color::Yellow,
+            Activity::Asking => Color::Yellow,
+            _ => Color::Gray,
+        };
+        
+        // Check if multiline content
+        let is_multiline = self.input.contains('\n');
+        let max_w = area.width as usize;
+        
+        if !is_multiline {
+            // Single line mode
+            let mut spans: Vec<Span> = vec![
+                Span::styled(prompt, Style::default().fg(prompt_color).add_modifier(Modifier::BOLD)),
+            ];
+            
+            if self.activity == Activity::Asking {
                 spans.push(Span::styled("[reply: y/n or option] ", Style::default().fg(Color::Yellow)));
             }
-            _ => {
-                spans.push(Span::styled("❯ ", Style::default().fg(Color::Gray)));
-            }
-        }
-        
-        // Input content
-        if self.input.is_empty() {
-            spans.push(Span::styled("_", Style::default().fg(Color::Cyan)));
-        } else {
-            let display = if self.input.contains('\n') {
-                let n = self.input.lines().count();
-                let last = self.input.lines().last().unwrap_or("");
-                if last.is_empty() { format!("{} lines", n) } else { format!("{} lines: {}", n, last) }
+            
+            if self.input.is_empty() {
+                spans.push(Span::styled("_", Style::default().fg(Color::Cyan)));
             } else {
-                self.input.clone()
-            };
-            spans.push(Span::styled(truncate(&display, area.width as usize - 25), Style::default().fg(Color::White)));
+                spans.push(Span::styled(truncate(&self.input, max_w - 25), Style::default().fg(Color::White)));
+            }
+            
+            spans.push(Span::styled(" Shift+Enter↵", Style::default().fg(Color::DarkGray)));
+            
+            f.render_widget(Paragraph::new(Line::from(spans)), area);
+        } else {
+            // Multiline mode: show actual content
+            let mut lines: Vec<Line> = Vec::new();
+            
+            // First line with prompt
+            let first_line = self.input.lines().next().unwrap_or("");
+            let first_spans: Vec<Span> = vec![
+                Span::styled(prompt, Style::default().fg(prompt_color).add_modifier(Modifier::BOLD)),
+                Span::styled(truncate(first_line, max_w - 5), Style::default().fg(Color::White)),
+            ];
+            lines.push(Line::from(first_spans));
+            
+            // Remaining lines
+            for line in self.input.lines().skip(1).take(area.height as usize - 2) {
+                lines.push(Line::styled(
+                    format!("  {}", truncate(line, max_w - 5)),
+                    Style::default().fg(Color::White)
+                ));
+            }
+            
+            // Show line count if truncated
+            let total_lines = self.input.lines().count();
+            if total_lines > area.height as usize - 1 {
+                lines.push(Line::styled(
+                    format!("  ... ({}/{} lines shown)", area.height as usize - 2, total_lines),
+                    Style::default().fg(Color::DarkGray)
+                ));
+            }
+            
+            // Hint on last line
+            if lines.len() < area.height as usize {
+                lines.push(Line::styled(
+                    "  Shift+Enter↵ for newline, Enter↵ to send",
+                    Style::default().fg(Color::DarkGray)
+                ));
+            }
+            
+            f.render_widget(Paragraph::new(lines), area);
         }
-        
-        // Hint
-        spans.push(Span::styled(" Shift+Enter↵", Style::default().fg(Color::DarkGray)));
-        
-        f.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 }
 

@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.2"
 edition = "2024"
 authors = ["bigfish1913"]
 license = "MIT"
@@ -45,6 +45,7 @@ tower-http = "0.6"
 pin-project-lite = "0.2"
 crossterm = "0.28"
 bytes = "1"
+arboard = "3"
 mime = "0.3"
 mime_guess = "2"
 percent-encoding = "2"

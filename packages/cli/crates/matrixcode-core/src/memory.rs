@@ -1634,9 +1634,13 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
     
     // Common stop words (Chinese + English)
     let stop_words: HashSet<&str> = [
+        // Chinese stop words
         "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个",
         "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好",
-        "自己", "这", "他", "她", "它", "们", "那", "些", "什么", "怎么", "如何",
+        "自己", "这", "他", "她", "它", "们", "那", "些", "什么", "怎么", "如何", "请",
+        "能", "可以", "需要", "应该", "可能", "因为", "所以", "但是", "然后", "还是",
+        "已经", "正在", "将要", "曾经", "一下", "一点", "一些", "所有", "每个", "任何",
+        // English stop words
         "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
         "have", "has", "had", "do", "does", "did", "will", "would", "could",
         "should", "may", "might", "can", "shall", "to", "of", "in", "for",
@@ -1645,18 +1649,88 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
         "not", "no", "so", "if", "then", "than", "too", "very", "just",
         "this", "that", "these", "those", "it", "its", "i", "me", "my",
         "we", "our", "you", "your", "he", "his", "she", "her", "they", "their",
+        "please", "help", "need", "want", "make", "get", "let", "use",
+    ].iter().copied().collect();
+    
+    // Technical/meaningful patterns to extract (Chinese + English)
+    let tech_patterns: HashSet<&str> = [
+        // Technical terms (keep these even if short)
+        "api", "cli", "gui", "tui", "web", "http", "json", "xml", "sql", "db",
+        "git", "npm", "cargo", "rust", "js", "ts", "py", "go", "java", "cpp",
+        "cpu", "gpu", "io", "fs", "os", "ui", "ux", "ai", "ml", "dl",
+        // File extensions
+        "rs", "js", "ts", "py", "go", "java", "c", "h", "cpp", "hpp",
+        "json", "yaml", "yml", "toml", "md", "txt", "html", "css", "scss",
+        // Short meaningful words
+        "bug", "fix", "add", "new", "old", "use", "run", "build", "test",
+        "code", "data", "file", "dir", "path", "name", "type", "value",
     ].iter().copied().collect();
     
     let lower = context.to_lowercase();
+    let mut keywords: HashSet<String> = HashSet::new();
     
-    lower.split_whitespace()
-        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
-        .filter(|w| {
-            w.len() >= 2 && !stop_words.contains(w.as_str())
-        })
-        .collect::<HashSet<_>>()  // Deduplicate
-        .into_iter()
-        .collect()
+    // 1. Extract English words (space-separated)
+    for word in lower.split_whitespace() {
+        let cleaned = word.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+        if cleaned.len() >= 2 && !stop_words.contains(cleaned.as_str()) {
+            keywords.insert(cleaned.clone());
+        }
+        // Keep technical short words
+        if tech_patterns.contains(cleaned.as_str()) {
+            keywords.insert(cleaned);
+        }
+    }
+    
+    // 2. Extract Chinese words/phrases (2-4 character sequences)
+    // Chinese characters are typically 3 bytes in UTF-8
+    let chinese_chars: Vec<char> = lower
+        .chars()
+        .filter(|c| *c >= '\u{4E00}' && *c <= '\u{9FFF}')  // Chinese Unicode range
+        .collect();
+    
+    // Extract 2-4 character Chinese sequences
+    for window_size in 2..=4 {
+        if chinese_chars.len() >= window_size {
+            for window in chinese_chars.windows(window_size) {
+                let phrase: String = window.iter().collect();
+                // Skip if contains stop words
+                let has_stop = stop_words.iter().any(|sw| phrase.contains(sw));
+                if !has_stop && phrase.len() >= window_size {
+                    keywords.insert(phrase);
+                }
+            }
+        }
+    }
+    
+    // 3. Extract specific patterns (project names, file names, etc.)
+    // Look for common project/file patterns
+    let patterns = [
+        // File paths
+        r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z]{1,4}",  // file.ext
+        r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*",  // module.submodule
+        // CamelCase/snake_case identifiers
+        r"[A-Z][a-z]+[A-Z][a-zA-Z]*",  // CamelCase
+        r"[a-z][a-z0-9]*_[a-z][a-z0-9_]*",  // snake_case
+        // Numbers with units
+        r"[0-9]+[kKmMgGtT][bB]?",  // 4K, 100MB
+    ];
+    
+    for pattern in patterns {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            for cap in re.find_iter(&lower) {
+                keywords.insert(cap.as_str().to_string());
+            }
+        }
+    }
+    
+    // Convert to vector and sort by length (prefer longer, more specific keywords)
+    let mut result: Vec<String> = keywords.into_iter().collect();
+    result.sort_by(|a, b| b.len().cmp(&a.len()));
+    
+    // Take top keywords (avoid too many)
+    result.truncate(15);
+    
+    result
 }
 
 /// Compute relevance score of a memory entry to context keywords.

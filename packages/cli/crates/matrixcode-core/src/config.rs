@@ -73,12 +73,13 @@ pub struct MatrixConfig {
     pub fast_model: Option<String>,
     
     /// Approve mode: "ask", "auto", "strict"
-    #[serde(default)]
+    #[serde(default = "default_approve_mode")]
     pub approve_mode: Option<String>,
 }
 
 fn default_true() -> bool { true }
 fn default_max_tokens() -> u32 { 16384 }
+fn default_approve_mode() -> Option<String> { Some("ask".to_string()) }
 
 /// Type alias for compatibility
 pub type Config = MatrixConfig;
@@ -204,6 +205,9 @@ impl MatrixConfig {
                 let needs_fallback = mx.api_key.is_none() || mx.model.is_none() || mx.base_url.is_none();
                 
                 // Merge: matrix values take precedence
+                // For approve_mode: use matrix config, or default to "ask" (not Claude's auto)
+                let approve_mode = mx.approve_mode.or(Some("ask".to_string()));
+                
                 let merged = Self {
                     provider: mx.provider.or(cc.provider),
                     api_key: mx.api_key.or(cc.api_key),
@@ -217,7 +221,7 @@ impl MatrixConfig {
                     plan_model: mx.plan_model.or(cc.plan_model),
                     compress_model: mx.compress_model.or(cc.compress_model),
                     fast_model: mx.fast_model.or(cc.fast_model),
-                    approve_mode: mx.approve_mode.or(cc.approve_mode),
+                    approve_mode,
                 };
                 
                 // Show which config source(s) are being used
@@ -230,11 +234,24 @@ impl MatrixConfig {
             }
             (Some(mx), None) => {
                 println!("[config: ~/.matrix/config.json]");
-                mx
+                // Ensure approve_mode has default
+                if mx.approve_mode.is_none() {
+                    Self {
+                        approve_mode: Some("ask".to_string()),
+                        ..mx
+                    }
+                } else {
+                    mx
+                }
             }
             (None, Some(cc)) => {
                 println!("[config: ~/.claude/settings.json (Claude Code)]");
-                cc
+                // Override Claude's approve_mode to "ask" by default
+                // MatrixCode defaults to ask mode for safety
+                Self {
+                    approve_mode: Some("ask".to_string()),
+                    ..cc
+                }
             }
             (None, None) => {
                 println!("[config: using defaults and environment variables]");
