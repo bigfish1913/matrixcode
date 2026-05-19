@@ -73,6 +73,9 @@ impl TuiApp {
                     self.thinking.clear();
                 }
 
+                // Clear current request tokens
+                self.current_request_tokens = 0;
+
                 // Process queue or go idle
                 if !self.pending_messages.is_empty() {
                     let next_msg = self.pending_messages.remove(0);
@@ -108,18 +111,25 @@ impl TuiApp {
             }
             EventType::Usage => {
                 if let Some(EventData::Usage { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens }) = e.data {
-                    self.tokens_in = input_tokens;
+                    // Only update tokens_in if it's non-zero (real-time updates may have 0)
+                    if input_tokens > 0 {
+                        self.tokens_in = input_tokens;
+                        // Only count as a new API call when we have full usage info
+                        self.api_calls += 1;
+                    }
                     self.tokens_out = output_tokens;
                     self.session_total_out += output_tokens;
+                    self.current_request_tokens = output_tokens;  // Real-time update
                     
                     // Update cache stats (only when actually reported by API)
-                    // Note: DashScope doesn't support prompt caching, so these may always be 0
                     let cache_read = cache_read_input_tokens.unwrap_or(0);
                     let cache_created = cache_creation_input_tokens.unwrap_or(0);
                     
-                    self.cache_read += cache_read;
-                    self.cache_created += cache_created;
-                    self.api_calls += 1;
+                    // Only update cache if values are non-zero (final usage event)
+                    if cache_read > 0 || cache_created > 0 {
+                        self.cache_read += cache_read;
+                        self.cache_created += cache_created;
+                    }
                 }
             }
             EventType::CompressionCompleted => {

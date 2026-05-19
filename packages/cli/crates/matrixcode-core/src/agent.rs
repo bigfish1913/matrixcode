@@ -432,6 +432,15 @@ impl Agent {
                             StreamEvent::ToolInputDelta { bytes_so_far: _ } => {
                                 // Tool input progress - could emit progress event
                             }
+                            StreamEvent::Usage { output_tokens } => {
+                                // Real-time usage update - emit to TUI and update internal usage
+                                self.emit(AgentEvent::usage_with_cache(
+                                    0,  // input_tokens not available in stream
+                                    output_tokens as u64,
+                                    0, 0  // cache info not available in stream
+                                ))?;
+                                usage.output_tokens = output_tokens;
+                            }
                             StreamEvent::Done(resp) => {
                                 // Finish any pending text
                                 if !current_text.is_empty() {

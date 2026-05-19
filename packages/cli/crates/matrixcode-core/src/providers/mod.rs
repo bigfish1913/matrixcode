@@ -161,6 +161,8 @@ pub enum StreamEvent {
     /// received for this block — useful for driving progress indicators
     /// while the model streams large arguments (e.g. a full file body).
     ToolInputDelta { bytes_so_far: usize },
+    /// Real-time usage update (output tokens so far).
+    Usage { output_tokens: u32 },
     /// Final turn result — includes the full assembled content blocks.
     Done(ChatResponse),
     /// Fatal error during streaming.

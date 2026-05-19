@@ -102,20 +102,16 @@ impl TuiApp {
             ));
         }
 
-        // Status on the right - with elapsed time when active
-        let elapsed_str = if self.activity != Activity::Idle {
-            self.request_start
-                .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
+        // Status on the right - show current request tokens when active
         let status_text = if self.activity == Activity::Idle {
             "Ready".to_string()
+        } else if self.current_request_tokens > 0 {
+            // Show real-time token count instead of time
+            format!("{} {}", self.activity.label(), fmt_tokens(self.current_request_tokens))
         } else if !self.activity_detail.is_empty() {
-            format!("{}({}){}", self.activity.label(), self.activity_detail, elapsed_str)
+            format!("{}({})", self.activity.label(), self.activity_detail)
         } else {
-            format!("{}{}", self.activity.label(), elapsed_str)
+            self.activity.label().to_string()
         };
         let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
         

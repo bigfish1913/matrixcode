@@ -344,27 +344,30 @@ fn interactive_resume() -> Result<()> {
 fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill> {
     use matrixcode_core::skills::discover_skills;
     use std::path::PathBuf;
-    
+
     // Build list of skill directories to search (in priority order)
-    // Only MatrixCode skills directories, not Claude Code
+    // Multi-level search: global → project config → project root
     let mut roots: Vec<PathBuf> = Vec::new();
-    
+
     // 1. User's global skills directory (~/.matrix/skills)
     if let Some(home) = dirs::home_dir() {
         roots.push(home.join(".matrix").join("skills"));
     }
-    
-    // 2. Project-local skills directory (.matrix/skills)
+
+    // 2. Project-local skills directories (multiple locations)
     if let Ok(cwd) = std::env::current_dir() {
+        // 2a. Project config directory (.matrix/skills)
         roots.push(cwd.join(".matrix").join("skills"));
+        // 2b. Project root directory (skills/)
+        roots.push(cwd.join("skills"));
     }
-    
+
     // 3. Extra directories from CLI option (--skills-dir)
     roots.extend(extra_dirs.iter().cloned());
-    
+
     // Discover and load skills
     let skills = discover_skills(&roots);
-    
+
     skills
 }
 
@@ -758,6 +761,14 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             {
                 // Try to match skill name
                 let skill_name = msg.trim_start_matches('/');
+                
+                // Debug: log skill lookup
+                matrixcode_core::debug::debug_log().log("skill", 
+                    &format!("Looking for skill '{}' in {} available skills", skill_name, agent_skills.len()));
+                for sk in &agent_skills {
+                    matrixcode_core::debug::debug_log().log("skill", &format!("  - available: {}", sk.name));
+                }
+                
                 if let Some(skill) = agent_skills.iter().find(|s| s.name == skill_name) {
                     // Build skill activation message
                     let files = matrixcode_core::skills::list_skill_files(&skill.dir);
@@ -780,6 +791,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     msg = skill_activation;
                     
                     // Log skill activation
+                    matrixcode_core::debug::debug_log().log("skill", &format!("Activated skill: {}", skill.name));
+                    
                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
                         matrixcode_core::EventType::Progress,
                         matrixcode_core::EventData::Progress {
@@ -789,6 +802,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     )).await;
                     
                     // Continue to normal agent processing with modified message
+                } else {
+                    // Debug: skill not found
+                    matrixcode_core::debug::debug_log().log("skill", &format!("Skill '{}' not found", skill_name));
                 }
             }
             

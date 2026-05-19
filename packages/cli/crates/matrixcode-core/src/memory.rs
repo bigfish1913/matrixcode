@@ -41,10 +41,12 @@ pub const MAX_IMPORTANCE_CEILING: f64 = 100.0;
 pub const MIN_SIMILARITY_LENGTH: usize = 10;
 
 /// Similarity threshold for considering entries as duplicates (0.0-1.0).
-pub const SIMILARITY_THRESHOLD: f64 = 0.7;
+/// Higher value (0.85) reduces duplicate detection false negatives.
+pub const SIMILARITY_THRESHOLD: f64 = 0.85;
 
 /// Minimum content length for memory detection (to avoid capturing too generic content).
-pub const MIN_MEMORY_CONTENT_LENGTH: usize = 15;
+/// Increased to 20 to filter out short fragments.
+pub const MIN_MEMORY_CONTENT_LENGTH: usize = 20;
 
 /// Maximum entries to return from detection (to avoid overwhelming).
 pub const MAX_DETECTED_ENTRIES: usize = 5;
@@ -118,12 +120,13 @@ impl AiKeywordMode {
 }
 
 /// Default importance scores by category.
-pub const DEFAULT_IMPORTANCE_DECISION: f64 = 90.0;
-pub const DEFAULT_IMPORTANCE_SOLUTION: f64 = 85.0;
-pub const DEFAULT_IMPORTANCE_PREF: f64 = 70.0;
-pub const DEFAULT_IMPORTANCE_FINDING: f64 = 60.0;
-pub const DEFAULT_IMPORTANCE_TECH: f64 = 50.0;
-pub const DEFAULT_IMPORTANCE_STRUCTURE: f64 = 40.0;
+/// Lower values allow for gradual importance growth through references.
+pub const DEFAULT_IMPORTANCE_DECISION: f64 = 75.0;   // Reduced from 90
+pub const DEFAULT_IMPORTANCE_SOLUTION: f64 = 70.0;   // Reduced from 85
+pub const DEFAULT_IMPORTANCE_PREF: f64 = 65.0;       // Reduced from 70
+pub const DEFAULT_IMPORTANCE_FINDING: f64 = 55.0;    // Reduced from 60
+pub const DEFAULT_IMPORTANCE_TECH: f64 = 45.0;       // Reduced from 50
+pub const DEFAULT_IMPORTANCE_STRUCTURE: f64 = 35.0; // Reduced from 40
 
 // ============================================================================
 // Memory Configuration
@@ -156,7 +159,7 @@ impl Default for MemoryConfig {
             enabled: true,
             decay_start_days: 30,
             decay_rate: 0.5,
-            reference_increment: 2.0,
+            reference_increment: 1.0,  // Reduced from 2.0 for gradual growth
             max_importance_ceiling: MAX_IMPORTANCE_CEILING,
         }
     }
@@ -2855,31 +2858,56 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<Mem
     let mut entries = Vec::new();
     let text_lower = text.to_lowercase();
 
-    // Detection patterns for each category (filtered to avoid too generic keywords)
+    // Detection patterns for each category (specific phrases to avoid generic matches)
     let patterns: Vec<(MemoryCategory, Vec<&str>)> = vec![
         (MemoryCategory::Decision, vec![
-            "决定", "决定使用", "选择使用", "采用", "decided to", "decision to", 
-            "chose to", "adopted", "选定", "最终选择",
+            // Chinese: specific decision phrases
+            "最终决定", "决定采用", "我们决定", "最终选择", "经过讨论决定",
+            "项目决定", "团队决定", "最终选定", "确定使用",
+            // English: specific decision phrases
+            "we decided", "final decision", "decided to use", "chose to use",
+            "team decided", "final choice", "ultimately chose",
         ]),
         (MemoryCategory::Preference, vec![
-            "我喜欢", "我偏好", "prefer to", "i prefer", "my preference is",
-            "习惯用", "我习惯", "usually prefer", "偏好使用",
+            // Chinese: explicit preference
+            "我喜欢用", "我偏好使用", "我习惯用", "个人偏好",
+            "我的习惯", "通常我会", "更倾向于",
+            // English: explicit preference
+            "i prefer using", "my preference is", "i usually use",
+            "i tend to use", "my habit is",
         ]),
         (MemoryCategory::Solution, vec![
-            "修复了", "解决了", "fixed by", "solved by", "resolved by", 
-            "通过添加", "通过修改", "通过删除", "解决方法是",
+            // Chinese: specific fix/solution phrases
+            "通过修改", "通过添加", "通过删除", "解决方案是",
+            "修复方法是", "解决方法是", "根本原因是",
+            "修复了问题", "解决了问题", "关键修复",
+            // English: specific fix phrases
+            "fixed by", "solved by", "solution is", "root cause is",
+            "the fix was", "fixed the issue",
         ]),
         (MemoryCategory::Finding, vec![
-            "发现", "注意到", "found that", "noticed that", "discovered", 
-            "观察到", "api 端点", "位于", "located at", "关键发现",
+            // Chinese: explicit findings
+            "关键发现", "重要发现", "我注意到", "发现问题是",
+            "问题根源是", "问题出在", "主要原因是",
+            // English: explicit findings
+            "key finding", "important discovery", "found that the",
+            "the issue is", "root cause", "discovered that",
         ]),
         (MemoryCategory::Technical, vec![
-            "使用框架", "using framework", "built with", "基于", 
-            "框架是", "技术栈", "依赖库",
+            // Chinese: technical context
+            "技术栈是", "框架使用", "依赖的是", "构建工具是",
+            "数据库是", "后端框架", "前端框架",
+            // English: technical context
+            "tech stack is", "using framework", "built with",
+            "database is", "backend uses", "frontend uses",
         ]),
         (MemoryCategory::Structure, vec![
-            "入口文件", "entry point is", "主文件是", "main file", 
-            "配置文件", "config file", "核心文件",
+            // Chinese: structure info
+            "入口文件是", "主文件位于", "核心模块是", "项目结构是",
+            "主要目录", "核心目录", "重要文件是",
+            // English: structure info
+            "entry point is", "main file is", "core module is",
+            "project structure", "main directory",
         ]),
     ];
 
@@ -2981,6 +3009,7 @@ fn deduplicate_entries(entries: Vec<MemoryEntry>) -> Vec<MemoryEntry> {
 }
 
 /// Extract memory content around a keyword.
+/// Enhanced to extract complete sentences with proper boundary detection.
 fn extract_memory_content(text: &str, keyword: &str) -> String {
     let text_lower = text.to_lowercase();
     let keyword_lower = keyword.to_lowercase();
@@ -2991,112 +3020,167 @@ fn extract_memory_content(text: &str, keyword: &str) -> String {
         None => return String::new(),
     };
 
-    // Find sentence boundaries (sentence end markers)
-    const SENTENCE_END_MARKERS: [char; 3] = ['.', '\n', '。'];
+    // Find the complete sentence containing the keyword
+    // Use more comprehensive sentence boundary markers
+    let sentence_end_markers: &[char] = &['.', '!', '?', '。', '！', '？', '\n'];
+    let sentence_start_markers: &[char] = &['\n'];
 
-    // For start: find the last sentence end marker before pos
-    // Need to correctly find the next char boundary after multi-byte markers like '。'
-    let start = text[..pos].rfind(SENTENCE_END_MARKERS)
+    // For start: find the last sentence boundary before pos
+    // Prefer to start from a newline or beginning of text
+    let start = text[..pos].rfind(sentence_start_markers)
         .map(|i| {
-            // The marker char starts at byte position i
-            // We need the byte position after this marker char
-            // Use char_indices to find the next char's start position
+            // Skip the marker itself
             match text[i..].char_indices().nth(1) {
-                Some((next_idx, _)) => i + next_idx,  // Next char starts at i + next_idx
-                None => pos,  // Marker is at the end of prefix, start from keyword position
-            }
-        })
-        .unwrap_or(0);
-
-    // For end: find the first sentence end marker after pos
-    let end = text[pos..].find(SENTENCE_END_MARKERS)
-        .map(|i| {
-            let marker_pos = pos + i;
-            // Find the byte position after the marker char
-            match text[marker_pos..].char_indices().nth(1) {
-                Some((next_idx, _)) => marker_pos + next_idx,
-                None => text.len(),  // Marker at end of text
+                Some((next_idx, _)) => i + next_idx,
+                None => pos,
             }
         })
         .unwrap_or_else(|| {
-            // No marker found: use MAX_MEMORY_CONTENT_LENGTH, but ensure valid UTF-8 boundary
-            let max_end = pos + MAX_MEMORY_CONTENT_LENGTH;
-            // Find the nearest valid char boundary
-            if max_end >= text.len() {
-                text.len()
-            } else {
-                // Walk backwards to find a valid boundary
-                let mut boundary = max_end;
-                while boundary > pos && !text.is_char_boundary(boundary) {
-                    boundary -= 1;
-                }
-                boundary
-            }
+            // If no newline found, check if we're at start of a sentence
+            // by looking for sentence end markers
+            text[..pos].rfind(sentence_end_markers)
+                .map(|i| {
+                    match text[i..].char_indices().nth(1) {
+                        Some((next_idx, _)) => i + next_idx,
+                        None => pos,
+                    }
+                })
+                .unwrap_or(0)
         });
 
-    // Ensure start and end are valid UTF-8 boundaries and start < end
+    // For end: find the first sentence end marker after pos
+    let end = text[pos..].find(sentence_end_markers)
+        .map(|i| {
+            let marker_pos = pos + i;
+            // Include the marker in the content (it's part of the sentence)
+            match text[marker_pos..].char_indices().nth(1) {
+                Some((next_idx, _)) => marker_pos + next_idx,
+                None => text.len(),
+            }
+        })
+        .unwrap_or_else(|| {
+            // No marker found: use reasonable length limit
+            let max_end = (pos + MAX_MEMORY_CONTENT_LENGTH).min(text.len());
+            // Find valid UTF-8 boundary
+            let mut boundary = max_end;
+            while boundary > pos && !text.is_char_boundary(boundary) {
+                boundary -= 1;
+            }
+            boundary
+        });
+
+    // Ensure valid boundaries
     if start >= end || start > text.len() || end > text.len() {
         return String::new();
     }
 
     let content = text[start..end].trim();
-    
-    // Quality check: reject content that looks like formatting output
+
+    // Quality check: reject low quality content
     if is_low_quality_memory(content) {
         return String::new();
     }
-    
-    // Clean up and truncate
+
+    // Ensure content is a complete thought
+    // Check that it doesn't start mid-sentence (starts with lowercase after space)
+    let trimmed = content.trim_start();
+    if let Some(first_char) = trimmed.chars().next() {
+        // Reject if starts with lowercase letter preceded by punctuation (truncated sentence)
+        if first_char.is_lowercase() && first_char > '\u{4E00}' {
+            // Chinese lowercase character after truncation point
+            return String::new();
+        }
+    }
+
+    // Final truncation if too long
     if content.len() > MAX_MEMORY_CONTENT_LENGTH {
-        truncate_str(content, MAX_MEMORY_CONTENT_LENGTH - 3)
+        // Try to truncate at a sentence boundary within the content
+        let truncation_point = content[..MAX_MEMORY_CONTENT_LENGTH]
+            .rfind(sentence_end_markers)
+            .map(|i| i + 1)  // Include the marker
+            .unwrap_or(MAX_MEMORY_CONTENT_LENGTH - 3);
+        truncate_str(content, truncation_point)
     } else {
         content.to_string()
     }
 }
 
 /// Check if extracted content is low quality (formatting artifacts, etc).
+/// Enhanced with more checks for content completeness and semantic quality.
 fn is_low_quality_memory(content: &str) -> bool {
-    // Too short to be meaningful
+    // Too short to be meaningful (updated threshold)
     if content.len() < MIN_MEMORY_CONTENT_LENGTH {
         return true;
     }
-    
+
     // Contains formatting characters (table borders, tree lines)
     let formatting_chars = ['│', '├', '└', '┌', '┐', '─', '═', '║', '╔', '╗', '╚', '╝'];
     if content.chars().any(|c| formatting_chars.contains(&c)) {
         return true;
     }
-    
+
     // Starts with emoji (likely formatted output, not user intent)
     let first_char = content.chars().next().unwrap_or(' ');
     if !first_char.is_alphanumeric() && !first_char.is_ascii_punctuation() && first_char > '\u{FF}' {
-        // Check if it's a common emoji prefix
-        if content.starts_with("🎯") || content.starts_with("🔧") || content.starts_with("💡") ||
-           content.starts_with("📚") || content.starts_with("🏗") || content.starts_with("👤") ||
-           content.starts_with("⭐") || content.starts_with("📝") || content.starts_with("✅") ||
-           content.starts_with("❌") || content.starts_with("⚠") {
-            return true;
-        }
+        return true;  // Reject all emoji-starting content
     }
-    
+
     // Contains memory system markers (self-referential)
     if content.contains("【自动记忆摘要】") || content.contains("[ACCUMULATED MEMORY]") ||
-       content.contains("记忆统计") || content.contains("memory.json") {
+       content.contains("记忆统计") || content.contains("memory.json") ||
+       content.contains("Debug Report") || content.contains("诊断报告") {
         return true;
     }
-    
-    // Looks like a numbered list item without substance
-    if content.starts_with("- ") && content.len() < 30 {
+
+    // Looks like a list item without substance
+    if (content.starts_with("- ") || content.starts_with("* ") || content.starts_with("• "))
+       && content.len() < 30 {
         return true;
     }
-    
+
     // Contains mostly numbers/punctuation (likely code output)
     let alpha_count = content.chars().filter(|c| c.is_alphabetic()).count();
     let total_count = content.chars().count();
     if total_count > 0 && alpha_count < total_count / 4 {
         return true;
     }
-    
+
+    // Check for incomplete sentence patterns
+    // Content starting with "rs**:" or similar code fragments
+    if content.starts_with("rs**") || content.starts_with("rs:") ||
+       content.starts_with("fn ") || content.starts_with("pub fn") ||
+       content.starts_with("let ") || content.starts_with("use ") {
+        return true;
+    }
+
+    // Check for truncated content (starts with lowercase after punctuation)
+    // This indicates content was cut from middle of sentence
+    let trimmed = content.trim();
+    if let Some(second_char) = trimmed.chars().nth(1) {
+        let first = trimmed.chars().next().unwrap_or(' ');
+        // Starts with punctuation then lowercase (e.g., ".我", ",决定")
+        if !first.is_alphanumeric() && second_char.is_lowercase() && second_char > '\u{4E00}' {
+            return true;
+        }
+    }
+
+    // Check for generic fragments that are too short to be useful
+    // Phrases like "好的，采用" without context
+    if content.len() < 25 && (
+        content.contains("好的") || content.contains("好的，") ||
+        content.contains("可以") || content.contains("没问题")
+    ) {
+        return true;
+    }
+
+    // Check for repeated punctuation (likely formatting artifact)
+    let punct_count = content.chars().filter(|&c|
+        c == '.' || c == ',' || c == '!' || c == '?' || c == '。' || c == '，'
+    ).count();
+    if punct_count > content.len() / 5 {
+        return true;
+    }
+
     false
 }
 
@@ -3468,7 +3552,7 @@ mod tests {
             Some("session-123".to_string()),
         );
         assert_eq!(entry.category, MemoryCategory::Decision);
-        assert_eq!(entry.importance, 90.0);
+        assert_eq!(entry.importance, DEFAULT_IMPORTANCE_DECISION);  // 75.0
         assert!(!entry.is_manual);
     }
 
@@ -3479,12 +3563,14 @@ mod tests {
             "API endpoint is at /api/v2".to_string(),
             None,
         );
-        assert_eq!(entry.importance, 60.0);
+        assert_eq!(entry.importance, DEFAULT_IMPORTANCE_FINDING);  // 55.0
         entry.mark_referenced();
-        assert_eq!(entry.importance, 62.0);
+        // With default increment of 1.0 (in mark_referenced it uses 2.0)
+        // mark_referenced() adds 2.0 by default
+        assert_eq!(entry.importance, 57.0);  // 55 + 2
         entry.mark_referenced();
         entry.mark_referenced();
-        assert_eq!(entry.importance, 66.0);
+        assert_eq!(entry.importance, 61.0);  // 55 + 6
     }
 
     #[test]
@@ -3525,19 +3611,19 @@ mod tests {
 
     #[test]
     fn test_memory_detection() {
-        // Test decision detection
-        let text = "我决定使用 React 作为前端框架";
+        // Test decision detection - use new specific pattern
+        let text = "我们决定采用 React 作为前端框架";
         let entries = detect_memories_from_text(text, None);
         assert!(!entries.is_empty());
         assert_eq!(entries[0].category, MemoryCategory::Decision);
-        
-        // Test solution detection (with more specific pattern)
-        let text2 = "解决了认证问题，通过添加 token refresh 机制";
+
+        // Test solution detection - use new specific pattern
+        let text2 = "解决了认证问题，解决方案是通过添加 token refresh 机制";
         let entries2 = detect_memories_from_text(text2, None);
         assert!(!entries2.is_empty());
         assert_eq!(entries2[0].category, MemoryCategory::Solution);
-        
-        // Test preference detection
+
+        // Test preference detection - use new specific pattern
         let text3 = "我偏好使用 TypeScript 进行开发";
         let entries3 = detect_memories_from_text(text3, None);
         assert!(!entries3.is_empty());
@@ -3705,17 +3791,17 @@ mod tests {
             "Important decision".into(),
             None,
         );
-        
-        // Start at 90 (Decision default)
-        assert_eq!(entry.importance, 90.0);
-        
+
+        // Start at DEFAULT_IMPORTANCE_DECISION (75.0)
+        assert_eq!(entry.importance, DEFAULT_IMPORTANCE_DECISION);
+
         // Reference many times
-        for _ in 0..10 {
+        for _ in 0..20 {
             entry.mark_referenced();
         }
-        
-        // Should cap at 100
-        assert!(entry.importance <= 100.0);
+
+        // Should cap at MAX_IMPORTANCE_CEILING (100.0)
+        assert!(entry.importance <= MAX_IMPORTANCE_CEILING);
     }
 
     #[test]
@@ -3758,7 +3844,7 @@ mod tests {
         // Recent entry should not decay (still > 30 days threshold)
         let recent = memory.entries.iter().find(|e| e.content.contains("Recent"));
         assert!(recent.is_some());
-        assert!(recent.unwrap().importance >= 60.0);  // Finding default
+        assert!(recent.unwrap().importance >= DEFAULT_IMPORTANCE_FINDING);  // Finding default (55.0)
         
         // Old entry should have decayed
         let old = memory.entries.iter().find(|e| e.content.contains("Old"));
@@ -3816,29 +3902,28 @@ mod tests {
     #[test]
     fn test_public_has_similar() {
         let mut memory = AutoMemory::new();
-        
+
         // Add an entry
         memory.add(MemoryEntry::new(
             MemoryCategory::Decision,
             "We decided to use PostgreSQL for our main database system".to_string(),
             None,
         ));
-        
+
         // Test exact match
         assert!(memory.has_similar("We decided to use PostgreSQL for our main database system"));
-        
-        // Test very similar content (high similarity > 0.7)
-        // Original: "We decided to use PostgreSQL for our main database system"
-        // Similar:  "We decided to use PostgreSQL for our main database backend"
-        // Similarity = shared words / total unique words
-        assert!(memory.has_similar("We decided to use PostgreSQL for our main database backend"));
-        
-        // Test moderately similar (should NOT match, < 0.7)
-        assert!(!memory.has_similar("We decided to use Redis for caching"));
-        
+
+        // Test very similar content (high similarity >= 0.85 threshold)
+        // Only one word different should still match
+        assert!(memory.has_similar("We decided to use PostgreSQL for our main database systems"));
+
+        // Test moderately similar (should NOT match, < 0.85)
+        // More words different
+        assert!(!memory.has_similar("We decided to use PostgreSQL for our backend database"));
+
         // Test completely different content
         assert!(!memory.has_similar("The project uses React for frontend"));
-        
+
         // Test short content (should return false)
         assert!(!memory.has_similar("short"));
     }

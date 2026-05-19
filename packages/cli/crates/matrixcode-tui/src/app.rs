@@ -27,6 +27,7 @@ pub struct TuiApp {
     pub(crate) tokens_in: u64,
     pub(crate) tokens_out: u64,
     pub(crate) session_total_out: u64,
+    pub(crate) current_request_tokens: u64,  // Tokens for current request (real-time)
     pub(crate) cache_read: u64,
     pub(crate) cache_created: u64,
     pub(crate) context_size: u64,
@@ -180,6 +181,7 @@ impl TuiApp {
             tokens_in: 0,
             tokens_out: 0,
             session_total_out: 0,
+            current_request_tokens: 0,
             cache_read: 0,
             cache_created: 0,
             context_size: 200_000,

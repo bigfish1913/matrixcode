@@ -462,6 +462,8 @@ async fn handle_sse_event(
                 usage.input_tokens, usage.output_tokens,
                 usage.cache_read_input_tokens, usage.cache_creation_input_tokens
             );
+            // Send real-time usage update
+            let _ = tx.send(StreamEvent::Usage { output_tokens: usage.output_tokens }).await;
         }
         "content_block_start" => {
             let idx = evt["index"].as_u64().unwrap_or(0) as usize;
@@ -576,6 +578,8 @@ async fn handle_sse_event(
                 usage.input_tokens, usage.output_tokens,
                 usage.cache_read_input_tokens, usage.cache_creation_input_tokens
             );
+            // Send real-time usage update
+            let _ = tx.send(StreamEvent::Usage { output_tokens: usage.output_tokens }).await;
         }
         "message_stop" => {
             debug!(

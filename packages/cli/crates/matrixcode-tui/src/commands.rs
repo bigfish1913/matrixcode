@@ -383,10 +383,8 @@ impl TuiApp {
                     self.activity = Activity::Thinking;
                     self.request_start = Some(Instant::now());
                 } else {
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: "⚠️ AI is processing, please wait".into()
-                    });
+                    // Queue message when AI is processing (same as regular messages)
+                    self.pending_messages.push(cmd.to_string());
                 }
                 self.auto_scroll = true;
             }
