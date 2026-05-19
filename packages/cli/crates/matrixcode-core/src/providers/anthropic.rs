@@ -149,7 +149,13 @@ impl AnthropicProvider {
 
         // DashScope does not support Anthropic's extended thinking feature
         if request.think && !self.is_dashscope {
-            body["thinking"] = thinking_config(&self.model);
+            let config = thinking_config(&self.model);
+            log::debug!("Adding thinking config for model {}: {:?}", self.model, config);
+            body["thinking"] = config;
+        } else if !request.think {
+            log::debug!("Thinking disabled by request.think=false");
+        } else if self.is_dashscope {
+            log::debug!("Thinking disabled for DashScope");
         }
 
         body
@@ -161,11 +167,14 @@ impl AnthropicProvider {
 /// don't recognize the name we default to the legacy shape (which older
 /// models and most third-party gateways understand).
 fn thinking_config(model: &str) -> Value {
-    let adaptive = model.contains("opus-4-7") || model.contains("opus-4.7");
+    let m = model.to_lowercase();
+    // New models (2025+) use adaptive thinking
+    let adaptive = m.contains("opus-4") || m.contains("sonnet-4") || m.contains("claude-4")
+        || m.contains("20250") || m.contains("2025");
     if adaptive {
-        json!({"type": "adaptive"})
+        json!({"type": "enabled", "budget_tokens": 10000})
     } else {
-        json!({"type": "enabled", "budget_tokens": 2048})
+        json!({"type": "enabled", "budget_tokens": 5000})
     }
 }
 
@@ -200,7 +209,7 @@ impl Provider for AnthropicProvider {
             req = req.header("Authorization", format!("Bearer {}", self.api_key));
         } else {
             req = req.header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2023-06-01")
+                .header("anthropic-version", "2025-04-15")
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
         }
 
@@ -281,7 +290,7 @@ impl Provider for AnthropicProvider {
                 .header("X-DashScope-SSE", "enable");
         } else {
             req = req.header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2023-06-01")
+                .header("anthropic-version", "2025-04-15")
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
         }
 
@@ -518,6 +527,7 @@ async fn handle_sse_event(
                 ("thinking_delta", AssembledBlock::Thinking { text, .. }) => {
                     if let Some(t) = delta["thinking"].as_str() {
                         text.push_str(t);
+                        log::debug!("Received thinking_delta: {} chars", t.len());
                         let _ = tx.send(StreamEvent::ThinkingDelta(t.to_string())).await;
                     }
                 }

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::types::{Activity, ApproveMode, Message, Role};
@@ -411,6 +413,7 @@ impl TuiApp {
             self.messages.push(Message { role: Role::User, content: input.clone() });
             self.tx.try_send(input).ok();
             self.activity = Activity::Thinking;
+            self.request_start = Some(Instant::now());
             self.auto_scroll = true;
         } else {
             // Queue message (AI is processing)

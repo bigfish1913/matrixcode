@@ -111,7 +111,7 @@ impl TuiApp {
         } else {
             format!("{}{}", self.activity.label(), elapsed_str)
         };
-        let status_color = if self.activity == Activity::Idle { Color::DarkGray } else { Color::Yellow };
+        let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
         
         spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
         spans.push(Span::styled(format!(" {} ", status_text), Style::default().fg(status_color)));
@@ -193,6 +193,7 @@ impl TuiApp {
                     } else {
                         // Expanded (debug mode or user toggled)
                         let max_lines = if self.debug_mode { 30 } else { 10 };
+                        // Header with dim gray color
                         lines.push(Line::from(vec![
                             Span::styled("  \u{1f4ad} \u{25bc} ", Style::default().fg(Color::DarkGray)),
                             Span::styled(
@@ -203,6 +204,7 @@ impl TuiApp {
                         let md_lines = render_markdown(&msg.content, max_w.saturating_sub(4));
                         for line in md_lines.iter().take(max_lines) {
                             let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+                            // Dim gray for thinking content (less prominent than assistant)
                             lines.push(Line::styled(format!("    {}", text), Style::default().fg(Color::DarkGray)));
                         }
                         if md_lines.len() > max_lines {
@@ -245,42 +247,87 @@ impl TuiApp {
                         Span::styled(format!(" \u{2192} {}", summary), Style::default().fg(Color::DarkGray)),
                     ]));
 
-                    // Content preview (always show 1-2 lines, debug shows more)
+                    // Content preview: detect diff format and adjust preview count
+                    let has_diff = msg.content.lines().skip(1).any(|l| {
+                        let trimmed = l.trim_start();
+                        trimmed.starts_with('+') || trimmed.starts_with('-')
+                    });
                     let preview_count = if *is_error {
                         if self.debug_mode { 8 } else { 3 }
                     } else if self.debug_mode {
                         5
+                    } else if has_diff {
+                        4  // Show diff lines for edit/multi_edit
                     } else {
                         match name.as_str() {
                             "bash" => 2,
                             "search" | "glob" | "ls" => 2,
-                            "edit" | "multi_edit" => 4,  // Show diff lines
+                            "read" => 3,
+                            "todo_write" => 0,  // Special handling below
                             "write" => 0,
-                            "read" => 0,
                             _ => 1,
                         }
                     };
-                    // Content preview with diff coloring for edit tools
-                    if preview_count > 0 {
-                        for line in msg.content.lines().skip(1).take(preview_count) {
-                            let (line_color, prefix) = if line.starts_with("+ ") {
-                                (Color::Green, "")
-                            } else if line.starts_with("- ") {
-                                (Color::Red, "")
+
+                    // Special rendering for todo_write: show full list with colored status
+                    if name == "todo_write" && !*is_error {
+                        for line in msg.content.lines().skip(1) {
+                            let trimmed = line.trim();
+                            let line_color = if trimmed.starts_with("[~]") {
+                                Color::Yellow
+                            } else if trimmed.starts_with("[x]") {
+                                Color::Green
+                            } else if trimmed.starts_with("[ ]") {
+                                Color::Gray
                             } else {
-                                (Color::DarkGray, "")
+                                Color::DarkGray
                             };
                             lines.push(Line::styled(
-                                format!("    {}{}", prefix, truncate(line, max_w.saturating_sub(4))),
+                                format!("    {}", truncate(trimmed, max_w.saturating_sub(4))),
                                 Style::default().fg(line_color)
                             ));
                         }
-                        let content_lines = msg.content.lines().skip(1).count();
-                        if content_lines > preview_count {
-                            lines.push(Line::styled(
-                                format!("    \u{2026} ({} more)", content_lines - preview_count),
-                                Style::default().fg(Color::DarkGray)
-                            ));
+                    } else if preview_count > 0 {
+                        // Different handling for read vs other tools
+                        if name == "read" {
+                            // Read: show first lines directly (no header to skip)
+                            for line in msg.content.lines().take(preview_count) {
+                                lines.push(Line::styled(
+                                    format!("    {}", truncate(line, max_w.saturating_sub(4))),
+                                    Style::default().fg(Color::Gray)
+                                ));
+                            }
+                            let total_lines = msg.content.lines().count();
+                            if total_lines > preview_count {
+                                lines.push(Line::styled(
+                                    format!("    \u{2026} ({} more)", total_lines - preview_count),
+                                    Style::default().fg(Color::DarkGray)
+                                ));
+                            }
+                        } else {
+                            // Other tools: skip first line (summary header)
+                            for line in msg.content.lines().skip(1).take(preview_count) {
+                                let trimmed = line.trim_start();
+                                let line_color = if trimmed.starts_with('+') {
+                                    Color::Green
+                                } else if trimmed.starts_with('-') {
+                                    Color::Red
+                                } else {
+                                    Color::DarkGray
+                                };
+                                let truncated = truncate(line, max_w.saturating_sub(4));
+                                lines.push(Line::styled(
+                                    format!("    {}", truncated),
+                                    Style::default().fg(line_color)
+                                ));
+                            }
+                            let total_lines = msg.content.lines().skip(1).count();
+                            if total_lines > preview_count {
+                                lines.push(Line::styled(
+                                    format!("    \u{2026} ({} more)", total_lines - preview_count),
+                                    Style::default().fg(Color::DarkGray)
+                                ));
+                            }
                         }
                     }
                 }

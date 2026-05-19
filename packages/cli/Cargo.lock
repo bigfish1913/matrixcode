@@ -1478,7 +1478,6 @@ dependencies = [
  "arboard",
  "crossterm 0.28.1",
  "matrixcode-core",
- "pulldown-cmark",
  "ratatui",
  "serde_json",
  "tokio",

@@ -18,8 +18,7 @@ crossterm = { workspace = true, features = ["event-stream"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
-tui-markdown = "0.3"
-pulldown-cmark = "0.13"
+tui-markdown = { version = "0.3", features = ["highlight-code"] }
 arboard = { workspace = true }
 
 [dev-dependencies]

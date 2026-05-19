@@ -10,9 +10,7 @@ impl TuiApp {
             EventType::ThinkingStart => {
                 self.activity = Activity::Thinking;
                 self.thinking.clear();
-                if self.request_start.is_none() {
-                    self.request_start = Some(std::time::Instant::now());
-                }
+                self.request_start = Some(std::time::Instant::now());
             }
             EventType::ThinkingDelta => {
                 if let Some(EventData::Thinking { delta, .. }) = e.data {
@@ -29,6 +27,7 @@ impl TuiApp {
             EventType::TextStart => {
                 self.streaming.clear();
                 self.activity = Activity::Thinking;
+                self.request_start = Some(std::time::Instant::now());
             }
             EventType::TextDelta => {
                 if let Some(EventData::Text { delta }) = e.data {
@@ -46,6 +45,9 @@ impl TuiApp {
                 if let Some(EventData::ToolUse { name, input, .. }) = e.data {
                     self.activity = Activity::from_tool(&name);
                     self.activity_detail = extract_tool_detail(&name, input.as_ref());
+                    if self.request_start.is_none() {
+                        self.request_start = Some(std::time::Instant::now());
+                    }
                 }
             }
             EventType::ToolResult => {
