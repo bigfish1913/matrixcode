@@ -337,12 +337,16 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         .map(|m| matrixcode_core::approval::ApproveMode::parse(m))
         .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
     
+    // Create shared approve mode atomic - accessible by both agent and TUI
+    let shared_approve_mode = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(agent_approve_mode.to_u8()));
+    
     // Read fast_model config for keyword extraction
     let agent_fast_model = config.fast_model.clone()
         .or_else(|| std::env::var("ANTHROPIC_DEFAULT_HAIKU_MODEL").ok());
     
     // Clone skills for agent task
     let agent_skills = skills.clone();
+    let agent_shared_approve_mode = shared_approve_mode.clone();
 
     // Spawn Agent task with real Agent
     let _agent_task = rt.spawn(async move {
@@ -406,6 +410,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             .event_tx(agent_event_tx.clone())
             .approve_mode(agent_approve_mode)
             .build();
+
+        // Use the shared approve mode so TUI can update it in real-time
+        agent.set_approve_mode_shared(agent_shared_approve_mode);
 
         // Restore messages from pre-loaded session
         if !agent_restored_messages.is_empty() {
@@ -647,25 +654,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     "ask" => matrixcode_core::approval::ApproveMode::Ask,
                     "auto" => matrixcode_core::approval::ApproveMode::Auto,
                     "strict" => matrixcode_core::approval::ApproveMode::Strict,
-                    _ => {
-                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
-                            format!("Unknown mode: {}", mode),
-                            None,
-                            None,
-                        )).await;
-                        continue;
-                    }
+                    _ => continue,
                 };
                 agent.set_approve_mode(new_mode);
-                
-                // Send confirmation to TUI
-                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
-                    matrixcode_core::EventType::Progress,
-                    matrixcode_core::EventData::Progress {
-                        message: format!("✓ Approve mode changed to: {}", new_mode),
-                        percentage: None,
-                    },
-                )).await;
                 continue;
             }
             
@@ -1002,6 +993,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Create App and run it (TUI runs in sync context, but tokio channels are usable)
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token)
         .with_ask_channel(ask_tx)
+        .with_shared_approve_mode(shared_approve_mode)
         .with_config(&model, cli.think, cli.max_tokens, None);
     
     // Load restored messages if any

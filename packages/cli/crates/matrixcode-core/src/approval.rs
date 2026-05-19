@@ -79,6 +79,24 @@ impl ApproveMode {
             ApproveMode::Strict => ApproveMode::Ask,
         }
     }
+
+    /// Convert to u8 for atomic storage.
+    pub fn to_u8(self) -> u8 {
+        match self {
+            ApproveMode::Auto => 0,
+            ApproveMode::Ask => 1,
+            ApproveMode::Strict => 2,
+        }
+    }
+
+    /// Convert from u8 (atomic load).
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            0 => ApproveMode::Auto,
+            2 => ApproveMode::Strict,
+            _ => ApproveMode::Ask,
+        }
+    }
 }
 
 impl fmt::Display for ApproveMode {

@@ -134,4 +134,13 @@ impl ApproveMode {
             ApproveMode::Strict => ApproveMode::Ask,
         }
     }
+
+    /// Convert to u8 for atomic storage (matches matrixcode_core::approval::ApproveMode).
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            ApproveMode::Auto => 0,
+            ApproveMode::Ask => 1,
+            ApproveMode::Strict => 2,
+        }
+    }
 }

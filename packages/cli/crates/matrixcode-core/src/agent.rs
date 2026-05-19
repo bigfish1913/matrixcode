@@ -169,7 +169,7 @@ impl Agent {
             system_prompt: builder.system_prompt,
             max_tokens: builder.max_tokens,
             think: builder.think,
-            approve_mode: builder.approve_mode,
+            approve_mode: Arc::new(AtomicU8::new(builder.approve_mode.to_u8())),
             event_tx,
             skills: builder.skills,
             profile: builder.profile,
@@ -201,8 +201,21 @@ impl Agent {
 
     /// Set approve mode at runtime
     pub fn set_approve_mode(&mut self, mode: ApproveMode) {
-        log::info!("Agent approve mode changed: {} -> {}", self.approve_mode, mode);
-        self.approve_mode = mode;
+        let old = ApproveMode::from_u8(self.approve_mode.load(Ordering::Relaxed));
+        log::info!("Agent approve mode changed: {} -> {}", old, mode);
+        self.approve_mode.store(mode.to_u8(), Ordering::Relaxed);
+    }
+
+    /// Get a shared reference to the approve mode atomic.
+    /// TUI can hold this and update it directly, even while agent is running.
+    pub fn approve_mode_shared(&self) -> Arc<AtomicU8> {
+        self.approve_mode.clone()
+    }
+
+    /// Replace the internal approve_mode atomic with an externally shared one.
+    /// This allows TUI to update the mode while agent is running.
+    pub fn set_approve_mode_shared(&mut self, shared: Arc<AtomicU8>) {
+        self.approve_mode = shared;
     }
 
     /// Update memory summary and rebuild system prompt.
@@ -553,15 +566,18 @@ impl Agent {
         let tool = self.tools.iter().find(|t| t.definition().name == name);
 
         if let Some(tool) = tool {
+            // Load current approve mode from shared atomic
+            let current_mode = ApproveMode::from_u8(self.approve_mode.load(Ordering::Relaxed));
+            
             // Debug: log approval check
             log::debug!(
                 "Tool '{}' approval check: mode={}, risk={}, needs_approval={}",
-                name, self.approve_mode, tool.risk_level(),
-                needs_approval(self.approve_mode, tool.risk_level())
+                name, current_mode, tool.risk_level(),
+                needs_approval(current_mode, tool.risk_level())
             );
             
             // Check approval
-            if needs_approval(self.approve_mode, tool.risk_level()) {
+            if needs_approval(current_mode, tool.risk_level()) {
                 // Ask user for approval via TUI
                 if self.ask_rx.is_some() {
                     // Build approval question with tool details

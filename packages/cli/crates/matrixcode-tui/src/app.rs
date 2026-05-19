@@ -50,6 +50,8 @@ pub struct TuiApp {
     pub(crate) thinking_collapsed: bool,
     // Approval mode
     pub(crate) approve_mode: ApproveMode,
+    // Shared approve mode atomic - directly updates agent's mode in real-time
+    pub(crate) shared_approve_mode: Option<std::sync::Arc<std::sync::atomic::AtomicU8>>,
     // Ask tool channel
     pub(crate) ask_tx: Option<tokio::sync::mpsc::Sender<String>>,
     pub(crate) waiting_for_ask: bool,
@@ -189,6 +191,7 @@ impl TuiApp {
             max_scroll: std::cell::Cell::new(0),
             thinking_collapsed: false,  // Default: expanded
             approve_mode: ApproveMode::Ask,
+            shared_approve_mode: None,
             ask_tx: None,
             waiting_for_ask: false,
             tx, rx, cancel,
@@ -204,6 +207,12 @@ impl TuiApp {
 
     pub fn with_ask_channel(mut self, ask_tx: tokio::sync::mpsc::Sender<String>) -> Self {
         self.ask_tx = Some(ask_tx);
+        self
+    }
+
+    /// Set shared approve mode atomic for real-time mode switching during agent execution.
+    pub fn with_shared_approve_mode(mut self, shared: std::sync::Arc<std::sync::atomic::AtomicU8>) -> Self {
+        self.shared_approve_mode = Some(shared);
         self
     }
 
@@ -513,7 +522,7 @@ impl TuiApp {
             // Alt+M: toggle approve mode
             KeyCode::Char('m') if k.modifiers.contains(KeyModifiers::ALT) => {
                 self.approve_mode = self.approve_mode.next();
-                self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
+                self.sync_approve_mode();
             }
 
             // Alt+T: toggle thinking collapse
@@ -524,11 +533,11 @@ impl TuiApp {
             // Shift+Tab / BackTab: toggle approve mode
             KeyCode::Tab if k.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.approve_mode = self.approve_mode.next();
-                self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
+                self.sync_approve_mode();
             }
             KeyCode::BackTab => {
                 self.approve_mode = self.approve_mode.next();
-                self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
+                self.sync_approve_mode();
             }
 
             // Scroll: PageUp
@@ -608,6 +617,22 @@ impl TuiApp {
                 .map(|(i, _)| i)
                 .unwrap_or(0);
         }
+    }
+
+    /// Sync approve_mode to the shared atomic and notify agent task.
+    /// If switching to Auto and there's a pending approval, auto-approve it.
+    fn sync_approve_mode(&mut self) {
+        if let Some(ref shared) = self.shared_approve_mode {
+            shared.store(self.approve_mode.to_u8(), std::sync::atomic::Ordering::Relaxed);
+        }
+        // If switching to auto and agent is waiting for approval, auto-approve
+        if self.approve_mode == ApproveMode::Auto && self.waiting_for_ask {
+            if let Some(ref ask_tx) = self.ask_tx {
+                ask_tx.try_send("y".to_string()).ok();
+                self.waiting_for_ask = false;
+            }
+        }
+        self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
     }
     
     /// Find the byte position of the previous character boundary.
@@ -800,7 +825,8 @@ impl TuiApp {
                             return;
                         }
                     }
-                    self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
+                    // Update shared atomic immediately (takes effect even during agent execution)
+                    self.sync_approve_mode();
                     self.messages.push(Message {
                         role: Role::System,
                         content: format!("✓ Mode: {}", self.approve_mode.label())
