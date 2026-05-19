@@ -19,7 +19,7 @@ pub fn word_wrap(text: &str, width: usize) -> Vec<String> {
             continue;
         }
         
-        if line.chars().count() <= width {
+        if visual_width(line) <= width {
             result.push(line.to_string());
             continue;
         }
@@ -66,6 +66,32 @@ pub fn progress_bar(pct: f64, width: usize) -> String {
         s.push(if i < filled { '█' } else { '░' });
     }
     s
+}
+
+/// Calculate visual width of a string (Chinese chars = 2, ASCII = 1)
+pub fn visual_width(s: &str) -> usize {
+    s.chars().map(|ch| if ch > '\u{7F}' { 2 } else { 1 }).sum()
+}
+
+/// Extract substring from a line using visual column positions
+/// Handles multi-byte characters (e.g., Chinese chars take 2 columns)
+pub fn extract_by_visual_col(line: &str, start_col: usize, end_col: usize) -> String {
+    let mut result = String::new();
+    let mut visual_pos = 0;
+    
+    for ch in line.chars() {
+        let ch_width = if ch > '\u{7F}' { 2 } else { 1 };
+        
+        if visual_pos >= end_col {
+            break;
+        }
+        if visual_pos + ch_width > start_col {
+            result.push(ch);
+        }
+        visual_pos += ch_width;
+    }
+    
+    result
 }
 
 /// Extract tool detail info from input parameters

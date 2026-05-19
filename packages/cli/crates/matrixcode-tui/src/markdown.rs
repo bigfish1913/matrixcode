@@ -4,7 +4,7 @@ use ratatui::{
 };
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
-use crate::utils::word_wrap;
+use crate::utils::{word_wrap, visual_width};
 
 /// Render markdown with table support and word wrap
 pub fn render_markdown(text: &str, max_w: usize) -> Vec<Line<'static>> {
@@ -139,11 +139,26 @@ pub fn render_markdown(text: &str, max_w: usize) -> Vec<Line<'static>> {
                 ));
                 lines.push(Line::raw(""));  // Add spacing after heading
             } else {
-                // Convert to owned Line
-                let owned_spans: Vec<Span<'static>> = line.spans.iter().map(|s| {
-                    Span::styled(s.content.to_string(), s.style)
-                }).collect();
-                lines.push(Line::from(owned_spans));
+                // Check if line exceeds max width after tui_markdown rendering
+                let line_width: usize = line.spans.iter()
+                    .map(|s| s.content.chars().map(|ch| if ch > '\u{7F}' { 2 } else { 1 }).sum::<usize>())
+                    .sum();
+                
+                if line_width > max_w {
+                    // Re-wrap the content preserving style of first span
+                    let full_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+                    let style = line.spans.first().map(|s| s.style).unwrap_or_default();
+                    let wrapped = word_wrap(&full_text, max_w);
+                    for w in wrapped {
+                        lines.push(Line::styled(w, style));
+                    }
+                } else {
+                    // Convert to owned Line
+                    let owned_spans: Vec<Span<'static>> = line.spans.iter().map(|s| {
+                        Span::styled(s.content.to_string(), s.style)
+                    }).collect();
+                    lines.push(Line::from(owned_spans));
+                }
             }
         }
     }
@@ -167,25 +182,55 @@ fn word_wrap_markdown(text: &str, width: usize) -> String {
             continue;
         }
         
-        // Don't wrap code block content
+        // Don't wrap code block content (truncate if too long)
         if in_code_block {
             result.push_str(line);
             result.push('\n');
             continue;
         }
         
-        // Don't wrap headings, list markers, blockquotes
-        let is_special = line.trim().starts_with('#') 
-            || line.trim().starts_with('-') 
-            || line.trim().starts_with('*')
-            || line.trim().starts_with('>')
-            || line.trim().is_empty();
-        
-        if is_special || line.chars().count() <= width {
+        // Check if line fits within width
+        if visual_width(line) <= width {
             result.push_str(line);
             result.push('\n');
+            continue;
+        }
+        
+        // For headings, preserve the prefix and wrap the rest
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            // Headings: just output as-is (they'll be truncated by terminal)
+            result.push_str(line);
+            result.push('\n');
+        } else if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("> ") {
+            // List items / blockquotes: wrap with indent
+            let leading_spaces = line.len() - line.trim_start().len();
+            let prefix = &line[..leading_spaces];
+            let marker_len = if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("> ") { 2 } else { 0 };
+            let marker = &trimmed[..marker_len];
+            let content = &trimmed[marker_len..];
+            let indent = format!("{}{}",prefix, marker);
+            let indent_width = visual_width(&indent);
+            let content_width = width.saturating_sub(indent_width);
+            
+            if content_width < 10 {
+                // Too narrow, just output as-is
+                result.push_str(line);
+                result.push('\n');
+            } else {
+                let wrapped = word_wrap(content, content_width);
+                for (i, w) in wrapped.iter().enumerate() {
+                    if i == 0 {
+                        result.push_str(&format!("{}{}\n", indent, w));
+                    } else {
+                        // Continuation lines: use spaces instead of marker
+                        let cont_indent: String = " ".repeat(visual_width(&indent));
+                        result.push_str(&format!("{}{}\n", cont_indent, w));
+                    }
+                }
+            }
         } else {
-            // Wrap long paragraph lines
+            // Regular paragraph: wrap normally
             let wrapped = word_wrap(line, width);
             for w in wrapped {
                 result.push_str(&w);

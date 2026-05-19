@@ -22,15 +22,15 @@ impl Activity {
         match self {
             Activity::Idle => "Ready".into(),
             Activity::Thinking => "Thinking".into(),
-            Activity::Reading => "📖 Reading".into(),
-            Activity::Writing => "📝 Writing".into(),
-            Activity::Editing => "✏️ Editing".into(),
-            Activity::Searching => "🔍 Searching".into(),
-            Activity::Running => "⚡ Running".into(),
-            Activity::WebSearch => "🌐 WebSearch".into(),
-            Activity::WebFetch => "🔗 Fetching".into(),
-            Activity::Tool(name) => format!("🔧 {}", name),
-            Activity::Asking => "❓ Waiting input".into(),
+            Activity::Reading => "read".into(),
+            Activity::Writing => "write".into(),
+            Activity::Editing => "edit".into(),
+            Activity::Searching => "search".into(),
+            Activity::Running => "bash".into(),
+            Activity::WebSearch => "websearch".into(),
+            Activity::WebFetch => "webfetch".into(),
+            Activity::Tool(name) => name.clone(),
+            Activity::Asking => "waiting".into(),
         }
     }
 

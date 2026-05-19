@@ -212,8 +212,9 @@ impl Agent {
         self.approve_mode.clone()
     }
 
-    /// Replace the internal approve_mode atomic with an externally shared one.
-    /// This allows TUI to update the mode while agent is running.
+    /// Replace the internal approve mode with an externally-created shared atomic.
+    /// Replace the internal approve mode with an externally-created shared atomic.
+    /// This allows the TUI to update the mode while the agent is running.
     pub fn set_approve_mode_shared(&mut self, shared: Arc<AtomicU8>) {
         self.approve_mode = shared;
     }

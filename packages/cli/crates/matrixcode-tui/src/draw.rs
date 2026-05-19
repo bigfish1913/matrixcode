@@ -348,17 +348,16 @@ impl TuiApp {
         }
         
         if is_tool_activity && self.streaming.is_empty() && self.thinking.is_empty() {
-            let mut spans = vec![
+            let tool_label = if !self.activity_detail.is_empty() {
+                format!("{}({})", self.activity.label(), self.activity_detail)
+            } else {
+                self.activity.label()
+            };
+            let spans = vec![
                 Span::styled(SPINNER[self.frame], Style::default().fg(self.activity.color())),
                 Span::raw(" "),
-                Span::styled(self.activity.label(), Style::default().fg(self.activity.color())),
+                Span::styled(tool_label, Style::default().fg(self.activity.color())),
             ];
-            if !self.activity_detail.is_empty() {
-                spans.push(Span::styled(
-                    format!(" {}", self.activity_detail),
-                    Style::default().fg(Color::DarkGray)
-                ));
-            }
             lines.push(Line::from(spans));
         }
 

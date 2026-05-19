@@ -12,7 +12,7 @@ use matrixcode_core::{AgentEvent, EventData, EventType, cancel::CancellationToke
 use ratatui::crossterm::event::MouseButton;
 
 use crate::types::{Activity, ApproveMode, Role, Message};
-use crate::utils::{truncate, extract_tool_detail, fmt_tokens};
+use crate::utils::{truncate, extract_tool_detail, fmt_tokens, extract_by_visual_col};
 use crate::ANIM_MS;
 
 pub struct TuiApp {
@@ -42,6 +42,10 @@ pub struct TuiApp {
     pub(crate) exit: bool,
     // Input cursor position (character index in input string)
     pub(crate) cursor_pos: usize,
+    // Input history (Up/Down arrow navigation)
+    pub(crate) input_history: Vec<String>,
+    pub(crate) history_index: Option<usize>,  // None = not browsing history
+    pub(crate) history_draft: String,  // Saves current input when entering history mode
     // Scroll state
     pub(crate) scroll_offset: u16,
     pub(crate) auto_scroll: bool,
@@ -186,6 +190,9 @@ impl TuiApp {
             show_welcome: true,
             exit: false,
             cursor_pos: 0,
+            input_history: Vec::new(),
+            history_index: None,
+            history_draft: String::new(),
             scroll_offset: 0,
             auto_scroll: true,
             max_scroll: std::cell::Cell::new(0),
@@ -249,6 +256,12 @@ impl TuiApp {
                 matrixcode_core::Role::System => Role::System,
                 matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), is_error: false },
             };
+            // Restore input history from user messages
+            if role == Role::User && !content.starts_with('/') {
+                if self.input_history.last().map(|s| s.as_str()) != Some(&content) {
+                    self.input_history.push(content.clone());
+                }
+            }
             self.messages.push(Message { role, content });
         }
         if !self.messages.is_empty() {
@@ -261,13 +274,17 @@ impl TuiApp {
         let norm = selection.normalized();
         
         // We need to reconstruct the text from rendered lines
-        // This is tricky because we don't store the rendered lines
-        // For simplicity, we'll extract from message content based on approximate line mapping
-        
-        let mut result = String::new();
-        
-        // Build all text lines from messages (approximate - doesn't account for wrapping)
+        // Build all text lines from messages (approximate - matches draw_messages logic)
         let mut all_text: Vec<String> = Vec::new();
+        
+        // Account for welcome message lines
+        if self.show_welcome && self.messages.is_empty() {
+            // 7 welcome lines + 1 empty
+            for _ in 0..8 {
+                all_text.push(String::new());
+            }
+        }
+        
         for msg in &self.messages {
             let icon = msg.role.icon();
             let label = msg.role.label();
@@ -278,28 +295,24 @@ impl TuiApp {
             all_text.push(String::new());  // Empty line between messages
         }
         
-        // Extract selected range
+        // Extract selected range using visual column positions
+        let mut result = String::new();
         for i in norm.start_line..=norm.end_line {
             if let Some(line) = all_text.get(i) {
-                if i == norm.start_line && i == norm.end_line {
-                    // Single line selection
-                    if norm.start_col < line.len() && norm.end_col <= line.len() {
-                        result.push_str(&line[norm.start_col..norm.end_col]);
-                    }
+                let (start_col, end_col) = if i == norm.start_line && i == norm.end_line {
+                    (norm.start_col, norm.end_col)
                 } else if i == norm.start_line {
-                    // First line of multi-line selection
-                    if norm.start_col < line.len() {
-                        result.push_str(&line[norm.start_col..]);
-                    }
-                    result.push('\n');
+                    (norm.start_col, usize::MAX)
                 } else if i == norm.end_line {
-                    // Last line of multi-line selection
-                    if norm.end_col <= line.len() {
-                        result.push_str(&line[..norm.end_col]);
-                    }
+                    (0, norm.end_col)
                 } else {
-                    // Middle line
-                    result.push_str(line);
+                    (0, usize::MAX)
+                };
+                
+                // Convert visual column to char boundary
+                let extracted = extract_by_visual_col(line, start_col, end_col);
+                result.push_str(&extracted);
+                if i != norm.end_line {
                     result.push('\n');
                 }
             }
@@ -385,20 +398,8 @@ impl TuiApp {
                         let clipboard_result = arboard::Clipboard::new()
                             .and_then(|mut cb| cb.set_text(&selected_text));
                         
-                        match clipboard_result {
-                            Ok(_) => {
-                                self.messages.push(Message {
-                                    role: Role::System,
-                                    content: format!("📋 Copied {} chars to clipboard", selected_text.len())
-                                });
-                            }
-                            Err(_) => {
-                                self.messages.push(Message {
-                                    role: Role::System,
-                                    content: format!("📋 Copied {} chars (clipboard unavailable)", selected_text.len())
-                                });
-                            }
-                        }
+                        // Copy to clipboard (silent)
+                        let _ = clipboard_result;
                         self.selection = None;
                         self.selecting = false;
                     }
@@ -456,7 +457,7 @@ impl TuiApp {
                 }
             }
 
-            // Up arrow: move cursor to previous line (in multiline input)
+            // Up arrow: history navigation (single-line) or move cursor (multiline)
             KeyCode::Up if !k.modifiers.contains(KeyModifiers::ALT) => {
                 if self.input.contains('\n') {
                     let (current_line_num, col_chars, _) = self.get_line_info();
@@ -477,10 +478,26 @@ impl TuiApp {
                         let target_char_pos = prev_line_start_char + col_chars.min(prev_line_len_chars);
                         self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
                     }
+                } else if !self.input_history.is_empty() {
+                    // Single-line: browse history
+                    match self.history_index {
+                        None => {
+                            // Entering history mode: save current input as draft
+                            self.history_draft = self.input.clone();
+                            self.history_index = Some(self.input_history.len() - 1);
+                            self.input = self.input_history[self.input_history.len() - 1].clone();
+                        }
+                        Some(idx) if idx > 0 => {
+                            self.history_index = Some(idx - 1);
+                            self.input = self.input_history[idx - 1].clone();
+                        }
+                        _ => {} // Already at oldest entry
+                    }
+                    self.cursor_pos = self.input.len();
                 }
             }
 
-            // Down arrow: move cursor to next line (in multiline input)
+            // Down arrow: history navigation (single-line) or move cursor (multiline)
             KeyCode::Down if !k.modifiers.contains(KeyModifiers::ALT) => {
                 if self.input.contains('\n') {
                     let (current_line_num, col_chars, total_lines) = self.get_line_info();
@@ -509,6 +526,19 @@ impl TuiApp {
                         let target_char_pos = next_line_start_char + col_chars.min(next_line_len_chars);
                         self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
                     }
+                } else if self.history_index.is_some() {
+                    // Single-line: browse history forward
+                    let idx = self.history_index.unwrap();
+                    if idx + 1 < self.input_history.len() {
+                        self.history_index = Some(idx + 1);
+                        self.input = self.input_history[idx + 1].clone();
+                    } else {
+                        // Back to draft (current unsent input)
+                        self.history_index = None;
+                        self.input = self.history_draft.clone();
+                        self.history_draft.clear();
+                    }
+                    self.cursor_pos = self.input.len();
                 }
             }
 
@@ -517,6 +547,11 @@ impl TuiApp {
                 self.ensure_char_boundary();
                 self.input.insert(self.cursor_pos, c);
                 self.cursor_pos += c.len_utf8();
+                // Exit history browsing mode on any character input
+                if self.history_index.is_some() {
+                    self.history_index = None;
+                    self.history_draft.clear();
+                }
             }
 
             // Alt+M: toggle approve mode
@@ -684,6 +719,16 @@ impl TuiApp {
         let input = self.input.trim().to_string();
         self.input.clear();
         self.cursor_pos = 0;
+        
+        // Save to input history (skip duplicates of last entry)
+        if !input.is_empty() {
+            if self.input_history.last().map(|s| s.as_str()) != Some(&input) {
+                self.input_history.push(input.clone());
+            }
+        }
+        // Reset history browsing state
+        self.history_index = None;
+        self.history_draft.clear();
 
         if self.waiting_for_ask {
             // Respond to approval/ask question
@@ -762,6 +807,14 @@ impl TuiApp {
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 self.selecting = false;
+                // Auto-copy to clipboard on mouse release (like terminal behavior)
+                if let Some(sel) = self.selection {
+                    let text = self.get_selected_text(sel);
+                    if !text.is_empty() {
+                        let _ = arboard::Clipboard::new()
+                            .and_then(|mut cb| cb.set_text(&text));
+                    }
+                }
             }
             _ => {}
         }
@@ -786,7 +839,7 @@ impl TuiApp {
                 if self.activity == Activity::Idle {
                     self.messages.clear();
                     self.pending_messages.clear();
-                    self.messages.push(Message { role: Role::System, content: "✓ Messages cleared".into() });
+
                 } else {
                     self.messages.push(Message { role: Role::System, content: "⚠️ Cannot clear while AI is processing".into() });
                 }
@@ -797,21 +850,20 @@ impl TuiApp {
                 let assistant_count = self.messages.iter().filter(|m| m.role == Role::Assistant).count();
                 let tool_count = self.messages.iter().filter(|m| matches!(m.role, Role::Tool { .. })).count();
                 let queue_count = self.pending_messages.len();
-                self.messages.push(Message {
-                    role: Role::System,
-                    content: format!(
-                        "📊 Session: {} user, {} assistant, {} tools, {} queued, {} output tokens",
-                        user_count, assistant_count, tool_count, queue_count, fmt_tokens(self.session_total_out)
-                    )
-                });
+                if self.debug_mode {
+                    self.messages.push(Message {
+                        role: Role::System,
+                        content: format!(
+                            "📊 Session: {} user, {} assistant, {} tools, {} queued, {} output tokens",
+                            user_count, assistant_count, tool_count, queue_count, fmt_tokens(self.session_total_out)
+                        )
+                    });
+                }
                 self.auto_scroll = true;
             }
             "/mode" => {
                 if args.is_empty() {
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("Current mode: {} (use /mode ask|auto|strict)", self.approve_mode.label())
-                    });
+                    // Status bar already shows mode, no message needed
                 } else {
                     match args[0] {
                         "ask" => self.approve_mode = ApproveMode::Ask,
@@ -827,26 +879,15 @@ impl TuiApp {
                     }
                     // Update shared atomic immediately (takes effect even during agent execution)
                     self.sync_approve_mode();
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("✓ Mode: {}", self.approve_mode.label())
-                    });
                 }
                 self.auto_scroll = true;
             }
             "/model" => {
                 if args.is_empty() {
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("Model: {} (context: {})", self.model, fmt_tokens(self.context_size))
-                    });
+                    // Status bar already shows model info
                 } else if self.activity == Activity::Idle {
                     let new_model = args.join(" ");
                     self.model = new_model.clone();
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("✓ Model: {}", new_model)
-                    });
                 } else {
                     self.messages.push(Message {
                         role: Role::System,
@@ -864,24 +905,12 @@ impl TuiApp {
                 if args.is_empty() {
                     // Generate project overview
                     self.tx.try_send("/init".to_string()).ok();
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: "🔄 Generating project overview...".into()
-                    });
                 } else if args[0] == "status" {
                     // Show project status
                     self.tx.try_send("/init status".to_string()).ok();
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: "⏳ Checking project status...".into()
-                    });
                 } else if args[0] == "reset" || args[0] == "clear" {
                     // Reset configuration
                     self.tx.try_send("/init reset".to_string()).ok();
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: "⏳ Resetting project configuration...".into()
-                    });
                 } else {
                     self.messages.push(Message {
                         role: Role::System,
@@ -893,13 +922,6 @@ impl TuiApp {
             "/debug" => {
                 // Toggle debug mode
                 self.debug_mode = !self.debug_mode;
-                self.messages.push(Message {
-                    role: Role::System,
-                    content: format!("🔧 Debug mode: {} (api/tools counts {})",
-                        if self.debug_mode { "ON" } else { "OFF" },
-                        if self.debug_mode { "visible" } else { "hidden" }
-                    )
-                });
                 self.auto_scroll = true;
             }
             "/retry" => {
@@ -910,14 +932,6 @@ impl TuiApp {
                     self.tx.try_send(next_msg).ok();
                     self.activity = Activity::Thinking;
                     self.auto_scroll = true;
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: if self.pending_messages.is_empty() {
-                            "✓ Retry: processing last queued message".into()
-                        } else {
-                            format!("⏳ Retry: {} messages remaining", self.pending_messages.len())
-                        }
-                    });
                 } else if self.pending_messages.is_empty() {
                     self.messages.push(Message { role: Role::System, content: "No pending messages to retry".into() });
                 } else {
@@ -933,7 +947,6 @@ impl TuiApp {
                     self.tokens_out = 0;
                     self.session_total_out = 0;
                     self.tx.try_send("/new".to_string()).ok();
-                    self.messages.push(Message { role: Role::System, content: "✓ New session".into() });
                 } else {
                     self.messages.push(Message { role: Role::System, content: "⚠️ Cannot start new session while AI is processing".into() });
                 }
@@ -1303,52 +1316,55 @@ impl TuiApp {
                     self.compressions += 1;
                     // Update token display to reflect compressed state
                     self.tokens_in = compressed_tokens;
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("📦 Compressed: {} → {} tokens ({:.0}% saved)\n  Context: {} tokens remaining",
-                            fmt_tokens(original_tokens), fmt_tokens(compressed_tokens), (1.0 - ratio) * 100.0,
-                            fmt_tokens(compressed_tokens))
-                    });
-                    self.auto_scroll = true;
+                    if self.debug_mode {
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: format!("📦 Compressed: {} → {} tokens ({:.0}% saved)",
+                                fmt_tokens(original_tokens), fmt_tokens(compressed_tokens), (1.0 - ratio) * 100.0)
+                        });
+                        self.auto_scroll = true;
+                    }
                 }
             }
             EventType::CompressionTriggered => {
-                if let Some(EventData::Progress { message, .. }) = e.data {
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("⏳ {}", message)
-                    });
-                    self.auto_scroll = true;
+                if let Some(EventData::Progress { .. }) = e.data {
+                    // Silent - usage bar already reflects compression state
                 }
             }
             EventType::Progress => {
                 if let Some(EventData::Progress { message, .. }) = e.data {
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: message
-                    });
-                    self.auto_scroll = true;
+                    if self.debug_mode {
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: message
+                        });
+                        self.auto_scroll = true;
+                    }
                 }
             }
             EventType::MemoryLoaded => {
                 if let Some(EventData::Memory { entries_count, .. }) = e.data
                     && entries_count > 0 {
                     self.memory_saves += 1;
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("🧠 Memory: {} entries", entries_count)
-                    });
-                    self.auto_scroll = true;
+                    if self.debug_mode {
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: format!("🧠 Memory: {} entries", entries_count)
+                        });
+                        self.auto_scroll = true;
+                    }
                 }
             }
             EventType::MemoryDetected => {
                 if let Some(EventData::Memory { summary, entries_count }) = e.data {
                     self.memory_saves += 1;
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("🧠 Detected {} memories: {}", entries_count, summary)
-                    });
-                    self.auto_scroll = true;
+                    if self.debug_mode {
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: format!("🧠 Detected {} memories: {}", entries_count, summary)
+                        });
+                        self.auto_scroll = true;
+                    }
                 }
             }
             EventType::KeywordsExtracted => {
