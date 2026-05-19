@@ -1234,15 +1234,6 @@ impl TuiApp {
                     self.tx.try_send(next_msg).ok();
                     self.activity = Activity::Thinking;
                     self.auto_scroll = true;
-                    // Show queue status
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: if self.pending_messages.is_empty() {
-                            "✓ Queue completed".into()
-                        } else {
-                            format!("⏳ Processing queue ({} left)", self.pending_messages.len())
-                        }
-                    });
                 } else {
                     self.activity = Activity::Idle;
                 }

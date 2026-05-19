@@ -223,10 +223,6 @@ fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill> {
     // Discover and load skills
     let skills = discover_skills(&roots);
     
-    if !skills.is_empty() {
-        eprintln!("[skills] Loaded {} skill(s) from {} directory(s)", skills.len(), roots.iter().filter(|r| r.is_dir()).count());
-    }
-    
     skills
 }
 
@@ -1054,7 +1050,6 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 // Interactive or single-shot chat
                 if let Some(msg) = message {
                     // Single-shot chat
-                    println!("🤖 Processing: {}", msg);
                     
                     // Build system prompt with skills
                     let system_prompt = matrixcode_core::prompt::build_system_prompt(
@@ -1293,8 +1288,6 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         }
                     }
                 };
-                
-                println!("\n🤖 Processing...");
                 
                 // Build system prompt with skills for quick action
                 let system_prompt = matrixcode_core::prompt::build_system_prompt(

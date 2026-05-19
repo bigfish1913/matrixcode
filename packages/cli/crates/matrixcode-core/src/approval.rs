@@ -160,7 +160,11 @@ fn summary_multi_edit(params: &Value) -> String {
 fn summary_bash(params: &Value) -> String {
     let cmd = params["command"].as_str().unwrap_or("<unknown>");
     let display_cmd = if cmd.len() > 120 {
-        format!("{}...", &cmd[..120])
+        let mut end = 120;
+        while end > 0 && !cmd.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &cmd[..end])
     } else {
         cmd.to_string()
     };

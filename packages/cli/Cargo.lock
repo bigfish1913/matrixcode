@@ -1475,6 +1475,22 @@ name = "matrixcode"
 version = "0.3.8"
 dependencies = [
  "anyhow",
+ "arboard",
+ "crossterm 0.28.1",
+ "matrixcode-core",
+ "pulldown-cmark",
+ "ratatui",
+ "serde_json",
+ "tokio",
+ "tokio-test",
+ "tui-markdown",
+]
+
+[[package]]
+name = "matrixcode-cli"
+version = "0.3.8"
+dependencies = [
+ "anyhow",
  "chrono",
  "clap",
  "dirs",
@@ -1482,8 +1498,8 @@ dependencies = [
  "env_logger",
  "is-terminal",
  "log",
+ "matrixcode",
  "matrixcode-core",
- "matrixcode-tui",
  "serde",
  "serde_json",
  "tokio",
@@ -1513,22 +1529,6 @@ dependencies = [
  "tokio",
  "tokio-test",
  "uuid",
-]
-
-[[package]]
-name = "matrixcode-tui"
-version = "0.3.8"
-dependencies = [
- "anyhow",
- "arboard",
- "crossterm 0.28.1",
- "matrixcode-core",
- "pulldown-cmark",
- "ratatui",
- "serde_json",
- "tokio",
- "tokio-test",
- "tui-markdown",
 ]
 
 [[package]]

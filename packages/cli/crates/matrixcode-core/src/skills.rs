@@ -56,9 +56,10 @@ impl Skill {
     }
 }
 
-/// Walk the given roots and load skills from both formats:
+/// Walk the given roots and load skills from all supported formats:
 /// - Format 1: directories with `SKILL.md` (backward compatible)
 /// - Format 2: directories with multiple `.md` files (Claude Code style)
+/// - Format 3: standalone `.md` files directly in the root directory
 ///
 /// Missing roots are silently skipped so users can keep a personal
 /// `~/.matrix/skills` directory without the project-local one (or
@@ -80,26 +81,42 @@ pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
             
-            // Try Format 1: SKILL.md exists
-            let skill_md = path.join("SKILL.md");
-            if skill_md.is_file() {
-                match load_skill_from_file(&skill_md, &path) {
+            if path.is_dir() {
+                // Try Format 1: SKILL.md exists
+                let skill_md = path.join("SKILL.md");
+                if skill_md.is_file() {
+                    match load_skill_from_file(&skill_md, &path) {
+                        Ok(skill) => {
+                            add_skill(&mut out, skill);
+                        }
+                        Err(e) => {
+                            eprintln!("[warn] skipping skill at {}: {e}", path.display());
+                        }
+                    }
+                    continue;
+                }
+                
+                // Try Format 2: multiple .md files in directory
+                load_multi_file_skills(&path, &mut out);
+            } else if path.is_file() {
+                // Format 3: standalone .md file directly in root
+                let ext = path.extension().and_then(|e| e.to_str());
+                if ext != Some("md") {
+                    continue;
+                }
+                match load_skill_from_file(&path, root) {
                     Ok(skill) => {
                         add_skill(&mut out, skill);
                     }
                     Err(e) => {
-                        eprintln!("[warn] skipping skill at {}: {e}", path.display());
+                        let raw = std::fs::read_to_string(&path).unwrap_or_default();
+                        if raw.trim_start().starts_with("---") {
+                            eprintln!("[warn] skipping skill file {}: {e}", path.display());
+                        }
                     }
                 }
-                continue;
             }
-            
-            // Try Format 2: multiple .md files in directory
-            load_multi_file_skills(&path, &mut out);
         }
     }
 
@@ -454,6 +471,58 @@ mod tests {
     fn missing_root_is_skipped() {
         let skills = discover_skills(&[PathBuf::from("/definitely/not/here")]);
         assert!(skills.is_empty());
+    }
+
+    #[test]
+    fn discover_loads_standalone_md_files() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("skills");
+        // Standalone .md file directly in root
+        write_file(
+            &root.join("om.md"),
+            "---\nname: om\ndescription: main entry\n---\nOpenMatrix entry point.\n",
+        );
+        write_file(
+            &root.join("openmatrix.md"),
+            "---\nname: openmatrix\ndescription: detect dev tasks\n---\nDetect development tasks.\n",
+        );
+
+        let skills = discover_skills(&[root]);
+        assert_eq!(skills.len(), 2);
+
+        let om = skills.iter().find(|s| s.name == "om").unwrap();
+        assert_eq!(om.description, "main entry");
+        assert!(om.body.contains("OpenMatrix entry point"));
+
+        let openmatrix = skills.iter().find(|s| s.name == "openmatrix").unwrap();
+        assert_eq!(openmatrix.description, "detect dev tasks");
+    }
+
+    #[test]
+    fn discover_mixed_formats() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("skills");
+        // Format 1: directory with SKILL.md
+        write_file(
+            &root.join("debug/SKILL.md"),
+            "---\nname: debug\ndescription: debug tool\n---\nDebug.\n",
+        );
+        // Format 2: directory with multiple .md files
+        write_file(
+            &root.join("om/feature.md"),
+            "---\nname: om:feature\ndescription: build features\n---\nFeature.\n",
+        );
+        // Format 3: standalone .md file
+        write_file(
+            &root.join("openmatrix.md"),
+            "---\nname: openmatrix\ndescription: detect tasks\n---\nDetect.\n",
+        );
+
+        let skills = discover_skills(&[root]);
+        assert_eq!(skills.len(), 3);
+        assert!(skills.iter().any(|s| s.name == "debug"));
+        assert!(skills.iter().any(|s| s.name == "om:feature"));
+        assert!(skills.iter().any(|s| s.name == "openmatrix"));
     }
 
     #[test]

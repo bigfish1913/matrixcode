@@ -85,15 +85,35 @@ impl OpenAIProvider {
                     }
                 }
                 (Role::User, MessageContent::Blocks(blocks)) => {
-                    let text: String = blocks
+                    // Check if this is a tool result message (agent wraps tool results as User role)
+                    let tool_results: Vec<&ContentBlock> = blocks
                         .iter()
-                        .filter_map(|b| match b {
-                            ContentBlock::Text { text } => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    result.push(json!({"role": "user", "content": text}));
+                        .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
+                        .collect();
+                    
+                    if !tool_results.is_empty() {
+                        // Emit as OpenAI tool messages
+                        for block in blocks {
+                            if let ContentBlock::ToolResult { tool_use_id, content } = block {
+                                result.push(json!({
+                                    "role": "tool",
+                                    "tool_call_id": tool_use_id,
+                                    "content": content,
+                                }));
+                            }
+                        }
+                    } else {
+                        // Regular user message with blocks
+                        let text: String = blocks
+                            .iter()
+                            .filter_map(|b| match b {
+                                ContentBlock::Text { text } => Some(text.as_str()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        result.push(json!({"role": "user", "content": text}));
+                    }
                 }
                 _ => {}
             }

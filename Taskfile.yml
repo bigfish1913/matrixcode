@@ -41,7 +41,7 @@ tasks:
       - 'git push origin {{.CLI_ARGS}}'
 
   publish-cargo:
-    desc: Publish all crates to cargo (core -> tui -> cli)
+    desc: Publish all crates to cargo (core -> matrixcode -> cli)
     cmds:
       - task: login-cargo
       # 清理残留配置（如果有）
@@ -50,10 +50,10 @@ tasks:
       - cmd: 'node -e "const fs=require(\"fs\");const os=require(\"os\");const p=os.homedir()+\"/.cargo/config.toml\";fs.copyFileSync(p,p+\".bak\");fs.writeFileSync(p,\"[net]\\ngit-fetch-with-cli = true\\n\\n[build]\\ntarget-dir = \\\"C:/Users/bigfish/.cargo/target\\\"\\n\")"'
       - cmd: 'cd {{.CLI_DIR}}/crates/matrixcode-core && cargo publish --registry crates-io --allow-dirty'
         ignore_error: true
-      - cmd: 'sleep 20'
+      - cmd: 'node -e "setTimeout(()=>{},20000)"'
       - cmd: 'cd {{.CLI_DIR}}/crates/matrixcode-tui && cargo publish --registry crates-io --allow-dirty'
         ignore_error: true
-      - cmd: 'sleep 20'
+      - cmd: 'node -e "setTimeout(()=>{},20000)"'
       - cmd: 'cd {{.CLI_DIR}}/crates/matrixcode-cli && cargo publish --registry crates-io --allow-dirty'
         ignore_error: true
       # 恢复全局配置

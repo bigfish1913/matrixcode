@@ -54,8 +54,9 @@ once_cell = "1"
 parking_lot = "0.12"
 
 # Workspace crates (with version for publishing)
-matrixcode-core = { path = "crates/matrixcode-core", version = "0.3.5" }
-matrixcode-tui = { path = "crates/matrixcode-tui", version = "0.3.5" }
+matrixcode-core = { path = "crates/matrixcode-core", version = "0.3.7" }
+matrixcode = { path = "crates/matrixcode-tui", version = "0.3.7" }
+matrixcode-cli = { path = "crates/matrixcode-cli", version = "0.3.7" }
 
 # TUI dependencies
 ratatui = "0.29"

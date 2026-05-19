@@ -2,7 +2,7 @@
 //!
 //! Complete agent with streaming, tool execution loop, and event output.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::mpsc;
@@ -26,7 +26,7 @@ pub struct Agent {
     system_prompt: String,
     max_tokens: u32,
     think: bool,
-    approve_mode: ApproveMode,
+    approve_mode: Arc<AtomicU8>,
     event_tx: mpsc::Sender<AgentEvent>,
     
     // New fields
@@ -218,10 +218,11 @@ impl Agent {
         );
     }
 
-    /// Run chat loop with tool execution (streaming version)
+    /// Run chat loop with tool execution (streaming version).
+    /// Events are emitted via the `event_tx` channel in real-time.
+    /// The returned Vec is intentionally empty — callers should consume
+    /// events from the channel instead.
     pub async fn run(&mut self, user_input: String) -> Result<Vec<AgentEvent>> {
-        let collector = EventCollector::new();
-        
         // Send session started
         self.emit(AgentEvent::session_started())?;
 
@@ -259,10 +260,6 @@ impl Agent {
             };
 
             // Call provider with streaming
-            self.emit(AgentEvent::progress(
-                if iterations == 1 { "Thinking..." } else { "Processing..." },
-                None,
-            ))?;
 
             // Use streaming API for real-time output
             let response = self.call_streaming(&request).await?;
@@ -334,7 +331,7 @@ impl Agent {
         // Send session ended
         self.emit(AgentEvent::session_ended())?;
 
-        Ok(collector.events().to_vec())
+        Ok(Vec::new())
     }
 
     /// Call provider with streaming and emit events in real-time
@@ -364,6 +361,7 @@ impl Agent {
                         cache_creation_input_tokens: 0,
                         cache_read_input_tokens: 0,
                     };
+                    let mut should_retry = false;
 
                     while let Some(event) = rx.recv().await {
                         match event {
@@ -437,13 +435,18 @@ impl Agent {
                                     // Exponential backoff
                                     let delay = RETRY_DELAY_MS * (1 << (attempt - 1));
                                     tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
-                                    continue;  // Retry the outer loop
+                                    should_retry = true;
+                                    break;  // Break inner loop to retry in outer loop
                                 } else {
                                     self.emit(AgentEvent::error(msg.clone(), None, None))?;
                                     return Err(anyhow::anyhow!("Stream error after {} retries: {}", MAX_RETRIES, msg));
                                 }
                             }
                         }
+                    }
+
+                    if should_retry {
+                        continue;  // Retry the outer loop
                     }
 
                     return Ok(ChatResponse {
@@ -494,7 +497,8 @@ impl Agent {
                 ContentBlock::ToolUse { id, name, input } => {
                     has_tool_use = true;
                     
-                    self.emit(AgentEvent::tool_use_start(id.clone(), name.clone(), Some(input.clone())))?;
+                    // Note: ToolUseStart event was already emitted during streaming.
+                    // Here we only emit the input details for tools that need it.
                     
                     // Execute tool
                     let result = self.execute_tool(name, input.clone()).await;
@@ -717,18 +721,3 @@ impl Agent {
     }
 }
 
-/// Event collector for gathering events
-#[derive(Default)]
-pub struct EventCollector {
-    events: Vec<AgentEvent>,
-}
-
-impl EventCollector {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn events(&self) -> &[AgentEvent] {
-        &self.events
-    }
-}

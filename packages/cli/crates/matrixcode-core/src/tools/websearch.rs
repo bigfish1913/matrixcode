@@ -213,28 +213,31 @@ fn urlencoding_decode(s: &str) -> Result<String> {
 }
 
 /// Simple URL decoding without external crate.
+/// Correctly handles multi-byte UTF-8 sequences (e.g. %E4%B8%AD → 中).
 fn urlencoding_decode_simple(s: &str) -> String {
-    let mut result = String::new();
+    let mut bytes: Vec<u8> = Vec::new();
     let mut chars = s.chars().peekable();
 
     while let Some(c) = chars.next() {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
             if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                let decoded_char = char::from(byte);
-                result.push(decoded_char);
-                continue;
+                bytes.push(byte);
+            } else {
+                // Invalid hex, push literal
+                bytes.push(b'%');
+                bytes.extend_from_slice(hex.as_bytes());
             }
-            result.push('%');
-            result.push_str(&hex);
         } else if c == '+' {
-            result.push(' ');
+            bytes.push(b' ');
         } else {
-            result.push(c);
+            let mut buf = [0u8; 4];
+            let encoded = c.encode_utf8(&mut buf);
+            bytes.extend_from_slice(encoded.as_bytes());
         }
     }
 
-    result
+    String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 /// Strip HTML tags from a string.

@@ -123,7 +123,7 @@ fn refuse_reason(cmd: &str) -> Option<&'static str> {
             return Some("destructive command blocked");
         }
     }
-    if norm.contains("rm -rf /") && !norm.contains("rm -rf /tmp") && !norm.contains("rm -rf /var") {
+    if norm.contains("rm -rf /") && !norm.contains("rm -rf /tmp") {
         return Some("destructive rm -rf on root paths blocked");
     }
     None

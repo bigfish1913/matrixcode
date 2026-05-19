@@ -1,12 +1,15 @@
 [package]
-name = "matrixcode-tui"
+name = "matrixcode"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Terminal UI for MatrixCode"
+description = "MatrixCode TUI - Terminal UI for AI Code Agent"
 publish = true
+
+[lib]
+name = "matrixcode_tui"
 
 [dependencies]
 matrixcode-core = { workspace = true }
