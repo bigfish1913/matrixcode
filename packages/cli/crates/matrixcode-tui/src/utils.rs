@@ -73,6 +73,37 @@ pub fn visual_width(s: &str) -> usize {
     s.chars().map(|ch| if ch > '\u{7F}' { 2 } else { 1 }).sum()
 }
 
+/// Truncate string from the start to fit within visual width
+pub fn truncate_visual(s: &str, max_width: usize) -> String {
+    let mut result = String::new();
+    let mut width = 0;
+    for ch in s.chars() {
+        let ch_w = if ch > '\u{7F}' { 2 } else { 1 };
+        if width + ch_w > max_width {
+            break;
+        }
+        result.push(ch);
+        width += ch_w;
+    }
+    result
+}
+
+/// Truncate string from the end (keep last N visual columns)
+pub fn truncate_visual_end(s: &str, max_width: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut result = String::new();
+    let mut width = 0;
+    for &ch in chars.iter().rev() {
+        let ch_w = if ch > '\u{7F}' { 2 } else { 1 };
+        if width + ch_w > max_width {
+            break;
+        }
+        result.insert(0, ch);
+        width += ch_w;
+    }
+    result
+}
+
 /// Extract substring from a line using visual column positions
 /// Handles multi-byte characters (e.g., Chinese chars take 2 columns)
 pub fn extract_by_visual_col(line: &str, start_col: usize, end_col: usize) -> String {

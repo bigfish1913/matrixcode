@@ -50,7 +50,7 @@ impl TuiApp {
                     let tool_name = self.activity.label();
                     self.messages.push(Message {
                         role: Role::Tool { name: tool_name, is_error },
-                        content: content  // Keep full content, draw.rs will summarize
+                        content  // Keep full content, draw.rs will summarize
                     });
                     self.tool_calls += 1;
                     self.activity = Activity::Thinking;
@@ -134,15 +134,14 @@ impl TuiApp {
                 }
             }
             EventType::Progress => {
-                if let Some(EventData::Progress { message, .. }) = e.data {
-                    if self.debug_mode {
+                if let Some(EventData::Progress { message, .. }) = e.data
+                    && self.debug_mode {
                         self.messages.push(Message {
                             role: Role::System,
                             content: message
                         });
                         self.auto_scroll = true;
                     }
-                }
             }
             EventType::MemoryLoaded => {
                 if let Some(EventData::Memory { entries_count, .. }) = e.data
@@ -172,15 +171,14 @@ impl TuiApp {
             EventType::KeywordsExtracted => {
                 // Keywords extraction is an internal operation, don't show to user
                 // Only update internal state if needed (for debug mode, could show)
-                if self.debug_mode {
-                    if let Some(EventData::Keywords { keywords, source }) = e.data {
+                if self.debug_mode
+                    && let Some(EventData::Keywords { keywords, source }) = e.data {
                         let preview = truncate(&source, 50);
                         self.messages.push(Message {
                             role: Role::System,
                             content: format!("🔍 Keywords: {} from '{}'", keywords.join(", "), preview)
                         });
                     }
-                }
             }
             EventType::AskQuestion => {
                 if let Some(EventData::AskQuestion { question, options }) = e.data {

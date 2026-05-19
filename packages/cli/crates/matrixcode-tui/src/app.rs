@@ -257,11 +257,10 @@ impl TuiApp {
                 matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), is_error: false },
             };
             // Restore input history from user messages
-            if role == Role::User && !content.starts_with('/') {
-                if self.input_history.last().map(|s| s.as_str()) != Some(&content) {
+            if role == Role::User && !content.starts_with('/')
+                && self.input_history.last().map(|s| s.as_str()) != Some(&content) {
                     self.input_history.push(content.clone());
                 }
-            }
             self.messages.push(Message { role, content });
         }
         if !self.messages.is_empty() {

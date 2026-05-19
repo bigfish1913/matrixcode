@@ -72,11 +72,10 @@ impl TuiApp {
             // Ctrl+V: paste from clipboard
             KeyCode::Char('v') if k.modifiers.contains(KeyModifiers::CONTROL) => {
                 // Try to get text from clipboard
-                if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                    if let Ok(text) = clipboard.get_text() {
+                if let Ok(mut clipboard) = arboard::Clipboard::new()
+                    && let Ok(text) = clipboard.get_text() {
                         self.on_paste(&text);
                     }
-                }
             }
 
             // Backspace: delete char before cursor
@@ -314,12 +313,11 @@ impl TuiApp {
             shared.store(self.approve_mode.to_u8(), std::sync::atomic::Ordering::Relaxed);
         }
         // If switching to auto and agent is waiting for approval, auto-approve
-        if self.approve_mode == ApproveMode::Auto && self.waiting_for_ask {
-            if let Some(ref ask_tx) = self.ask_tx {
+        if self.approve_mode == ApproveMode::Auto && self.waiting_for_ask
+            && let Some(ref ask_tx) = self.ask_tx {
                 ask_tx.try_send("y".to_string()).ok();
                 self.waiting_for_ask = false;
             }
-        }
         self.tx.try_send(format!("/mode:{}", self.approve_mode.label())).ok();
     }
     
@@ -372,11 +370,10 @@ impl TuiApp {
         self.cursor_pos = 0;
         
         // Save to input history (skip duplicates of last entry)
-        if !input.is_empty() {
-            if self.input_history.last().map(|s| s.as_str()) != Some(&input) {
+        if !input.is_empty()
+            && self.input_history.last().map(|s| s.as_str()) != Some(&input) {
                 self.input_history.push(input.clone());
             }
-        }
         // Reset history browsing state
         self.history_index = None;
         self.history_draft.clear();
