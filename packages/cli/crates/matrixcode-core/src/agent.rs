@@ -201,6 +201,7 @@ impl Agent {
 
     /// Set approve mode at runtime
     pub fn set_approve_mode(&mut self, mode: ApproveMode) {
+        log::info!("Agent approve mode changed: {} -> {}", self.approve_mode, mode);
         self.approve_mode = mode;
     }
 
@@ -548,6 +549,13 @@ impl Agent {
         let tool = self.tools.iter().find(|t| t.definition().name == name);
 
         if let Some(tool) = tool {
+            // Debug: log approval check
+            log::debug!(
+                "Tool '{}' approval check: mode={}, risk={}, needs_approval={}",
+                name, self.approve_mode, tool.risk_level(),
+                needs_approval(self.approve_mode, tool.risk_level())
+            );
+            
             // Check approval
             if needs_approval(self.approve_mode, tool.risk_level()) {
                 // Ask user for approval via TUI

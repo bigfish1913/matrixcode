@@ -337,12 +337,7 @@ impl TuiApp {
             KeyCode::Enter => {
                 if k.modifiers.contains(KeyModifiers::SHIFT) {
                     // Shift+Enter: insert newline at cursor position
-                    if !self.input.is_char_boundary(self.cursor_pos) {
-                        self.cursor_pos = self.input.char_indices()
-                            .rfind(|(i, _)| *i <= self.cursor_pos)
-                            .map(|(i, _)| i)
-                            .unwrap_or(0);
-                    }
+                    self.ensure_char_boundary();
                     self.input.insert(self.cursor_pos, '\n');
                     self.cursor_pos += 1;  // '\n' is 1 byte
                 } else if !self.input.trim().is_empty() {
@@ -424,88 +419,54 @@ impl TuiApp {
             // Backspace: delete char before cursor
             KeyCode::Backspace => {
                 if self.cursor_pos > 0 {
-                    // Find the previous character boundary
-                    let prev_char_pos = self.input.char_indices()
-                        .rfind(|(i, _)| *i < self.cursor_pos)
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
-                    
-                    // Remove the character (one operation, not loop)
-                    // prev_char_pos to cursor_pos is exactly one character
-                    self.input.drain(prev_char_pos..self.cursor_pos);
-                    self.cursor_pos = prev_char_pos;
+                    let prev_pos = self.prev_char_boundary();
+                    self.input.drain(prev_pos..self.cursor_pos);
+                    self.cursor_pos = prev_pos;
                 }
             }
 
             // Delete: delete char at cursor
             KeyCode::Delete => {
                 if self.cursor_pos < self.input.len() {
-                    // Find the next character boundary
-                    let next_char_pos = self.input.char_indices()
-                        .find(|(i, _)| *i > self.cursor_pos)
-                        .map(|(i, _)| i)
-                        .unwrap_or(self.input.len());
-                    
-                    // Remove the character (one operation)
-                    self.input.drain(self.cursor_pos..next_char_pos);
+                    let next_pos = self.next_char_boundary();
+                    self.input.drain(self.cursor_pos..next_pos);
                 }
             }
 
             // Left arrow: move cursor left (one character)
             KeyCode::Left => {
                 if self.cursor_pos > 0 {
-                    // Find previous character boundary
-                    self.cursor_pos = self.input.char_indices()
-                        .rfind(|(i, _)| *i < self.cursor_pos)
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
+                    self.cursor_pos = self.prev_char_boundary();
                 }
             }
 
             // Right arrow: move cursor right (one character)
             KeyCode::Right => {
                 if self.cursor_pos < self.input.len() {
-                    // Find next character boundary
-                    self.cursor_pos = self.input.char_indices()
-                        .find(|(i, _)| *i > self.cursor_pos)
-                        .map(|(i, _)| i)
-                        .unwrap_or(self.input.len());
+                    self.cursor_pos = self.next_char_boundary();
                 }
             }
 
             // Up arrow: move cursor to previous line (in multiline input)
             KeyCode::Up if !k.modifiers.contains(KeyModifiers::ALT) => {
                 if self.input.contains('\n') {
-                    // Using char indices for Unicode safety
-                    let char_pos = self.input.char_indices().take(self.cursor_pos).count();
-                    let input_chars: Vec<char> = self.input.chars().collect();
-                    let before_cursor_chars = &input_chars[..char_pos];
-                    let before_cursor_str: String = before_cursor_chars.iter().collect();
-                    
-                    let current_line_num = before_cursor_str.lines().count();
+                    let (current_line_num, col_chars, _) = self.get_line_info();
                     if current_line_num > 1 {
-                        // Get column position in current line (in characters)
-                        let current_line_start_char = before_cursor_str.rfind('\n')
-                            .map(|i| before_cursor_str[i+1..].chars().count())
-                            .unwrap_or(0);
-                        let col_chars = char_pos - current_line_start_char;
+                        let char_pos = self.byte_pos_to_char_pos();
+                        let input_chars: Vec<char> = self.input.chars().collect();
+                        let before_cursor_str: String = input_chars[..char_pos.min(input_chars.len())].iter().collect();
                         
-                        // Find previous line start (in characters)
+                        // Previous line is before the last '\n' in before_cursor_str
                         let prev_lines_str = &before_cursor_str[..before_cursor_str.rfind('\n').unwrap_or(0)];
                         let prev_line_start_char = prev_lines_str.chars().count();
                         
-                        // Find previous line end (in characters)
-                        let prev_line_chars = &input_chars[prev_line_start_char..char_pos - col_chars - 1];
-                        let prev_line_len_chars = prev_line_chars.len();
+                        // Find previous line length
+                        let prev_line_end_char = char_pos.saturating_sub(col_chars).saturating_sub(1); // -1 for the newline
+                        let prev_line_len_chars = prev_line_end_char.saturating_sub(prev_line_start_char);
                         
-                        // Move to same column in previous line (or end of line if shorter)
+                        // Move to same column (or end if shorter)
                         let target_char_pos = prev_line_start_char + col_chars.min(prev_line_len_chars);
-                        
-                        // Convert char position back to byte position
-                        self.cursor_pos = self.input.char_indices()
-                            .nth(target_char_pos)
-                            .map(|(i, _)| i)
-                            .unwrap_or(0);
+                        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
                     }
                 }
             }
@@ -513,58 +474,38 @@ impl TuiApp {
             // Down arrow: move cursor to next line (in multiline input)
             KeyCode::Down if !k.modifiers.contains(KeyModifiers::ALT) => {
                 if self.input.contains('\n') {
-                    // Find current line and column (using char indices for Unicode safety)
-                    let char_pos = self.input.char_indices().take(self.cursor_pos).count();
-                    let before_cursor_chars: Vec<char> = self.input.chars().take(char_pos).collect();
-                    let before_cursor_str: String = before_cursor_chars.iter().collect();
-                    
-                    let current_line_num = before_cursor_str.lines().count();
-                    let total_lines = self.input.lines().count();                    
+                    let (current_line_num, col_chars, total_lines) = self.get_line_info();
                     if current_line_num < total_lines {
-                        // Get column position in current line (in characters)
-                        let current_line_start_char = before_cursor_str.rfind('\n')
-                            .map(|i| before_cursor_str[i+1..].chars().count())
-                            .unwrap_or(0);
-                        let col_chars = char_pos - current_line_start_char;
-                        
-                        // Find next line start position
+                        let char_pos = self.byte_pos_to_char_pos();
                         let input_chars: Vec<char> = self.input.chars().collect();
-                        let remaining_chars = &input_chars[char_pos..];
+                        
+                        // Boundary check: char_pos must not exceed input_chars.len()
+                        let safe_char_pos = char_pos.min(input_chars.len());
+                        
+                        // Find next line start
+                        let remaining_chars = &input_chars[safe_char_pos..];
                         let next_line_start_char = remaining_chars.iter().position(|c| *c == '\n')
-                            .map(|i| char_pos + i + 1)
-                            .unwrap_or(input_chars.len());
+                            .map(|i| safe_char_pos + i + 1)
+                            .unwrap_or_else(|| input_chars.len());
                         
                         // Find next line end
                         let next_line_chars = &input_chars[next_line_start_char..];
                         let next_line_end_char = next_line_chars.iter().position(|c| *c == '\n')
                             .map(|i| next_line_start_char + i)
-                            .unwrap_or(input_chars.len());
+                            .unwrap_or_else(|| input_chars.len());
                         
-                        let next_line_len_chars = next_line_end_char - next_line_start_char;
+                        let next_line_len_chars = next_line_end_char.saturating_sub(next_line_start_char);
                         
-                        // Move to same column in next line (or end of line if shorter)
+                        // Move to same column (or end if shorter)
                         let target_char_pos = next_line_start_char + col_chars.min(next_line_len_chars);
-                        
-                        // Convert char position back to byte position
-                        self.cursor_pos = self.input.char_indices()
-                            .nth(target_char_pos)
-                            .map(|(i, _)| i)
-                            .unwrap_or(self.input.len());
+                        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
                     }
                 }
             }
 
             // Regular character input (except when Alt/Ctrl is held)
             KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::ALT) && !k.modifiers.contains(KeyModifiers::CONTROL) => {
-                // Ensure cursor_pos is at a valid char boundary before insert
-                if !self.input.is_char_boundary(self.cursor_pos) {
-                    // Find the nearest valid boundary
-                    self.cursor_pos = self.input.char_indices()
-                        .rfind(|(i, _)| *i <= self.cursor_pos)
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
-                }
-                // Insert character at cursor position
+                self.ensure_char_boundary();
                 self.input.insert(self.cursor_pos, c);
                 self.cursor_pos += c.len_utf8();
             }
@@ -652,6 +593,65 @@ impl TuiApp {
 
             _ => {}
         }
+    }
+
+    // ============================================================================
+    // Unicode-safe cursor position helpers
+    // ============================================================================
+    
+    /// Ensure cursor_pos is at a valid UTF-8 character boundary.
+    /// If not, move to the nearest valid boundary.
+    fn ensure_char_boundary(&mut self) {
+        if !self.input.is_char_boundary(self.cursor_pos) {
+            self.cursor_pos = self.input.char_indices()
+                .rfind(|(i, _)| *i <= self.cursor_pos)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+        }
+    }
+    
+    /// Find the byte position of the previous character boundary.
+    /// Returns 0 if cursor is at the start.
+    fn prev_char_boundary(&self) -> usize {
+        self.input.char_indices()
+            .rfind(|(i, _)| *i < self.cursor_pos)
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    }
+    
+    /// Find the byte position of the next character boundary.
+    /// Returns input.len() if cursor is at the end.
+    fn next_char_boundary(&self) -> usize {
+        self.input.char_indices()
+            .find(|(i, _)| *i > self.cursor_pos)
+            .map(|(i, _)| i)
+            .unwrap_or_else(|| self.input.len())
+    }
+    
+    /// Convert byte position to character position (count of chars before cursor).
+    fn byte_pos_to_char_pos(&self) -> usize {
+        self.input.char_indices().take(self.cursor_pos).count()
+    }
+    
+    /// Convert character position to byte position.
+    fn char_pos_to_byte_pos(&self, char_pos: usize) -> usize {
+        self.input.char_indices()
+            .nth(char_pos)
+            .map(|(i, _)| i)
+            .unwrap_or_else(|| self.input.len())
+    }
+    
+    /// Get current line info: (current_line_number, column_in_chars, total_lines)
+    fn get_line_info(&self) -> (usize, usize, usize) {
+        let char_pos = self.byte_pos_to_char_pos();
+        let before_cursor_str: String = self.input.chars().take(char_pos).collect();
+        let current_line_num = before_cursor_str.lines().count();
+        let total_lines = self.input.lines().count();
+        let current_line_start_char = before_cursor_str.rfind('\n')
+            .map(|i| before_cursor_str[i+1..].chars().count())
+            .unwrap_or(0);
+        let col_chars = char_pos - current_line_start_char;
+        (current_line_num, col_chars, total_lines)
     }
 
     fn send_input(&mut self) {
@@ -743,17 +743,9 @@ impl TuiApp {
     }
 
     fn on_paste(&mut self, text: &str) {
-        // Ensure cursor_pos is at a valid char boundary
-        if !self.input.is_char_boundary(self.cursor_pos) {
-            self.cursor_pos = self.input.char_indices()
-                .rfind(|(i, _)| *i <= self.cursor_pos)
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-        }
-        // Paste text into input buffer at cursor position
+        self.ensure_char_boundary();
         self.input.insert_str(self.cursor_pos, text);
-        // Update cursor by byte length (cursor_pos is byte position)
-        self.cursor_pos += text.len();
+        self.cursor_pos += text.len();  // cursor_pos is byte position
     }
 
     fn handle_command(&mut self, cmd: &str) {
@@ -1312,6 +1304,15 @@ impl TuiApp {
                     self.auto_scroll = true;
                 }
             }
+            EventType::Progress => {
+                if let Some(EventData::Progress { message, .. }) = e.data {
+                    self.messages.push(Message {
+                        role: Role::System,
+                        content: message
+                    });
+                    self.auto_scroll = true;
+                }
+            }
             EventType::MemoryLoaded => {
                 if let Some(EventData::Memory { entries_count, .. }) = e.data
                     && entries_count > 0 {
@@ -1334,12 +1335,16 @@ impl TuiApp {
                 }
             }
             EventType::KeywordsExtracted => {
-                if let Some(EventData::Keywords { keywords, source }) = e.data {
-                    let preview = truncate(&source, 50);
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("🔍 Keywords: {} from '{}'", keywords.join(", "), preview)
-                    });
+                // Keywords extraction is an internal operation, don't show to user
+                // Only update internal state if needed (for debug mode, could show)
+                if self.debug_mode {
+                    if let Some(EventData::Keywords { keywords, source }) = e.data {
+                        let preview = truncate(&source, 50);
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: format!("🔍 Keywords: {} from '{}'", keywords.join(", "), preview)
+                        });
+                    }
                 }
             }
             EventType::AskQuestion => {

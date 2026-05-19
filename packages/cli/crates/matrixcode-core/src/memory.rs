@@ -953,14 +953,19 @@ impl AutoMemory {
     /// 2. Include entries whose content overlaps with recent conversation keywords
     /// 3. Fill remaining slots with top importance entries
     pub fn generate_contextual_summary(&self, context: &str, max_entries: usize) -> String {
+        // Extract keywords internally
+        let keywords = extract_context_keywords(context);
+        self.generate_contextual_summary_with_keywords(&keywords, max_entries)
+    }
+    
+    /// Generate context-aware summary with pre-extracted keywords.
+    /// More efficient when keywords are already extracted (e.g., by AI).
+    pub fn generate_contextual_summary_with_keywords(&self, context_keywords: &[String], max_entries: usize) -> String {
         if self.entries.is_empty() {
             return String::new();
         }
 
-        // Extract keywords from context (recent user messages)
-        let context_keywords = extract_context_keywords(context);
-        
-        // Score each entry by relevance to context
+        // Score each entry by relevance to context keywords
         let mut scored: Vec<(&MemoryEntry, f64)> = self.entries
             .iter()
             .map(|entry| {

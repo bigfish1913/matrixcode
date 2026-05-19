@@ -647,12 +647,29 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 continue;
             }
             if let Some(mode) = msg.strip_prefix("/mode:") {
-                match mode {
-                    "ask" => agent.set_approve_mode(matrixcode_core::approval::ApproveMode::Ask),
-                    "auto" => agent.set_approve_mode(matrixcode_core::approval::ApproveMode::Auto),
-                    "strict" => agent.set_approve_mode(matrixcode_core::approval::ApproveMode::Strict),
-                    _ => {}
-                }
+                let new_mode = match mode {
+                    "ask" => matrixcode_core::approval::ApproveMode::Ask,
+                    "auto" => matrixcode_core::approval::ApproveMode::Auto,
+                    "strict" => matrixcode_core::approval::ApproveMode::Strict,
+                    _ => {
+                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
+                            format!("Unknown mode: {}", mode),
+                            None,
+                            None,
+                        )).await;
+                        continue;
+                    }
+                };
+                agent.set_approve_mode(new_mode);
+                
+                // Send confirmation to TUI
+                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                    matrixcode_core::EventType::Progress,
+                    matrixcode_core::EventData::Progress {
+                        message: format!("✓ Approve mode changed to: {}", new_mode),
+                        percentage: None,
+                    },
+                )).await;
                 continue;
             }
             
@@ -890,8 +907,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     matrixcode_core::memory::extract_context_keywords(&msg)
                 };
                 
-                // Generate context-aware summary using extracted keywords
-                let contextual_summary = mem.generate_contextual_summary(&msg, 15);
+                // Generate context-aware summary using pre-extracted keywords (avoid double extraction)
+                let contextual_summary = mem.generate_contextual_summary_with_keywords(&context_keywords, 15);
                 
                 // Update agent's memory summary (will rebuild system prompt internally)
                 if !contextual_summary.is_empty() {
@@ -900,7 +917,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     // Debug log: keywords extracted
                     matrixcode_core::debug::debug_log().keywords_extracted(&context_keywords, &msg);
                     
-                    // Send keywords event for TUI display (if keywords were extracted)
+                    // Send keywords event for TUI display (only in debug mode)
                     if !context_keywords.is_empty() {
                         let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
                             matrixcode_core::EventType::KeywordsExtracted,

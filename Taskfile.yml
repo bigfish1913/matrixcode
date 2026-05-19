@@ -1,7 +1,7 @@
 version: 3
 
 vars:
-  VERSION: 0.2.5
+  VERSION: 0.3.3
   CLI_DIR: packages/cli
   VSCODE_DIR: packages/vscode
 
@@ -12,54 +12,52 @@ tasks:
       - 'grep "^version" {{.CLI_DIR}}/Cargo.toml'
       - 'git status --short'
 
-  login-npm:
-    desc: Login to npm from .env
-    cmds:
-      - cmd: 'node -e "const os=require(\"os\");const fs=require(\"fs\");const lines=fs.readFileSync(\".env\",\"utf8\").split(/\\r?\\n/);const line=lines.find(l=>l.startsWith(\"NPM_TOKEN=\"));if(line){const t=line.split(\"=\")[1];fs.writeFileSync(os.homedir()+\"/.npmrc\",\"//registry.npmjs.org/:_authToken=\"+t)}"'
-      - cmd: 'npm whoami'
-
   login-cargo:
     desc: Login to cargo from .env
     cmds:
       - cmd: 'node -e "const os=require(\"os\");const fs=require(\"fs\");const lines=fs.readFileSync(\".env\",\"utf8\").split(/\\r?\\n/);const line=lines.find(l=>l.startsWith(\"CARGO_TOKEN=\"));if(line){const t=line.split(\"=\")[1];fs.writeFileSync(os.homedir()+\"/.cargo/credentials.toml\",\"[registry]\\ntoken = \\\"\"+t+\"\\\"\")}"'
 
-  login:
-    desc: Login to npm and cargo
-    cmds:
-      - task: login-npm
-      - task: login-cargo
-
   bump:
-    desc: Bump all versions (task bump -- 0.2.5)
+    desc: Bump all versions (task bump -- 0.3.3)
     cmds:
       - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\").replace(/^version = .*/m,\"version = \\\"\"+v+\"\\\"\");fs.writeFileSync(\"{{.CLI_DIR}}/Cargo.toml\",c)"'
-      - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const p=JSON.parse(fs.readFileSync(\"{{.CLI_DIR}}/npm/package.json\"));p.version=v;fs.writeFileSync(\"{{.CLI_DIR}}/npm/package.json\",JSON.stringify(p,null,2))"'
       - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const p=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));p.version=v;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(p,null,2))"'
+      - cmd: 'cd {{.CLI_DIR}} && cargo update -w'  # 更新 Cargo.lock
       - cmd: 'echo "Bumped to {{.CLI_ARGS}}"'
 
-  tag:
-    desc: Create git tag (task tag -- 0.2.5)
+  bump-auto:
+    desc: Auto bump patch version (0.3.2 -> 0.3.3)
     cmds:
-      - 'git add {{.CLI_DIR}}/Cargo.toml {{.CLI_DIR}}/npm/package.json {{.CLI_DIR}}/Cargo.lock {{.VSCODE_DIR}}/package.json'
+      - cmd: 'node -e "const fs=require(\"fs\");const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const p=m[1].split(\".\");p[2]=parseInt(p[2])+1;const nv=p.join(\".\");fs.writeFileSync(\"{{.CLI_DIR}}/Cargo.toml\",c.replace(/^version = .*/m,\"version = \\\"\"+nv+\"\\\"\"));const vsc=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));vsc.version=nv;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(vsc,null,2));console.log(\"Bumped to: \"+nv)}"'
+      - cmd: 'cd {{.CLI_DIR}} && cargo update -w'
+
+  tag:
+    desc: Create git tag (task tag -- 0.3.3)
+    cmds:
+      - 'git add {{.CLI_DIR}}/Cargo.toml {{.CLI_DIR}}/Cargo.lock {{.VSCODE_DIR}}/package.json'
       - 'git commit -m "chore: bump to {{.CLI_ARGS}}"'
       - 'git tag {{.CLI_ARGS}}'
       - 'git push origin dev'
       - 'git push origin {{.CLI_ARGS}}'
 
-  publish-npm:
-    desc: Publish CLI to npm
-    dir: '{{.CLI_DIR}}/npm'
-    cmds:
-      - task: login-npm
-      - 'cp ../../LICENSE .'
-      - 'npm publish --access=public'
-
   publish-cargo:
-    desc: Publish CLI to cargo
-    dir: '{{.CLI_DIR}}'
+    desc: Publish all crates to cargo (core -> tui -> cli)
     cmds:
       - task: login-cargo
-      - 'cargo publish --registry crates-io'
+      # 清理残留配置（如果有）
+      - cmd: 'rm -rf {{.CLI_DIR}}/.cargo {{.CLI_DIR}}/crates/*/.cargo'
+      # 临时修改全局配置（删除镜像配置，使用 crates.io 直接源）
+      - cmd: 'node -e "const fs=require(\"fs\");const os=require(\"os\");const p=os.homedir()+\"/.cargo/config.toml\";fs.copyFileSync(p,p+\".bak\");fs.writeFileSync(p,\"[net]\\ngit-fetch-with-cli = true\\n\\n[build]\\ntarget-dir = \\\"C:/Users/bigfish/.cargo/target\\\"\\n\")"'
+      - cmd: 'cd {{.CLI_DIR}}/crates/matrixcode-core && cargo publish --registry crates-io --allow-dirty'
+        ignore_error: true
+      - cmd: 'sleep 20'
+      - cmd: 'cd {{.CLI_DIR}}/crates/matrixcode-tui && cargo publish --registry crates-io --allow-dirty'
+        ignore_error: true
+      - cmd: 'sleep 20'
+      - cmd: 'cd {{.CLI_DIR}}/crates/matrixcode-cli && cargo publish --registry crates-io --allow-dirty'
+        ignore_error: true
+      # 恢复全局配置
+      - cmd: 'node -e "const fs=require(\"fs\");const os=require(\"os\");const p=os.homedir()+\"/.cargo/config.toml\";if(fs.existsSync(p+\".bak\")){fs.copyFileSync(p+\".bak\",p);fs.unlinkSync(p+\".bak\")}"'
 
   publish-vscode:
     desc: Publish VSCode extension
@@ -68,25 +66,22 @@ tasks:
       - 'npm run publish'
 
   publish:
-    desc: Auto bump version and publish all (CLI + VSCode)
+    desc: Auto bump version and publish all (cargo + vscode)
     cmds:
-      - cmd: 'node -e "const fs=require(\"fs\");const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const p=m[1].split(\".\");p[2]=parseInt(p[2])+1;const nv=p.join(\".\");fs.writeFileSync(\"{{.CLI_DIR}}/Cargo.toml\",c.replace(/^version = .*/m,\"version = \\\"\"+nv+\"\\\"\"));const pkg=JSON.parse(fs.readFileSync(\"{{.CLI_DIR}}/npm/package.json\"));pkg.version=nv;fs.writeFileSync(\"{{.CLI_DIR}}/npm/package.json\",JSON.stringify(pkg,null,2));const vsc=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));vsc.version=nv;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(vsc,null,2));console.log(\"New version: \"+nv)}"'
-      - cmd: 'node -e "const fs=require(\"fs\");const execSync=require(\"child_process\").execSync;const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const v=m[1];execSync(\"cd {{.CLI_DIR}} && cargo update -w\");execSync(\"git add {{.CLI_DIR}}/Cargo.toml {{.CLI_DIR}}/npm/package.json {{.CLI_DIR}}/Cargo.lock {{.VSCODE_DIR}}/package.json\");execSync(\"git commit -m \\\"chore: bump to \"+v+\"\\\"\");execSync(\"git tag \"+v);execSync(\"git push origin dev\");execSync(\"git push origin \"+v)}"'
-      - task: login
-      - task: publish-npm
+      - task: bump-auto
+      - cmd: 'node -e "const fs=require(\"fs\");const execSync=require(\"child_process\").execSync;const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const v=m[1];execSync(\"git add {{.CLI_DIR}}/Cargo.toml {{.CLI_DIR}}/Cargo.lock {{.VSCODE_DIR}}/package.json\");execSync(\"git commit -m \\\"chore: bump to \"+v+\"\\\"\");execSync(\"git tag \"+v);execSync(\"git push origin dev\");execSync(\"git push origin \"+v)}"'
       - task: publish-cargo
       - task: publish-vscode
 
   release:
-    desc: Full release workflow (task release -- 0.2.5)
+    desc: Full release workflow (task release -- 0.3.3)
     cmds:
-      - task: login
+      - task: login-cargo
       - task: bump
         vars: {CLI_ARGS: '{{.CLI_ARGS}}'}
       - task: tag
         vars: {CLI_ARGS: '{{.CLI_ARGS}}'}
       - 'sleep 30'
-      - task: publish-npm
       - task: publish-cargo
       - task: publish-vscode
 

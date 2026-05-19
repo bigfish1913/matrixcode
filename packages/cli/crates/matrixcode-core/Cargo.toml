@@ -1,10 +1,10 @@
 [package]
 name = "matrixcode-core"
-version = "0.3.0"
-edition = "2024"
-authors = ["bigfish1913"]
-license = "MIT"
-repository = "https://github.com/bigfish1913/matrixcode"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "MatrixCode Agent Core - Pure logic, no UI"
 publish = true
 

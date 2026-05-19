@@ -6,9 +6,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Terminal UI for MatrixCode"
+publish = true
 
 [dependencies]
-matrixcode-core = { path = "../matrixcode-core" }
+matrixcode-core = { workspace = true }
 ratatui = "0.30"
 crossterm = { workspace = true, features = ["event-stream"] }
 tokio = { workspace = true }
