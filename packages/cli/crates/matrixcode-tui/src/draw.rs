@@ -197,8 +197,7 @@ impl TuiApp {
                             ),
                         ]));
                     } else {
-                        // Expanded (debug mode or user toggled)
-                        let max_lines = if self.debug_mode { 30 } else { 10 };
+                        // Expanded (debug mode or user toggled) - show full content
                         // Header with dim gray color
                         lines.push(Line::from(vec![
                             Span::styled("  \u{1f4ad} \u{25bc} ", Style::default().fg(Color::DarkGray)),
@@ -208,16 +207,11 @@ impl TuiApp {
                             ),
                         ]));
                         let md_lines = render_markdown(&msg.content, max_w.saturating_sub(4));
-                        for line in md_lines.iter().take(max_lines) {
+                        // Show all lines without limit
+                        for line in md_lines.iter() {
                             let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
                             // Dim gray for thinking content (less prominent than assistant)
                             lines.push(Line::styled(format!("    {}", text), Style::default().fg(Color::DarkGray)));
-                        }
-                        if md_lines.len() > max_lines {
-                            lines.push(Line::styled(
-                                format!("    \u{2026} ({} more lines)", md_lines.len() - max_lines),
-                                Style::default().fg(Color::DarkGray)
-                            ));
                         }
                     }
                 }
@@ -382,21 +376,16 @@ impl TuiApp {
                     ),
                 ]));
             } else {
+                // Expanded - show full content during streaming
                 lines.push(Line::from(vec![
                     Span::styled("  \u{1f4ad} \u{25bc} ", Style::default().fg(Color::DarkGray)),
                     Span::styled("Thinking...", Style::default().fg(Color::DarkGray)),
                 ]));
-                let max_lines = if self.debug_mode { 20 } else { 5 };
                 let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(4));
-                for line in md_lines.iter().take(max_lines) {
+                // Show all lines without limit
+                for line in md_lines.iter() {
                     let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
                     lines.push(Line::styled(format!("    {}", text), Style::default().fg(Color::DarkGray)));
-                }
-                if md_lines.len() > max_lines {
-                    lines.push(Line::styled(
-                        format!("    \u{2026} ({} more)", md_lines.len() - max_lines),
-                        Style::default().fg(Color::DarkGray)
-                    ));
                 }
             }
         }

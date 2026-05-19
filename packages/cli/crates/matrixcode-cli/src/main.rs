@@ -7,11 +7,12 @@ use matrixcode_core::{
     agent::AgentBuilder,
     AnthropicProvider,
     SessionManager,
-    tools::all_tools,
+    tools::all_tools_with_skills,
     memory::MemoryStorage,
 };
 use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
 use std::path::{PathBuf, Path};
+use std::sync::Arc;
 use termimad::MadSkin;
 use termimad::gray;
 
@@ -547,7 +548,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             .model_name(agent_model.clone())
             .max_tokens(agent_max_tokens)
             .think(agent_think)
-            .tools(all_tools())
+            .tools(all_tools_with_skills(Arc::new(agent_skills.clone())))
             .event_tx(agent_event_tx.clone())
             .approve_mode(agent_approve_mode)
             .build();
@@ -568,6 +569,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         agent.set_ask_channel(ask_rx);
 
         while let Some(msg) = task_rx.recv().await {
+            // Make msg mutable for skill activation transformation
+            let mut msg = msg;
+            
             // Check cancellation
             if agent_cancel.is_cancelled() {
                 agent_event_tx.send(AgentEvent::error(
@@ -746,33 +750,45 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                && !msg.starts_with("/resume") && !msg.starts_with("/loop")
                && !msg.starts_with("/exit") && !msg.starts_with("/quit")
                && !msg.starts_with("/clear") && !msg.starts_with("/debug")
-               && !msg.starts_with("/status") && msg != "/"
+               && !msg.starts_with("/status") && !msg.starts_with("/new")
+               && !msg.starts_with("/load") && !msg.starts_with("/mode")
+               && !msg.starts_with("/model") && !msg.starts_with("/retry")
+               && !msg.starts_with("/history") && !msg.starts_with("/cron")
+               && msg != "/"
             {
                 // Try to match skill name
                 let skill_name = msg.trim_start_matches('/');
                 if let Some(skill) = agent_skills.iter().find(|s| s.name == skill_name) {
+                    // Build skill activation message
                     let files = matrixcode_core::skills::list_skill_files(&skill.dir);
                     let files_info = if files.len() > 1 {
-                        format!("\n\n📁 Associated files:\n{}", files.iter().map(|f| format!("  - {}", f)).collect::<Vec<_>>().join("\n"))
+                        format!("\n\n📁 Associated files (use `read` tool to explore):\n{}", 
+                            files.iter().map(|f| format!("  - {}", f)).collect::<Vec<_>>().join("\n"))
                     } else {
                         String::new()
                     };
                     
-                    let response = format!("📚 Skill: {}\n\n{}\n{}\n\nSource: {}", 
+                    // Create user message that activates the skill
+                    let skill_activation = format!(
+                        "使用 skill '{}' 来处理当前任务。\n\n---\n{}\n---\n{}\n\n请按照上述 skill 指导开始执行。", 
                         skill.name, 
                         skill.body,
-                        files_info,
-                        skill.source_file.display()
+                        files_info
                     );
                     
+                    // Send to agent for execution (not just display)
+                    msg = skill_activation;
+                    
+                    // Log skill activation
                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
                         matrixcode_core::EventType::Progress,
                         matrixcode_core::EventData::Progress {
-                            message: response,
+                            message: format!("🎯 Activating skill: {}", skill.name),
                             percentage: None,
                         },
                     )).await;
-                    continue;
+                    
+                    // Continue to normal agent processing with modified message
                 }
             }
             
@@ -1239,7 +1255,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         .system_prompt(system_prompt)
                         .model_name(model.clone())
                         .max_tokens(4096)
-                        .tools(all_tools())
+                        .tools(all_tools_with_skills(Arc::new(skills.to_vec())))
                         .approve_mode(approve_mode)
                         .build();
                     
@@ -1527,7 +1543,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                     .system_prompt(system_prompt)
                     .model_name(model.clone())
                     .max_tokens(4096)
-                    .tools(all_tools())
+                    .tools(all_tools_with_skills(Arc::new(skills.to_vec())))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)  // Auto mode for quick actions
                     .build();
                 
@@ -1652,7 +1668,7 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                     .system_prompt(system_prompt)
                     .model_name(model)
                     .max_tokens(4096)
-                    .tools(all_tools())
+                    .tools(all_tools_with_skills(Arc::new(skills.clone())))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                     .build();
                 
@@ -1928,7 +1944,7 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                     .system_prompt(system_prompt)
                     .model_name(model)
                     .max_tokens(4096)
-                    .tools(all_tools())
+                    .tools(all_tools_with_skills(Arc::new(skills.clone())))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                     .build();
                 
@@ -2057,6 +2073,9 @@ struct DaemonRequest {
 fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
     let mut events = Vec::new();
     let config = Config::load();
+    
+    // Load skills for daemon mode
+    let skills = load_skills(&[]);
 
     events.push(AgentEvent::session_started());
 
@@ -2085,7 +2104,7 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                     let mut agent = AgentBuilder::new(Box::new(provider))
                         .model_name(model)
                         .max_tokens(max_tokens)
-                        .tools(all_tools())
+                        .tools(all_tools_with_skills(Arc::new(skills.clone())))
                         .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                         .build();
                     
@@ -2132,7 +2151,7 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                     let mut agent = AgentBuilder::new(Box::new(provider))
                         .model_name(model)
                         .max_tokens(4096)
-                        .tools(all_tools())
+                        .tools(all_tools_with_skills(Arc::new(skills.clone())))
                         .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                         .build();
                     

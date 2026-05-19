@@ -375,10 +375,19 @@ impl TuiApp {
                 self.auto_scroll = true;
             }
             _ => {
-                self.messages.push(Message {
-                    role: Role::System,
-                    content: format!("Unknown: {}. Type /help", command)
-                });
+                // Forward unknown commands to backend for skill handling
+                // Backend will check if it matches a skill name (e.g., /om:debug)
+                if self.activity == Activity::Idle {
+                    self.messages.push(Message { role: Role::User, content: cmd.to_string() });
+                    self.tx.try_send(cmd.to_string()).ok();
+                    self.activity = Activity::Thinking;
+                    self.request_start = Some(Instant::now());
+                } else {
+                    self.messages.push(Message {
+                        role: Role::System,
+                        content: "⚠️ AI is processing, please wait".into()
+                    });
+                }
                 self.auto_scroll = true;
             }
         }
