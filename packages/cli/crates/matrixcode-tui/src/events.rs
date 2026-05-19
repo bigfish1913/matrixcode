@@ -63,14 +63,14 @@ impl TuiApp {
                 }
             }
             EventType::SessionEnded => {
-                // Flush remaining content
-                if !self.streaming.is_empty() {
-                    self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
-                    self.streaming.clear();
-                }
+                // Flush remaining content - thinking first, then assistant
                 if !self.thinking.is_empty() {
                     self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
                     self.thinking.clear();
+                }
+                if !self.streaming.is_empty() {
+                    self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
+                    self.streaming.clear();
                 }
 
                 // Clear current request tokens

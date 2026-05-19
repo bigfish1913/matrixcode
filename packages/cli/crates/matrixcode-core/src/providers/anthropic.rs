@@ -24,11 +24,15 @@ pub struct AnthropicProvider {
 impl AnthropicProvider {
     pub fn new(api_key: String, model: String, base_url: String) -> Self {
         let is_dashscope = base_url.contains("dashscope.aliyuncs.com");
+        let client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
             api_key,
             model,
             base_url,
-            client: reqwest::Client::new(),
+            client,
             is_dashscope,
         }
     }

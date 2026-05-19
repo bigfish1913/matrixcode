@@ -412,13 +412,7 @@ impl Agent {
                                 self.emit(AgentEvent::text_delta(delta))?;
                             }
                             StreamEvent::ToolUseStart { id, name } => {
-                                // Finish any pending text
-                                if !current_text.is_empty() {
-                                    self.emit(AgentEvent::text_end())?;
-                                    response_content.push(ContentBlock::Text { text: current_text.clone() });
-                                    current_text.clear();
-                                }
-                                // Finish any pending thinking
+                                // Finish any pending thinking first
                                 if !current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_end())?;
                                     response_content.push(ContentBlock::Thinking {
@@ -426,6 +420,12 @@ impl Agent {
                                         signature: None,
                                     });
                                     current_thinking.clear();
+                                }
+                                // Then finish any pending text
+                                if !current_text.is_empty() {
+                                    self.emit(AgentEvent::text_end())?;
+                                    response_content.push(ContentBlock::Text { text: current_text.clone() });
+                                    current_text.clear();
                                 }
                                 self.emit(AgentEvent::tool_use_start(&id, &name, None))?;
                             }
@@ -442,18 +442,18 @@ impl Agent {
                                 usage.output_tokens = output_tokens;
                             }
                             StreamEvent::Done(resp) => {
-                                // Finish any pending text
-                                if !current_text.is_empty() {
-                                    self.emit(AgentEvent::text_end())?;
-                                    response_content.push(ContentBlock::Text { text: current_text.clone() });
-                                }
-                                // Finish any pending thinking
+                                // Finish any pending thinking first
                                 if !current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_end())?;
                                     response_content.push(ContentBlock::Thinking {
                                         thinking: current_thinking.clone(),
                                         signature: None,
                                     });
+                                }
+                                // Then finish any pending text
+                                if !current_text.is_empty() {
+                                    self.emit(AgentEvent::text_end())?;
+                                    response_content.push(ContentBlock::Text { text: current_text.clone() });
                                 }
                                 // Add any remaining blocks from response
                                 for block in &resp.content {

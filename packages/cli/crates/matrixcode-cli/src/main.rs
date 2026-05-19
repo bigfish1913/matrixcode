@@ -1158,6 +1158,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                     }).collect::<Vec<_>>().join("\n")
                                 }
                             };
+
+                            // Use smart detection (AI when MEMORY_AI_DETECTION=always)
+                            // For now, use rule-based (fast) - AI detection can be enabled via env var
                             let detected = matrixcode_core::memory::detect_memories_from_text(
                                 &text, None
                             );

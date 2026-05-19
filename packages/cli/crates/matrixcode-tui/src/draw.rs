@@ -134,6 +134,9 @@ impl TuiApp {
             } else {
                 "...".to_string()
             }
+        } else if self.activity == Activity::Thinking {
+            // Thinking but no content yet: show 0 tokens
+            "0".to_string()
         } else {
             // Default: show activity label
             self.activity.label().to_string()
@@ -219,7 +222,6 @@ impl TuiApp {
                         ]));
                     } else {
                         // Expanded (debug mode or user toggled) - show full content
-                        // Header with dim gray color
                         lines.push(Line::from(vec![
                             Span::styled("  \u{1f4ad} \u{25bc} ", Style::default().fg(Color::DarkGray)),
                             Span::styled(

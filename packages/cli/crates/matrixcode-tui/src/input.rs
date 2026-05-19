@@ -36,7 +36,7 @@ impl TuiApp {
                     self.cancel.cancel();
                     // Don't reset here - wait for backend to acknowledge via SessionEnded/Error
                     self.activity = Activity::Idle;
-                    // Save any in-progress content before clearing
+                    // Save any in-progress content before clearing - thinking first, then assistant
                     if !self.thinking.is_empty() {
                         self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
                         self.thinking.clear();

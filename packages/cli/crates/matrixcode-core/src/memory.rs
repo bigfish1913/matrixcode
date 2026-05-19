@@ -108,7 +108,7 @@ impl AiKeywordMode {
             }
         }
     }
-    
+
     /// Whether AI extraction should be used given the keyword count.
     pub fn should_use_ai(&self, keyword_count: usize) -> bool {
         match self {
@@ -118,6 +118,64 @@ impl AiKeywordMode {
         }
     }
 }
+
+/// AI memory detection mode.
+/// Controls whether AI is used for memory category detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AiDetectionMode {
+    /// Hybrid mode: rule-based detection, AI enriches when confidence is low (default).
+    #[default]
+    Auto,
+    /// Always use AI for memory detection (more accurate but slower).
+    Always,
+    /// Never use AI, only rule-based detection (fastest).
+    Never,
+}
+
+impl AiDetectionMode {
+    /// Parse from environment variable string.
+    pub fn from_env() -> Self {
+        match std::env::var("MEMORY_AI_DETECTION")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str()
+        {
+            "always" | "true" | "1" => AiDetectionMode::Always,
+            "never" | "false" | "0" => AiDetectionMode::Never,
+            "auto" | "" => AiDetectionMode::Auto,
+            other => {
+                log::warn!("Unknown MEMORY_AI_DETECTION value: '{}', using 'auto'", other);
+                AiDetectionMode::Auto
+            }
+        }
+    }
+
+    /// Whether AI detection should be used.
+    pub fn should_use_ai(&self) -> bool {
+        match self {
+            AiDetectionMode::Always => true,
+            AiDetectionMode::Never => false,
+            AiDetectionMode::Auto => {
+                // Auto mode: check if AI extractor is available and text is complex enough
+                // Only use AI for longer texts that might have multiple memories
+                false  // Default to rule-based for speed
+            }
+        }
+    }
+
+    /// Whether AI detection should be used for given text length.
+    /// Longer texts benefit more from AI detection.
+    pub fn should_use_ai_for_text(&self, text_len: usize) -> bool {
+        match self {
+            AiDetectionMode::Always => true,
+            AiDetectionMode::Never => false,
+            AiDetectionMode::Auto => text_len > 500, // Only use AI for complex/long texts
+        }
+    }
+}
+
+/// Default fast model for AI memory extraction.
+pub const DEFAULT_FAST_MODEL: &str = "claude-3-5-haiku-20241022";
 
 /// Default importance scores by category.
 /// Lower values allow for gradual importance growth through references.
@@ -2869,12 +2927,19 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<Mem
             "team decided", "final choice", "ultimately chose",
         ]),
         (MemoryCategory::Preference, vec![
-            // Chinese: explicit preference
-            "我喜欢用", "我偏好使用", "我习惯用", "个人偏好",
-            "我的习惯", "通常我会", "更倾向于",
-            // English: explicit preference
+            // Chinese: explicit preference phrases
+            // "我喜欢xxx" - direct preference declaration
+            "我喜欢", "我最喜欢", "我特别喜欢", "我非常喜欢",
+            // "我偏好xxx" - formal preference
+            "我偏好", "我偏好使用", "个人偏好",
+            // "我习惯xxx" - habit-based preference
+            "我习惯", "我习惯用", "我的习惯", "通常我会",
+            // "倾向于xxx" - tendency/inclination
+            "我倾向于", "更倾向于", "我偏爱",
+            // English: explicit preference phrases
+            "i like", "i prefer", "my favorite", "i love",
             "i prefer using", "my preference is", "i usually use",
-            "i tend to use", "my habit is",
+            "i tend to use", "my habit is", "i really like",
         ]),
         (MemoryCategory::Solution, vec![
             // Chinese: specific fix/solution phrases
@@ -2936,6 +3001,36 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<Mem
 /// Detect memories from text using the rule-based fallback method.
 /// This is kept for backward compatibility and for cases where AI is unavailable.
 pub fn detect_memories_from_text(text: &str, session_id: Option<&str>) -> Vec<MemoryEntry> {
+    detect_memories_fallback(text, session_id)
+}
+
+/// Smart memory detection that chooses the best method based on environment.
+/// Uses AI when MEMORY_AI_DETECTION=always and extractor is provided.
+/// Otherwise falls back to rule-based detection.
+pub async fn detect_memories_smart(
+    text: &str,
+    session_id: Option<&str>,
+    extractor: Option<&dyn MemoryExtractor>,
+) -> Vec<MemoryEntry> {
+    let mode = AiDetectionMode::from_env();
+
+    if mode.should_use_ai() && extractor.is_some() {
+        // Use AI detection
+        match detect_memories_with_ai(text, session_id, extractor).await {
+            Ok(entries) if !entries.is_empty() => {
+                log::debug!("AI memory detection found {} entries", entries.len());
+                return entries;
+            }
+            Ok(_) => {
+                log::debug!("AI detection returned empty, falling back to rules");
+            }
+            Err(e) => {
+                log::warn!("AI memory detection failed: {}, falling back to rules", e);
+            }
+        }
+    }
+
+    // Fallback to rule-based detection
     detect_memories_fallback(text, session_id)
 }
 
