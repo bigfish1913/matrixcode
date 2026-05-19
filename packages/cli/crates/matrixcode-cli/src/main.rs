@@ -12,6 +12,22 @@ use matrixcode_core::{
 };
 use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
 use std::path::{PathBuf, Path};
+use termimad::MadSkin;
+
+/// Print markdown text to terminal with styling
+fn print_markdown(text: &str) {
+    let skin = MadSkin::default();
+    skin.print_text(text);
+}
+
+/// Print a markdown section with title
+fn print_markdown_section(title: &str, content: &str) {
+    let skin = MadSkin::default();
+    println!();
+    skin.print_text(&format!("## {}", title));
+    println!();
+    skin.print_text(content);
+}
 
 // Handle /init commands for project overview generation
 // Note: For async operations, we return a special command that will be handled in the agent task
@@ -114,9 +130,13 @@ struct Cli {
     #[arg(short, long)]
     continue_session: bool,
 
-    /// Resume specific session
+    /// Resume session (interactive selection)
+    #[arg(short = 'r', long)]
+    resume: bool,
+
+    /// Resume specific session by ID (non-interactive)
     #[arg(long)]
-    resume: Option<String>,
+    resume_id: Option<String>,
 
     /// List sessions
     #[arg(long)]
@@ -177,6 +197,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Handle interactive resume (-r)
+    if cli.resume {
+        return interactive_resume();
+    }
+
     // Daemon mode doesn't require subcommand
     if cli.mode == "daemon" {
         return run_daemon_mode();
@@ -192,32 +217,125 @@ fn main() -> Result<()> {
     }
 }
 
-/// Load skills from directories (compatible with Claude Code)
+/// Interactive session resume - list sessions and let user select
+fn interactive_resume() -> Result<()> {
+    use std::io::{self, Write, BufRead};
+    
+    let mgr = SessionManager::new()?;
+    let sessions = mgr.list_sessions();
+    
+    if sessions.is_empty() {
+        println!("No sessions found.");
+        println!("\nTip: Use 'matrixcode' to start a new session.");
+        return Ok(());
+    }
+    
+    println!("📚 Sessions:\n");
+    for (i, session) in sessions.iter().enumerate() {
+        let project = session.project_path.as_deref()
+            .map(|p| p.split('/').last().unwrap_or(p))
+            .unwrap_or("unknown");
+        let is_current = mgr.has_current() && mgr.current_id() == Some(session.id.as_str());
+        
+        println!("  {}. {} - {} ({} msgs, {} tokens) {}",
+            i + 1,
+            session.short_id(),
+            project,
+            session.message_count,
+            session.total_output_tokens,
+            if is_current { "[current]" } else { "" }
+        );
+    }
+    
+    println!("\nSelect session to resume (1-{}), or 'q' to quit:", sessions.len());
+    print!("> ");
+    io::stdout().flush()?;
+    
+    let stdin = io::stdin();
+    let mut lines = stdin.lock().lines();
+    
+    if let Some(Ok(line)) = lines.next() {
+        let input = line.trim();
+        
+        if input == "q" || input == "quit" || input == "exit" {
+            println!("Cancelled.");
+            return Ok(());
+        }
+        
+        // Try to parse as number
+        if let Ok(num) = input.parse::<usize>() {
+            if num > 0 && num <= sessions.len() {
+                let session = &sessions[num - 1];
+                println!("\n✓ Resuming session: {}", session.short_id());
+                println!("  Project: {}", session.project_path.as_deref().unwrap_or("unknown"));
+                println!("  Messages: {}", session.message_count);
+                println!("\nStarting matrixcode with resumed session...\n");
+                
+                // Run terminal mode with the selected session
+                let cli = Cli {
+                    mode: "terminal".to_string(),
+                    continue_session: false,
+                    resume: false,
+                    resume_id: Some(session.id.clone()),
+                    list_sessions: false,
+                    skills_dir: None,
+                    think: true,
+                    max_tokens: 16384,
+                    command: None,
+                };
+                return run_terminal_mode(cli);
+            }
+        }
+        
+        // Try to match by short_id or full id
+        for session in sessions.iter() {
+            if session.short_id() == input || session.id == input || session.id.starts_with(input) {
+                println!("\n✓ Resuming session: {}", session.short_id());
+                println!("  Project: {}", session.project_path.as_deref().unwrap_or("unknown"));
+                println!("  Messages: {}", session.message_count);
+                println!("\nStarting matrixcode with resumed session...\n");
+                
+                let cli = Cli {
+                    mode: "terminal".to_string(),
+                    continue_session: false,
+                    resume: false,
+                    resume_id: Some(session.id.clone()),
+                    list_sessions: false,
+                    skills_dir: None,
+                    think: true,
+                    max_tokens: 16384,
+                    command: None,
+                };
+                return run_terminal_mode(cli);
+            }
+        }
+        
+        println!("Invalid selection: '{}'. Please enter a number 1-{} or session ID.", input, sessions.len());
+    }
+    
+    Ok(())
+}
+
+/// Load skills from directories (MatrixCode only)
 fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill> {
     use matrixcode_core::skills::discover_skills;
     use std::path::PathBuf;
     
     // Build list of skill directories to search (in priority order)
-    // Compatible with Claude Code's commands directory structure
+    // Only MatrixCode skills directories, not Claude Code
     let mut roots: Vec<PathBuf> = Vec::new();
     
-    // 1. Claude Code commands directory (~/.claude/commands)
-    //    Supports both single-file skills (e.g., om.md) and multi-file skills (e.g., om/*.md)
-    if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(".claude").join("commands"));
-    }
-    
-    // 2. User's global skills directory (~/.matrix/skills)
+    // 1. User's global skills directory (~/.matrix/skills)
     if let Some(home) = dirs::home_dir() {
         roots.push(home.join(".matrix").join("skills"));
     }
     
-    // 3. Project-local skills directory (.matrix/skills)
+    // 2. Project-local skills directory (.matrix/skills)
     if let Ok(cwd) = std::env::current_dir() {
         roots.push(cwd.join(".matrix").join("skills"));
     }
     
-    // 4. Extra directories from CLI option (--skills-dir)
+    // 3. Extra directories from CLI option (--skills-dir)
     roots.extend(extra_dirs.iter().cloned());
     
     // Discover and load skills
@@ -307,8 +425,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         let mut messages = Vec::new();
         
         if let Some(ref mut mgr) = mgr {
-            if cli.continue_session || cli.resume.is_some() {
-                let session = if let Some(ref query) = cli.resume {
+            if cli.continue_session || cli.resume_id.is_some() {
+                let session = if let Some(ref query) = cli.resume_id {
                     mgr.resume(query, project_path.as_deref()).ok().flatten()
                 } else {
                     mgr.continue_last(project_path.as_deref()).ok().flatten()
@@ -1066,23 +1184,73 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                     // Run agent
                     match agent.run(msg).await {
                         Ok(_) => {
-                            // Get last assistant message
+                            // Get all messages to show thinking first, then result
                             let messages = agent.get_messages();
-                            if let Some(last) = messages.last() {
-                                let text = match &last.content {
-                                    matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
-                                    matrixcode_core::providers::MessageContent::Blocks(blocks) => {
-                                        blocks.iter().filter_map(|b| match b {
-                                            matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
-                                            _ => None,
-                                        }).collect::<Vec<_>>().join("\n")
+                            
+                            // First, show thinking content if any
+                            for msg in messages.iter() {
+                                if msg.role == matrixcode_core::providers::Role::Assistant {
+                                    // Check if this is thinking content
+                                    let is_thinking = match &msg.content {
+                                        matrixcode_core::providers::MessageContent::Text(t) => {
+                                            t.contains("<thinking>") || t.starts_with("Let me") || t.starts_with("I need to")
+                                        },
+                                        matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                            blocks.iter().any(|b| match b {
+                                                matrixcode_core::ContentBlock::Thinking { thinking, .. } => !thinking.is_empty(),
+                                                _ => false,
+                                            })
+                                        },
+                                    };
+                                    
+                                    if is_thinking {
+                                        let text = match &msg.content {
+                                            matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                            matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                                blocks.iter().filter_map(|b| match b {
+                                                    matrixcode_core::ContentBlock::Thinking { thinking, .. } => Some(thinking.as_str()),
+                                                    matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                                    _ => None,
+                                                }).collect::<Vec<_>>().join("\n")
+                                            },
+                                        };
+                                        println!();
+                                        println!("💭 Thinking:");
+                                        println!("─{}", "─".repeat(40));
+                                        // Strip thinking tags for cleaner display
+                                        let clean_text = text.replace("<thinking>", "").replace("</thinking>", "");
+                                        println!("{}", clean_text.trim());
+                                        println!("─{}", "─".repeat(40));
                                     }
-                                };
-                                println!("\n{}", text);
+                                }
+                            }
+                            
+                            // Then show the final assistant message
+                            if let Some(last) = messages.last() {
+                                if last.role == matrixcode_core::providers::Role::Assistant {
+                                    let text = match &last.content {
+                                        matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                        matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                            blocks.iter().filter_map(|b| match b {
+                                                matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                                _ => None,
+                                            }).collect::<Vec<_>>().join("\n")
+                                        },
+                                    };
+                                    // Skip if this was the thinking message we already showed
+                                    if !text.contains("<thinking>") && !text.starts_with("Let me") && !text.starts_with("I need to") {
+                                        println!();
+                                        println!("📝 Response:");
+                                        println!("─{}", "─".repeat(40));
+                                        print_markdown(&text);
+                                        println!("─{}", "─".repeat(40));
+                                    }
+                                }
                             }
                             
                             let (input, output) = agent.get_token_counts();
-                            println!("\n📊 Tokens: {} in, {} out", input, output);
+                            println!();
+                            println!("📊 Tokens: {} in, {} out", input, output);
                         }
                         Err(e) => {
                             eprintln!("❌ Error: {}", e);
@@ -1304,23 +1472,72 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 // Run agent
                 match agent.run(prompt).await {
                     Ok(_) => {
-                        // Get last assistant message
+                        // Get all messages to show thinking first, then result
                         let messages = agent.get_messages();
-                        if let Some(last) = messages.last() {
-                            let text = match &last.content {
-                                matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
-                                matrixcode_core::providers::MessageContent::Blocks(blocks) => {
-                                    blocks.iter().filter_map(|b| match b {
-                                        matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
-                                        _ => None,
-                                    }).collect::<Vec<_>>().join("\n")
+                        
+                        // First, show thinking content if any
+                        for msg in messages.iter() {
+                            if msg.role == matrixcode_core::providers::Role::Assistant {
+                                // Check if this is thinking content
+                                let is_thinking = match &msg.content {
+                                    matrixcode_core::providers::MessageContent::Text(t) => {
+                                        t.contains("<thinking>") || t.starts_with("Let me") || t.starts_with("I need to")
+                                    },
+                                    matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                        blocks.iter().any(|b| match b {
+                                            matrixcode_core::ContentBlock::Thinking { thinking, .. } => !thinking.is_empty(),
+                                            _ => false,
+                                        })
+                                    },
+                                };
+                                
+                                if is_thinking {
+                                    let text = match &msg.content {
+                                        matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                        matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                            blocks.iter().filter_map(|b| match b {
+                                                matrixcode_core::ContentBlock::Thinking { thinking, .. } => Some(thinking.as_str()),
+                                                matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                                _ => None,
+                                            }).collect::<Vec<_>>().join("\n")
+                                        },
+                                    };
+                                    println!();
+                                    println!("💭 Thinking:");
+                                    println!("─{}", "─".repeat(40));
+                                    let clean_text = text.replace("<thinking>", "").replace("</thinking>", "");
+                                    println!("{}", clean_text.trim());
+                                    println!("─{}", "─".repeat(40));
                                 }
-                            };
-                            println!("\n{}", text);
+                            }
+                        }
+                        
+                        // Then show the final assistant message
+                        if let Some(last) = messages.last() {
+                            if last.role == matrixcode_core::providers::Role::Assistant {
+                                let text = match &last.content {
+                                    matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                    matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                        blocks.iter().filter_map(|b| match b {
+                                            matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                            _ => None,
+                                        }).collect::<Vec<_>>().join("\n")
+                                    },
+                                };
+                                // Skip if this was the thinking message we already showed
+                                if !text.contains("<thinking>") && !text.starts_with("Let me") && !text.starts_with("I need to") {
+                                    println!();
+                                    println!("📝 Result:");
+                                    println!("─{}", "─".repeat(40));
+                                    print_markdown(&text);
+                                    println!("─{}", "─".repeat(40));
+                                }
+                            }
                         }
                         
                         let (input, output) = agent.get_token_counts();
-                        println!("\n📊 Tokens: {} in, {} out", input, output);
+                        println!();
+                        println!("📊 Tokens: {} in, {} out", input, output);
                         println!("✓ Action completed");
                     }
                     Err(e) => {
@@ -1334,20 +1551,365 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
 
 /// Service mode: pure JSON output
 fn run_service_mode(cli: Cli) -> Result<()> {
+    // Load config for all commands
+    let config = Config::load();
+    
     match cli.command {
         Some(Commands::Chat { message }) => {
-            let events = vec![
-                AgentEvent::session_started(),
-                AgentEvent::text_delta(message.unwrap_or_default()),
-                AgentEvent::session_ended(),
-            ];
+            // For chat command, we run the actual agent
+            let api_key = config.api_key.clone()
+                .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
+                .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
             
-            for event in events {
-                println!("{}", event.to_json()?);
-            }
+            let model = config.model.clone()
+                .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+                .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+            
+            let base_url = config.base_url.clone()
+                .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+                .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+            
+            // Load skills
+            let skills_dirs: Vec<PathBuf> = cli.skills_dir.iter().cloned().collect();
+            let skills = load_skills(&skills_dirs);
+            
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                // Output session started event
+                println!("{}", AgentEvent::session_started().to_json()?);
+                
+                let system_prompt = matrixcode_core::prompt::build_system_prompt(
+                    &matrixcode_core::prompt::PromptProfile::Default,
+                    &skills,
+                    None,
+                    None,
+                );
+                
+                let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
+                let mut agent = AgentBuilder::new(Box::new(provider))
+                    .system_prompt(system_prompt)
+                    .model_name(model)
+                    .max_tokens(4096)
+                    .tools(all_tools())
+                    .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
+                    .build();
+                
+                match agent.run(message.unwrap_or_default()).await {
+                    Ok(_) => {
+                        let messages = agent.get_messages();
+                        if let Some(last) = messages.last() {
+                            let text = match &last.content {
+                                matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                    blocks.iter().filter_map(|b| match b {
+                                        matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                        _ => None,
+                                    }).collect::<Vec<_>>().join("\n")
+                                }
+                            };
+                            println!("{}", AgentEvent::text_delta(text).to_json()?);
+                        }
+                    }
+                    Err(e) => {
+                        println!("{}", AgentEvent::error(format!("Agent error: {}", e), None, None).to_json()?);
+                    }
+                }
+                
+                println!("{}", AgentEvent::session_ended().to_json()?);
+                Ok::<_, anyhow::Error>(())
+            })?;
         }
-        Some(_) => {
-            println!("{}", AgentEvent::error("Command not implemented".to_string(), None, None).to_json()?);
+        Some(Commands::History) => {
+            // Output session history as JSON events
+            println!("{}", AgentEvent::session_started().to_json()?);
+            
+            if let Some(mgr) = SessionManager::new().ok() {
+                let sessions = mgr.list_sessions();
+                if sessions.is_empty() {
+                    let data = serde_json::json!({
+                        "type": "history",
+                        "sessions": [],
+                        "message": "No sessions found"
+                    });
+                    println!("{}", AgentEvent::with_data(
+                        matrixcode_core::EventType::Progress,
+                        matrixcode_core::EventData::Progress {
+                            message: serde_json::to_string(&data)?,
+                            percentage: None,
+                        },
+                    ).to_json()?);
+                } else {
+                    let sessions_json: Vec<serde_json::Value> = sessions.iter().map(|s| {
+                        serde_json::json!({
+                            "id": s.id,
+                            "short_id": s.short_id(),
+                            "project_path": s.project_path,
+                            "created_at": s.created_at.to_rfc3339(),
+                            "message_count": s.message_count,
+                            "input_tokens": s.last_input_tokens,
+                            "output_tokens": s.total_output_tokens,
+                            "is_current": mgr.has_current() && mgr.current_id() == Some(s.id.as_str())
+                        })
+                    }).collect();
+                    
+                    let data = serde_json::json!({
+                        "type": "history",
+                        "sessions": sessions_json,
+                        "total": sessions.len()
+                    });
+                    println!("{}", AgentEvent::with_data(
+                        matrixcode_core::EventType::Progress,
+                        matrixcode_core::EventData::Progress {
+                            message: serde_json::to_string(&data)?,
+                            percentage: None,
+                        },
+                    ).to_json()?);
+                }
+            } else {
+                println!("{}", AgentEvent::error("Session manager not available".to_string(), None, None).to_json()?);
+            }
+            
+            println!("{}", AgentEvent::session_ended().to_json()?);
+        }
+        Some(Commands::Status) => {
+            // Output system status as JSON events
+            println!("{}", AgentEvent::session_started().to_json()?);
+            
+            let mut status = serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "mode": "service",
+                "api_configured": config.api_key.is_some() || std::env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some(),
+            });
+            
+            if let Some(model) = &config.model {
+                status["model"] = serde_json::json!(model);
+            } else if let Ok(model) = std::env::var("ANTHROPIC_MODEL") {
+                status["model"] = serde_json::json!(format!("{} (env)", model));
+            } else {
+                status["model"] = serde_json::json!("claude-sonnet-4-20250514 (default)");
+            }
+            
+            if let Some(base_url) = &config.base_url {
+                status["base_url"] = serde_json::json!(base_url);
+            }
+            
+            if let Some(approve_mode) = &config.approve_mode {
+                status["approve_mode"] = serde_json::json!(approve_mode);
+            }
+            
+            // Add session info
+            if let Some(mgr) = SessionManager::new().ok() {
+                status["sessions_count"] = serde_json::json!(mgr.list_sessions().len());
+                status["has_current_session"] = serde_json::json!(mgr.has_current());
+            }
+            
+            // Add memory info
+            let project_path = std::env::current_dir().ok();
+            if let Some(path) = &project_path {
+                if let Ok(storage) = MemoryStorage::new(Some(path.as_path())) {
+                    if let Ok(mem) = storage.load_combined() {
+                        status["memory_entries"] = serde_json::json!(mem.entries.len());
+                    }
+                }
+                
+                // Add overview status
+                let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
+                status["has_overview"] = serde_json::json!(overview_path.exists());
+            }
+            
+            println!("{}", AgentEvent::with_data(
+                matrixcode_core::EventType::Progress,
+                matrixcode_core::EventData::Progress {
+                    message: serde_json::to_string(&status)?,
+                    percentage: None,
+                },
+            ).to_json()?);
+            
+            println!("{}", AgentEvent::session_ended().to_json()?);
+        }
+        Some(Commands::NewSession) => {
+            // Create new session
+            println!("{}", AgentEvent::session_started().to_json()?);
+            
+            if let Some(mut mgr) = SessionManager::new().ok() {
+                let project_path = std::env::current_dir().ok();
+                match mgr.start_new(project_path.as_deref()) {
+                    Ok(_) => {
+                        let data = serde_json::json!({
+                            "success": true,
+                            "session_id": mgr.current_id(),
+                            "message": "New session created"
+                        });
+                        println!("{}", AgentEvent::with_data(
+                            matrixcode_core::EventType::Progress,
+                            matrixcode_core::EventData::Progress {
+                                message: serde_json::to_string(&data)?,
+                                percentage: None,
+                            },
+                        ).to_json()?);
+                    }
+                    Err(e) => {
+                        println!("{}", AgentEvent::error(format!("Failed to create session: {}", e), None, None).to_json()?);
+                    }
+                }
+            } else {
+                println!("{}", AgentEvent::error("Session manager not available".to_string(), None, None).to_json()?);
+            }
+            
+            println!("{}", AgentEvent::session_ended().to_json()?);
+        }
+        Some(Commands::QuickAction { action, file }) => {
+            // Execute quick action
+            let api_key = config.api_key.clone()
+                .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
+                .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
+            
+            let model = config.model.clone()
+                .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+                .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+            
+            let base_url = config.base_url.clone()
+                .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+                .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+            
+            // Load skills
+            let skills_dirs: Vec<PathBuf> = cli.skills_dir.iter().cloned().collect();
+            let skills = load_skills(&skills_dirs);
+            
+            // Build prompt based on action type
+            let prompt = match action.as_str() {
+                "explain" => {
+                    if let Some(f) = &file {
+                        format!("Please explain the code in {} in detail, including its purpose, structure, and key concepts.", f)
+                    } else {
+                        "Please explain the code in detail.".to_string()
+                    }
+                }
+                "fix" => {
+                    if let Some(f) = &file {
+                        format!("Please analyze {} for bugs or issues and fix them.", f)
+                    } else {
+                        "Please analyze the code for bugs or issues and fix them.".to_string()
+                    }
+                }
+                "refactor" => {
+                    if let Some(f) = &file {
+                        format!("Please refactor {} to improve its structure, readability, and maintainability.", f)
+                    } else {
+                        "Please refactor the code to improve its structure.".to_string()
+                    }
+                }
+                "test" => {
+                    if let Some(f) = &file {
+                        format!("Please write unit tests for the code in {}.", f)
+                    } else {
+                        "Please write unit tests for the code.".to_string()
+                    }
+                }
+                "doc" | "document" => {
+                    if let Some(f) = &file {
+                        format!("Please add documentation and comments to {}.", f)
+                    } else {
+                        "Please add documentation and comments to the code.".to_string()
+                    }
+                }
+                "optimize" => {
+                    if let Some(f) = &file {
+                        format!("Please optimize {} for performance and efficiency.", f)
+                    } else {
+                        "Please optimize the code for performance.".to_string()
+                    }
+                }
+                "review" => {
+                    if let Some(f) = &file {
+                        format!("Please review {} and provide feedback on code quality, potential issues, and improvements.", f)
+                    } else {
+                        "Please review the code and provide feedback.".to_string()
+                    }
+                }
+                other => {
+                    if let Some(f) = &file {
+                        format!("{}: {}", other, f)
+                    } else {
+                        other.to_string()
+                    }
+                }
+            };
+            
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                println!("{}", AgentEvent::session_started().to_json()?);
+                
+                // Output action start event
+                let action_data = serde_json::json!({
+                    "action": action,
+                    "file": file,
+                    "status": "started"
+                });
+                println!("{}", AgentEvent::with_data(
+                    matrixcode_core::EventType::Progress,
+                    matrixcode_core::EventData::Progress {
+                        message: serde_json::to_string(&action_data)?,
+                        percentage: Some(0),
+                    },
+                ).to_json()?);
+                
+                let system_prompt = matrixcode_core::prompt::build_system_prompt(
+                    &matrixcode_core::prompt::PromptProfile::Fast,
+                    &skills,
+                    None,
+                    None,
+                );
+                
+                let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
+                let mut agent = AgentBuilder::new(Box::new(provider))
+                    .system_prompt(system_prompt)
+                    .model_name(model)
+                    .max_tokens(4096)
+                    .tools(all_tools())
+                    .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
+                    .build();
+                
+                match agent.run(prompt).await {
+                    Ok(_) => {
+                        let messages = agent.get_messages();
+                        if let Some(last) = messages.last() {
+                            let text = match &last.content {
+                                matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                    blocks.iter().filter_map(|b| match b {
+                                        matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                        _ => None,
+                                    }).collect::<Vec<_>>().join("\n")
+                                }
+                            };
+                            println!("{}", AgentEvent::text_delta(text).to_json()?);
+                        }
+                        
+                        let (input, output) = agent.get_token_counts();
+                        let result_data = serde_json::json!({
+                            "action": action,
+                            "file": file,
+                            "status": "completed",
+                            "input_tokens": input,
+                            "output_tokens": output
+                        });
+                        println!("{}", AgentEvent::with_data(
+                            matrixcode_core::EventType::Progress,
+                            matrixcode_core::EventData::Progress {
+                                message: serde_json::to_string(&result_data)?,
+                                percentage: Some(100),
+                            },
+                        ).to_json()?);
+                    }
+                    Err(e) => {
+                        println!("{}", AgentEvent::error(format!("Quick action failed: {}", e), None, None).to_json()?);
+                    }
+                }
+                
+                println!("{}", AgentEvent::session_ended().to_json()?);
+                Ok::<_, anyhow::Error>(())
+            })?;
         }
         None => {
             println!("{}", AgentEvent::error("Please specify a command".to_string(), None, None).to_json()?);
@@ -1409,32 +1971,260 @@ fn run_daemon_mode() -> Result<()> {
 struct DaemonRequest {
     #[serde(rename = "type")]
     request_type: String,
+    /// Content for chat messages
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
+    /// Action type for quick_action (explain, fix, refactor, test, doc, optimize, review)
     #[serde(skip_serializing_if = "Option::is_none")]
     action: Option<String>,
+    /// Target file for quick_action
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
+    /// Session ID for load_session
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_id: Option<String>,
+    /// Model override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    /// Max tokens override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
 }
 
 /// Handle daemon request
 fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
     let mut events = Vec::new();
+    let config = Config::load();
 
     events.push(AgentEvent::session_started());
 
     match request.request_type.as_str() {
         "chat" => {
+            // Execute actual chat with agent
             if let Some(content) = request.content {
-                events.push(AgentEvent::text_delta(content));
+                let api_key = config.api_key.clone()
+                    .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
+                    .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
+                
+                let model = request.model.clone()
+                    .or(config.model.clone())
+                    .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+                    .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+                
+                let base_url = config.base_url.clone()
+                    .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+                    .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+                
+                let max_tokens = request.max_tokens.unwrap_or(4096);
+                
+                let rt = tokio::runtime::Runtime::new()?;
+                let result = rt.block_on(async {
+                    let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
+                    let mut agent = AgentBuilder::new(Box::new(provider))
+                        .model_name(model)
+                        .max_tokens(max_tokens)
+                        .tools(all_tools())
+                        .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
+                        .build();
+                    
+                    agent.run(content).await
+                });
+                
+                match result {
+                    Ok(_) => {
+                        // For daemon mode, we can't easily capture all events,
+                        // so we just return a completion event
+                        events.push(AgentEvent::text_delta("Chat completed".to_string()));
+                    }
+                    Err(e) => {
+                        events.push(AgentEvent::error(format!("Chat failed: {}", e), None, None));
+                    }
+                }
+            } else {
+                events.push(AgentEvent::error("No content provided for chat", None, None));
             }
         }
         "quick_action" => {
-            if let Some(action) = request.action {
-                events.push(AgentEvent::tool_use_start("action_1", action, None));
-                events.push(AgentEvent::tool_result("action_1", "Result".to_string(), false));
+            // Execute quick action
+            if let Some(action) = request.action.clone() {
+                let prompt = build_quick_action_prompt(&action, request.file.as_ref());
+                
+                let api_key = config.api_key.clone()
+                    .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
+                    .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
+                
+                let model = request.model.clone()
+                    .or(config.model.clone())
+                    .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+                    .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+                
+                let base_url = config.base_url.clone()
+                    .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+                    .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+                
+                events.push(AgentEvent::tool_use_start("action_1", action.clone(), None));
+                
+                let rt = tokio::runtime::Runtime::new()?;
+                let result = rt.block_on(async {
+                    let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
+                    let mut agent = AgentBuilder::new(Box::new(provider))
+                        .model_name(model)
+                        .max_tokens(4096)
+                        .tools(all_tools())
+                        .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
+                        .build();
+                    
+                    agent.run(prompt).await
+                });
+                
+                match result {
+                    Ok(_) => {
+                        events.push(AgentEvent::tool_result("action_1", "Action completed".to_string(), false));
+                    }
+                    Err(e) => {
+                        events.push(AgentEvent::tool_result("action_1", format!("Error: {}", e), true));
+                    }
+                }
+            } else {
+                events.push(AgentEvent::error("No action specified", None, None));
             }
         }
         "status" => {
-            events.push(AgentEvent::text_delta("Daemon is running"));
+            // Return actual system status
+            let status = serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "mode": "daemon",
+                "api_configured": config.api_key.is_some() || std::env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some(),
+                "model": config.model.clone()
+                    .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+                    .unwrap_or_else(|| "claude-sonnet-4-20250514 (default)".to_string()),
+            });
+            events.push(AgentEvent::with_data(
+                matrixcode_core::EventType::Progress,
+                matrixcode_core::EventData::Progress {
+                    message: serde_json::to_string(&status)?,
+                    percentage: None,
+                },
+            ));
+        }
+        "history" => {
+            // Return session history
+            if let Some(mgr) = SessionManager::new().ok() {
+                let sessions = mgr.list_sessions();
+                let sessions_json: Vec<serde_json::Value> = sessions.iter().map(|s| {
+                    serde_json::json!({
+                        "id": s.id,
+                        "short_id": s.short_id(),
+                        "project_path": s.project_path,
+                        "created_at": s.created_at.to_rfc3339(),
+                        "message_count": s.message_count,
+                    })
+                }).collect();
+                
+                let data = serde_json::json!({
+                    "type": "history",
+                    "sessions": sessions_json,
+                    "total": sessions.len()
+                });
+                events.push(AgentEvent::with_data(
+                    matrixcode_core::EventType::Progress,
+                    matrixcode_core::EventData::Progress {
+                        message: serde_json::to_string(&data)?,
+                        percentage: None,
+                    },
+                ));
+            } else {
+                events.push(AgentEvent::error("Session manager not available", None, None));
+            }
+        }
+        "new_session" => {
+            // Create new session
+            if let Some(mut mgr) = SessionManager::new().ok() {
+                let project_path = std::env::current_dir().ok();
+                match mgr.start_new(project_path.as_deref()) {
+                    Ok(_) => {
+                        let data = serde_json::json!({
+                            "success": true,
+                            "session_id": mgr.current_id(),
+                            "message": "New session created"
+                        });
+                        events.push(AgentEvent::with_data(
+                            matrixcode_core::EventType::Progress,
+                            matrixcode_core::EventData::Progress {
+                                message: serde_json::to_string(&data)?,
+                                percentage: None,
+                            },
+                        ));
+                    }
+                    Err(e) => {
+                        events.push(AgentEvent::error(format!("Failed to create session: {}", e), None, None));
+                    }
+                }
+            } else {
+                events.push(AgentEvent::error("Session manager not available", None, None));
+            }
+        }
+        "load_session" => {
+            // Load/resume a session
+            if let Some(session_id) = request.session_id.clone() {
+                if let Some(mut mgr) = SessionManager::new().ok() {
+                    let project_path = std::env::current_dir().ok();
+                    match mgr.resume(&session_id, project_path.as_deref()) {
+                        Ok(Some(session)) => {
+                            let data = serde_json::json!({
+                                "success": true,
+                                "session_id": session.metadata.id,
+                                "message_count": session.messages.len(),
+                                "message": "Session loaded"
+                            });
+                            events.push(AgentEvent::with_data(
+                                matrixcode_core::EventType::Progress,
+                                matrixcode_core::EventData::Progress {
+                                    message: serde_json::to_string(&data)?,
+                                    percentage: None,
+                                },
+                            ));
+                        }
+                        Ok(None) => {
+                            events.push(AgentEvent::error(format!("Session '{}' not found", session_id), None, None));
+                        }
+                        Err(e) => {
+                            events.push(AgentEvent::error(format!("Failed to load session: {}", e), None, None));
+                        }
+                    }
+                } else {
+                    events.push(AgentEvent::error("Session manager not available", None, None));
+                }
+            } else {
+                events.push(AgentEvent::error("No session_id provided", None, None));
+            }
+        }
+        "list_sessions" => {
+            // List all sessions (alias for history)
+            if let Some(mgr) = SessionManager::new().ok() {
+                let sessions = mgr.list_sessions();
+                let sessions_json: Vec<serde_json::Value> = sessions.iter().map(|s| {
+                    serde_json::json!({
+                        "id": s.id,
+                        "short_id": s.short_id(),
+                        "project": s.project_path.as_deref().unwrap_or("unknown"),
+                    })
+                }).collect();
+                
+                events.push(AgentEvent::with_data(
+                    matrixcode_core::EventType::Progress,
+                    matrixcode_core::EventData::Progress {
+                        message: serde_json::to_string(&serde_json::json!({ "sessions": sessions_json }))?,
+                        percentage: None,
+                    },
+                ));
+            } else {
+                events.push(AgentEvent::error("Session manager not available", None, None));
+            }
+        }
+        "ping" => {
+            // Simple ping/pong for health check
+            events.push(AgentEvent::text_delta("pong".to_string()));
         }
         _ => {
             events.push(AgentEvent::error(
@@ -1447,4 +2237,66 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
 
     events.push(AgentEvent::session_ended());
     Ok(events)
+}
+
+/// Build quick action prompt from action type and file
+fn build_quick_action_prompt(action: &str, file: Option<&String>) -> String {
+    match action {
+        "explain" => {
+            if let Some(f) = file {
+                format!("Please explain the code in {} in detail, including its purpose, structure, and key concepts.", f)
+            } else {
+                "Please explain the code in detail.".to_string()
+            }
+        }
+        "fix" => {
+            if let Some(f) = file {
+                format!("Please analyze {} for bugs or issues and fix them.", f)
+            } else {
+                "Please analyze the code for bugs or issues and fix them.".to_string()
+            }
+        }
+        "refactor" => {
+            if let Some(f) = file {
+                format!("Please refactor {} to improve its structure, readability, and maintainability.", f)
+            } else {
+                "Please refactor the code to improve its structure.".to_string()
+            }
+        }
+        "test" => {
+            if let Some(f) = file {
+                format!("Please write unit tests for the code in {}.", f)
+            } else {
+                "Please write unit tests for the code.".to_string()
+            }
+        }
+        "doc" | "document" => {
+            if let Some(f) = file {
+                format!("Please add documentation and comments to {}.", f)
+            } else {
+                "Please add documentation and comments to the code.".to_string()
+            }
+        }
+        "optimize" => {
+            if let Some(f) = file {
+                format!("Please optimize {} for performance and efficiency.", f)
+            } else {
+                "Please optimize the code for performance.".to_string()
+            }
+        }
+        "review" => {
+            if let Some(f) = file {
+                format!("Please review {} and provide feedback on code quality, potential issues, and improvements.", f)
+            } else {
+                "Please review the code and provide feedback.".to_string()
+            }
+        }
+        other => {
+            if let Some(f) = file {
+                format!("{}: {}", other, f)
+            } else {
+                other.to_string()
+            }
+        }
+    }
 }

@@ -254,8 +254,9 @@ impl TuiApp {
                                     parts.push(text.clone());
                                 }
                             }
-                            matrixcode_core::ContentBlock::ToolUse { name, .. } => {
-                                parts.push(format!("[tool_use: {}]", name));
+                            matrixcode_core::ContentBlock::ToolUse { .. } => {
+                                // Skip tool_use blocks - they are metadata, not actual content
+                                // Including them would break diff detection (first line would be "[tool_use: ...]")
                             }
                             matrixcode_core::ContentBlock::ToolResult { content, .. } => {
                                 if !content.is_empty() {

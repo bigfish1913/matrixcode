@@ -247,11 +247,12 @@ impl TuiApp {
                         Span::styled(format!(" \u{2192} {}", summary), Style::default().fg(Color::DarkGray)),
                     ]));
 
-                    // Content preview: detect diff format and adjust preview count
-                    let has_diff = msg.content.lines().skip(1).any(|l| {
-                        let trimmed = l.trim_start();
-                        trimmed.starts_with('+') || trimmed.starts_with('-')
-                    });
+                    // Content preview: detect diff format (lines starting with "- " or "+ " after edit header)
+                    // More strict detection: first line must be "Successfully edited" and following lines must start with "- " or "+ "
+                    let content_lines: Vec<&str> = msg.content.lines().collect();
+                    let has_diff = content_lines.len() > 1 
+                        && content_lines.first().map(|l| l.starts_with("Successfully edited")).unwrap_or(false)
+                        && content_lines.iter().skip(1).any(|l| l.starts_with("- ") || l.starts_with("+ "));
                     let preview_count = if *is_error {
                         if self.debug_mode { 8 } else { 3 }
                     } else if self.debug_mode {
@@ -306,25 +307,28 @@ impl TuiApp {
                             }
                         } else {
                             // Other tools: skip first line (summary header)
+                            // Diff display: use bright colors and clear markers for edit changes
                             for line in msg.content.lines().skip(1).take(preview_count) {
-                                let trimmed = line.trim_start();
-                                let line_color = if trimmed.starts_with('+') {
-                                    Color::Green
-                                } else if trimmed.starts_with('-') {
-                                    Color::Red
+                                let (marker, line_style) = if line.starts_with("+ ") {
+                                    // Added line: bright green with ✓ marker
+                                    ("✓", Style::default().fg(Color::LightGreen))
+                                } else if line.starts_with("- ") {
+                                    // Removed line: bright red with ✗ marker
+                                    ("✗", Style::default().fg(Color::LightRed))
                                 } else {
-                                    Color::DarkGray
+                                    // Other content: dim
+                                    (" ", Style::default().fg(Color::DarkGray))
                                 };
-                                let truncated = truncate(line, max_w.saturating_sub(4));
+                                let truncated = truncate(line, max_w.saturating_sub(6));
                                 lines.push(Line::styled(
-                                    format!("    {}", truncated),
-                                    Style::default().fg(line_color)
+                                    format!("  {} {}", marker, truncated),
+                                    line_style
                                 ));
                             }
                             let total_lines = msg.content.lines().skip(1).count();
                             if total_lines > preview_count {
                                 lines.push(Line::styled(
-                                    format!("    \u{2026} ({} more)", total_lines - preview_count),
+                                    format!("    \u{2026} ({} more lines)", total_lines - preview_count),
                                     Style::default().fg(Color::DarkGray)
                                 ));
                             }
