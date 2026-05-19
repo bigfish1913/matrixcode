@@ -90,8 +90,29 @@ impl Tool for MultiEditTool {
         }
 
         tokio::fs::write(path, &content).await?;
-        // spinner.finish_success(&format!("{} edits applied", edits.len()));
-        Ok(format!("Applied {} edit(s) to {}", edits.len(), path))
+
+        // Return diff-style output
+        let mut diff = format!("Applied {} edit(s) to {}\n", edits.len(), path);
+        for (idx, edit) in edits.iter().enumerate() {
+            let old_string = edit["old_string"].as_str().unwrap_or("");
+            let new_string = edit["new_string"].as_str().unwrap_or("");
+            if edits.len() > 1 {
+                diff.push_str(&format!("edit {}:\n", idx + 1));
+            }
+            for line in old_string.lines().take(3) {
+                diff.push_str(&format!("- {}\n", line));
+            }
+            if old_string.lines().count() > 3 {
+                diff.push_str(&format!("  ... ({} more lines removed)\n", old_string.lines().count() - 3));
+            }
+            for line in new_string.lines().take(3) {
+                diff.push_str(&format!("+ {}\n", line));
+            }
+            if new_string.lines().count() > 3 {
+                diff.push_str(&format!("  ... ({} more lines added)\n", new_string.lines().count() - 3));
+            }
+        }
+        Ok(diff)
     }
 
     fn risk_level(&self) -> RiskLevel {

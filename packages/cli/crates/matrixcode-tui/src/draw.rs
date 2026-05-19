@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::types::{Activity, ApproveMode, Role};
-use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, word_wrap};
+use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, progress_bar, word_wrap};
 use crate::markdown::render_markdown;
 use crate::app::TuiApp;
 use crate::SPINNER;
@@ -29,9 +29,9 @@ impl TuiApp {
         };
         
         let constraints = vec![
-            Constraint::Length(1),           // Status bar (merged: model + mode + tokens)
             Constraint::Min(3),              // Messages
             queue_height,                    // Queue (pending messages preview)
+            Constraint::Length(1),           // Status bar (bottom)
             input_height,                    // Input
         ];
 
@@ -41,13 +41,13 @@ impl TuiApp {
             .split(f.area());
 
         // Store messages area top for mouse selection
-        self.msg_area_top.set(chunks[1].y);
+        self.msg_area_top.set(chunks[0].y);
 
-        self.draw_status(f, chunks[0]);
-        self.draw_messages(f, chunks[1]);
+        self.draw_messages(f, chunks[0]);
         if !self.pending_messages.is_empty() {
-            self.draw_queue(f, chunks[2]);
+            self.draw_queue(f, chunks[1]);
         }
+        self.draw_status(f, chunks[2]);
         self.draw_input(f, chunks[3]);
     }
 
@@ -71,7 +71,7 @@ impl TuiApp {
             Span::styled(format!(" {} ", self.approve_mode.label()), Style::default().fg(mode_color)),
             Span::styled("│", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                format!(" ctx {:.0}% ", context_pct),
+                format!(" {} {:.0}% ", progress_bar(context_pct, 10), context_pct),
                 Style::default().fg(ctx_color)
             ),
             Span::styled(
@@ -96,13 +96,20 @@ impl TuiApp {
             ));
         }
 
-        // Status on the right
+        // Status on the right - with elapsed time when active
+        let elapsed_str = if self.activity != Activity::Idle {
+            self.request_start
+                .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         let status_text = if self.activity == Activity::Idle {
             "Ready".to_string()
         } else if !self.activity_detail.is_empty() {
-            format!("{}({})", self.activity.label(), self.activity_detail)
+            format!("{}({}){}", self.activity.label(), self.activity_detail, elapsed_str)
         } else {
-            self.activity.label()
+            format!("{}{}", self.activity.label(), elapsed_str)
         };
         let status_color = if self.activity == Activity::Idle { Color::DarkGray } else { Color::Yellow };
         
@@ -143,6 +150,7 @@ impl TuiApp {
         for msg in &self.messages {
             match &msg.role {
                 Role::User => {
+                    // User: green left border + bold white text
                     let wrapped = word_wrap(&msg.content, max_w.saturating_sub(2));
                     for line in wrapped {
                         lines.push(Line::from(vec![
@@ -153,33 +161,53 @@ impl TuiApp {
                     lines.push(Line::raw(""));
                 }
                 Role::Assistant => {
+                    // Assistant: separator with optional debug info
+                    if self.debug_mode {
+                        let token_info = format!("({} tokens)", fmt_tokens(self.tokens_out));
+                        let elapsed = self.request_start
+                            .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
+                            .unwrap_or_default();
+                        lines.push(Line::from(vec![
+                            Span::styled("  \u{2500}\u{2500} \u{1f916} ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(format!("{}{}", token_info, elapsed), Style::default().fg(Color::DarkGray)),
+                        ]));
+                    } else {
+                        lines.push(Line::styled("  \u{2500}\u{2500}", Style::default().fg(Color::DarkGray)));
+                    }
                     let md_lines = render_markdown(&msg.content, max_w);
                     lines.extend(md_lines);
                     lines.push(Line::raw(""));
                 }
                 Role::Thinking => {
                     let line_count = msg.content.lines().count();
-                    if self.thinking_collapsed {
+                    if self.thinking_collapsed && !self.debug_mode {
+                        // Normal mode: collapsed
+                        let preview = msg.content.lines().next().unwrap_or("");
                         lines.push(Line::from(vec![
                             Span::styled("  \u{1f4ad} \u{25b6} ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(
+                                format!("({} lines) {}", line_count, truncate(preview, max_w.saturating_sub(20))),
+                                Style::default().fg(Color::DarkGray)
+                            ),
+                        ]));
+                    } else {
+                        // Expanded (debug mode or user toggled)
+                        let max_lines = if self.debug_mode { 30 } else { 10 };
+                        lines.push(Line::from(vec![
+                            Span::styled("  \u{1f4ad} \u{25bc} ", Style::default().fg(Color::DarkGray)),
                             Span::styled(
                                 format!("Thinking ({} lines)", line_count),
                                 Style::default().fg(Color::DarkGray)
                             ),
                         ]));
-                    } else {
-                        lines.push(Line::from(vec![
-                            Span::styled("  \u{1f4ad} \u{25bc} ", Style::default().fg(Color::DarkGray)),
-                            Span::styled("Thinking", Style::default().fg(Color::DarkGray)),
-                        ]));
                         let md_lines = render_markdown(&msg.content, max_w.saturating_sub(4));
-                        for line in md_lines.iter().take(20) {
+                        for line in md_lines.iter().take(max_lines) {
                             let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
                             lines.push(Line::styled(format!("    {}", text), Style::default().fg(Color::DarkGray)));
                         }
-                        if md_lines.len() > 20 {
+                        if md_lines.len() > max_lines {
                             lines.push(Line::styled(
-                                format!("    ... ({} more lines)", md_lines.len() - 20),
+                                format!("    \u{2026} ({} more lines)", md_lines.len() - max_lines),
                                 Style::default().fg(Color::DarkGray)
                             ));
                         }
@@ -190,6 +218,8 @@ impl TuiApp {
                     let color = if *is_error { Color::Red } else { Color::DarkGray };
                     let line_count = msg.content.lines().count();
                     let preview = msg.content.lines().next().unwrap_or("");
+
+                    // Summary line (always shown)
                     let summary = if *is_error {
                         truncate(preview, max_w.saturating_sub(name.len() + 6))
                     } else {
@@ -208,24 +238,74 @@ impl TuiApp {
                             _ => truncate(preview, max_w.saturating_sub(name.len() + 6)),
                         }
                     };
+
                     lines.push(Line::from(vec![
                         Span::styled(format!("  {} ", icon), Style::default().fg(color)),
                         Span::styled(name.clone(), Style::default().fg(color)),
                         Span::styled(format!(" \u{2192} {}", summary), Style::default().fg(Color::DarkGray)),
                     ]));
+
+                    // Content preview (always show 1-2 lines, debug shows more)
+                    let preview_count = if *is_error {
+                        if self.debug_mode { 8 } else { 3 }
+                    } else if self.debug_mode {
+                        5
+                    } else {
+                        match name.as_str() {
+                            "bash" => 2,
+                            "search" | "glob" | "ls" => 2,
+                            "edit" | "multi_edit" => 4,  // Show diff lines
+                            "write" => 0,
+                            "read" => 0,
+                            _ => 1,
+                        }
+                    };
+                    // Content preview with diff coloring for edit tools
+                    if preview_count > 0 {
+                        for line in msg.content.lines().skip(1).take(preview_count) {
+                            let (line_color, prefix) = if line.starts_with("+ ") {
+                                (Color::Green, "")
+                            } else if line.starts_with("- ") {
+                                (Color::Red, "")
+                            } else {
+                                (Color::DarkGray, "")
+                            };
+                            lines.push(Line::styled(
+                                format!("    {}{}", prefix, truncate(line, max_w.saturating_sub(4))),
+                                Style::default().fg(line_color)
+                            ));
+                        }
+                        let content_lines = msg.content.lines().skip(1).count();
+                        if content_lines > preview_count {
+                            lines.push(Line::styled(
+                                format!("    \u{2026} ({} more)", content_lines - preview_count),
+                                Style::default().fg(Color::DarkGray)
+                            ));
+                        }
+                    }
                 }
                 Role::System => {
                     let content = &msg.content;
                     if content.contains("APPROVAL REQUIRED") || content.contains("requires approval") || content.contains("Allow?") {
+                        // Approval: prominent yellow
                         let wrapped = word_wrap(content, max_w);
                         for line in wrapped {
                             lines.push(Line::styled(format!("  {}", line), Style::default().fg(Color::Yellow)));
                         }
                         lines.push(Line::raw(""));
+                    } else if self.debug_mode || content.contains('\n') {
+                        // Debug mode or multi-line: show full content
+                        for line in content.lines() {
+                            lines.push(Line::styled(
+                                format!("  {}", truncate(line, max_w)),
+                                Style::default().fg(Color::DarkGray)
+                            ));
+                        }
+                        lines.push(Line::raw(""));
                     } else {
-                        let first_line = content.lines().next().unwrap_or("");
+                        // Normal: single line compact
                         lines.push(Line::styled(
-                            format!("  {}", truncate(first_line, max_w)),
+                            format!("  {}", truncate(content, max_w)),
                             Style::default().fg(Color::DarkGray)
                         ));
                     }
@@ -235,24 +315,29 @@ impl TuiApp {
 
         // Current thinking (streaming)
         if !self.thinking.is_empty() {
-            if self.thinking_collapsed {
+            if self.thinking_collapsed && !self.debug_mode {
+                let preview = self.thinking.lines().next().unwrap_or("");
                 lines.push(Line::from(vec![
                     Span::styled("  \u{1f4ad} \u{25b6} ", Style::default().fg(Color::DarkGray)),
-                    Span::styled("Thinking...", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("Thinking... {}", truncate(preview, max_w.saturating_sub(20))),
+                        Style::default().fg(Color::DarkGray)
+                    ),
                 ]));
             } else {
                 lines.push(Line::from(vec![
                     Span::styled("  \u{1f4ad} \u{25bc} ", Style::default().fg(Color::DarkGray)),
                     Span::styled("Thinking...", Style::default().fg(Color::DarkGray)),
                 ]));
+                let max_lines = if self.debug_mode { 20 } else { 5 };
                 let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(4));
-                for line in md_lines.iter().take(10) {
+                for line in md_lines.iter().take(max_lines) {
                     let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
                     lines.push(Line::styled(format!("    {}", text), Style::default().fg(Color::DarkGray)));
                 }
-                if md_lines.len() > 10 {
+                if md_lines.len() > max_lines {
                     lines.push(Line::styled(
-                        format!("    ... ({} more)", md_lines.len() - 10),
+                        format!("    \u{2026} ({} more)", md_lines.len() - max_lines),
                         Style::default().fg(Color::DarkGray)
                     ));
                 }
@@ -274,9 +359,12 @@ impl TuiApp {
         );
 
         if self.activity == Activity::Thinking && self.streaming.is_empty() && self.thinking.is_empty() {
+            let elapsed = self.request_start
+                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
+                .unwrap_or_default();
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", SPINNER[self.frame]), Style::default().fg(self.activity.color())),
-                Span::styled("Waiting for response...", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("Waiting for response...{}", elapsed), Style::default().fg(Color::DarkGray)),
             ]));
         }
 
@@ -286,9 +374,13 @@ impl TuiApp {
             } else {
                 self.activity.label()
             };
+            let elapsed = self.request_start
+                .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
+                .unwrap_or_default();
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", SPINNER[self.frame]), Style::default().fg(self.activity.color())),
                 Span::styled(tool_label, Style::default().fg(self.activity.color())),
+                Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
             ]));
         }
 
@@ -313,12 +405,10 @@ impl TuiApp {
             self.scroll_offset.min(max_scroll)
         };
 
-        // Apply selection highlight (preserve span styles, add bg)
+        // Selection highlight (preserve span styles)
         let highlighted_lines = if let Some(sel) = selection {
-            let sel_start = sel.start_line;
-            let sel_end = sel.end_line;
             lines.into_iter().enumerate().map(|(i, line)| {
-                if i >= sel_start && i <= sel_end {
+                if i >= sel.start_line && i <= sel.end_line {
                     let new_spans: Vec<Span> = line.spans.iter().map(|s| {
                         Span::styled(s.content.to_string(), s.style.bg(Color::DarkGray))
                     }).collect();
@@ -331,25 +421,19 @@ impl TuiApp {
             lines
         };
 
-        // Scroll position indicator
+        // Render with scroll indicator
         if !self.auto_scroll && max_scroll > 0 {
             let pct = (scroll_offset as f64 / max_scroll as f64 * 100.0) as u16;
             let indicator = Line::styled(
-                format!("  \u{2191} {}/{} ({:.0}%) \u{2014} End to jump to bottom", scroll_offset, max_scroll, pct),
+                format!("  \u{2191} {}/{} ({:.0}%) \u{2014} End to bottom", scroll_offset, max_scroll, pct),
                 Style::default().fg(Color::DarkGray)
             );
             let indicator_area = Rect::new(area.x, area.y, area.width, 1);
             f.render_widget(Paragraph::new(indicator), indicator_area);
             let msg_area = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1));
-            f.render_widget(
-                Paragraph::new(highlighted_lines).scroll((scroll_offset, 0)),
-                msg_area
-            );
+            f.render_widget(Paragraph::new(highlighted_lines).scroll((scroll_offset, 0)), msg_area);
         } else {
-            f.render_widget(
-                Paragraph::new(highlighted_lines).scroll((scroll_offset, 0)),
-                area
-            );
+            f.render_widget(Paragraph::new(highlighted_lines).scroll((scroll_offset, 0)), area);
         }
     }
 

@@ -60,8 +60,18 @@ impl Tool for EditTool {
         let new_content = content.replacen(old_string, new_string, 1);
         tokio::fs::write(path, &new_content).await?;
 
+        // Return diff-style output
+        let old_lines: Vec<&str> = old_string.lines().collect();
+        let new_lines: Vec<&str> = new_string.lines().collect();
+        let mut diff = format!("Successfully edited {}\n", path);
+        for line in &old_lines {
+            diff.push_str(&format!("- {}\n", line));
+        }
+        for line in &new_lines {
+            diff.push_str(&format!("+ {}\n", line));
+        }
         // spinner.finish_success("edited");
-        Ok(format!("Successfully edited {}", path))
+        Ok(diff)
     }
 
     fn risk_level(&self) -> RiskLevel {

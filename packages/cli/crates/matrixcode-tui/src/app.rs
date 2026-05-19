@@ -35,6 +35,8 @@ pub struct TuiApp {
     pub(crate) compressions: u64,
     pub(crate) memory_saves: u64,
     pub(crate) tool_calls: u64,
+    // Timing
+    pub(crate) request_start: Option<Instant>,
     // UI state
     pub(crate) frame: usize,
     pub(crate) last_anim: Instant,
@@ -185,6 +187,7 @@ impl TuiApp {
             compressions: 0,
             memory_saves: 0,
             tool_calls: 0,
+            request_start: None,
             frame: 0,
             last_anim: Instant::now(),
             show_welcome: true,

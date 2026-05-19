@@ -32,8 +32,17 @@ impl TuiApp {
                     }
                 } else if self.activity != Activity::Idle {
                     self.cancel.cancel();
-                    self.cancel.reset();
+                    // Don't reset here - wait for backend to acknowledge via SessionEnded/Error
                     self.activity = Activity::Idle;
+                    // Save any in-progress content before clearing
+                    if !self.thinking.is_empty() {
+                        self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
+                        self.thinking.clear();
+                    }
+                    if !self.streaming.is_empty() {
+                        self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
+                        self.streaming.clear();
+                    }
                     self.messages.push(Message { role: Role::System, content: "⚠️ Interrupted".into() });
                 } else {
                     self.input.clear();
@@ -58,8 +67,15 @@ impl TuiApp {
                     }
                 } else if self.activity != Activity::Idle {
                     self.cancel.cancel();
-                    self.cancel.reset();
                     self.activity = Activity::Idle;
+                    if !self.thinking.is_empty() {
+                        self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
+                        self.thinking.clear();
+                    }
+                    if !self.streaming.is_empty() {
+                        self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
+                        self.streaming.clear();
+                    }
                     self.messages.push(Message { role: Role::System, content: "⚠️ Interrupted".into() });
                 }
             }

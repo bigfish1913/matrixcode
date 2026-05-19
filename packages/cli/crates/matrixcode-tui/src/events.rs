@@ -10,6 +10,9 @@ impl TuiApp {
             EventType::ThinkingStart => {
                 self.activity = Activity::Thinking;
                 self.thinking.clear();
+                if self.request_start.is_none() {
+                    self.request_start = Some(std::time::Instant::now());
+                }
             }
             EventType::ThinkingDelta => {
                 if let Some(EventData::Thinking { delta, .. }) = e.data {
@@ -77,17 +80,21 @@ impl TuiApp {
                     self.auto_scroll = true;
                 } else {
                     self.activity = Activity::Idle;
+                    self.request_start = None;
                 }
                 self.activity_detail.clear();
+                self.cancel.reset();  // Reset cancel state for next request
             }
             EventType::Error => {
                 if let Some(EventData::Error { message, .. }) = e.data {
-                    self.messages.push(Message { role: Role::System, content: format!("❌ Error: {}", message) });
+                    self.messages.push(Message { role: Role::System, content: format!("\u{274c} Error: {}", message) });
                     self.streaming.clear();
                     self.thinking.clear();
                 }
                 self.activity = Activity::Idle;
                 self.activity_detail.clear();
+                self.request_start = None;
+                self.cancel.reset();  // Reset cancel state for next request
                 
                 // Check queue after error - user may want to retry
                 if !self.pending_messages.is_empty() {
@@ -134,14 +141,13 @@ impl TuiApp {
                 }
             }
             EventType::Progress => {
-                if let Some(EventData::Progress { message, .. }) = e.data
-                    && self.debug_mode {
-                        self.messages.push(Message {
-                            role: Role::System,
-                            content: message
-                        });
-                        self.auto_scroll = true;
-                    }
+                if let Some(EventData::Progress { message, .. }) = e.data {
+                    self.messages.push(Message {
+                        role: Role::System,
+                        content: message
+                    });
+                    self.auto_scroll = true;
+                }
             }
             EventType::MemoryLoaded => {
                 if let Some(EventData::Memory { entries_count, .. }) = e.data
