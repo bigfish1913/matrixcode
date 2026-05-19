@@ -248,8 +248,9 @@ impl TuiApp {
             // Scroll: PageUp
             KeyCode::PageUp => {
                 if self.auto_scroll {
-                    self.scroll_offset = self.max_scroll.get();
                     self.auto_scroll = false;
+                    // Set to max_scroll or at least 50 to start from bottom
+                    self.scroll_offset = self.max_scroll.get().max(50);
                 }
                 self.scroll_offset = self.scroll_offset.saturating_sub(10);
             }
@@ -258,7 +259,8 @@ impl TuiApp {
             KeyCode::PageDown => {
                 if !self.auto_scroll {
                     self.scroll_offset = self.scroll_offset.saturating_add(10);
-                    if self.scroll_offset >= self.max_scroll.get() {
+                    let max = self.max_scroll.get();
+                    if max > 0 && self.scroll_offset >= max {
                         self.auto_scroll = true;
                         self.scroll_offset = 0;
                     }
@@ -268,8 +270,9 @@ impl TuiApp {
             // Scroll: Alt+Up (or Up when not idle)
             KeyCode::Up if k.modifiers.contains(KeyModifiers::ALT) => {
                 if self.auto_scroll {
-                    self.scroll_offset = self.max_scroll.get();
                     self.auto_scroll = false;
+                    // Set to max_scroll or at least 50 to start from bottom
+                    self.scroll_offset = self.max_scroll.get().max(50);
                 }
                 self.scroll_offset = self.scroll_offset.saturating_sub(1);
             }
@@ -278,7 +281,8 @@ impl TuiApp {
             KeyCode::Down if k.modifiers.contains(KeyModifiers::ALT) => {
                 if !self.auto_scroll {
                     self.scroll_offset = self.scroll_offset.saturating_add(1);
-                    if self.scroll_offset >= self.max_scroll.get() {
+                    let max = self.max_scroll.get();
+                    if max > 0 && self.scroll_offset >= max {
                         self.auto_scroll = true;
                         self.scroll_offset = 0;
                     }

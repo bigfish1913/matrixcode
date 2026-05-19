@@ -243,50 +243,67 @@ impl TuiApp {
 
     pub fn load_messages(&mut self, core_messages: Vec<matrixcode_core::Message>) {
         for msg in core_messages {
-            let content = match &msg.content {
-                matrixcode_core::MessageContent::Text(t) => t.clone(),
+            // Handle different content block types separately
+            match &msg.content {
+                matrixcode_core::MessageContent::Text(t) => {
+                    if t.is_empty() { continue; }
+                    let role = match msg.role {
+                        matrixcode_core::Role::User => Role::User,
+                        matrixcode_core::Role::Assistant => Role::Assistant,
+                        matrixcode_core::Role::System => Role::System,
+                        matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), is_error: false },
+                    };
+                    // Restore input history from user messages
+                    if role == Role::User && !t.starts_with('/')
+                        && self.input_history.last().map(|s| s.as_str()) != Some(t) {
+                        self.input_history.push(t.clone());
+                    }
+                    self.messages.push(Message { role, content: t.clone() });
+                }
                 matrixcode_core::MessageContent::Blocks(blocks) => {
-                    let mut parts: Vec<String> = Vec::new();
+                    // Process each block separately to maintain proper message types
                     for b in blocks {
                         match b {
                             matrixcode_core::ContentBlock::Text { text } => {
-                                if !text.is_empty() {
-                                    parts.push(text.clone());
+                                if text.is_empty() { continue; }
+                                let role = match msg.role {
+                                    matrixcode_core::Role::User => Role::User,
+                                    matrixcode_core::Role::Assistant => Role::Assistant,
+                                    matrixcode_core::Role::System => Role::System,
+                                    matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), is_error: false },
+                                };
+                                // Restore input history from user messages
+                                if role == Role::User && !text.starts_with('/')
+                                    && self.input_history.last().map(|s| s.as_str()) != Some(text) {
+                                    self.input_history.push(text.clone());
                                 }
-                            }
-                            matrixcode_core::ContentBlock::ToolUse { .. } => {
-                                // Skip tool_use blocks - they are metadata, not actual content
-                                // Including them would break diff detection (first line would be "[tool_use: ...]")
-                            }
-                            matrixcode_core::ContentBlock::ToolResult { content, .. } => {
-                                if !content.is_empty() {
-                                    parts.push(content.clone());
-                                }
+                                self.messages.push(Message { role, content: text.clone() });
                             }
                             matrixcode_core::ContentBlock::Thinking { thinking, .. } => {
-                                if !thinking.is_empty() {
-                                    parts.push(thinking.clone());
-                                }
+                                if thinking.is_empty() { continue; }
+                                // Create separate Thinking message for proper rendering
+                                self.messages.push(Message { role: Role::Thinking, content: thinking.clone() });
+                            }
+                            matrixcode_core::ContentBlock::ToolUse { name: _, .. } => {
+                                // Skip tool_use blocks - metadata only
+                            }
+                            matrixcode_core::ContentBlock::ToolResult { content, tool_use_id, .. } => {
+                                if content.is_empty() { continue; }
+                                // Try to determine if this is an error from content
+                                let is_error = content.contains("error") || content.contains("failed") || content.contains("Error");
+                                self.messages.push(Message { 
+                                    role: Role::Tool { 
+                                        name: if tool_use_id.starts_with("bash") { "bash".into() } else { tool_use_id.clone() },
+                                        is_error 
+                                    }, 
+                                    content: content.clone() 
+                                });
                             }
                             _ => {}
                         }
                     }
-                    parts.join("\n")
                 }
-            };
-            if content.is_empty() { continue; }
-            let role = match msg.role {
-                matrixcode_core::Role::User => Role::User,
-                matrixcode_core::Role::Assistant => Role::Assistant,
-                matrixcode_core::Role::System => Role::System,
-                matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), is_error: false },
-            };
-            // Restore input history from user messages
-            if role == Role::User && !content.starts_with('/')
-                && self.input_history.last().map(|s| s.as_str()) != Some(&content) {
-                    self.input_history.push(content.clone());
-                }
-            self.messages.push(Message { role, content });
+            }
         }
         if !self.messages.is_empty() {
             self.show_welcome = false;
@@ -378,9 +395,14 @@ impl TuiApp {
         match m.kind {
             MouseEventKind::ScrollUp => {
                 // Scroll up = view earlier content = decrease offset
+                // ratatui scroll(offset) skips first N lines, so:
+                // - scroll_offset=0 shows top, scroll_offset=max shows bottom
+                // - scroll up (earlier) = decrease offset
                 if self.auto_scroll {
-                    self.scroll_offset = self.max_scroll.get();
                     self.auto_scroll = false;
+                    // We need to start from bottom, then scroll up
+                    // Use max_scroll (will be updated in draw) or a large value
+                    self.scroll_offset = self.max_scroll.get().max(50);
                 }
                 self.scroll_offset = self.scroll_offset.saturating_sub(3);
                 self.selection = None;  // Clear selection on scroll
@@ -389,7 +411,10 @@ impl TuiApp {
                 // Scroll down = view newer content = increase offset
                 if !self.auto_scroll {
                     self.scroll_offset = self.scroll_offset.saturating_add(3);
-                    if self.scroll_offset >= self.max_scroll.get() {
+                    // Check if we've scrolled to the bottom
+                    // Use max_scroll if available, otherwise just keep scrolling
+                    let max = self.max_scroll.get();
+                    if max > 0 && self.scroll_offset >= max {
                         self.auto_scroll = true;
                         self.scroll_offset = 0;
                     }
@@ -401,7 +426,7 @@ impl TuiApp {
                 if m.row >= msg_area_y {
                     // If auto_scroll is on, sync scroll_offset first before disabling it
                     if self.auto_scroll {
-                        self.scroll_offset = self.max_scroll.get();
+                        self.scroll_offset = self.max_scroll.get().max(50);
                     }
                     let line = self.scroll_offset as usize + (m.row - msg_area_y) as usize;
                     let col = m.column as usize;
@@ -415,7 +440,7 @@ impl TuiApp {
                 if self.selecting && m.row >= msg_area_y {
                     // Sync scroll_offset if auto_scroll was on
                     if self.auto_scroll {
-                        self.scroll_offset = self.max_scroll.get();
+                        self.scroll_offset = self.max_scroll.get().max(50);
                         self.auto_scroll = false;
                     }
                     let line = self.scroll_offset as usize + (m.row - msg_area_y) as usize;

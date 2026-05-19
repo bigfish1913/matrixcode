@@ -293,7 +293,22 @@ impl Agent {
 
             // Check compression (use last_input_tokens = actual context window usage)
             let context_size = self.provider.context_size();
-            let current_tokens = self.last_input_tokens.load(Ordering::Relaxed) as u32;
+            
+            // Use estimated tokens if API doesn't report accurately
+            // Some APIs (like DashScope) may return small input_tokens when using cache
+            let api_tokens = self.last_input_tokens.load(Ordering::Relaxed) as u32;
+            let estimated_tokens = crate::compress::estimate_total_tokens(&self.messages);
+            
+            // Use the larger value to be safe (avoid missing compression)
+            let current_tokens = api_tokens.max(estimated_tokens);
+            
+            // Debug: log compression check
+            crate::debug::debug_log().log(
+                "compression",
+                &format!("check: api_tokens={}, estimated_tokens={}, using={}, context_size={}, threshold={}",
+                    api_tokens, estimated_tokens, current_tokens, context_size.unwrap_or(0), self.compression_config.threshold)
+            );
+            
             if should_compress(current_tokens, context_size, &self.compression_config) {
                 self.emit(AgentEvent::progress("Compressing context...", None))?;
                 
@@ -673,6 +688,13 @@ impl Agent {
         self.total_output_tokens.fetch_add(usage.output_tokens as u64, Ordering::Relaxed);
         // Store the latest request's input tokens — this is the actual context window usage.
         self.last_input_tokens.store(usage.input_tokens as u64, Ordering::Relaxed);
+
+        // Debug: log usage tracking
+        crate::debug::debug_log().log(
+            "usage",
+            &format!("tracked: input_tokens={}, output_tokens={}, cache_read={}, cache_created={}",
+                usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens)
+        );
 
         // Emit usage event with cache info (use last_input_tokens for context display)
         let _ = self.event_tx.try_send(AgentEvent::usage_with_cache(

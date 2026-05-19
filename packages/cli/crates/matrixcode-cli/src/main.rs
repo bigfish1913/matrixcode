@@ -13,20 +13,43 @@ use matrixcode_core::{
 use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
 use std::path::{PathBuf, Path};
 use termimad::MadSkin;
+use termimad::gray;
+
+/// Create a custom skin for MatrixCode terminal output
+fn create_matrixcode_skin() -> MadSkin {
+    let mut skin = MadSkin::default();
+    
+    // Headers: cyan color with bold
+    skin.headers[0].compound_style.set_fg(termimad::crossterm::style::Color::Cyan);
+    skin.headers[0].add_attr(termimad::crossterm::style::Attribute::Bold);
+    
+    skin.headers[1].compound_style.set_fg(termimad::crossterm::style::Color::DarkCyan);
+    skin.headers[1].add_attr(termimad::crossterm::style::Attribute::Bold);
+    
+    skin.headers[2].compound_style.set_fg(termimad::crossterm::style::Color::Yellow);
+    
+    // Bold text: white with bold
+    skin.bold.set_fg(termimad::crossterm::style::Color::White);
+    skin.bold.add_attr(termimad::crossterm::style::Attribute::Bold);
+    
+    // Inline code: yellow text, gray background
+    skin.inline_code.set_fg(termimad::crossterm::style::Color::Yellow);
+    skin.inline_code.set_bg(gray(20));
+    
+    // Code blocks: gray text, dark background
+    skin.code_block.set_fg(gray(15));
+    skin.code_block.set_bg(gray(5));
+    
+    // Italic: gray
+    skin.italic.set_fg(gray(12));
+    
+    skin
+}
 
 /// Print markdown text to terminal with styling
 fn print_markdown(text: &str) {
-    let skin = MadSkin::default();
+    let skin = create_matrixcode_skin();
     skin.print_text(text);
-}
-
-/// Print a markdown section with title
-fn print_markdown_section(title: &str, content: &str) {
-    let skin = MadSkin::default();
-    println!();
-    skin.print_text(&format!("## {}", title));
-    println!();
-    skin.print_text(content);
 }
 
 // Handle /init commands for project overview generation
@@ -653,7 +676,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 let response = if subcmd.is_empty() || subcmd == "list" {
                     // List all available skills
                     if agent_skills.is_empty() {
-                        "📚 No skills loaded.\n\nSkills directories searched (in order):\n  1. ~/.claude/commands (Claude Code)\n  2. ~/.matrix/skills (MatrixCode global)\n  3. .matrix/skills (Project local)\n  4. --skills-dir (CLI option)\n\nTo add a skill, create a .md file with frontmatter:\n---\nname: my-skill\ndescription: My skill description\n---\nSkill content here...".to_string()
+                        "📚 No skills loaded.\n\nSkills directories searched (in order):\n  1. ~/.matrix/skills (MatrixCode global)\n  2. .matrix/skills (Project local)\n  3. --skills-dir (CLI option)\n\nTo add a skill, create a .md file with frontmatter:\n---\nname: my-skill\ndescription: My skill description\n---\nSkill content here...".to_string()
                     } else {
                         let mut info = format!("📚 Loaded skills ({}):\n\n", agent_skills.len());
                         for skill in &agent_skills {
@@ -712,6 +735,45 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     },
                 )).await;
                 continue;
+            }
+            
+            // Handle /skill_name form (direct skill invocation)
+            if msg.starts_with("/") && !msg.starts_with("/skills") 
+               && !msg.starts_with("/compact") && !msg.starts_with("/compress")
+               && !msg.starts_with("/help") && !msg.starts_with("/init")
+               && !msg.starts_with("/memory") && !msg.starts_with("/overview")
+               && !msg.starts_with("/save") && !msg.starts_with("/sessions")
+               && !msg.starts_with("/resume") && !msg.starts_with("/loop")
+               && !msg.starts_with("/exit") && !msg.starts_with("/quit")
+               && !msg.starts_with("/clear") && !msg.starts_with("/debug")
+               && !msg.starts_with("/status") && msg != "/"
+            {
+                // Try to match skill name
+                let skill_name = msg.trim_start_matches('/');
+                if let Some(skill) = agent_skills.iter().find(|s| s.name == skill_name) {
+                    let files = matrixcode_core::skills::list_skill_files(&skill.dir);
+                    let files_info = if files.len() > 1 {
+                        format!("\n\n📁 Associated files:\n{}", files.iter().map(|f| format!("  - {}", f)).collect::<Vec<_>>().join("\n"))
+                    } else {
+                        String::new()
+                    };
+                    
+                    let response = format!("📚 Skill: {}\n\n{}\n{}\n\nSource: {}", 
+                        skill.name, 
+                        skill.body,
+                        files_info,
+                        skill.source_file.display()
+                    );
+                    
+                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                        matrixcode_core::EventType::Progress,
+                        matrixcode_core::EventData::Progress {
+                            message: response,
+                            percentage: None,
+                        },
+                    )).await;
+                    continue;
+                }
             }
             
             if msg == "/compact" || msg == "/compress" {

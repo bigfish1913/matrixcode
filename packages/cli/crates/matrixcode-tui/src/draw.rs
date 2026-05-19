@@ -52,8 +52,14 @@ impl TuiApp {
     }
 
     fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
+        // Estimate total context tokens from all messages (not just current request)
+        let estimated_context_tokens = self.messages.iter().map(|m| {
+            // Simple estimation: ~3 chars per token
+            (m.content.len() / 3).max(1) as u64
+        }).sum::<u64>();
+        
         let context_pct = if self.context_size > 0 {
-            (self.tokens_in as f64 / self.context_size as f64 * 100.0).min(100.0)
+            (estimated_context_tokens as f64 / self.context_size as f64 * 100.0).min(100.0)
         } else { 0.0 };
         let ctx_color = if context_pct < 50.0 { Color::DarkGray }
                        else if context_pct < 75.0 { Color::Yellow }
@@ -476,11 +482,13 @@ impl TuiApp {
         if !self.auto_scroll && max_scroll > 0 {
             let pct = (scroll_offset as f64 / max_scroll as f64 * 100.0) as u16;
             let indicator = Line::styled(
-                format!("  \u{2191} {}/{} ({:.0}%) \u{2014} End to bottom", scroll_offset, max_scroll, pct),
+                format!("  ↑ {}/{} ({:.0}%) — End to bottom", scroll_offset, max_scroll, pct),
                 Style::default().fg(Color::DarkGray)
             );
             let indicator_area = Rect::new(area.x, area.y, area.width, 1);
             f.render_widget(Paragraph::new(indicator), indicator_area);
+            // Note: scroll_offset is relative to total lines, not the visible area
+            // The scroll indicator just shows position, doesn't affect scrolling
             let msg_area = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1));
             f.render_widget(Paragraph::new(highlighted_lines).scroll((scroll_offset, 0)), msg_area);
         } else {
@@ -571,16 +579,6 @@ impl TuiApp {
                     let truncated_after = truncate_visual(after_cursor, remaining);
                     spans.push(Span::styled(truncated_after, Style::default().fg(Color::White)));
                 }
-            }
-            
-            // Show hint
-            let hint = if self.activity != Activity::Idle && self.activity != Activity::Asking {
-                " [queued]"
-            } else {
-                ""
-            };
-            if !hint.is_empty() {
-                spans.push(Span::styled(hint, Style::default().fg(Color::Magenta)));
             }
             
             f.render_widget(Paragraph::new(Line::from(spans)), area);

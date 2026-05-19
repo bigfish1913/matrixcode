@@ -177,16 +177,25 @@ impl TuiApp {
                 }
             }
             EventType::KeywordsExtracted => {
-                // Keywords extraction is an internal operation, don't show to user
-                // Only update internal state if needed (for debug mode, could show)
-                if self.debug_mode
-                    && let Some(EventData::Keywords { keywords, source }) = e.data {
-                        let preview = truncate(&source, 50);
-                        self.messages.push(Message {
-                            role: Role::System,
-                            content: format!("🔍 Keywords: {} from '{}'", keywords.join(", "), preview)
-                        });
+                // Keywords extraction for memory retrieval context
+                // Show extraction info when keywords are found (informative, not debug-only)
+                if let Some(EventData::Keywords { keywords, source }) = e.data {
+                    if !keywords.is_empty() {
+                        // Always show in status area (brief), full info in debug mode
+                        let preview = truncate(&source, 30);
+                        if self.debug_mode {
+                            self.messages.push(Message {
+                                role: Role::System,
+                                content: format!("🔍 Keywords extracted: [{}] from '{}'", 
+                                    keywords.iter().take(10).cloned().collect::<Vec<_>>().join(", "), preview)
+                            });
+                            self.auto_scroll = true;
+                        }
+                        // Update activity detail to show keywords briefly
+                        self.activity_detail = format!("keywords: {}", 
+                            keywords.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
                     }
+                }
             }
             EventType::AskQuestion => {
                 if let Some(EventData::AskQuestion { question, options }) = e.data {
