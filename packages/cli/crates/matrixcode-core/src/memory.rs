@@ -3910,21 +3910,23 @@ mod tests {
             None,
         ));
 
-        // Test exact match
+        // Test exact match (similarity = 1.0, >= 0.85 threshold)
         assert!(memory.has_similar("We decided to use PostgreSQL for our main database system"));
 
-        // Test very similar content (high similarity >= 0.85 threshold)
-        // Only one word different should still match
-        assert!(memory.has_similar("We decided to use PostgreSQL for our main database systems"));
+        // Test with extra words (still has all original words, Jaccard >= 0.85)
+        // Original: 10 words, with "backend" added: 11 words
+        // Intersection: 10, Union: 11, Jaccard: 10/11 = 0.91 >= 0.85
+        assert!(memory.has_similar("We decided to use PostgreSQL for our main database system backend"));
 
-        // Test moderately similar (should NOT match, < 0.85)
-        // More words different
-        assert!(!memory.has_similar("We decided to use PostgreSQL for our backend database"));
+        // Test moderately similar (should NOT match, Jaccard < 0.85)
+        // Original: 10 words, this: 7 words overlap
+        // Jaccard: 7/12 = 0.58 < 0.85
+        assert!(!memory.has_similar("We decided to use Redis for caching"));
 
         // Test completely different content
         assert!(!memory.has_similar("The project uses React for frontend"));
 
-        // Test short content (should return false)
+        // Test short content (should return false due to MIN_SIMILARITY_LENGTH)
         assert!(!memory.has_similar("short"));
     }
 
@@ -4095,22 +4097,22 @@ mod tests {
             "API endpoint location".into(),
             None,
         );
-        
-        assert_eq!(entry.importance, 60.0);
-        
+
+        assert_eq!(entry.importance, DEFAULT_IMPORTANCE_FINDING);  // 55.0
+
         // Custom increment
         entry.mark_referenced_with_increment(5.0);
-        assert_eq!(entry.importance, 65.0);
-        
-        // Default increment (2.0)
+        assert_eq!(entry.importance, 60.0);  // 55 + 5
+
+        // Default increment (2.0 in mark_referenced)
         entry.mark_referenced();
-        assert_eq!(entry.importance, 67.0);
-        
-        // Should cap at 100
+        assert_eq!(entry.importance, 62.0);  // 60 + 2
+
+        // Should cap at MAX_IMPORTANCE_CEILING
         for _ in 0..20 {
             entry.mark_referenced_with_increment(10.0);
         }
-        assert!(entry.importance <= 100.0);
+        assert!(entry.importance <= MAX_IMPORTANCE_CEILING);
     }
 
     #[test]

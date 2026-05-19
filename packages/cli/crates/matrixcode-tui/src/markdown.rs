@@ -163,10 +163,8 @@ fn process_inline_elements(line: &str) -> Vec<Span<'static>> {
             
             // Collect inline code content (handle unclosed gracefully)
             let mut code_content = String::new();
-            let mut found_close = false;
             while let Some(c) = chars.next() {
                 if c == '`' {
-                    found_close = true;
                     break;
                 }
                 code_content.push(c);
@@ -186,11 +184,9 @@ fn process_inline_elements(line: &str) -> Vec<Span<'static>> {
                 
                 // Collect bold content (handle unclosed gracefully)
                 let mut bold_content = String::new();
-                let mut found_close = false;
                 while let Some(c) = chars.next() {
                     if c == '*' && chars.peek() == Some(&'*') {
                         chars.next(); // consume second *
-                        found_close = true;
                         break;
                     }
                     bold_content.push(c);

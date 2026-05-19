@@ -102,15 +102,40 @@ impl TuiApp {
             ));
         }
 
-        // Status on the right - show current request tokens when active
+        // Status on the right - show real-time info
+        let is_tool_activity = matches!(self.activity,
+            Activity::Reading | Activity::Writing | Activity::Editing |
+            Activity::Searching | Activity::Running | Activity::WebSearch |
+            Activity::WebFetch | Activity::Tool(_)
+        );
+        
         let status_text = if self.activity == Activity::Idle {
             "Ready".to_string()
-        } else if self.current_request_tokens > 0 {
-            // Show real-time token count instead of time
-            format!("{} {}", self.activity.label(), fmt_tokens(self.current_request_tokens))
-        } else if !self.activity_detail.is_empty() {
-            format!("{}({})", self.activity.label(), self.activity_detail)
+        } else if is_tool_activity {
+            // Tool activity: show detail (e.g., "editing(file.rs)")
+            if !self.activity_detail.is_empty() {
+                format!("{}({})", self.activity.label(), self.activity_detail)
+            } else {
+                self.activity.label().to_string()
+            }
+        } else if !self.streaming.is_empty() {
+            // Thinking with streaming text: estimate tokens
+            let estimated_tokens = self.streaming.chars().count() / 4;
+            if estimated_tokens > 0 {
+                format!("Thinking {}", fmt_tokens(estimated_tokens as u64))
+            } else {
+                "Thinking...".to_string()
+            }
+        } else if !self.thinking.is_empty() {
+            // Thinking with thinking text: estimate tokens
+            let estimated_tokens = self.thinking.chars().count() / 4;
+            if estimated_tokens > 0 {
+                format!("Thinking {}", fmt_tokens(estimated_tokens as u64))
+            } else {
+                "Thinking...".to_string()
+            }
         } else {
+            // Default: show activity label
             self.activity.label().to_string()
         };
         let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
@@ -406,7 +431,7 @@ impl TuiApp {
                 .unwrap_or_default();
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", SPINNER[self.frame]), Style::default().fg(self.activity.color())),
-                Span::styled(format!("Waiting for response...{}", elapsed), Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("Thinking...{}", elapsed), Style::default().fg(Color::DarkGray)),
             ]));
         }
 
