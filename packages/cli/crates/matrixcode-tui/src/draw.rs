@@ -119,20 +119,20 @@ impl TuiApp {
                 self.activity.label().to_string()
             }
         } else if !self.streaming.is_empty() {
-            // Thinking with streaming text: estimate tokens
+            // Thinking with streaming text: show estimated tokens
             let estimated_tokens = self.streaming.chars().count() / 4;
             if estimated_tokens > 0 {
-                format!("Thinking {}", fmt_tokens(estimated_tokens as u64))
+                fmt_tokens(estimated_tokens as u64)
             } else {
-                "Thinking...".to_string()
+                "...".to_string()
             }
         } else if !self.thinking.is_empty() {
-            // Thinking with thinking text: estimate tokens
+            // Thinking with thinking text: show estimated tokens
             let estimated_tokens = self.thinking.chars().count() / 4;
             if estimated_tokens > 0 {
-                format!("Thinking {}", fmt_tokens(estimated_tokens as u64))
+                fmt_tokens(estimated_tokens as u64)
             } else {
-                "Thinking...".to_string()
+                "...".to_string()
             }
         } else {
             // Default: show activity label
