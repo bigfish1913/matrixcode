@@ -12,16 +12,15 @@ impl Tool for LsTool {
         ToolDefinition {
             name: "ls".to_string(),
             description:
-                "List immediate entries of a directory. Returns one entry per line, \
-                 dirs first (suffixed with /), then files with byte size. Does not \
-                 recurse — use 'glob' for recursive discovery."
+                "列出目录的直接条目。每行一个条目，目录在前（以 / 结尾），\
+                 文件在后并显示字节大小。不递归——递归查找请使用 'glob'。"
                     .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Directory path (defaults to '.')"
+                        "description": "目录路径（默认 '.'）"
                     }
                 },
                 "required": []

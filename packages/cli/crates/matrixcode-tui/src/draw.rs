@@ -92,10 +92,10 @@ impl TuiApp {
                 self.activity.label().to_string()
             }
         } else if self.current_request_tokens > 0 {
+            // Show real-time output tokens during streaming
             fmt_tokens(self.current_request_tokens)
-        } else if self.activity == Activity::Thinking {
-            "...".to_string()
         } else {
+            // Thinking or other activity without tokens yet
             self.activity.label().to_string()
         };
         let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
@@ -128,16 +128,15 @@ impl TuiApp {
         // out: session output tokens
         if width >= 55 {
             spans.push(Span::styled("  out ", Style::default().fg(Color::DarkGray)));
-            spans.push(Span::styled(fmt_tokens(self.session_total_out), Style::default().fg(Color::Cyan)));
+            spans.push(Span::styled(fmt_tokens(self.session_total_out), Style::default().fg(Color::DarkGray)));
         }
 
         // Cache info: c r/w
         if width >= 75 && (self.cache_read > 0 || self.cache_created > 0) {
             spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-            spans.push(Span::styled("c ", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
-                format!("{}k/{}k", self.cache_read / 1000, self.cache_created / 1000),
-                Style::default().fg(Color::Magenta)
+                format!("c {}k/{}k", self.cache_read / 1000, self.cache_created / 1000),
+                Style::default().fg(Color::DarkGray)
             ));
         }
 

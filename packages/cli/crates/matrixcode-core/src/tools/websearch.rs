@@ -15,17 +15,17 @@ impl Tool for WebSearchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "websearch".to_string(),
-            description: "Search the web for information using DuckDuckGo. Returns a list of search results with titles, URLs, and snippets. Use this tool when you need to find current information on the internet.".to_string(),
+            description: "使用 DuckDuckGo 搜索网络信息。返回包含标题、URL 和摘要的搜索结果列表。用于查找互联网上的最新信息。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The search query"
+                        "description": "搜索查询"
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Maximum number of results to return (default 5, max 10)"
+                        "description": "最大返回结果数（默认 5，最大 10）"
                     }
                 },
                 "required": ["query"]

@@ -45,7 +45,7 @@ impl Tool for EnterPlanModeTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "enter_plan_mode".to_string(),
-            description: "Enter planning mode to design an implementation approach before executing. Use for: (1) Non-trivial implementation tasks that need planning; (2) Tasks that could benefit from architectural consideration; (3) Changes that might have significant impact. Returns step-by-step plan with critical files identified.".to_string(),
+            description: "进入规划模式，在执行前设计实现方案。适用于：(1) 需规划的非 trivial 实现任务；(2) 可受益于架构考量的问题；(3) 可能产生重大影响的变更。返回分步计划并识别关键文件。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {}
@@ -82,23 +82,23 @@ impl Tool for ExitPlanModeTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "exit_plan_mode".to_string(),
-            description: "Exit planning mode. If plan is approved, the agent will execute the planned changes. If plan is rejected, the plan is discarded and no changes are made.".to_string(),
+            description: "退出规划模式。若计划被批准，代理将执行计划的变更；若被拒绝，计划将被丢弃且不做任何修改。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "plan": {
                         "type": "string",
-                        "description": "The implementation plan to commit (optional if already documented)"
+                        "description": "要提交的实现计划（可选，若已记录）"
                     },
                     "files_to_modify": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "List of files that will be modified (optional)"
+                        "description": "将要修改的文件列表（可选）"
                     },
                     "approved": {
                         "type": "boolean",
                         "default": true,
-                        "description": "Whether the plan is approved for execution"
+                        "description": "是否批准执行计划"
                     }
                 }
             }),

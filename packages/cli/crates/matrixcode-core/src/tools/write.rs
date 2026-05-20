@@ -12,17 +12,17 @@ impl Tool for WriteTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "write".to_string(),
-            description: "Write content to a file, creating it if it doesn't exist".to_string(),
+            description: "向文件写入内容，若文件不存在则创建".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file path to write to"
+                        "description": "要写入的文件路径"
                     },
                     "content": {
                         "type": "string",
-                        "description": "The content to write"
+                        "description": "要写入的内容"
                     }
                 },
                 "required": ["path", "content"]

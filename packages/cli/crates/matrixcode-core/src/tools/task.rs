@@ -17,34 +17,34 @@ impl Tool for TaskTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "task".to_string(),
-            description: "Launch a new agent to handle complex, multi-step tasks. Each agent operates independently and can work on different tasks in parallel. Use for: (1) Research tasks that require multiple queries/lookups; (2) Long-running operations that can be done in background; (3) Tasks that need isolation from main context; (4) Multiple independent tasks that can run in parallel.".to_string(),
+            description: "启动新代理处理复杂的多步骤任务。每个代理独立运行，可并行处理不同任务。适用于：(1) 需多次查询/查找的研究任务；(2) 可在后台运行的长时间操作；(3) 需与主上下文隔离的任务；(4) 可并行执行的多个独立任务。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "description": {
                         "type": "string",
-                        "description": "Short 3-5 word description of what the task will do"
+                        "description": "任务简短描述（3-5 个词）"
                     },
                     "prompt": {
                         "type": "string",
-                        "description": "The task for the agent to perform. Should be self-contained with all necessary context."
+                        "description": "代理要执行的任务，需包含所有必要上下文"
                     },
                     "subagent_type": {
                         "type": "string",
                         "enum": ["general-purpose", "Explore", "Plan"],
                         "default": "general-purpose",
-                        "description": "Type of agent to spawn: 'general-purpose' for any task, 'Explore' for fast read-only search, 'Plan' for architecture planning"
+                        "description": "代理类型：'general-purpose' 用于通用任务，'Explore' 用于快速只读搜索，'Plan' 用于架构规划"
                     },
                     "run_in_background": {
                         "type": "boolean",
                         "default": false,
-                        "description": "If true, run agent in background. You'll be notified when it completes."
+                        "description": "若为 true，在后台运行代理，完成时会收到通知"
                     },
                     "isolation": {
                         "type": "string",
                         "enum": ["none", "worktree"],
                         "default": "none",
-                        "description": "Isolation mode: 'none' works in current directory, 'worktree' creates isolated git worktree"
+                        "description": "隔离模式：'none' 在当前目录工作，'worktree' 创建隔离的 git worktree"
                     }
                 },
                 "required": ["description", "prompt"]
@@ -235,17 +235,17 @@ impl Tool for TaskCreateTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "task_create".to_string(),
-            description: "Create a background task that runs independently".to_string(),
+            description: "创建独立运行的后台任务".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "description": {
                         "type": "string",
-                        "description": "Task description"
+                        "description": "任务描述"
                     },
                     "prompt": {
                         "type": "string",
-                        "description": "Task prompt"
+                        "description": "任务提示"
                     }
                 },
                 "required": ["description", "prompt"]
@@ -291,13 +291,13 @@ impl Tool for TaskGetTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "task_get".to_string(),
-            description: "Get status and result of a specific task".to_string(),
+            description: "获取指定任务的状态和结果".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "Task ID to query"
+                        "description": "要查询的任务 ID"
                     }
                 },
                 "required": ["task_id"]
@@ -344,7 +344,7 @@ impl Tool for TaskListTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "task_list".to_string(),
-            description: "List all active tasks".to_string(),
+            description: "列出所有活动任务".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {}
@@ -384,13 +384,13 @@ impl Tool for TaskStopTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "task_stop".to_string(),
-            description: "Stop a running task".to_string(),
+            description: "停止正在运行的任务".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "Task ID to stop"
+                        "description": "要停止的任务 ID"
                     }
                 },
                 "required": ["task_id"]

@@ -11,21 +11,21 @@ impl Tool for SearchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "search".to_string(),
-            description: "Search for a pattern in files using grep-like functionality".to_string(),
+            description: "在文件中搜索模式，类似 grep 功能".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "The regex pattern to search for"
+                        "description": "要搜索的正则表达式模式"
                     },
                     "path": {
                         "type": "string",
-                        "description": "Directory or file path to search in (defaults to '.')"
+                        "description": "搜索的目录或文件路径（默认 '.'）"
                     },
                     "glob": {
                         "type": "string",
-                        "description": "File glob pattern to filter files (e.g. '*.rs')"
+                        "description": "文件过滤的 glob 模式（如 '*.rs'）"
                     }
                 },
                 "required": ["pattern"]

@@ -12,21 +12,21 @@ impl Tool for EditTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "edit".to_string(),
-            description: "Replace an exact string match in a file with new content".to_string(),
+            description: "在文件中查找精确匹配的字符串并替换为新内容".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file path to edit"
+                        "description": "要编辑的文件路径"
                     },
                     "old_string": {
                         "type": "string",
-                        "description": "The exact string to find and replace"
+                        "description": "要查找并替换的原始字符串（必须精确匹配）"
                     },
                     "new_string": {
                         "type": "string",
-                        "description": "The replacement string"
+                        "description": "替换后的新字符串"
                     }
                 },
                 "required": ["path", "old_string", "new_string"]

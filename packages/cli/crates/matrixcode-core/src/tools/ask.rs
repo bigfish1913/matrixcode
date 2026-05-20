@@ -17,13 +17,12 @@ use crate::approval::RiskLevel;
 
 pub struct AskTool;
 
-const ASK_TOOL_DESCRIPTION: &str = 
-    "Ask the user a question when you are uncertain or there are multiple options. \
-     ALWAYS use this tool when: (1) the user's request is ambiguous, \
-     (2) there are multiple viable approaches and you need to choose one, \
-     (3) a decision could significantly impact the project. \
-     Provide your recommendation with reasoning so the user can make an informed choice. \
-     Do NOT guess or proceed without clarification when uncertain.";
+const ASK_TOOL_DESCRIPTION: &str =
+    "当遇到不确定或多种选择时，向用户提问以获取明确指示。\
+     必须使用此工具的情况：(1) 用户请求含义模糊，(2) 存在多种可行方案需要选择，\
+     (3) 决策可能对项目产生重大影响。\
+     提供推荐方案及理由，让用户做出知情选择。\
+     不确定时切勿猜测或直接推进。";
 
 #[async_trait]
 impl Tool for AskTool {
@@ -65,25 +64,25 @@ fn ask_tool_schema() -> Value {
         "properties": {
             "question": {
                 "type": "string",
-                "description": "The question to ask the user. Be specific and clear."
+                "description": "要向用户提问的问题，需具体清晰"
             },
             "options": {
                 "type": "array",
-                "description": "List of available options/choices",
+                "description": "可选方案列表",
                 "items": {
                     "type": "object",
                     "properties": {
                         "id": {
                             "type": "string",
-                            "description": "Short identifier for the option (e.g., 'A', 'B', '1', '2')"
+                            "description": "选项短标识符（如 'A'、'B'、'1'、'2'）"
                         },
                         "label": {
                             "type": "string",
-                            "description": "Human-readable label for the option"
+                            "description": "选项的可读标签"
                         },
                         "description": {
                             "type": "string",
-                            "description": "Brief description of what this option entails"
+                            "description": "该选项的简要说明"
                         }
                     },
                     "required": ["id", "label"]
@@ -91,15 +90,15 @@ fn ask_tool_schema() -> Value {
             },
             "recommendation": {
                 "type": "object",
-                "description": "Your recommended option with reasoning",
+                "description": "你的推荐方案及理由",
                 "properties": {
                     "option_id": {
                         "type": "string",
-                        "description": "The id of your recommended option"
+                        "description": "推荐选项的标识符"
                     },
                     "reason": {
                         "type": "string",
-                        "description": "Why you recommend this option"
+                        "description": "推荐该方案的理由"
                     }
                 },
                 "required": ["option_id", "reason"]

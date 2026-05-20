@@ -13,21 +13,20 @@ impl Tool for MultiEditTool {
         ToolDefinition {
             name: "multi_edit".to_string(),
             description:
-                "Apply multiple exact-string replacements to one file in a single \
-                 atomic write. Each edit must match exactly once against the file \
-                 state after prior edits in the same call. If any edit fails the \
-                 file is not modified."
+                "对单个文件应用多处精确字符串替换，一次性原子写入。\
+                 每个编辑必须在前序编辑后的文件状态中精确匹配一次。\
+                 若任一编辑失败，文件不会被修改。"
                     .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file path to edit"
+                        "description": "要编辑的文件路径"
                     },
                     "edits": {
                         "type": "array",
-                        "description": "Ordered list of {old_string, new_string} replacements",
+                        "description": "有序的 {old_string, new_string} 替换列表",
                         "items": {
                             "type": "object",
                             "properties": {

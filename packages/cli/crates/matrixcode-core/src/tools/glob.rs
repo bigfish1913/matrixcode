@@ -16,20 +16,20 @@ impl Tool for GlobTool {
         ToolDefinition {
             name: "glob".to_string(),
             description:
-                "Find files by glob pattern (e.g. '**/*.rs', 'src/*.toml'). \
-                 Returns matching file paths sorted by modification time (newest first). \
-                 Use this to locate files by name; use 'search' to find content inside files."
+                "通过 glob 模式查找文件（如 '**/*.rs'、'src/*.toml'）。\
+                 返回匹配的文件路径，按修改时间排序（最新的在前）。\
+                 用于按名称定位文件；若要查找文件内容请使用 'search'。"
                     .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "Glob pattern, supports '*', '?', and recursive '**'"
+                        "description": "Glob 模式，支持 '*'、'?' 和递归 '**'"
                     },
                     "path": {
                         "type": "string",
-                        "description": "Base directory to search in (defaults to '.')"
+                        "description": "搜索的基础目录（默认 '.'）"
                     }
                 },
                 "required": ["pattern"]

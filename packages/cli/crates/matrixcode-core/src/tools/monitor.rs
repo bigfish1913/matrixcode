@@ -14,29 +14,29 @@ impl Tool for MonitorTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "monitor".to_string(),
-            description: "Monitor external processes or wait for state changes. Use to: (1) Wait for build/test completion; (2) Watch for file changes; (3) Monitor background services; (4) Track process status. Returns when monitored condition is met or timeout expires.".to_string(),
+            description: "监控外部进程或等待状态变化。用于：(1) 等待构建/测试完成；(2) 监视文件变化；(3) 监控后台服务；(4) 跟踪进程状态。当监控条件满足或超时到期时返回。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "mode": {
                         "type": "string",
                         "enum": ["process", "file", "port", "timer"],
-                        "description": "Monitor mode: 'process' watches a process, 'file' watches for file changes, 'port' waits for port availability, 'timer' is a simple countdown"
+                        "description": "监控模式：'process' 监视进程，'file' 监视文件变化，'port' 等待端口可用，'timer' 简单计时"
                     },
                     "target": {
                         "type": "string",
-                        "description": "Target to monitor: PID or process name for 'process', file path for 'file', port number for 'port'"
+                        "description": "监控目标：'process' 用 PID 或进程名，'file' 用文件路径，'port' 用端口号"
                     },
                     "timeout": {
                         "type": "integer",
                         "default": 30000,
-                        "description": "Timeout in milliseconds (default 30s)"
+                        "description": "超时时间（毫秒，默认 30 秒）"
                     },
                     "condition": {
                         "type": "string",
                         "enum": ["exit", "running", "exists", "changed", "available"],
                         "default": "available",
-                        "description": "Condition to wait for: 'exit' waits for process to finish, 'running' waits for process to start, 'exists' waits for file to exist, 'changed' waits for file modification, 'available' waits for port to be available"
+                        "description": "等待条件：'exit' 等进程结束，'running' 等进程启动，'exists' 等文件存在，'changed' 等文件修改，'available' 等端口可用"
                     }
                 },
                 "required": ["mode"]

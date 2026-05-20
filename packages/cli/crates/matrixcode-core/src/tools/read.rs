@@ -11,21 +11,21 @@ impl Tool for ReadTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "read".to_string(),
-            description: "Read the contents of a file at the given path".to_string(),
+            description: "读取指定路径的文件内容".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file path to read"
+                        "description": "要读取的文件路径"
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "Line number to start reading from (0-based)"
+                        "description": "起始行号（从 0 开始）"
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of lines to read"
+                        "description": "最大读取行数"
                     }
                 },
                 "required": ["path"]

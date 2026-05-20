@@ -13,27 +13,26 @@ impl Tool for TodoWriteTool {
         ToolDefinition {
             name: "todo_write".to_string(),
             description:
-                "Maintain a structured todo list to plan and track multi-step work. \
-                 Each call REPLACES the full list. Use for non-trivial tasks (3+ \
-                 steps) to show progress. Keep exactly one task 'in_progress' at \
-                 a time and mark tasks 'completed' as soon as they finish."
+                "维护结构化待办列表，用于规划和跟踪多步骤工作。\
+                 每次调用会替换整个列表。用于非 trivial 任务（3 步以上）以展示进度。\
+                 同时只保持一个任务 'in_progress'，完成后立即标记为 'completed'。"
                     .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "todos": {
                         "type": "array",
-                        "description": "Full replacement list of todo items",
+                        "description": "待办项的完整替换列表",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "content": {
                                     "type": "string",
-                                    "description": "Imperative form (e.g. 'Run tests')"
+                                    "description": "命令式描述（如 '运行测试'）"
                                 },
                                 "activeForm": {
                                     "type": "string",
-                                    "description": "Present-continuous form (e.g. 'Running tests')"
+                                    "description": "进行式描述（如 '正在运行测试'）"
                                 },
                                 "status": {
                                     "type": "string",

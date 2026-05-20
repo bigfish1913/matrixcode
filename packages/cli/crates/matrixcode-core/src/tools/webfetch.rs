@@ -11,17 +11,17 @@ impl Tool for WebFetchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "webfetch".to_string(),
-            description: "Fetch content from a URL and return it as text".to_string(),
+            description: "从 URL 获取内容并返回为文本".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "url": {
                         "type": "string",
-                        "description": "The URL to fetch"
+                        "description": "要获取的 URL"
                     },
                     "max_length": {
                         "type": "integer",
-                        "description": "Maximum response length in characters (default 10000)"
+                        "description": "最大响应长度（字符数，默认 10000）"
                     }
                 },
                 "required": ["url"]

@@ -33,7 +33,7 @@ impl Tool for SkillTool {
         let mut props = json!({
             "name": {
                 "type": "string",
-                "description": "Name of the skill to load (must match one listed in the system prompt)."
+                "description": "要加载的技能名称（必须匹配系统提示中列出的名称）"
             }
         });
         if !self.skills.is_empty() {
@@ -48,10 +48,8 @@ impl Tool for SkillTool {
         ToolDefinition {
             name: "skill".to_string(),
             description:
-                "Load the full instructions for a named skill. Call this when a skill \
-                 listed in the system prompt looks relevant to the user's request. \
-                 The response includes the skill's body and a list of files in its \
-                 directory that you can read with the `read` tool."
+                "加载指定技能的完整指令。当系统提示中列出的技能与用户请求相关时调用此工具。\
+                 返回包含技能内容和技能目录中的文件列表，可用 `read` 工具读取。"
                     .to_string(),
             parameters: json!({
                 "type": "object",

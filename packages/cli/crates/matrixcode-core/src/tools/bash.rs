@@ -18,20 +18,19 @@ impl Tool for BashTool {
         ToolDefinition {
             name: "bash".to_string(),
             description:
-                "Run a shell command in the current working directory and return \
-                 combined stdout + stderr. Use for builds, tests, git, package \
-                 managers, etc. The command runs via `sh -c` with a timeout."
+                "在当前工作目录执行 shell 命令，返回合并的 stdout + stderr。\
+                 用于构建、测试、git、包管理器等操作。命令通过 `sh -c` 执行并有超时限制。"
                     .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "The shell command to run"
+                        "description": "要执行的 shell 命令"
                     },
                     "timeout_ms": {
                         "type": "integer",
-                        "description": "Max runtime in milliseconds (default 120000, max 600000)"
+                        "description": "最大运行时间（毫秒，默认 120000，最大 600000）"
                     }
                 },
                 "required": ["command"]

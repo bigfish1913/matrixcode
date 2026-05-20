@@ -12,52 +12,52 @@ impl Tool for GrepTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "grep".to_string(),
-            description: "Fast content search tool that works with any codebase size. Supports regex, file type filtering, and multiple output modes.".to_string(),
+            description: "高性能内容搜索工具，适用于任意规模代码库。支持正则表达式、文件类型过滤和多种输出模式。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "The regular expression pattern to search for"
+                        "description": "要搜索的正则表达式模式"
                     },
                     "path": {
                         "type": "string",
-                        "description": "File or directory to search in (default: current directory)"
+                        "description": "搜索的文件或目录（默认当前目录）"
                     },
                     "glob": {
                         "type": "string",
-                        "description": "Glob pattern to filter files (e.g. '*.ts', '**/*.rs')"
+                        "description": "Glob 文件过滤模式（如 '*.ts'、'**/*.rs'）"
                     },
                     "type": {
                         "type": "string",
                         "enum": ["js", "ts", "py", "rs", "go", "java", "c", "cpp", "md", "json", "yaml", "html", "css"],
-                        "description": "File type to search (maps to common extensions)"
+                        "description": "按文件类型搜索（映射到常用扩展名）"
                     },
                     "output_mode": {
                         "type": "string",
                         "enum": ["content", "files_with_matches", "count"],
                         "default": "content",
-                        "description": "Output mode: 'content' shows matching lines, 'files_with_matches' lists files, 'count' shows match counts"
+                        "description": "输出模式：'content' 显示匹配行，'files_with_matches' 列出文件，'count' 显示匹配数"
                     },
                     "-i": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Case-insensitive search"
+                        "description": "忽略大小写"
                     },
                     "-n": {
                         "type": "boolean",
                         "default": true,
-                        "description": "Show line numbers"
+                        "description": "显示行号"
                     },
                     "-C": {
                         "type": "integer",
                         "default": 0,
-                        "description": "Number of context lines to show before and after match"
+                        "description": "匹配行前后显示的上下文行数"
                     },
                     "head_limit": {
                         "type": "integer",
                         "default": 100,
-                        "description": "Maximum number of results to return"
+                        "description": "最大返回结果数"
                     }
                 },
                 "required": ["pattern"]
