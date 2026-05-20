@@ -81,7 +81,7 @@ impl TuiApp {
                 Style::default().fg(ctx_color)
             ),
             Span::styled(
-                format!("out {} ", fmt_tokens(self.session_total_out)),
+                format!("{} tokens ", fmt_tokens(self.session_total_out)),
                 Style::default().fg(Color::DarkGray)
             ),
         ];
@@ -239,14 +239,27 @@ impl TuiApp {
                     }
                 }
                 Role::Tool { name, is_error } => {
-                    let icon = if *is_error { "\u{2717}" } else { "\u{2713}" };
-                    let color = if *is_error { Color::Red } else { Color::DarkGray };
+                    let status_icon = if *is_error { "\u{2717}" } else { "\u{2713}" };
+                    let status_color = if *is_error { Color::Red } else { Color::Green };
                     let line_count = msg.content.lines().count();
                     let preview = msg.content.lines().next().unwrap_or("");
 
+                    // Tool-specific icon for better visual identification
+                    let tool_icon = match name.as_str() {
+                        "read" => "\u{1f4d6}",      // 📖
+                        "write" => "\u{1f4dd}",     // 📝
+                        "edit" | "multi_edit" => "\u{270f}",  // ✏️
+                        "bash" => "\u{26a1}",       // ⚡
+                        "search" | "glob" | "ls" => "\u{1f50d}",  // 🔍
+                        "websearch" => "\u{1f310}", // 🌐
+                        "webfetch" => "\u{1f517}",  // 🔗
+                        "ask" => "\u{2753}",        // ❓
+                        _ => "\u{1f527}",           // 🔧
+                    };
+
                     // Summary line (always shown)
                     let summary = if *is_error {
-                        truncate(preview, max_w.saturating_sub(name.len() + 6))
+                        truncate(preview, max_w.saturating_sub(name.len() + 10))
                     } else {
                         match name.as_str() {
                             "read" => format!("{} lines", line_count),
@@ -254,20 +267,23 @@ impl TuiApp {
                             "edit" | "multi_edit" => "applied".into(),
                             "bash" => {
                                 if line_count <= 1 {
-                                    truncate(preview, max_w.saturating_sub(name.len() + 6))
+                                    truncate(preview, max_w.saturating_sub(name.len() + 10))
                                 } else {
                                     format!("{} lines output", line_count)
                                 }
                             }
                             "search" | "glob" | "ls" => format!("{} results", line_count),
-                            _ => truncate(preview, max_w.saturating_sub(name.len() + 6)),
+                            _ => truncate(preview, max_w.saturating_sub(name.len() + 10)),
                         }
                     };
 
+                    // Tool header line - prominent with bold name
                     lines.push(Line::from(vec![
-                        Span::styled(format!("  {} ", icon), Style::default().fg(color)),
-                        Span::styled(name.clone(), Style::default().fg(color)),
-                        Span::styled(format!(" \u{2192} {}", summary), Style::default().fg(Color::DarkGray)),
+                        Span::styled(format!("  {} ", tool_icon), Style::default().fg(status_color)),
+                        Span::styled(name.clone(), Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+                        Span::styled(" ", Style::default()),
+                        Span::styled(status_icon, Style::default().fg(status_color)),
+                        Span::styled(format!(" \u{2192} {}", summary), Style::default().fg(Color::Gray)),
                     ]));
 
                     // Content preview: detect diff format (lines starting with "- " or "+ " after edit header)

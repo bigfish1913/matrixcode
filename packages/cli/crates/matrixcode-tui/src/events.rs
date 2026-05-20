@@ -51,10 +51,9 @@ impl TuiApp {
                 }
             }
             EventType::ToolResult => {
-                if let Some(EventData::ToolResult { content, is_error, .. }) = e.data {
-                    let tool_name = self.activity.label();
+                if let Some(EventData::ToolResult { content, name, is_error, .. }) = e.data {
                     self.messages.push(Message {
-                        role: Role::Tool { name: tool_name, is_error },
+                        role: Role::Tool { name, is_error },
                         content  // Keep full content, draw.rs will summarize
                     });
                     self.tool_calls += 1;

@@ -546,7 +546,7 @@ impl Agent {
                         Err(e) => (e.to_string(), true),
                     };
 
-                    self.emit(AgentEvent::tool_result(id.clone(), content.clone(), is_error))?;
+                    self.emit(AgentEvent::tool_result(id.clone(), name.clone(), content.clone(), is_error))?;
 
                     // Add tool_use to assistant content
                     assistant_content.push(ContentBlock::ToolUse {

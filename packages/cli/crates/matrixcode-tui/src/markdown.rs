@@ -103,6 +103,7 @@ struct MarkdownRenderer {
     code_block_content: String,
     list_depth: usize,
     // Table support
+    in_table_cell: bool,
     current_table_row: Vec<String>,
     current_cell_content: String,
     table_header: Vec<String>,
@@ -120,6 +121,7 @@ impl MarkdownRenderer {
             code_block_lang: None,
             code_block_content: String::new(),
             list_depth: 0,
+            in_table_cell: false,
             current_table_row: Vec::new(),
             current_cell_content: String::new(),
             table_header: Vec::new(),
@@ -162,7 +164,7 @@ impl MarkdownRenderer {
                 Event::Text(text) => {
                     if self.in_code_block {
                         self.code_block_content.push_str(&text);
-                    } else if self.in_table_header || !self.current_table_row.is_empty() {
+                    } else if self.in_table_cell {
                         self.current_cell_content.push_str(&text);
                     } else {
                         self.add_text(&text);
@@ -200,13 +202,6 @@ impl MarkdownRenderer {
                     CodeBlockKind::Fenced(lang) => Some(lang.to_string()),
                     CodeBlockKind::Indented => None,
                 };
-                let lang = self.code_block_lang.as_deref().unwrap_or("");
-                let header = if lang.is_empty() {
-                    "┌─ code ─".to_string()
-                } else {
-                    format!("┌─ {} ─", lang)
-                };
-                self.lines.push(Line::styled(header, Style::default().fg(Color::DarkGray)));
             }
             Tag::List(_) => {
                 self.flush_line();
@@ -254,6 +249,7 @@ impl MarkdownRenderer {
             }
             Tag::TableCell => {
                 self.current_cell_content.clear();
+                self.in_table_cell = true;
             }
             Tag::FootnoteDefinition(_) => {}
         }
@@ -274,7 +270,6 @@ impl MarkdownRenderer {
                 self.in_code_block = false;
                 self.code_block_lang = None;
                 self.code_block_content.clear();
-                self.lines.push(Line::styled("└───────", Style::default().fg(Color::DarkGray)));
             }
             Tag::List(_) => {
                 self.flush_line();
@@ -305,6 +300,9 @@ impl MarkdownRenderer {
                 self.render_table();
             }
             Tag::TableHead => {
+                // TableHead end: move collected cells to table_header
+                self.table_header = self.current_table_row.clone();
+                self.current_table_row.clear();
                 self.in_table_header = false;
             }
             Tag::TableRow => {
@@ -318,6 +316,7 @@ impl MarkdownRenderer {
             Tag::TableCell => {
                 self.current_table_row.push(self.current_cell_content.clone());
                 self.current_cell_content.clear();
+                self.in_table_cell = false;
             }
             Tag::FootnoteDefinition(_) => {}
         }
@@ -327,12 +326,16 @@ impl MarkdownRenderer {
         let lang = self.code_block_lang.as_deref().unwrap_or("");
         let code = &self.code_block_content;
 
+        // Optional: show language label on first line
+        if !lang.is_empty() {
+            self.lines.push(Line::styled(
+                format!("// {}", lang),
+                Style::default().fg(Color::DarkGray)
+            ));
+        }
+
         for line_spans in self.highlight_code_with_colors(lang, code) {
-            let mut spans: Vec<Span<'static>> = vec![
-                Span::styled("│ ", Style::default().fg(Color::DarkGray)),
-            ];
-            spans.extend(line_spans);
-            self.lines.push(Line::from(spans));
+            self.lines.push(Line::from(line_spans));
         }
     }
 
@@ -564,6 +567,7 @@ mod tests {
 #[cfg(test)]
 mod debug_tests {
     use super::*;
+    use pulldown_cmark::{Parser, Event, Tag, Options};
 
     #[test]
     fn debug_code_block() {
@@ -582,14 +586,30 @@ mod debug_tests {
     }
 
     #[test]
-    fn debug_table() {
-        let md = "| 列1 | 列2 | 列3 |\n|---|---|---|\n| 数据A | 数据B | 数据C |\n| 1 | 2 | 3 |";
-        println!("\n=== Table Test ===");
+    fn debug_table_events() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+        println!("\n=== Table Events ===");
+        println!("Input: {}", md);
+
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_TABLES);
+
+        let parser = Parser::new_ext(md, options);
+        for (i, event) in parser.enumerate() {
+            println!("[{}] {:?}", i, event);
+        }
+    }
+
+    #[test]
+    fn debug_table_render() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+        println!("\n=== Table Render ===");
         println!("Input: {}", md);
         let lines = render_markdown(md, 60);
+        println!("Output lines: {}", lines.len());
         for (i, line) in lines.iter().enumerate() {
             let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-            println!("[{}] {}", i, text);
+            println!("[{}] '{}'", i, text);
         }
     }
 }

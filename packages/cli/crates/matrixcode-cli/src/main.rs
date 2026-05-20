@@ -2179,10 +2179,10 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                 
                 match result {
                     Ok(_) => {
-                        events.push(AgentEvent::tool_result("action_1", "Action completed".to_string(), false));
+                        events.push(AgentEvent::tool_result("action_1", "action", "Action completed".to_string(), false));
                     }
                     Err(e) => {
-                        events.push(AgentEvent::tool_result("action_1", format!("Error: {}", e), true));
+                        events.push(AgentEvent::tool_result("action_1", "action", format!("Error: {}", e), true));
                     }
                 }
             } else {
