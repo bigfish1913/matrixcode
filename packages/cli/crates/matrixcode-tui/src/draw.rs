@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
@@ -13,42 +13,44 @@ use crate::SPINNER;
 
 impl TuiApp {
     pub(crate) fn draw(&self, f: &mut ratatui::Frame) {
-        // Dynamic queue height: show if there are pending messages
-        let queue_height = if self.pending_messages.is_empty() {
-            Constraint::Length(0)
-        } else {
-            Constraint::Length(1)
-        };
-        
         // Dynamic input height: expand for multiline content
         let input_lines = self.input.lines().count().max(1);
         let input_height = if input_lines <= 1 {
-            Constraint::Length(1)
+            1u16
         } else {
-            Constraint::Length(input_lines.min(5) as u16 + 1)
+            input_lines.min(5) as u16 + 1
         };
         
-        let constraints = vec![
-            Constraint::Min(3),              // Messages
-            queue_height,                    // Queue (pending messages preview)
-            Constraint::Length(1),           // Status bar (bottom)
-            input_height,                    // Input
-        ];
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(constraints)
-            .split(f.area());
+        // Calculate fixed bottom elements first (from bottom to top)
+        // This ensures input box position is stable for IME candidate window
+        let total_height = f.area().height;
+        let status_height = 1u16;
+        let queue_height_actual = if self.pending_messages.is_empty() { 0u16 } else { 1u16 };
+        
+        // Input at bottom, fixed position
+        let input_y = total_height.saturating_sub(input_height);
+        // Status above input
+        let status_y = input_y.saturating_sub(status_height);
+        // Queue above status (if any)
+        let queue_y = status_y.saturating_sub(queue_height_actual);
+        // Messages fill remaining space from top
+        let messages_height = queue_y;
+        
+        // Create fixed-position areas instead of dynamic layout
+        let messages_area = Rect::new(f.area().x, f.area().y, f.area().width, messages_height);
+        let queue_area = Rect::new(f.area().x, queue_y, f.area().width, queue_height_actual);
+        let status_area = Rect::new(f.area().x, status_y, f.area().width, status_height);
+        let input_area = Rect::new(f.area().x, input_y, f.area().width, input_height);
 
         // Store messages area top for mouse selection
-        self.msg_area_top.set(chunks[0].y);
+        self.msg_area_top.set(messages_area.y);
 
-        self.draw_messages(f, chunks[0]);
+        self.draw_messages(f, messages_area);
         if !self.pending_messages.is_empty() {
-            self.draw_queue(f, chunks[1]);
+            self.draw_queue(f, queue_area);
         }
-        self.draw_status(f, chunks[2]);
-        self.draw_input(f, chunks[3]);
+        self.draw_status(f, status_area);
+        self.draw_input(f, input_area);
     }
 
     fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -277,7 +279,7 @@ impl TuiApp {
                         }
                     }
                 }
-                Role::Tool { name, is_error } => {
+                Role::Tool { name, detail, is_error } => {
                     let status_icon = if *is_error { "\u{2717}" } else { "\u{2713}" };
                     let status_color = if *is_error { Color::Red } else { Color::Green };
                     let line_count = msg.content.lines().count();
@@ -316,13 +318,20 @@ impl TuiApp {
                         }
                     };
 
-                    // Tool header line - prominent with bold name
+                    // Tool header line - prominent with bold name and detail
+                    let detail_text = detail.as_ref().map(|d| truncate(d, 40)).unwrap_or_default();
+                    let detail_span = if detail_text.is_empty() {
+                        Span::styled(format!(" \u{2192} {}", summary), Style::default().fg(Color::Gray))
+                    } else {
+                        Span::styled(format!(" {} \u{2192} {}", detail_text, summary), Style::default().fg(Color::Cyan))
+                    };
+                    
                     lines.push(Line::from(vec![
                         Span::styled(format!("  {} ", tool_icon), Style::default().fg(status_color)),
                         Span::styled(name.clone(), Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
                         Span::styled(" ", Style::default()),
                         Span::styled(status_icon, Style::default().fg(status_color)),
-                        Span::styled(format!(" \u{2192} {}", summary), Style::default().fg(Color::Gray)),
+                        detail_span,
                     ]));
 
                     // Content preview: detect diff format (lines starting with "- " or "+ " after edit header)
@@ -571,12 +580,9 @@ impl TuiApp {
         };
         self.max_scroll.set(max_scroll);
 
-        let force_auto_scroll = (!self.streaming.is_empty()
-            || !self.thinking.is_empty()
-            || self.activity == Activity::Thinking)
-            && !self.selecting;
-
-        let scroll_offset = if self.auto_scroll || force_auto_scroll {
+        // Respect user's auto_scroll setting - no force auto scroll
+        // User can scroll to bottom to re-enable auto_scroll
+        let scroll_offset = if self.auto_scroll {
             max_scroll
         } else {
             self.scroll_offset.min(max_scroll)
@@ -660,7 +666,7 @@ impl TuiApp {
             ];
             
             if self.activity == Activity::Asking {
-                spans.push(Span::styled("[AWAITING REPLY: y/n or option] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled("[A/B/C?] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
             }
             
             if self.input.is_empty() {

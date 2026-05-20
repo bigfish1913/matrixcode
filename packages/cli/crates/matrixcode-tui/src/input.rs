@@ -33,19 +33,10 @@ impl TuiApp {
                         ask_tx.try_send("abort".to_string()).ok();
                     }
                 } else if self.activity != Activity::Idle {
+                    // Signal cancellation - backend will respond with Error event
+                    // The events.rs handler will then process queue
                     self.cancel.cancel();
-                    // Don't reset here - wait for backend to acknowledge via SessionEnded/Error
-                    self.activity = Activity::Idle;
-                    // Save any in-progress content before clearing - thinking first, then assistant
-                    if !self.thinking.is_empty() {
-                        self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
-                        self.thinking.clear();
-                    }
-                    if !self.streaming.is_empty() {
-                        self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
-                        self.streaming.clear();
-                    }
-                    self.messages.push(Message { role: Role::System, content: "⚠️ Interrupted".into() });
+                    self.messages.push(Message { role: Role::System, content: "⚡ Interrupting...".into() });
                 } else {
                     self.input.clear();
                     self.cursor_pos = 0;
@@ -68,17 +59,9 @@ impl TuiApp {
                         self.selecting = false;
                     }
                 } else if self.activity != Activity::Idle {
+                    // Signal cancellation - backend will respond with Error event
                     self.cancel.cancel();
-                    self.activity = Activity::Idle;
-                    if !self.thinking.is_empty() {
-                        self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
-                        self.thinking.clear();
-                    }
-                    if !self.streaming.is_empty() {
-                        self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
-                        self.streaming.clear();
-                    }
-                    self.messages.push(Message { role: Role::System, content: "⚠️ Interrupted".into() });
+                    self.messages.push(Message { role: Role::System, content: "⚡ Interrupting...".into() });
                 }
             }
 

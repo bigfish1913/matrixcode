@@ -253,7 +253,7 @@ impl TuiApp {
                         matrixcode_core::Role::User => Role::User,
                         matrixcode_core::Role::Assistant => Role::Assistant,
                         matrixcode_core::Role::System => Role::System,
-                        matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), is_error: false },
+                        matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), detail: None, is_error: false },
                     };
                     // Restore input history from user messages
                     if role == Role::User && !t.starts_with('/')
@@ -272,7 +272,7 @@ impl TuiApp {
                                     matrixcode_core::Role::User => Role::User,
                                     matrixcode_core::Role::Assistant => Role::Assistant,
                                     matrixcode_core::Role::System => Role::System,
-                                    matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), is_error: false },
+                                    matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), detail: None, is_error: false },
                                 };
                                 // Restore input history from user messages
                                 if role == Role::User && !text.starts_with('/')
@@ -296,6 +296,7 @@ impl TuiApp {
                                 self.messages.push(Message { 
                                     role: Role::Tool { 
                                         name: if tool_use_id.starts_with("bash") { "bash".into() } else { tool_use_id.clone() },
+                                        detail: None,
                                         is_error 
                                     }, 
                                     content: content.clone() 

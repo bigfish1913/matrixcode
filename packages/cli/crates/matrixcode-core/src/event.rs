@@ -48,7 +48,7 @@ pub enum EventData {
     Thinking { delta: String, signature: Option<String> },
     ToolUse { id: String, name: String, input: Option<serde_json::Value> },
     ToolUseInput { id: String, delta: String },
-    ToolResult { tool_use_id: String, name: String, content: String, is_error: bool },
+    ToolResult { tool_use_id: String, name: String, detail: Option<String>, content: String, is_error: bool },
     Error { message: String, code: Option<String>, source: Option<String> },
     Usage { input_tokens: u64, output_tokens: u64, cache_creation_input_tokens: Option<u64>, cache_read_input_tokens: Option<u64> },
     Progress { message: String, percentage: Option<u8> },
@@ -86,9 +86,9 @@ impl AgentEvent {
         Self::with_data(EventType::ToolUseStart, EventData::ToolUse { id: id.into(), name: name.into(), input })
     }
 
-    pub fn tool_result(tool_use_id: impl Into<String>, name: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {
+    pub fn tool_result(tool_use_id: impl Into<String>, name: impl Into<String>, detail: Option<String>, content: impl Into<String>, is_error: bool) -> Self {
         Self::with_data(EventType::ToolResult, EventData::ToolResult {
-            tool_use_id: tool_use_id.into(), name: name.into(), content: content.into(), is_error
+            tool_use_id: tool_use_id.into(), name: name.into(), detail, content: content.into(), is_error
         })
     }
 

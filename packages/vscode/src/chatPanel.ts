@@ -125,12 +125,17 @@ export class ChatPanelProvider implements vscode.Disposable {
     /**
      * Open a file from a link click in webview.
      * Supports formats: filename.ts, filename.ts:42, filename.ts:42-51
+     * Also handles Windows absolute paths (C:\path\file.ts:42)
      */
     private async openFile(linkPath: string): Promise<void> {
         try {
             // Parse the link path - extract filename and line numbers
             // Format: path/to/file.ts:42 or path/to/file.ts:42-51
-            const match = linkPath.match(/^(.+?)(?::(\d+)(?:-(\d+))?)?$/);
+            // Use a regex that handles Windows paths correctly (avoid splitting on drive letter colon)
+            // Windows paths: C:\path\file.ts:42 - the drive letter colon should NOT be split
+            // Strategy: find the LAST colon followed by digits (that's the line number)
+            const match = linkPath.match(/^(.+):(\d+)(?:-(\d+))?$/) ||
+                          linkPath.match(/^(.+)$/);  // No line number
 
             if (!match) {
                 vscode.window.showWarningMessage(`Invalid file path: ${linkPath}`);
@@ -145,7 +150,13 @@ export class ChatPanelProvider implements vscode.Disposable {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             let absolutePath = filePath;
 
-            if (workspaceRoot && !filePath.startsWith(workspaceRoot)) {
+            // Check if it's already an absolute path
+            // Windows: starts with drive letter like "C:\" or "D:\"
+            // Unix: starts with "/"
+            const isAbsolutePath = filePath.startsWith('/') ||
+                                   filePath.match(/^[A-Za-z]:[/\\]/) !== null;
+
+            if (workspaceRoot && !isAbsolutePath) {
                 absolutePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), filePath).fsPath;
             }
 

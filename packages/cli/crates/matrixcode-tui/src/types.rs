@@ -70,7 +70,7 @@ pub enum Role {
     User,
     Assistant,
     Thinking,
-    Tool { name: String, is_error: bool },
+    Tool { name: String, detail: Option<String>, is_error: bool },
     System,
     Ask,  // Approval/question requests - needs prominent display
 }

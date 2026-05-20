@@ -379,6 +379,11 @@ impl Agent {
         loop {
             attempt += 1;
             
+            // Check cancellation before starting stream
+            if let Some(token) = &self.cancel_token && token.is_cancelled() {
+                return Err(anyhow::anyhow!("Operation cancelled"));
+            }
+            
             // Try to start streaming
             let rx_result = self.provider.chat_stream(request.clone()).await;
             
@@ -396,26 +401,45 @@ impl Agent {
                     };
                     let mut should_retry = false;
 
-                    while let Some(event) = rx.recv().await {
+                    // Use select! to check cancellation while streaming
+                    loop {
+                        // Check cancellation periodically
+                        if let Some(token) = &self.cancel_token && token.is_cancelled() {
+                            return Err(anyhow::anyhow!("Operation cancelled"));
+                        }
+                        
+                        // Try to receive with a small timeout to allow cancellation check
+                        let event = tokio::select! {
+                            event = rx.recv() => event,
+                            _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
+                                // Timeout - continue loop to check cancellation
+                                continue;
+                            }
+                        };
+                        
                         match event {
-                            StreamEvent::FirstByte => {
+                            None => {
+                                // Stream ended
+                                break;
+                            }
+                            Some(StreamEvent::FirstByte) => {
                                 // First byte received, streaming starts
                             }
-                            StreamEvent::ThinkingDelta(delta) => {
+                            Some(StreamEvent::ThinkingDelta(delta)) => {
                                 if current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_start())?;
                                 }
                                 current_thinking.push_str(&delta);
                                 self.emit(AgentEvent::thinking_delta(delta, None))?;
                             }
-                            StreamEvent::TextDelta(delta) => {
+                            Some(StreamEvent::TextDelta(delta)) => {
                                 if current_text.is_empty() {
                                     self.emit(AgentEvent::text_start())?;
                                 }
                                 current_text.push_str(&delta);
                                 self.emit(AgentEvent::text_delta(delta))?;
                             }
-                            StreamEvent::ToolUseStart { id, name } => {
+                            Some(StreamEvent::ToolUseStart { id, name }) => {
                                 // Finish any pending thinking first
                                 if !current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_end())?;
@@ -433,10 +457,10 @@ impl Agent {
                                 }
                                 self.emit(AgentEvent::tool_use_start(&id, &name, None))?;
                             }
-                            StreamEvent::ToolInputDelta { bytes_so_far: _ } => {
+                            Some(StreamEvent::ToolInputDelta { bytes_so_far: _ }) => {
                                 // Tool input progress - could emit progress event
                             }
-                            StreamEvent::Usage { output_tokens } => {
+                            Some(StreamEvent::Usage { output_tokens }) => {
                                 // Real-time usage update - emit to TUI and update internal usage
                                 self.emit(AgentEvent::usage_with_cache(
                                     0,  // input_tokens not available in stream
@@ -445,7 +469,7 @@ impl Agent {
                                 ))?;
                                 usage.output_tokens = output_tokens;
                             }
-                            StreamEvent::Done(resp) => {
+                            Some(StreamEvent::Done(resp)) => {
                                 // Finish any pending thinking first
                                 if !current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_end())?;
@@ -467,7 +491,7 @@ impl Agent {
                                 }
                                 usage = resp.usage;
                             }
-                            StreamEvent::Error(msg) => {
+                            Some(StreamEvent::Error(msg)) => {
                                 // Stream error - might be retryable
                                 if attempt < MAX_RETRIES {
                                     self.emit(AgentEvent::progress(
@@ -537,6 +561,11 @@ impl Agent {
                 }
 
                 ContentBlock::ToolUse { id, name, input } => {
+                    // Check cancellation before executing tool
+                    if let Some(token) = &self.cancel_token && token.is_cancelled() {
+                        return Err(anyhow::anyhow!("Operation cancelled"));
+                    }
+                    
                     has_tool_use = true;
                     
                     // Note: ToolUseStart event was already emitted during streaming.
@@ -550,7 +579,7 @@ impl Agent {
                         Err(e) => (e.to_string(), true),
                     };
 
-                    self.emit(AgentEvent::tool_result(id.clone(), name.clone(), content.clone(), is_error))?;
+                    self.emit(AgentEvent::tool_result(id.clone(), name.clone(), extract_tool_detail(name, input), content.clone(), is_error))?;
 
                     // Add tool_use to assistant content
                     assistant_content.push(ContentBlock::ToolUse {
@@ -771,5 +800,49 @@ impl Agent {
     pub fn message_count(&self) -> usize {
         self.messages.len()
     }
+}
+
+/// Extract tool detail for display (what the tool is doing)
+fn extract_tool_detail(tool_name: &str, input: &serde_json::Value) -> Option<String> {
+    match tool_name.to_lowercase().as_str() {
+        "read" => input.get("path").and_then(|v| v.as_str())
+            .map(|s| truncate_str(s, 50)),
+        "write" => input.get("path").and_then(|v| v.as_str())
+            .map(|s| truncate_str(s, 50)),
+        "edit" | "multi_edit" => {
+            let path = input.get("path").and_then(|v| v.as_str());
+            let old = input.get("old_string").and_then(|v| v.as_str());
+            match (path, old) {
+                (Some(p), Some(o)) => Some(format!("{}: \"{}\"", truncate_str(p, 30), truncate_str(o, 20))),
+                (Some(p), None) => Some(truncate_str(p, 50)),
+                _ => None,
+            }
+        }
+        "bash" => input.get("command").and_then(|v| v.as_str())
+            .map(|s| truncate_str(s, 60)),
+        "search" | "grep" => input.get("pattern").and_then(|v| v.as_str())
+            .map(|s| format!("\"{}\"", truncate_str(s, 30))),
+        "glob" => input.get("pattern").and_then(|v| v.as_str())
+            .map(|s| truncate_str(s, 40)),
+        "ls" => input.get("path").and_then(|v| v.as_str())
+            .map(|s| truncate_str(s, 50)),
+        "websearch" => input.get("query").and_then(|v| v.as_str())
+            .map(|s| truncate_str(s, 40)),
+        "webfetch" => input.get("url").and_then(|v| v.as_str())
+            .map(|s| truncate_str(s, 50)),
+        "task" => input.get("description").and_then(|v| v.as_str())
+            .map(|s| truncate_str(s, 40)),
+        "task_create" => input.get("description").and_then(|v| v.as_str())
+            .map(|s| truncate_str(s, 40)),
+        "task_get" | "task_stop" => input.get("task_id").and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        _ => None,
+    }
+}
+
+/// Truncate string at char boundary
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.chars().count() <= max { s.to_string() }
+    else { s.chars().take(max.saturating_sub(3)).collect::<String>() + "..." }
 }
 

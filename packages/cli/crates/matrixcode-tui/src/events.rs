@@ -51,9 +51,9 @@ impl TuiApp {
                 }
             }
             EventType::ToolResult => {
-                if let Some(EventData::ToolResult { content, name, is_error, .. }) = e.data {
+                if let Some(EventData::ToolResult { content, name, detail, is_error, .. }) = e.data {
                     self.messages.push(Message {
-                        role: Role::Tool { name, is_error },
+                        role: Role::Tool { name, detail, is_error },
                         content  // Keep full content, draw.rs will summarize
                     });
                     self.tool_calls += 1;
@@ -91,21 +91,39 @@ impl TuiApp {
             }
             EventType::Error => {
                 if let Some(EventData::Error { message, .. }) = e.data {
-                    self.messages.push(Message { role: Role::System, content: format!("\u{274c} Error: {}", message) });
-                    self.streaming.clear();
-                    self.thinking.clear();
+                    // Check if this is a cancellation error
+                    let is_cancelled = message == "Operation cancelled";
+                    
+                    if is_cancelled {
+                        // Flush partial content before showing cancel message
+                        if !self.thinking.is_empty() {
+                            self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
+                            self.thinking.clear();
+                        }
+                        if !self.streaming.is_empty() {
+                            self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
+                            self.streaming.clear();
+                        }
+                        self.messages.push(Message { role: Role::System, content: "\u{26a1} Interrupted".into() });
+                    } else {
+                        self.messages.push(Message { role: Role::System, content: format!("\u{274c} Error: {}", message) });
+                        self.streaming.clear();
+                        self.thinking.clear();
+                    }
                 }
-                self.activity = Activity::Idle;
                 self.activity_detail.clear();
                 self.request_start = None;
                 self.cancel.reset();  // Reset cancel state for next request
                 
-                // Check queue after error - user may want to retry
+                // Process queue after cancellation or error
                 if !self.pending_messages.is_empty() {
-                    self.messages.push(Message {
-                        role: Role::System,
-                        content: format!("⚠️ Queue paused ({} messages). Send '/retry' to process.", self.pending_messages.len())
-                    });
+                    let next_msg = self.pending_messages.remove(0);
+                    self.messages.push(Message { role: Role::User, content: next_msg.clone() });
+                    self.tx.try_send(next_msg).ok();
+                    self.activity = Activity::Thinking;
+                    self.auto_scroll = true;
+                } else {
+                    self.activity = Activity::Idle;
                 }
             }
             EventType::Usage => {
@@ -219,23 +237,23 @@ impl TuiApp {
                     // Question content
                     content.push_str(&question);
 
-                    // Show options if available
-                    if let Some(ref opts) = options && let Some(arr) = opts.as_array() {
+                    // Show options if available - with automatic A/B/C letter prefixes
+                    if let Some(ref opts) = options && let Some(arr) = opts.as_array() && !arr.is_empty() {
                         content.push_str("\n\n");
                         content.push_str("─────────────────────────────────────\n");
                         content.push_str("Options:\n");
-                        for opt in arr {
-                            let id = opt["id"].as_str().unwrap_or("?");
+                        for (idx, opt) in arr.iter().enumerate() {
+                            let letter = (b'A' + idx as u8) as char;  // A, B, C, D...
                             let label = opt["label"].as_str().unwrap_or("");
                             let desc = opt["description"].as_str().unwrap_or("");
                             let desc_text = if desc.is_empty() { String::new() } else { format!(" - {}", desc) };
-                            content.push_str(&format!("  ▸ [{}] {}{}\n", id, label, desc_text));
+                            content.push_str(&format!("  [{}] {}{}\n", letter, label, desc_text));
                         }
                     }
 
                     // Add input hint
                     content.push_str("\n─────────────────────────────────────\n");
-                    content.push_str("📌 Type your response and press Enter\n");
+                    content.push_str("📌 Type A/B/C or your answer, then Enter\n");
                     content.push_str("📌 ESC to abort");
 
                     self.messages.push(Message { role: Role::Ask, content });
