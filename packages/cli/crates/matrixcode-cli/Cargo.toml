@@ -1,11 +1,11 @@
 [package]
-name = "matrixcode-cli"
+name = "matrixcode"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "MatrixCode CLI - AI Code Agent"
+description = "MatrixCode - AI Code Agent CLI"
 publish = true
 
 [[bin]]
@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 matrixcode-core = { workspace = true }
-matrixcode = { workspace = true }
+matrixcode-tui = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -10,7 +10,7 @@ use matrixcode_core::{
     tools::all_tools_with_skills,
     memory::MemoryStorage,
 };
-use matrixcode::{TuiApp, setup_terminal, restore_terminal};
+use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
 use std::path::{PathBuf, Path};
 use std::sync::Arc;
 use termimad::MadSkin;
@@ -142,7 +142,7 @@ enum InitCommandResult {
 }
 
 #[derive(Parser)]
-#[command(name = "matrixcode-cli")]
+#[command(name = "matrixcode")]
 #[command(about = "AI Code Agent with multi-model support")]
 #[command(version)]
 struct Cli {
