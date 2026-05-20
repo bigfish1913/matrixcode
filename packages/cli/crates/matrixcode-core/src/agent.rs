@@ -354,9 +354,9 @@ impl Agent {
             }
         }
 
-        // Send final usage stats (use last_input_tokens for accurate context display)
+        // Send final usage stats (use total_input_tokens for cumulative context display)
         self.emit(AgentEvent::usage_with_cache(
-            self.last_input_tokens.load(Ordering::Relaxed),
+            self.total_input_tokens.load(Ordering::Relaxed),
             self.total_output_tokens.load(Ordering::Relaxed),
             0, 0,  // Cache info already sent per-request
         ))?;
@@ -738,9 +738,9 @@ impl Agent {
                 usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens)
         );
 
-        // Emit usage event with cache info (use last_input_tokens for context display)
+        // Emit usage event with cache info (use total_input_tokens for cumulative context display)
         let _ = self.event_tx.try_send(AgentEvent::usage_with_cache(
-            usage.input_tokens as u64,
+            self.total_input_tokens.load(Ordering::Relaxed),
             usage.output_tokens as u64,
             usage.cache_read_input_tokens as u64,
             usage.cache_creation_input_tokens as u64,

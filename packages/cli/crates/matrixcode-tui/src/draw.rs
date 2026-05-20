@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::types::{Activity, ApproveMode, Role};
-use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, progress_bar, word_wrap};
+use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, word_wrap};
 use crate::markdown::render_markdown;
 use crate::app::TuiApp;
 use crate::SPINNER;
@@ -55,11 +55,9 @@ impl TuiApp {
 
     fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
         // Use tokens_in (API-reported) as primary source, estimate as fallback
-        // This matches the compression check logic in agent.rs
         let actual_tokens = if self.tokens_in > 0 {
             self.tokens_in
         } else {
-            // Estimate from messages using improved token counting
             self.messages.iter().map(|m| {
                 estimate_message_tokens(&m.content) as u64
             }).sum::<u64>()
@@ -74,11 +72,11 @@ impl TuiApp {
 
         let mode_color = match self.approve_mode {
             ApproveMode::Ask => Color::DarkGray,
-            ApproveMode::Auto => Color::DarkGray,
+            ApproveMode::Auto => Color::Green,
             ApproveMode::Strict => Color::Red,
         };
 
-        // Status on the right - show real-time output tokens during streaming
+        // Status on the right - show real-time info during activity
         let is_tool_activity = matches!(self.activity,
             Activity::Reading | Activity::Writing | Activity::Editing |
             Activity::Searching | Activity::Running | Activity::WebSearch |
@@ -88,14 +86,12 @@ impl TuiApp {
         let status_text = if self.activity == Activity::Idle {
             "Ready".to_string()
         } else if is_tool_activity {
-            // Show tool name with detail: "read src/main.rs" or "bash ls -la"
             if !self.activity_detail.is_empty() {
                 format!("{} {}", self.activity.label(), self.activity_detail)
             } else {
                 self.activity.label().to_string()
             }
         } else if self.current_request_tokens > 0 {
-            // Show real-time output tokens (from Usage events during streaming)
             fmt_tokens(self.current_request_tokens)
         } else if self.activity == Activity::Thinking {
             "...".to_string()
@@ -104,73 +100,59 @@ impl TuiApp {
         };
         let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
 
-        // Dynamic layout based on width
+        // New layout: model | in/ctx  out | c r/w | status
         let width = area.width as usize;
-
-        // Build spans based on available width
         let mut spans: Vec<Span> = Vec::new();
 
-        // Always show: model (truncated if needed)
-        let model_display = if width < 40 {
-            truncate(&self.model, 10)
+        // Model name
+        let model_display = if width < 50 {
+            truncate(&self.model, 12)
         } else {
             self.model.clone()
         };
-        spans.push(Span::styled(format!(" {} ", model_display), Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(model_display, Style::default().fg(Color::DarkGray)));
 
-        if width >= 30 {
-            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-            spans.push(Span::styled(format!(" {} ", self.approve_mode.label()), Style::default().fg(mode_color)));
+        // Mode indicator
+        spans.push(Span::styled(" ", Style::default()));
+        spans.push(Span::styled(self.approve_mode.label(), Style::default().fg(mode_color)));
+
+        // Separator
+        spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+
+        // in/ctx: input tokens / context window percentage
+        if width >= 40 {
+            let in_ctx = format!("in {:.0}% {}", context_pct, fmt_tokens(actual_tokens));
+            spans.push(Span::styled(in_ctx, Style::default().fg(ctx_color)));
         }
 
-        if width >= 50 {
-            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-            // Context: show progress bar + percentage + used/max
-            if width >= 70 {
-                // Full: progress bar + percentage + used/max
-                let ctx_display = format!(
-                    "{} {:.0}% {}/{}",
-                    progress_bar(context_pct, 10),
-                    context_pct,
-                    fmt_tokens(actual_tokens),
-                    fmt_tokens(self.context_size)
-                );
-                spans.push(Span::styled(format!(" {} ", ctx_display), Style::default().fg(ctx_color)));
-            } else if width >= 60 {
-                // Medium: percentage only
-                spans.push(Span::styled(format!(" {:.0}% ", context_pct), Style::default().fg(ctx_color)));
-            } else {
-                // Compact: just percentage number
-                spans.push(Span::styled(format!("{}% ", context_pct as usize), Style::default().fg(ctx_color)));
-            }
+        // out: session output tokens
+        if width >= 55 {
+            spans.push(Span::styled("  out ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(fmt_tokens(self.session_total_out), Style::default().fg(Color::Cyan)));
         }
 
-        if width >= 80 {
-            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-            // Output tokens
-            let tok_display = format!("{} tok", fmt_tokens(self.session_total_out));
-            spans.push(Span::styled(format!(" {} ", tok_display), Style::default().fg(Color::DarkGray)));
-        }
-
-        // Cache info (only if space available)
-        if width >= 100 && (self.cache_read > 0 || self.cache_created > 0) {
+        // Cache info: c r/w
+        if width >= 75 && (self.cache_read > 0 || self.cache_created > 0) {
+            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled("c ", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
-                format!("c {}k/{}k ", self.cache_read / 1000, self.cache_created / 1000),
+                format!("{}k/{}k", self.cache_read / 1000, self.cache_created / 1000),
+                Style::default().fg(Color::Magenta)
+            ));
+        }
+
+        // Debug stats
+        if width >= 100 && self.debug_mode {
+            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                format!("api:{} tools:{}", self.api_calls, self.tool_calls),
                 Style::default().fg(Color::DarkGray)
             ));
         }
 
-        // Debug stats (only if space available)
-        if width >= 120 && self.debug_mode {
-            spans.push(Span::styled(
-                format!("api:{} tools:{} ", self.api_calls, self.tool_calls),
-                Style::default().fg(Color::DarkGray)
-            ));
-        }
-
-        // Always show status at the end
-        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-        spans.push(Span::styled(format!(" {} ", status_text), Style::default().fg(status_color)));
+        // Status (always at end)
+        spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(status_text, Style::default().fg(status_color)));
 
         f.render_widget(Paragraph::new(Line::from(spans)), area);
     }
