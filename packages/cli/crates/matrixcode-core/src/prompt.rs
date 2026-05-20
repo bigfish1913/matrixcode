@@ -54,14 +54,6 @@ const SYSTEM_PROMPT_COMPLETION: &str = r#"完成要求：
   2. 已执行的验证；
   3. 剩余风险或后续建议。"#;
 
-const SYSTEM_PROMPT_FILE_REFERENCE: &str = r#"文件引用格式：
-- 在 VS Code 扩展中引用文件时，使用 markdown 链接格式以支持点击跳转：
-  - 文件链接：`[filename.ts](path/to/filename.ts)`
-  - 带行号：`[filename.ts:42](path/to/filename.ts:42)` 或 `[filename.ts:42-51](path/to/filename.ts:42-51)`
-  - 路径使用相对于项目根目录的相对路径
-  - 行号格式为 `:行号` 或 `:起始行-结束行`
-- 不要使用反引号包裹文件路径（除非是代码引用），也不要使用 HTML 标签。"#;
-
 const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
     SYSTEM_PROMPT_MISSION,
@@ -70,7 +62,6 @@ const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_EDITING,
     SYSTEM_PROMPT_EXECUTION,
     SYSTEM_PROMPT_LANGUAGE,
-    SYSTEM_PROMPT_FILE_REFERENCE,
     SYSTEM_PROMPT_COMPLETION,
 ];
 
@@ -81,7 +72,6 @@ const SAFE_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_BEHAVIOR,
     SYSTEM_PROMPT_EDITING,
     SYSTEM_PROMPT_LANGUAGE,
-    SYSTEM_PROMPT_FILE_REFERENCE,
     SYSTEM_PROMPT_COMPLETION,
 ];
 
@@ -91,7 +81,6 @@ const FAST_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_EXECUTION,
     SYSTEM_PROMPT_LANGUAGE,
-    SYSTEM_PROMPT_FILE_REFERENCE,
     SYSTEM_PROMPT_COMPLETION,
 ];
 
@@ -101,7 +90,6 @@ const REVIEW_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_BEHAVIOR,
     SYSTEM_PROMPT_LANGUAGE,
-    SYSTEM_PROMPT_FILE_REFERENCE,
     SYSTEM_PROMPT_COMPLETION,
 ];
 

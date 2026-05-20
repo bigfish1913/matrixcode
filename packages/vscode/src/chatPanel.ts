@@ -124,27 +124,13 @@ export class ChatPanelProvider implements vscode.Disposable {
 
     /**
      * Open a file from a link click in webview.
-     * Supports formats:
-     * - filename.ts
-     * - filename.ts:42
-     * - filename.ts:42-51
-     * - path/to/filename.ts:42
-     * - Also handles GitHub-style #L format: filename.ts#L42
+     * Supports formats: filename.ts, filename.ts:42, filename.ts:42-51
      */
     private async openFile(linkPath: string): Promise<void> {
         try {
-            // Normalize GitHub-style line references (#L42 or #L42-L51) to colon format
-            const normalizedPath = linkPath
-                .replace(/#L(\d+)(?:-L(\d+))?$/, ':$1-$2')
-                .replace(/:(\d+)-$/, ':$1');  // Handle single line case like :42-
-
-            // Parse the path - extract filename and line numbers
+            // Parse the link path - extract filename and line numbers
             // Format: path/to/file.ts:42 or path/to/file.ts:42-51
-            // Use a regex that handles Windows paths correctly (avoid splitting on drive letter colon)
-            // The pattern matches: (path without line info) followed optionally by :line or :line-line
-            // We use a greedy match for the path part to avoid matching the drive letter colon
-            const match = normalizedPath.match(/^(.+):(\d+)(?:-(\d+))?$/) ||
-                          normalizedPath.match(/^(.+)$/);
+            const match = linkPath.match(/^(.+?)(?::(\d+)(?:-(\d+))?)?$/);
 
             if (!match) {
                 vscode.window.showWarningMessage(`Invalid file path: ${linkPath}`);
@@ -159,11 +145,7 @@ export class ChatPanelProvider implements vscode.Disposable {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             let absolutePath = filePath;
 
-            // Check if it's already an absolute path
-            const isAbsolutePath = filePath.startsWith('/') ||
-                                   (filePath.length > 2 && filePath[1] === ':'); // Windows absolute path
-
-            if (workspaceRoot && !isAbsolutePath) {
+            if (workspaceRoot && !filePath.startsWith(workspaceRoot)) {
                 absolutePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), filePath).fsPath;
             }
 
