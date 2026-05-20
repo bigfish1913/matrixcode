@@ -155,36 +155,36 @@ impl TuiApp {
 
         let selection = self.selection.map(|s| s.normalized());
 
-        // Welcome (responsive) - MATRIX in solid █ (banner font) - Rainbow colors
+        // Welcome (responsive) - MATRIX in solid █ (banner font) - Blue-purple gradient (tech style)
         if self.show_welcome && self.messages.is_empty() {
-            // MATRIX (rainbow: Red, Orange, Yellow, Green, Blue, Purple, Cyan)
+            // MATRIX (blue-purple gradient: deep blue → blue → cyan → purple)
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled("█     █    █    ███████ ██████  ███ █     █ ", Style::default().fg(Color::Red)),
+                Span::styled("█     █    █    ███████ ██████  ███ █     █ ", Style::default().fg(Color::Rgb(0, 51, 204))),   // deep blue
             ]));
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled("██   ██   █ █      █    █     █  █   █   █  ", Style::default().fg(Color::LightRed)),
+                Span::styled("██   ██   █ █      █    █     █  █   █   █  ", Style::default().fg(Color::Rgb(0, 102, 255))),  // blue
             ]));
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled("█ █ █ █  █   █     █    █     █  █    █ █   ", Style::default().fg(Color::Yellow)),
+                Span::styled("█ █ █ █  █   █     █    █     █  █    █ █   ", Style::default().fg(Color::Rgb(0, 153, 255))),  // bright blue
             ]));
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled("█  █  █ █     █    █    ██████   █     █    ", Style::default().fg(Color::LightGreen)),
+                Span::styled("█  █  █ █     █    █    ██████   █     █    ", Style::default().fg(Color::Rgb(0, 204, 255))),  // cyan-blue
             ]));
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled("█     █ ███████    █    █   █    █    █ █   ", Style::default().fg(Color::LightBlue)),
+                Span::styled("█     █ ███████    █    █   █    █    █ █   ", Style::default().fg(Color::Cyan)),              // cyan
             ]));
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled("█     █ █     █    █    █    █   █   █   █  ", Style::default().fg(Color::Magenta)),
+                Span::styled("█     █ █     █    █    █    █   █   █   █  ", Style::default().fg(Color::Rgb(153, 102, 255))), // bright purple
             ]));
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled("█     █ █     █    █    █     █ ███ █     █ ", Style::default().fg(Color::Cyan)),
+                Span::styled("█     █ █     █    █    █     █ ███ █     █ ", Style::default().fg(Color::Rgb(102, 51, 255))),  // purple
             ]));
             // Subtitle below
             lines.push(Line::styled("    AI coding assistant | /help for commands", Style::default().fg(Color::Gray)));

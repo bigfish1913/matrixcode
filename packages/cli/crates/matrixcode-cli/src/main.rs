@@ -10,7 +10,7 @@ use matrixcode_core::{
     tools::all_tools_with_skills,
     memory::MemoryStorage,
 };
-use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
+use matrixcode::{TuiApp, setup_terminal, restore_terminal};
 use std::path::{PathBuf, Path};
 use std::sync::Arc;
 use termimad::MadSkin;

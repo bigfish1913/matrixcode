@@ -548,8 +548,30 @@ mod debug_tests {
     #[test]
     fn debug_table() {
         let md = "| A | B |\n|---|---|\n| 1 | 2 |";
-        println!("\n=== Table ===");
+        println!("\n=== Simple Table ===");
         let lines = render_markdown(md, 60);
+        for (i, line) in lines.iter().enumerate() {
+            let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            println!("[{}] '{}'", i, text);
+        }
+    }
+
+    #[test]
+    fn debug_table_chinese() {
+        let md = "| 名称 | 数值 |\n|------|------|\n| 测试 | 123 |\n| 数据 | 456 |";
+        println!("\n=== Chinese Table ===");
+        let lines = render_markdown(md, 80);
+        for (i, line) in lines.iter().enumerate() {
+            let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            println!("[{}] '{}'", i, text);
+        }
+    }
+
+    #[test]
+    fn debug_table_multi_row() {
+        let md = "| Col1 | Col2 | Col3 |\n|------|------|------|\n| A1 | B1 | C1 |\n| A2 | B2 | C2 |\n| A3 | B3 | C3 |";
+        println!("\n=== Multi-row Table ===");
+        let lines = render_markdown(md, 80);
         for (i, line) in lines.iter().enumerate() {
             let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
             println!("[{}] '{}'", i, text);

@@ -9,7 +9,7 @@ description = "MatrixCode TUI - Terminal UI for AI Code Agent"
 publish = true
 
 [lib]
-name = "matrixcode_tui"
+name = "matrixcode"
 
 [dependencies]
 matrixcode-core = { workspace = true }
