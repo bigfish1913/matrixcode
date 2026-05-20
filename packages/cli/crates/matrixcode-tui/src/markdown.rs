@@ -579,6 +579,30 @@ mod debug_tests {
     }
 
     #[test]
+    fn debug_table_complex() {
+        // Table with code, links, long content
+        let md = "| Name | Description | Link |\n|------|-------------|------|\n| `code` | This has **bold** text | [click](url) |\n| item2 | normal text | none |";
+        println!("\n=== Complex Table ===");
+        let lines = render_markdown(md, 80);
+        for (i, line) in lines.iter().enumerate() {
+            let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            println!("[{}] '{}'", i, text);
+        }
+    }
+
+    #[test]
+    fn debug_table_events() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+        println!("\n=== Table Events (pulldown-cmark 0.13) ===");
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_TABLES);
+        let parser = Parser::new_ext(md, options);
+        for (i, event) in parser.enumerate() {
+            println!("[{}] {:?}", i, event);
+        }
+    }
+
+    #[test]
     fn debug_math() {
         let md = "Inline: $E=mc^2$\n\nBlock:\n$$\\sum_{i=1}^n i$$";
         println!("\n=== Math ===");
