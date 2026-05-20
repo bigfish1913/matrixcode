@@ -237,9 +237,9 @@ impl TuiApp {
                     // Question content
                     content.push_str(&question);
 
-                    // Parse and store options for interactive selection
+                    // Parse options or create default y/n for approval
                     if let Some(ref opts) = options && let Some(arr) = opts.as_array() && !arr.is_empty() {
-                        // Store options for interactive selection
+                        // Has explicit options from ask tool
                         self.ask_options = arr.iter().map(|opt| {
                             crate::types::AskOption {
                                 id: opt["id"].as_str().unwrap_or("").to_string(),
@@ -249,18 +249,29 @@ impl TuiApp {
                         }).collect();
                         self.ask_selected_index = 0;
 
-                        content.push_str("\n\n");
-                        content.push_str("─────────────────────────────────────\n");
+                        content.push_str("\n\n─────────────────────────────────────\n");
                         content.push_str("Options (↑↓ to select, Enter to confirm):\n");
                         for (idx, opt) in arr.iter().enumerate() {
-                            let letter = (b'A' + idx as u8) as char;  // A, B, C, D...
+                            let letter = (b'A' + idx as u8) as char;
                             let label = opt["label"].as_str().unwrap_or("");
                             let desc = opt["description"].as_str().unwrap_or("");
                             let desc_text = if desc.is_empty() { String::new() } else { format!(" - {}", desc) };
                             content.push_str(&format!("  [{}] {}{}\n", letter, label, desc_text));
                         }
+                    } else if question.contains("(y/n)") || question.contains("Allow?") {
+                        // Approval request: create y/n options
+                        self.ask_options = vec![
+                            crate::types::AskOption { id: "y".into(), label: "Yes".into(), description: Some("Allow this action".into()) },
+                            crate::types::AskOption { id: "n".into(), label: "No".into(), description: Some("Reject this action".into()) },
+                        ];
+                        self.ask_selected_index = 0;
+
+                        content.push_str("\n\n─────────────────────────────────────\n");
+                        content.push_str("Options (↑↓ to select, Enter to confirm):\n");
+                        content.push_str("  [Y] Yes - Allow this action\n");
+                        content.push_str("  [N] No - Reject this action\n");
                     } else {
-                        // No options - free text input
+                        // Free text input
                         self.ask_options.clear();
                         self.ask_selected_index = 0;
                     }

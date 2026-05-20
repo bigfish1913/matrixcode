@@ -440,11 +440,19 @@ impl TuiApp {
 
                     for (_line_idx, line) in msg.content.lines().enumerate() {
                         // Highlight selected option line if we have options
+                        // Match both [A], [B], [C] and [Y], [N] formats
                         let is_option_line = has_options && line.starts_with("  [") && line.contains("]");
                         let is_selected_line = if is_option_line && has_options {
-                            // Parse option letter from line: "  [A] label - desc"
+                            // Parse option letter from line: "  [A] label" or "  [Y] label"
                             let letter = line.chars().nth(4).unwrap_or(' ');
-                            let option_idx = (letter as u8 - b'A') as usize;
+                            // Map letter to index: A->0, B->1, C->2 or Y->0, N->1
+                            let option_idx = if letter.is_ascii_uppercase() {
+                                if letter == 'Y' { 0 }
+                                else if letter == 'N' { 1 }
+                                else { (letter as u8 - b'A') as usize }
+                            } else {
+                                (letter as u8 - b'A') as usize
+                            };
                             option_idx == self.ask_selected_index
                         } else {
                             false

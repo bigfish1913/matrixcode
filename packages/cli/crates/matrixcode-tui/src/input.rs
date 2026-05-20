@@ -426,8 +426,14 @@ impl TuiApp {
             // Use custom input
             self.input.trim().to_string()
         } else if !self.ask_options.is_empty() {
-            // Default to first option if nothing entered
-            self.ask_options[0].label.clone()
+            // Use selected option's id (y/n for approval, or label for ask tool)
+            let selected = &self.ask_options[self.ask_selected_index];
+            // For y/n options, send the id; for other options, send the label
+            if selected.id == "y" || selected.id == "n" {
+                selected.id.clone()
+            } else {
+                selected.label.clone()
+            }
         } else {
             "y".to_string()  // Default approval
         };
@@ -439,7 +445,17 @@ impl TuiApp {
         self.ask_selected_index = 0;
 
         // Send response
-        self.messages.push(Message { role: Role::User, content: response.clone() });
+        // For display, show the label (Yes/No or option label), but send the actual response
+        let display_response = if !self.input.trim().is_empty() {
+            response.clone()
+        } else if response == "y" {
+            "Yes".to_string()
+        } else if response == "n" {
+            "No".to_string()
+        } else {
+            response.clone()
+        };
+        self.messages.push(Message { role: Role::User, content: display_response });
         if let Some(ask_tx) = &self.ask_tx {
             ask_tx.try_send(response).ok();
         }
