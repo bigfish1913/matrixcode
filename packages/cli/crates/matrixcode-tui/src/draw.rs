@@ -52,14 +52,19 @@ impl TuiApp {
     }
 
     fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
-        // Estimate total context tokens from all messages (not just current request)
-        let estimated_context_tokens = self.messages.iter().map(|m| {
-            // Simple estimation: ~3 chars per token
-            (m.content.len() / 3).max(1) as u64
-        }).sum::<u64>();
+        // Use tokens_in (API-reported) as primary source, estimate as fallback
+        // This matches the compression check logic in agent.rs
+        let actual_tokens = if self.tokens_in > 0 {
+            self.tokens_in
+        } else {
+            // Estimate from messages using improved token counting
+            self.messages.iter().map(|m| {
+                estimate_message_tokens(&m.content)
+            }).sum::<u64>()
+        };
 
         let context_pct = if self.context_size > 0 {
-            (estimated_context_tokens as f64 / self.context_size as f64 * 100.0).min(100.0)
+            (actual_tokens as f64 / self.context_size as f64 * 100.0).min(100.0)
         } else { 0.0 };
         let ctx_color = if context_pct < 50.0 { Color::DarkGray }
                        else if context_pct < 75.0 { Color::Yellow }
@@ -88,10 +93,10 @@ impl TuiApp {
                 self.activity.label().to_string()
             }
         } else if !self.streaming.is_empty() {
-            let estimated_tokens = self.streaming.chars().count() / 4;
+            let estimated_tokens = estimate_text_tokens(&self.streaming);
             if estimated_tokens > 0 { fmt_tokens(estimated_tokens as u64) } else { "...".into() }
         } else if !self.thinking.is_empty() {
-            let estimated_tokens = self.thinking.chars().count() / 4;
+            let estimated_tokens = estimate_text_tokens(&self.thinking);
             if estimated_tokens > 0 { fmt_tokens(estimated_tokens as u64) } else { "...".into() }
         } else if self.activity == Activity::Thinking {
             "0".to_string()
@@ -747,4 +752,32 @@ impl TuiApp {
             f.render_widget(Paragraph::new(lines), area);
         }
     }
+}
+
+/// Estimate tokens for a text string using improved counting.
+/// ASCII: ~0.25 tokens/char, Non-ASCII (Chinese): ~0.67 tokens/char
+fn estimate_text_tokens(text: &str) -> u32 {
+    let (ascii, non_ascii) = count_chars(text);
+    let ascii_tokens = (ascii as f64 * 0.25).ceil() as u32;
+    let non_ascii_tokens = (non_ascii as f64 * 0.67).ceil() as u32;
+    ascii_tokens + non_ascii_tokens
+}
+
+/// Estimate tokens for message content.
+fn estimate_message_tokens(content: &str) -> u32 {
+    estimate_text_tokens(content) + 10  // Add overhead for message structure
+}
+
+/// Count ASCII and non-ASCII characters.
+fn count_chars(s: &str) -> (u32, u32) {
+    let mut ascii = 0u32;
+    let mut non_ascii = 0u32;
+    for ch in s.chars() {
+        if ch.is_ascii() {
+            ascii += 1;
+        } else {
+            non_ascii += 1;
+        }
+    }
+    (ascii, non_ascii)
 }

@@ -811,29 +811,72 @@ fn sliding_window_compress(messages: &[Message], config: &CompressionConfig) -> 
     Ok(messages[min_start_idx..].to_vec())
 }
 
-/// Estimate token count for a message (rough approximation).
+/// Estimate token count for a message (improved approximation).
+/// For mixed content (code, Chinese, English), use a weighted estimate:
+/// - ASCII chars: ~4 chars per token (0.25 tokens/char)
+/// - Non-ASCII (Chinese, etc): ~1.5 chars per token (0.67 tokens/char)
+/// - JSON/structured data: typically more tokens per char
 pub fn estimate_tokens(message: &Message) -> u32 {
-    let char_count = match &message.content {
-        MessageContent::Text(t) => t.len(),
+    let (ascii_count, non_ascii_count) = match &message.content {
+        MessageContent::Text(t) => count_chars(t),
         MessageContent::Blocks(blocks) => {
-            let mut count = 0;
+            let mut ascii = 0;
+            let mut non_ascii = 0;
             for block in blocks {
                 match block {
-                    ContentBlock::Text { text } => count += text.len(),
-                    ContentBlock::ToolUse { name, input, .. } => {
-                        count += name.len();
-                        count += input.to_string().len();
+                    ContentBlock::Text { text } => {
+                        let (a, n) = count_chars(text);
+                        ascii += a;
+                        non_ascii += n;
                     }
-                    ContentBlock::ToolResult { content, .. } => count += content.len(),
-                    ContentBlock::Thinking { thinking, .. } => count += thinking.len(),
+                    ContentBlock::ToolUse { name, input, .. } => {
+                        let (a, n) = count_chars(name);
+                        ascii += a;
+                        non_ascii += n;
+                        // JSON input typically has more tokens per char
+                        let json_str = input.to_string();
+                        let (ja, jn) = count_chars(&json_str);
+                        ascii += ja;
+                        non_ascii += jn;
+                    }
+                    ContentBlock::ToolResult { content, .. } => {
+                        let (a, n) = count_chars(content);
+                        ascii += a;
+                        non_ascii += n;
+                    }
+                    ContentBlock::Thinking { thinking, .. } => {
+                        let (a, n) = count_chars(thinking);
+                        ascii += a;
+                        non_ascii += n;
+                    }
                     _ => {}
                 }
             }
-            count
+            (ascii, non_ascii)
         }
     };
 
-    (char_count / 3).max(1) as u32
+    // Calculate tokens: ASCII uses ~0.25 tokens/char, non-ASCII uses ~0.67 tokens/char
+    // Add overhead for message structure (~10 tokens per message)
+    let ascii_tokens = (ascii_count as f64 * 0.25).ceil() as u32;
+    let non_ascii_tokens = (non_ascii_count as f64 * 0.67).ceil() as u32;
+    let total = ascii_tokens + non_ascii_tokens + 10;  // Add overhead
+
+    total.max(1)
+}
+
+/// Count ASCII and non-ASCII characters in a string.
+fn count_chars(s: &str) -> (u32, u32) {
+    let mut ascii = 0u32;
+    let mut non_ascii = 0u32;
+    for ch in s.chars() {
+        if ch.is_ascii() {
+            ascii += 1;
+        } else {
+            non_ascii += 1;
+        }
+    }
+    (ascii, non_ascii)
 }
 
 /// Estimate total tokens for a message list.
