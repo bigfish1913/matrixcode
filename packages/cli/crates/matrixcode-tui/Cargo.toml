@@ -17,11 +17,25 @@ ratatui = "0.30"
 crossterm = { workspace = true, features = ["event-stream"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 arboard = { workspace = true }
 pulldown-cmark = "0.13"
 syntect = "5.3"
 unicode-width = "0.2"
+clap = { workspace = true }
+dirs = { workspace = true }
+chrono = { workspace = true }
+termimad = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+uuid = { workspace = true }
+dotenvy = { workspace = true }
+is-terminal = { workspace = true }
+
+[[bin]]
+name = "matrixcode"
+path = "src/main.rs"
 
 [dev-dependencies]
 tokio-test = { workspace = true }

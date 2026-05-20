@@ -69,9 +69,11 @@ pub enum Role {
     Thinking,
     Tool { name: String, is_error: bool },
     System,
+    Ask,  // Approval/question requests - needs prominent display
 }
 
 impl Role {
+    #[allow(dead_code)]
     pub fn icon(&self) -> &'static str {
         match self {
             Role::User => "👤",
@@ -79,9 +81,11 @@ impl Role {
             Role::Thinking => "💭",
             Role::Tool { is_error, .. } => if *is_error { "❌" } else { "✅" },
             Role::System => "⚠️",
+            Role::Ask => "⚡",
         }
     }
 
+    #[allow(dead_code)]
     pub fn label(&self) -> String {
         match self {
             Role::User => "You".into(),
@@ -89,6 +93,7 @@ impl Role {
             Role::Thinking => "Thinking".into(),
             Role::Tool { name, .. } => name.clone(),
             Role::System => "System".into(),
+            Role::Ask => "AWAITING".into(),
         }
     }
 
@@ -100,6 +105,7 @@ impl Role {
             Role::Thinking => Color::Magenta,
             Role::Tool { is_error, .. } => if *is_error { Color::Red } else { Color::Cyan },
             Role::System => Color::Yellow,
+            Role::Ask => Color::Yellow,
         }
     }
 }

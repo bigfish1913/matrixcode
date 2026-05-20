@@ -142,7 +142,7 @@ enum InitCommandResult {
 }
 
 #[derive(Parser)]
-#[command(name = "matrixcode")]
+#[command(name = "matrixcode-cli")]
 #[command(about = "AI Code Agent with multi-model support")]
 #[command(version)]
 struct Cli {

@@ -313,35 +313,95 @@ impl TuiApp {
     }
 
     /// Get selected text from messages
+    /// Simplified: returns raw message content for the selected range
+    /// Maps rendered line numbers to original message content
     pub(crate) fn get_selected_text(&self, selection: Selection) -> String {
         let norm = selection.normalized();
-        
-        // We need to reconstruct the text from rendered lines
-        // Build all text lines from messages (approximate - matches draw_messages logic)
-        let mut all_text: Vec<String> = Vec::new();
-        
-        // Account for welcome message lines
+
+        // Build a mapping from rendered line index to message content
+        // This matches the rendering logic in draw_messages
+        let mut line_to_content: Vec<(usize, String)> = Vec::new();  // (message_idx, line_content)
+        let mut rendered_lines: Vec<String> = Vec::new();
+
+        // Welcome message lines (7 MATRIX lines + 1 subtitle + 1 empty)
         if self.show_welcome && self.messages.is_empty() {
-            // 7 welcome lines + 1 empty
-            for _ in 0..8 {
-                all_text.push(String::new());
+            // MATRIX ASCII art lines (user wants to copy these)
+            rendered_lines.push("  █     █    █    ███████ ██████  ███ █     █ ".into());
+            rendered_lines.push("  ██   ██   █ █      █    █     █  █   █   █  ".into());
+            rendered_lines.push("  █ █ █ █  █   █     █    █     █  █    █ █   ".into());
+            rendered_lines.push("  █  █  █ █     █    █    ██████   █     █    ".into());
+            rendered_lines.push("  █     █ ███████    █    █   █    █    █ █   ".into());
+            rendered_lines.push("  █     █ █     █    █    █    █   █   █   █  ".into());
+            rendered_lines.push("  █     █ █     █    █    █     █ ███ █     █ ".into());
+            rendered_lines.push("    AI coding assistant | /help for commands".into());
+            rendered_lines.push(String::new());
+        }
+
+        // Process messages - simplified format matching actual rendering
+        for (msg_idx, msg) in self.messages.iter().enumerate() {
+            match &msg.role {
+                Role::User => {
+                    // User: │ prefix for each content line
+                    for line in msg.content.lines() {
+                        rendered_lines.push(format!("│ {}", line));
+                        line_to_content.push((msg_idx, line.to_string()));
+                    }
+                    rendered_lines.push(String::new());
+                }
+                Role::Assistant => {
+                    // Assistant: ── separator + content lines
+                    rendered_lines.push("  ──".into());
+                    for line in msg.content.lines() {
+                        rendered_lines.push(format!("  {}", line));
+                        line_to_content.push((msg_idx, line.to_string()));
+                    }
+                    rendered_lines.push(String::new());
+                }
+                Role::Thinking => {
+                    // Thinking: 💭 prefix
+                    rendered_lines.push("  💭 ▼ Thinking".into());
+                    for line in msg.content.lines() {
+                        rendered_lines.push(format!("    {}", line));
+                        line_to_content.push((msg_idx, line.to_string()));
+                    }
+                }
+                Role::Tool { name, .. } => {
+                    // Tool: simplified header + content
+                    rendered_lines.push(format!("  {} →", name));
+                    for line in msg.content.lines() {
+                        rendered_lines.push(format!("    {}", line));
+                        line_to_content.push((msg_idx, line.to_string()));
+                    }
+                    rendered_lines.push(String::new());
+                }
+                Role::System => {
+                    // System: ⚡ prefix or just content
+                    if msg.content.contains("APPROVAL") {
+                        for line in msg.content.lines() {
+                            rendered_lines.push(format!("  ⚡ {}", line));
+                        }
+                    } else {
+                        for line in msg.content.lines() {
+                            rendered_lines.push(format!("  {}", line));
+                        }
+                    }
+                    rendered_lines.push(String::new());
+                }
+                Role::Ask => {
+                    // Ask: full content with borders
+                    for line in msg.content.lines() {
+                        rendered_lines.push(line.to_string());
+                        line_to_content.push((msg_idx, line.to_string()));
+                    }
+                    rendered_lines.push(String::new());
+                }
             }
         }
-        
-        for msg in &self.messages {
-            let icon = msg.role.icon();
-            let label = msg.role.label();
-            all_text.push(format!("{} {}", icon, label));
-            for line in msg.content.lines() {
-                all_text.push(format!("  {}", line));
-            }
-            all_text.push(String::new());  // Empty line between messages
-        }
-        
-        // Extract selected range using visual column positions
+
+        // Extract selected range
         let mut result = String::new();
         for i in norm.start_line..=norm.end_line {
-            if let Some(line) = all_text.get(i) {
+            if let Some(line) = rendered_lines.get(i) {
                 let (start_col, end_col) = if i == norm.start_line && i == norm.end_line {
                     (norm.start_col, norm.end_col)
                 } else if i == norm.start_line {
@@ -351,8 +411,8 @@ impl TuiApp {
                 } else {
                     (0, usize::MAX)
                 };
-                
-                // Convert visual column to char boundary
+
+                // Extract substring from visual column position
                 let extracted = extract_by_visual_col(line, start_col, end_col);
                 result.push_str(&extracted);
                 if i != norm.end_line {
@@ -360,7 +420,7 @@ impl TuiApp {
                 }
             }
         }
-        
+
         result
     }
 
@@ -458,8 +518,22 @@ impl TuiApp {
                 if let Some(sel) = self.selection {
                     let text = self.get_selected_text(sel);
                     if !text.is_empty() {
-                        let _ = arboard::Clipboard::new()
+                        // Try clipboard and show result in debug mode
+                        let result = arboard::Clipboard::new()
                             .and_then(|mut cb| cb.set_text(&text));
+                        if self.debug_mode {
+                            match result {
+                                Ok(_) => self.messages.push(Message {
+                                    role: Role::System,
+                                    content: format!("✓ Copied {} chars", text.len())
+                                }),
+                                Err(e) => self.messages.push(Message {
+                                    role: Role::System,
+                                    content: format!("❌ Copy failed: {}", e)
+                                }),
+                            }
+                            self.auto_scroll = true;
+                        }
                     }
                 }
             }

@@ -415,6 +415,37 @@ impl TuiApp {
                         ));
                     }
                 }
+                Role::Ask => {
+                    // Ask/Approval requests - VERY PROMINENT display
+                    // Yellow background with bright content
+                    lines.push(Line::styled("", Style::default()));
+                    for line in msg.content.lines() {
+                        // Use bright yellow/white text with bold for prominence
+                        let styled_line = if line.contains("AWAITING INPUT") || line.contains("⚡") {
+                            Line::styled(
+                                line.to_string(),
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                            )
+                        } else if line.starts_with("╔") || line.starts_with("║") || line.starts_with("╚") || line.starts_with("─") {
+                            Line::styled(
+                                line.to_string(),
+                                Style::default().fg(Color::Cyan)
+                            )
+                        } else if line.starts_with("📌") || line.starts_with("▸") {
+                            Line::styled(
+                                line.to_string(),
+                                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                            )
+                        } else {
+                            Line::styled(
+                                line.to_string(),
+                                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                            )
+                        };
+                        lines.push(styled_line);
+                    }
+                    lines.push(Line::styled("", Style::default()));
+                }
             }
         }
 

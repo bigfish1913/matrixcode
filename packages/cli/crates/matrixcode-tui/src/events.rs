@@ -208,43 +208,37 @@ impl TuiApp {
             }
             EventType::AskQuestion => {
                 if let Some(EventData::AskQuestion { question, options }) = e.data {
-                    // Detect if this is an approval request
-                    let is_approval = question.contains("requires approval") || question.contains("Allow?");
-                    let has_options = options.is_some();
-                    
-                    // Format the display
-                    let mut content = if is_approval {
-                        // Extract tool name and risk level
-                        let lines: Vec<&str> = question.lines().collect();
-                        let header = lines.first().copied().unwrap_or("");
-                        let detail = lines.get(1).copied().unwrap_or("");
-                        format!("{}\n{}", header, detail)
-                    } else if has_options {
-                        format!("❓ {}", question)
-                    } else {
-                        question.clone()
-                    };
-                    
+                    // Format the question with clear styling
+                    let mut content = String::new();
+
+                    // Header line - prominent
+                    content.push_str("╔══════════════════════════════════════╗\n");
+                    content.push_str("║         ⚡ AWAITING INPUT ⚡          ║\n");
+                    content.push_str("╚══════════════════════════════════════╝\n\n");
+
+                    // Question content
+                    content.push_str(&question);
+
                     // Show options if available
                     if let Some(ref opts) = options && let Some(arr) = opts.as_array() {
-                        content.push_str("\n\nOptions:");
+                        content.push_str("\n\n");
+                        content.push_str("─────────────────────────────────────\n");
+                        content.push_str("Options:\n");
                         for opt in arr {
                             let id = opt["id"].as_str().unwrap_or("?");
                             let label = opt["label"].as_str().unwrap_or("");
                             let desc = opt["description"].as_str().unwrap_or("");
-                            let desc_text = if desc.is_empty() { String::new() } else { format!("({})", desc) };
-                            content.push_str(&format!("\n  [{}] {} {}", id, label, desc_text));
+                            let desc_text = if desc.is_empty() { String::new() } else { format!(" - {}", desc) };
+                            content.push_str(&format!("  ▸ [{}] {}{}\n", id, label, desc_text));
                         }
                     }
-                    
-                    // Add hint for approval
-                    if is_approval {
-                        content.push_str("\n\n[y] Approve  [n] Reject  [a] Abort");
-                    } else if has_options {
-                        content.push_str("\n\nEnter option ID (e.g., 'A' or 'B')");
-                    }
-                    
-                    self.messages.push(Message { role: Role::System, content });
+
+                    // Add input hint
+                    content.push_str("\n─────────────────────────────────────\n");
+                    content.push_str("📌 Type your response and press Enter\n");
+                    content.push_str("📌 ESC to abort");
+
+                    self.messages.push(Message { role: Role::Ask, content });
                     self.waiting_for_ask = true;
                     self.activity = Activity::Asking;
                     self.auto_scroll = true;
