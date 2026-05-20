@@ -9,7 +9,7 @@ use crate::types::{Activity, ApproveMode, Role};
 use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, progress_bar, word_wrap};
 use crate::markdown::render_markdown;
 use crate::app::TuiApp;
-use crate::{MATRIX_SPINNER, LOGO_COLORS};
+use crate::SPINNER;
 
 impl TuiApp {
     pub(crate) fn draw(&self, f: &mut ratatui::Frame) {
@@ -155,27 +155,39 @@ impl TuiApp {
 
         let selection = self.selection.map(|s| s.normalized());
 
-        // Welcome (responsive) - MatrixCode logo + solid block letters (manually designed)
+        // Welcome (responsive) - MATRIX in solid █ (banner font) - Rainbow colors
         if self.show_welcome && self.messages.is_empty() {
-            // 3x3 logo + 3-line solid pixel MATRIXCODE
-            // Hand-designed solid █ letters for better readability
+            // MATRIX (rainbow: Red, Orange, Yellow, Green, Blue, Purple, Cyan)
             lines.push(Line::from(vec![
-                Span::styled("▓▓ ▓▓ ██", Style::default().fg(Color::Cyan)),
                 Span::styled("  ", Style::default()),
-                Span::styled(" █ █ ████ ████ █  █  ██  ████ █  █ ████ ████ ████", Style::default().fg(Color::LightGreen)),
+                Span::styled("█     █    █    ███████ ██████  ███ █     █ ", Style::default().fg(Color::Red)),
             ]));
             lines.push(Line::from(vec![
-                Span::styled("▓▓ ██ ▓▓", Style::default().fg(Color::Cyan)),
                 Span::styled("  ", Style::default()),
-                Span::styled("████ █  █ █  █ ██ █  █   █  █  █ █  █ █  █ █   ", Style::default().fg(Color::LightGreen)),
+                Span::styled("██   ██   █ █      █    █     █  █   █   █  ", Style::default().fg(Color::LightRed)),
             ]));
             lines.push(Line::from(vec![
-                Span::styled("▓▓ ▓▓ ██", Style::default().fg(Color::Cyan)),
                 Span::styled("  ", Style::default()),
-                Span::styled(" █ █ █  █ █  █ █ ██ ████ ████ ████ █  █ █  █ ████", Style::default().fg(Color::LightGreen)),
+                Span::styled("█ █ █ █  █   █     █    █     █  █    █ █   ", Style::default().fg(Color::Yellow)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled("█  █  █ █     █    █    ██████   █     █    ", Style::default().fg(Color::LightGreen)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled("█     █ ███████    █    █   █    █    █ █   ", Style::default().fg(Color::LightBlue)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled("█     █ █     █    █    █    █   █   █   █  ", Style::default().fg(Color::Magenta)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled("█     █ █     █    █    █     █ ███ █     █ ", Style::default().fg(Color::Cyan)),
             ]));
             // Subtitle below
-            lines.push(Line::styled("          AI coding assistant | /help for commands", Style::default().fg(Color::DarkGray)));
+            lines.push(Line::styled("    AI coding assistant | /help for commands", Style::default().fg(Color::Gray)));
             lines.push(Line::raw(""));
         }
 
@@ -450,10 +462,9 @@ impl TuiApp {
             let elapsed = self.request_start
                 .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
-            let matrix_frame = self.frame % MATRIX_SPINNER.len();
-            let logo_color = LOGO_COLORS[matrix_frame];
+            let spinner_frame = self.frame % SPINNER.len();
             lines.push(Line::from(vec![
-                Span::styled(format!("  {} ", MATRIX_SPINNER[matrix_frame]), Style::default().fg(logo_color)),
+                Span::styled(format!("  {} ", SPINNER[spinner_frame]), Style::default().fg(Color::LightGreen)),
                 Span::styled(format!("Thinking...{}", elapsed), Style::default().fg(Color::DarkGray)),
             ]));
         }
@@ -467,10 +478,9 @@ impl TuiApp {
             let elapsed = self.request_start
                 .map(|s| format!(" {:.1}s)", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
-            let matrix_frame = self.frame % MATRIX_SPINNER.len();
-            let logo_color = LOGO_COLORS[matrix_frame];
+            let spinner_frame = self.frame % SPINNER.len();
             lines.push(Line::from(vec![
-                Span::styled(format!("  {} ", MATRIX_SPINNER[matrix_frame]), Style::default().fg(logo_color)),
+                Span::styled(format!("  {} ", SPINNER[spinner_frame]), Style::default().fg(Color::LightGreen)),
                 Span::styled(tool_label, Style::default().fg(self.activity.color())),
                 Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
             ]));

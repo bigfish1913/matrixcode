@@ -366,9 +366,9 @@ impl TuiApp {
 
     pub fn run(&mut self, term: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         loop {
-            // Animation frame - cycle through 12 frames for spinner
+            // Animation frame - cycle through 10 frames for spinner
             if self.last_anim.elapsed().as_millis() >= ANIM_MS as u128 {
-                self.frame = (self.frame + 1) % 12;
+                self.frame = (self.frame + 1) % 10;
                 self.last_anim = Instant::now();
             }
 
