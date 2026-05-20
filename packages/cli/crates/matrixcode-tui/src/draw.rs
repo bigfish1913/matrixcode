@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::types::{Activity, ApproveMode, Role};
-use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, word_wrap};
+use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, progress_bar, word_wrap};
 use crate::markdown::render_markdown;
 use crate::app::TuiApp;
 use crate::SPINNER;
@@ -88,11 +88,15 @@ impl TuiApp {
             } else {
                 self.activity.label().to_string()
             }
-        } else if self.current_request_tokens > 0 {
-            // Show real-time output tokens during streaming
-            fmt_tokens(self.current_request_tokens)
+        } else if self.activity == Activity::Thinking {
+            // Thinking: show status, optionally with tokens if available
+            if self.current_request_tokens > 0 {
+                format!("Thinking {}", fmt_tokens(self.current_request_tokens))
+            } else {
+                "Thinking".to_string()
+            }
         } else {
-            // Thinking or other activity without tokens yet
+            // Other activity
             self.activity.label().to_string()
         };
         let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
@@ -109,15 +113,24 @@ impl TuiApp {
         };
         spans.push(Span::styled(model_display, Style::default().fg(Color::DarkGray)));
 
-        // Mode indicator (space separator, not │)
+        // Separator before mode
+        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+
+        // Mode indicator
         spans.push(Span::styled(format!(" {}", self.approve_mode.label()), Style::default().fg(mode_color)));
 
         // Separator before in/ctx
         spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
 
-        // in/ctx: input tokens percentage
+        // in/ctx: input tokens with progress bar
         if width >= 40 {
-            spans.push(Span::styled(format!(" in {:.0}% {}", context_pct, fmt_tokens(actual_tokens)), Style::default().fg(ctx_color)));
+            // Show progress bar when width >= 60
+            let bar = if width >= 60 {
+                progress_bar(context_pct, 6)
+            } else {
+                String::new()
+            };
+            spans.push(Span::styled(format!(" in {} {:.0}% {}", bar, context_pct, fmt_tokens(actual_tokens)), Style::default().fg(ctx_color)));
         }
 
         // out: session output tokens (space separator after in)
