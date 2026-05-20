@@ -1561,7 +1561,7 @@ dependencies = [
 
 [[package]]
 name = "matrixcode"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1582,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "matrixcode-core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1607,7 +1607,7 @@ dependencies = [
 
 [[package]]
 name = "matrixcode-tui"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "arboard",
