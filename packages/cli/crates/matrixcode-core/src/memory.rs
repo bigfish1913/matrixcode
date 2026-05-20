@@ -1524,20 +1524,7 @@ impl MemoryStorage {
             return Ok(AutoMemory::new());
         }
         let data = fs::read_to_string(&path)?;
-        
-        // Support both legacy array format and new object format
-        let memory: AutoMemory = if data.trim_start().starts_with('[') {
-            // Legacy format: array of entries
-            let entries: Vec<MemoryEntry> = serde_json::from_str(&data)?;
-            AutoMemory {
-                entries,
-                ..AutoMemory::new()
-            }
-        } else {
-            // New format: AutoMemory object
-            serde_json::from_str(&data)?
-        };
-        
+        let memory: AutoMemory = serde_json::from_str(&data)?;
         Ok(memory)
     }
 
@@ -1547,20 +1534,7 @@ impl MemoryStorage {
         match path {
             Some(p) if p.exists() => {
                 let data = fs::read_to_string(&p)?;
-                
-                // Support both legacy array format and new object format
-                let memory: AutoMemory = if data.trim_start().starts_with('[') {
-                    // Legacy format: array of entries
-                    let entries: Vec<MemoryEntry> = serde_json::from_str(&data)?;
-                    AutoMemory {
-                        entries,
-                        ..AutoMemory::new()
-                    }
-                } else {
-                    // New format: AutoMemory object
-                    serde_json::from_str(&data)?
-                };
-                
+                let memory: AutoMemory = serde_json::from_str(&data)?;
                 Ok(Some(memory))
             }
             _ => Ok(None),
