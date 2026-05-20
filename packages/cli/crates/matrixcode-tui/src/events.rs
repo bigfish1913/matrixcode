@@ -139,7 +139,7 @@ impl TuiApp {
                     if self.debug_mode {
                         self.messages.push(Message {
                             role: Role::System,
-                            content: format!("📦 Compressed: {} → {} tokens ({:.0}% saved)",
+                            content: format!("📦 Compressed: {} → {}tok ({:.0}% saved)",
                                 fmt_tokens(original_tokens), fmt_tokens(compressed_tokens), (1.0 - ratio) * 100.0)
                         });
                         self.auto_scroll = true;

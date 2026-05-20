@@ -35,7 +35,7 @@ impl TuiApp {
                     self.messages.push(Message {
                         role: Role::System,
                         content: format!(
-                            "📊 Session: {} user, {} assistant, {} tools, {} queued, {} output tokens",
+                            "📊 Session: {} user, {} assistant, {} tools, {} queued, {}tok output",
                             user_count, assistant_count, tool_count, queue_count, fmt_tokens(self.session_total_out)
                         )
                     });

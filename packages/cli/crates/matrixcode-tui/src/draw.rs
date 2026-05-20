@@ -9,7 +9,7 @@ use crate::types::{Activity, ApproveMode, Role};
 use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, progress_bar, word_wrap};
 use crate::markdown::render_markdown;
 use crate::app::TuiApp;
-use crate::SPINNER;
+use crate::{MATRIX_SPINNER, LOGO_COLORS};
 
 impl TuiApp {
     pub(crate) fn draw(&self, f: &mut ratatui::Frame) {
@@ -81,7 +81,7 @@ impl TuiApp {
                 Style::default().fg(ctx_color)
             ),
             Span::styled(
-                format!("{} tokens ", fmt_tokens(self.session_total_out)),
+                format!("{} tok ", fmt_tokens(self.session_total_out)),
                 Style::default().fg(Color::DarkGray)
             ),
         ];
@@ -89,7 +89,7 @@ impl TuiApp {
         // Cache info only when non-zero
         if self.cache_read > 0 || self.cache_created > 0 {
             spans.push(Span::styled(
-                format!("cache {}/{} ", fmt_tokens(self.cache_read), fmt_tokens(self.cache_created)),
+                format!("c {}k/{}k ", self.cache_read / 1000, self.cache_created / 1000),
                 Style::default().fg(Color::DarkGray)
             ));
         }
@@ -155,24 +155,27 @@ impl TuiApp {
 
         let selection = self.selection.map(|s| s.normalized());
 
-        // Welcome (responsive)
+        // Welcome (responsive) - MatrixCode logo + solid block letters (manually designed)
         if self.show_welcome && self.messages.is_empty() {
-            let w = (area.width as usize).min(60);
-            let border = "\u{2500}".repeat(w.saturating_sub(2));
-            lines.push(Line::styled(format!("\u{256d}{}\u{256e}", border), Style::default().fg(Color::Cyan)));
-            lines.push(Line::styled(
-                format!("\u{2502}{:^width$}\u{2502}", "\u{1f916} MatrixCode", width = w.saturating_sub(2)),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-            ));
-            lines.push(Line::styled(
-                format!("\u{2502}{:^width$}\u{2502}", "AI coding assistant", width = w.saturating_sub(2)),
-                Style::default().fg(Color::DarkGray)
-            ));
-            lines.push(Line::styled(
-                format!("\u{2502}{:^width$}\u{2502}", "/help for commands | Enter to send", width = w.saturating_sub(2)),
-                Style::default().fg(Color::Gray)
-            ));
-            lines.push(Line::styled(format!("\u{2570}{}\u{256f}", border), Style::default().fg(Color::Cyan)));
+            // 3x3 logo + 3-line solid pixel MATRIXCODE
+            // Hand-designed solid █ letters for better readability
+            lines.push(Line::from(vec![
+                Span::styled("▓▓ ▓▓ ██", Style::default().fg(Color::Cyan)),
+                Span::styled("  ", Style::default()),
+                Span::styled(" █ █ ████ ████ █  █  ██  ████ █  █ ████ ████ ████", Style::default().fg(Color::LightGreen)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("▓▓ ██ ▓▓", Style::default().fg(Color::Cyan)),
+                Span::styled("  ", Style::default()),
+                Span::styled("████ █  █ █  █ ██ █  █   █  █  █ █  █ █  █ █   ", Style::default().fg(Color::LightGreen)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("▓▓ ▓▓ ██", Style::default().fg(Color::Cyan)),
+                Span::styled("  ", Style::default()),
+                Span::styled(" █ █ █  █ █  █ █ ██ ████ ████ ████ █  █ █  █ ████", Style::default().fg(Color::LightGreen)),
+            ]));
+            // Subtitle below
+            lines.push(Line::styled("          AI coding assistant | /help for commands", Style::default().fg(Color::DarkGray)));
             lines.push(Line::raw(""));
         }
 
@@ -193,7 +196,7 @@ impl TuiApp {
                 Role::Assistant => {
                     // Assistant: separator with optional debug info
                     if self.debug_mode {
-                        let token_info = format!("({} tokens)", fmt_tokens(self.tokens_out));
+                        let token_info = format!("({}tok)", fmt_tokens(self.tokens_out));
                         let elapsed = self.request_start
                             .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
                             .unwrap_or_default();
@@ -377,10 +380,10 @@ impl TuiApp {
                 Role::System => {
                     let content = &msg.content;
                     if content.contains("APPROVAL REQUIRED") || content.contains("requires approval") || content.contains("Allow?") {
-                        // Approval: prominent yellow
+                        // Approval: prominent red bold
                         let wrapped = word_wrap(content, max_w);
                         for line in wrapped {
-                            lines.push(Line::styled(format!("  {}", line), Style::default().fg(Color::Yellow)));
+                            lines.push(Line::styled(format!("  ⚡ {}", line), Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
                         }
                         lines.push(Line::raw(""));
                     } else if self.debug_mode || content.contains('\n') {
@@ -447,8 +450,10 @@ impl TuiApp {
             let elapsed = self.request_start
                 .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
+            let matrix_frame = self.frame % MATRIX_SPINNER.len();
+            let logo_color = LOGO_COLORS[matrix_frame];
             lines.push(Line::from(vec![
-                Span::styled(format!("  {} ", SPINNER[self.frame]), Style::default().fg(self.activity.color())),
+                Span::styled(format!("  {} ", MATRIX_SPINNER[matrix_frame]), Style::default().fg(logo_color)),
                 Span::styled(format!("Thinking...{}", elapsed), Style::default().fg(Color::DarkGray)),
             ]));
         }
@@ -460,10 +465,12 @@ impl TuiApp {
                 self.activity.label()
             };
             let elapsed = self.request_start
-                .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
+                .map(|s| format!(" {:.1}s)", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
+            let matrix_frame = self.frame % MATRIX_SPINNER.len();
+            let logo_color = LOGO_COLORS[matrix_frame];
             lines.push(Line::from(vec![
-                Span::styled(format!("  {} ", SPINNER[self.frame]), Style::default().fg(self.activity.color())),
+                Span::styled(format!("  {} ", MATRIX_SPINNER[matrix_frame]), Style::default().fg(logo_color)),
                 Span::styled(tool_label, Style::default().fg(self.activity.color())),
                 Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
             ]));
@@ -553,7 +560,7 @@ impl TuiApp {
         // Prompt indicator based on activity
         let (prompt, prompt_color) = match self.activity {
             Activity::Idle => ("❯ ", Color::Yellow),
-            Activity::Asking => ("❓ ", Color::Yellow),
+            Activity::Asking => ("⚡ ", Color::Red),
             _ => ("⏳ ", Color::Gray),  // Show queuing indicator when busy
         };
         
@@ -568,7 +575,7 @@ impl TuiApp {
             ];
             
             if self.activity == Activity::Asking {
-                spans.push(Span::styled("[reply: y/n or option] ", Style::default().fg(Color::Yellow)));
+                spans.push(Span::styled("[AWAITING REPLY: y/n or option] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
             }
             
             if self.input.is_empty() {

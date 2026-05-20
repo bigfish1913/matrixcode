@@ -30,7 +30,7 @@ impl Activity {
             Activity::WebSearch => "websearch".into(),
             Activity::WebFetch => "webfetch".into(),
             Activity::Tool(name) => name.clone(),
-            Activity::Asking => "waiting".into(),
+            Activity::Asking => "AWAITING".into(),
         }
     }
 
@@ -43,7 +43,7 @@ impl Activity {
             Activity::Running => Color::Red,
             Activity::WebSearch | Activity::WebFetch => Color::Blue,
             Activity::Tool(_) => Color::Cyan,
-            Activity::Asking => Color::Yellow,
+            Activity::Asking => Color::Red,
         }
     }
 

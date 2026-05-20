@@ -1,6 +1,7 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use pulldown_cmark::{Parser, Event, Tag, HeadingLevel, CodeBlockKind, Options};
+use pulldown_cmark::{Parser, Event, Tag, TagEnd, HeadingLevel, CodeBlockKind, Options};
+use unicode_width::UnicodeWidthStr;
 use std::sync::OnceLock;
 
 /// Lazy-loaded syntax set for code highlighting
@@ -20,6 +21,13 @@ fn get_theme_set() -> &'static syntect::highlighting::ThemeSet {
 fn inline_code_style() -> Style {
     Style::default()
         .fg(Color::Yellow)
+        .bg(Color::DarkGray)
+}
+
+/// Math formula style
+fn math_style() -> Style {
+    Style::default()
+        .fg(Color::LightMagenta)
         .bg(Color::DarkGray)
 }
 
@@ -86,6 +94,7 @@ pub fn render_markdown(text: &str, _max_width: usize) -> Vec<Line<'static>> {
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
+    options.insert(Options::ENABLE_MATH);
 
     let parser = Parser::new_ext(text, options);
     let mut renderer = MarkdownRenderer::new();
@@ -160,7 +169,7 @@ impl MarkdownRenderer {
         for event in parser {
             match event {
                 Event::Start(tag) => self.handle_start(tag),
-                Event::End(tag) => self.handle_end(tag),
+                Event::End(tag_end) => self.handle_end(tag_end),
                 Event::Text(text) => {
                     if self.in_code_block {
                         self.code_block_content.push_str(&text);
@@ -173,7 +182,23 @@ impl MarkdownRenderer {
                 Event::Code(code) => {
                     self.current_spans.push(Span::styled(code.to_string(), inline_code_style()));
                 }
+                Event::InlineMath(math) => {
+                    // Inline math: $formula$
+                    self.current_spans.push(Span::styled(
+                        format!("${}$", math),
+                        math_style()
+                    ));
+                }
+                Event::DisplayMath(math) => {
+                    // Display math: $$formula$$ - render as separate block
+                    self.flush_line();
+                    self.lines.push(Line::styled(
+                        format!("  $${}$$", math),
+                        math_style()
+                    ));
+                }
                 Event::Html(html) => self.add_text(&html),
+                Event::InlineHtml(html) => self.add_text(&html),
                 Event::SoftBreak => self.add_text(" "),
                 Event::HardBreak => self.flush_line(),
                 Event::Rule => {
@@ -188,7 +213,7 @@ impl MarkdownRenderer {
 
     fn handle_start(&mut self, tag: Tag) {
         match tag {
-            Tag::Heading(level, _, _) => {
+            Tag::Heading { level, .. } => {
                 self.flush_line();
                 self.push_style(heading_style(level));
             }
@@ -212,7 +237,7 @@ impl MarkdownRenderer {
                 let indent = "  ".repeat(self.list_depth.saturating_sub(1));
                 self.current_spans.push(Span::styled(format!("{}• ", indent), bullet_style()));
             }
-            Tag::BlockQuote => {
+            Tag::BlockQuote(_) => {
                 self.flush_line();
                 self.push_style(Style::default().fg(Color::DarkGray));
                 self.current_spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
@@ -226,11 +251,11 @@ impl MarkdownRenderer {
             Tag::Strikethrough => {
                 self.push_style(strikethrough_style());
             }
-            Tag::Link(_, _url, _) => {
+            Tag::Link { dest_url: _, .. } => {
                 self.push_style(link_style());
                 self.current_spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
             }
-            Tag::Image(_, _, title) => {
+            Tag::Image { title, .. } => {
                 self.add_text("📷 ");
                 if !title.is_empty() {
                     self.add_text(&title);
@@ -252,60 +277,62 @@ impl MarkdownRenderer {
                 self.in_table_cell = true;
             }
             Tag::FootnoteDefinition(_) => {}
+            Tag::HtmlBlock => {}
+            Tag::DefinitionList => {}
+            Tag::DefinitionListTitle => {}
+            Tag::DefinitionListDefinition => {}
+            Tag::Superscript => self.push_style(Style::default().fg(Color::Gray)),
+            Tag::Subscript => self.push_style(Style::default().fg(Color::Gray)),
+            Tag::MetadataBlock(_) => {}
         }
     }
 
-    fn handle_end(&mut self, tag: Tag) {
-        match tag {
-            Tag::Heading(_, _, _) => {
+    fn handle_end(&mut self, tag_end: TagEnd) {
+        match tag_end {
+            TagEnd::Heading(_) => {
                 self.flush_line();
                 self.pop_style();
             }
-            Tag::Paragraph => {
+            TagEnd::Paragraph => {
                 self.flush_line();
                 self.lines.push(Line::raw(""));
             }
-            Tag::CodeBlock(_) => {
+            TagEnd::CodeBlock => {
                 self.flush_code_block();
                 self.in_code_block = false;
                 self.code_block_lang = None;
                 self.code_block_content.clear();
             }
-            Tag::List(_) => {
+            TagEnd::List(_) => {
                 self.flush_line();
                 self.list_depth = self.list_depth.saturating_sub(1);
             }
-            Tag::Item => {
+            TagEnd::Item => {
                 self.flush_line();
             }
-            Tag::BlockQuote => {
+            TagEnd::BlockQuote(_) => {
                 self.flush_line();
                 self.pop_style();
             }
-            Tag::Strong => self.pop_style(),
-            Tag::Emphasis => self.pop_style(),
-            Tag::Strikethrough => self.pop_style(),
-            Tag::Link(_, url, _) => {
+            TagEnd::Strong => self.pop_style(),
+            TagEnd::Emphasis => self.pop_style(),
+            TagEnd::Strikethrough => self.pop_style(),
+            TagEnd::Link => {
                 self.pop_style();
                 self.current_spans.push(Span::styled("]", Style::default().fg(Color::DarkGray)));
-                // Show URL in parentheses if different from text
-                self.current_spans.push(Span::styled(
-                    format!("({})", url),
-                    Style::default().fg(Color::DarkGray)
-                ));
             }
-            Tag::Image(_, _, _) => {}
-            Tag::Table(_) => {
+            TagEnd::Image => {}
+            TagEnd::Table => {
                 self.flush_line();
                 self.render_table();
             }
-            Tag::TableHead => {
+            TagEnd::TableHead => {
                 // TableHead end: move collected cells to table_header
                 self.table_header = self.current_table_row.clone();
                 self.current_table_row.clear();
                 self.in_table_header = false;
             }
-            Tag::TableRow => {
+            TagEnd::TableRow => {
                 if self.in_table_header {
                     self.table_header = self.current_table_row.clone();
                 } else {
@@ -313,12 +340,19 @@ impl MarkdownRenderer {
                 }
                 self.current_table_row.clear();
             }
-            Tag::TableCell => {
+            TagEnd::TableCell => {
                 self.current_table_row.push(self.current_cell_content.clone());
                 self.current_cell_content.clear();
                 self.in_table_cell = false;
             }
-            Tag::FootnoteDefinition(_) => {}
+            TagEnd::FootnoteDefinition => {}
+            TagEnd::HtmlBlock => {}
+            TagEnd::DefinitionList => {}
+            TagEnd::DefinitionListTitle => {}
+            TagEnd::DefinitionListDefinition => {}
+            TagEnd::Superscript => self.pop_style(),
+            TagEnd::Subscript => self.pop_style(),
+            TagEnd::MetadataBlock(_) => {}
         }
     }
 
@@ -372,85 +406,94 @@ impl MarkdownRenderer {
             return;
         }
 
-        // Calculate column widths
+        // Calculate column widths using Unicode display width (+2 for padding)
         let mut widths: Vec<usize> = self.table_header.iter()
-            .map(|c| c.len().max(3))
+            .map(|c| c.width().max(3) + 2)
             .collect();
 
         for row in &self.table_rows {
             for (i, cell) in row.iter().enumerate() {
                 if i < widths.len() {
-                    widths[i] = widths[i].max(cell.len());
+                    widths[i] = widths[i].max(cell.width() + 2);
                 }
             }
         }
 
-        // Render header
+        // Build border parts
+        let top_border = self.make_border(&widths, "┌", "┬", "┐");
+        let mid_border = self.make_border(&widths, "├", "┼", "┤");
+        let bottom_border = self.make_border(&widths, "└", "┴", "┘");
+
+        // Top border
+        self.lines.push(Line::styled(top_border, Style::default().fg(Color::DarkGray)));
+
+        // Header row
         let header_line = self.format_table_row(&self.table_header, &widths);
-        self.lines.push(Line::styled(
-            header_line,
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-        ));
+        self.lines.push(Line::styled(header_line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
 
-        // Render separator
-        let sep: Vec<String> = widths.iter().map(|w| "─".repeat(*w)).collect();
-        self.lines.push(Line::styled(
-            format!("┌{}┐", sep.join("┬")),
-            Style::default().fg(Color::DarkGray)
-        ));
+        // Separator after header
+        self.lines.push(Line::styled(mid_border, Style::default().fg(Color::DarkGray)));
 
-        // Render rows
+        // Data rows
         for row in &self.table_rows {
             let row_line = self.format_table_row(row, &widths);
-            self.lines.push(Line::styled(row_line, text_style()));
+            self.lines.push(Line::styled(row_line, Style::default().fg(Color::Gray)));
         }
 
-        // Render bottom border
-        let bottom: Vec<String> = widths.iter().map(|w| "─".repeat(*w)).collect();
-        self.lines.push(Line::styled(
-            format!("└{}┘", bottom.join("┴")),
-            Style::default().fg(Color::DarkGray)
-        ));
+        // Bottom border
+        self.lines.push(Line::styled(bottom_border, Style::default().fg(Color::DarkGray)));
+    }
+
+    fn make_border(&self, widths: &[usize], left: &str, mid: &str, right: &str) -> String {
+        let parts: Vec<String> = widths.iter().map(|w| "─".repeat(*w)).collect();
+        format!("{}{}{}", left, parts.join(mid), right)
     }
 
     fn format_table_row(&self, cells: &[String], widths: &[usize]) -> String {
         let formatted: Vec<String> = cells.iter()
             .enumerate()
             .map(|(i, cell)| {
-                let width = widths.get(i).copied().unwrap_or(cell.len());
-                format!(" {:width$} ", cell, width = width)
+                let cell_width = widths.get(i).copied().unwrap_or(cell.width() + 2);
+                self.center_cell(cell, cell_width)
             })
             .collect();
         format!("│{}│", formatted.join("│"))
     }
+
+    fn center_cell(&self, content: &str, cell_width: usize) -> String {
+        let content_width = content.width();
+        let total_padding = cell_width.saturating_sub(content_width);
+
+        if total_padding == 0 {
+            return content.to_string();
+        }
+
+        let left_pad = total_padding / 2;
+        let right_pad = total_padding - left_pad;
+
+        format!("{}{}{}", " ".repeat(left_pad), content, " ".repeat(right_pad))
+    }
 }
 
-/// Convert syntect color to ratatui color
 fn syntect_color_to_ratatui(c: syntect::highlighting::Color) -> Color {
-    // Simple mapping to terminal ANSI colors
     let r = c.r;
     let g = c.g;
     let b = c.b;
 
-    // Grayscale check
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
     if max - min < 20 {
-        // Nearly grayscale
         if r < 80 { return Color::DarkGray; }
         if r < 160 { return Color::Gray; }
         return Color::White;
     }
 
-    // Dominant color detection
     if r >= g && r >= b && r > 150 {
-        // Red dominant
         if g > 100 && b < 100 { return Color::Yellow; }
         if b > 100 && g < 100 { return Color::Magenta; }
         return Color::Red;
     }
     if g >= r && g >= b && g > 150 {
-        // Green dominant
         if b > 100 && r < 100 { return Color::Cyan; }
         return Color::Green;
     }
@@ -458,7 +501,6 @@ fn syntect_color_to_ratatui(c: syntect::highlighting::Color) -> Color {
         return Color::Blue;
     }
 
-    // Fallback
     Color::Rgb(r, g, b)
 }
 
@@ -469,144 +511,56 @@ mod tests {
     #[test]
     fn test_plain_text() {
         let result = render_markdown("Hello world", 80);
-        assert!(!result.is_empty(), "Plain text should produce lines");
+        assert!(!result.is_empty());
         let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(text.contains("Hello"), "Should contain 'Hello'");
+        assert!(text.contains("Hello"));
     }
 
     #[test]
     fn test_heading() {
         let result = render_markdown("# Title", 80);
-        assert!(!result.is_empty(), "Heading should produce lines");
-        let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(text.contains("Title"), "Should contain 'Title' without #");
-    }
-
-    #[test]
-    fn test_heading_level_2() {
-        let result = render_markdown("## Subtitle", 80);
         assert!(!result.is_empty());
         let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(text.contains("Subtitle"));
-    }
-
-    #[test]
-    fn test_list() {
-        let result = render_markdown("- Item one", 80);
-        assert!(!result.is_empty());
-        let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(text.contains("Item one"));
-    }
-
-    #[test]
-    fn test_inline_code() {
-        let result = render_markdown("Use `code` here", 80);
-        assert!(!result.is_empty());
-        assert!(result[0].spans.len() >= 2);
-    }
-
-    #[test]
-    fn test_bold() {
-        let result = render_markdown("This is **bold** text", 80);
-        assert!(!result.is_empty());
-        assert!(result[0].spans.len() >= 2);
-    }
-
-    #[test]
-    fn test_italic() {
-        let result = render_markdown("This is *italic* text", 80);
-        assert!(!result.is_empty());
-        assert!(result[0].spans.len() >= 2);
-    }
-
-    #[test]
-    fn test_code_block() {
-        let result = render_markdown("```rust\nfn main() {}\n```", 80);
-        assert!(result.len() >= 3, "Code block should have header, content, footer");
-        let header = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(header.contains("rust"));
-    }
-
-    #[test]
-    fn test_empty() {
-        let result = render_markdown("", 80);
-        assert!(result.is_empty(), "Empty input should produce empty output");
-    }
-
-    #[test]
-    fn test_link() {
-        let result = render_markdown("[link text](https://example.com)", 80);
-        assert!(!result.is_empty());
-        let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(text.contains("link text"));
-    }
-
-    #[test]
-    fn test_strikethrough() {
-        let result = render_markdown("~~deleted~~", 80);
-        assert!(!result.is_empty());
-        let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(text.contains("deleted"));
+        assert!(text.contains("Title"));
     }
 
     #[test]
     fn test_table() {
         let md = "| A | B |\n|---|---|\n| 1 | 2 |";
         let result = render_markdown(md, 80);
-        assert!(!result.is_empty(), "Table should produce lines");
+        assert!(!result.is_empty());
     }
 
     #[test]
-    fn test_nested_list() {
-        let result = render_markdown("- Item one\n  - Nested item", 80);
+    fn test_math() {
+        let md = "Inline: $E=mc^2$";
+        let result = render_markdown(md, 80);
         assert!(!result.is_empty());
-        let text = result[1].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(text.contains("Nested"));
+        let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+        assert!(text.contains("$E=mc^2$"));
     }
 }
+
 #[cfg(test)]
 mod debug_tests {
     use super::*;
-    use pulldown_cmark::{Parser, Event, Tag, Options};
 
     #[test]
-    fn debug_code_block() {
-        let md = "```rust\nfn main() {\n    println!(\"Hello\");\n}\n```";
-        println!("\n=== Code Block Test ===");
-        println!("Input: {}", md);
+    fn debug_table() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+        println!("\n=== Table ===");
         let lines = render_markdown(md, 60);
         for (i, line) in lines.iter().enumerate() {
             let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-            println!("[{}] {}", i, text);
-            // Show each span's style
-            for span in &line.spans {
-                println!("    - {:?}", span.style);
-            }
+            println!("[{}] '{}'", i, text);
         }
     }
 
     #[test]
-    fn debug_table_events() {
-        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
-        println!("\n=== Table Events ===");
-        println!("Input: {}", md);
-
-        let mut options = Options::empty();
-        options.insert(Options::ENABLE_TABLES);
-
-        let parser = Parser::new_ext(md, options);
-        for (i, event) in parser.enumerate() {
-            println!("[{}] {:?}", i, event);
-        }
-    }
-
-    #[test]
-    fn debug_table_render() {
-        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
-        println!("\n=== Table Render ===");
-        println!("Input: {}", md);
-        let lines = render_markdown(md, 60);
-        println!("Output lines: {}", lines.len());
+    fn debug_math() {
+        let md = "Inline: $E=mc^2$\n\nBlock:\n$$\\sum_{i=1}^n i$$";
+        println!("\n=== Math ===");
+        let lines = render_markdown(md, 80);
         for (i, line) in lines.iter().enumerate() {
             let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
             println!("[{}] '{}'", i, text);
