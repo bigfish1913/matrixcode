@@ -294,29 +294,23 @@ impl Agent {
             // Check compression (use last_input_tokens = actual context window usage)
             let context_size = self.provider.context_size();
 
-            // Use estimated tokens if API doesn't report accurately
-            // Some APIs (like DashScope) may return small input_tokens when using cache
-            // For accuracy, use max of api_tokens and estimated_tokens
-            // Also consider: if cache was used, api_tokens may be partial, so multiply by safety factor
+            // Use API-reported tokens as primary source (should be accurate)
+            // Only estimate if API returns 0 or unreasonable value
             let api_tokens = self.last_input_tokens.load(Ordering::Relaxed) as u32;
             let estimated_tokens = crate::compress::estimate_total_tokens(&self.messages);
 
-            // If API reported cache_read, the actual context is likely much larger than reported
-            // Use estimated_tokens as the primary source in this case
-            let cache_was_used = response.usage.cache_read_input_tokens > 0;
-            let current_tokens = if cache_was_used {
-                // When cache is used, API may report only uncached tokens
-                // Use estimated tokens as more reliable measure
-                estimated_tokens.max(api_tokens + response.usage.cache_read_input_tokens)
+            // Trust API tokens unless it's clearly wrong (0 or way less than estimate)
+            let current_tokens = if api_tokens > 0 && api_tokens >= estimated_tokens / 2 {
+                api_tokens  // API reported reasonable value, use it
             } else {
-                api_tokens.max(estimated_tokens)
+                estimated_tokens  // API returned 0 or suspiciously low, use estimate
             };
 
             // Debug: log compression check
             crate::debug::debug_log().log(
                 "compression",
-                &format!("check: api_tokens={}, estimated={}, cache_used={}, current={}, context_size={}, threshold={}",
-                    api_tokens, estimated_tokens, cache_was_used, current_tokens, context_size.unwrap_or(0), self.compression_config.threshold)
+                &format!("check: api={}, estimated={}, using={}, context={}, threshold={}",
+                    api_tokens, estimated_tokens, current_tokens, context_size.unwrap_or(0), self.compression_config.threshold)
             );
             
             if should_compress(current_tokens, context_size, &self.compression_config) {

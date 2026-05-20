@@ -59,7 +59,7 @@ impl TuiApp {
         } else {
             // Estimate from messages using improved token counting
             self.messages.iter().map(|m| {
-                estimate_message_tokens(&m.content)
+                estimate_message_tokens(&m.content) as u64
             }).sum::<u64>()
         };
 
@@ -76,7 +76,7 @@ impl TuiApp {
             ApproveMode::Strict => Color::Red,
         };
 
-        // Status on the right - show real-time info
+        // Status on the right - show real-time output tokens during streaming
         let is_tool_activity = matches!(self.activity,
             Activity::Reading | Activity::Writing | Activity::Editing |
             Activity::Searching | Activity::Running | Activity::WebSearch |
@@ -92,14 +92,11 @@ impl TuiApp {
             } else {
                 self.activity.label().to_string()
             }
-        } else if !self.streaming.is_empty() {
-            let estimated_tokens = estimate_text_tokens(&self.streaming);
-            if estimated_tokens > 0 { fmt_tokens(estimated_tokens as u64) } else { "...".into() }
-        } else if !self.thinking.is_empty() {
-            let estimated_tokens = estimate_text_tokens(&self.thinking);
-            if estimated_tokens > 0 { fmt_tokens(estimated_tokens as u64) } else { "...".into() }
+        } else if self.current_request_tokens > 0 {
+            // Show real-time output tokens (from Usage events during streaming)
+            fmt_tokens(self.current_request_tokens)
         } else if self.activity == Activity::Thinking {
-            "0".to_string()
+            "...".to_string()
         } else {
             self.activity.label().to_string()
         };
@@ -126,19 +123,17 @@ impl TuiApp {
 
         if width >= 50 {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-            // Context: show compact "45k/75%" or just percentage
+            // Context: show progress bar + percentage + used/max
             if width >= 70 {
-                // Full: progress bar + tokens + percentage
+                // Full: progress bar + percentage + used/max
                 let ctx_display = format!(
-                    "{} {}/{:.0}%",
+                    "{} {:.0}% {}/{}",
                     progress_bar(context_pct, 10),
-                    fmt_tokens(estimated_context_tokens),
-                    context_pct
+                    context_pct,
+                    fmt_tokens(actual_tokens),
+                    fmt_tokens(self.context_size)
                 );
                 spans.push(Span::styled(format!(" {} ", ctx_display), Style::default().fg(ctx_color)));
-                // Context limit
-                let ctx_limit = fmt_tokens(self.context_size);
-                spans.push(Span::styled(format!("/{} ", ctx_limit), Style::default().fg(Color::DarkGray)));
             } else if width >= 60 {
                 // Medium: percentage only
                 spans.push(Span::styled(format!(" {:.0}% ", context_pct), Style::default().fg(ctx_color)));
