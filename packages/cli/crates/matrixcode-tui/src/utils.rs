@@ -58,17 +58,6 @@ pub fn fmt_tokens(n: u64) -> String {
     else { format!("{:.1}m", n as f64 / 1_000_000.0) }
 }
 
-/// Render a progress bar
-pub fn progress_bar(pct: f64, width: usize) -> String {
-    let filled = ((pct / 100.0) * width as f64).round() as usize;
-    let filled = filled.min(width);
-    let mut s = String::with_capacity(width);
-    for i in 0..width {
-        s.push(if i < filled { '█' } else { '░' });
-    }
-    s
-}
-
 /// Calculate visual width of a string (Chinese chars = 2, ASCII = 1)
 pub fn visual_width(s: &str) -> usize {
     s.chars().map(|ch| if ch > '\u{7F}' { 2 } else { 1 }).sum()
@@ -102,27 +91,6 @@ pub fn truncate_visual_end(s: &str, max_width: usize) -> String {
         result.insert(0, ch);
         width += ch_w;
     }
-    result
-}
-
-/// Extract substring from a line using visual column positions
-/// Handles multi-byte characters (e.g., Chinese chars take 2 columns)
-pub fn extract_by_visual_col(line: &str, start_col: usize, end_col: usize) -> String {
-    let mut result = String::new();
-    let mut visual_pos = 0;
-    
-    for ch in line.chars() {
-        let ch_width = if ch > '\u{7F}' { 2 } else { 1 };
-        
-        if visual_pos >= end_col {
-            break;
-        }
-        if visual_pos + ch_width > start_col {
-            result.push(ch);
-        }
-        visual_pos += ch_width;
-    }
-    
     result
 }
 

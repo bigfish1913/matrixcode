@@ -9,10 +9,8 @@ use ratatui::{
 };
 
 use matrixcode_core::{AgentEvent, cancel::CancellationToken};
-use ratatui::crossterm::event::MouseButton;
 
 use crate::types::{Activity, ApproveMode, Role, Message};
-use crate::utils::extract_by_visual_col;
 use crate::ANIM_MS;
 
 pub struct TuiApp {
@@ -74,75 +72,8 @@ pub struct TuiApp {
     pub(crate) loop_task: Option<LoopTask>,
     // Cron tasks state
     pub(crate) cron_tasks: Vec<CronTask>,
-    // Selection state
-    pub(crate) selection: Option<Selection>,
-    pub(crate) selecting: bool,  // True while mouse dragging
-    pub(crate) msg_area_top: std::cell::Cell<u16>,  // Messages area top Y (computed in draw)
     // Debug mode
     pub(crate) debug_mode: bool,
-}
-
-/// Text selection in messages area
-#[derive(Clone, Copy, Debug)]
-pub struct Selection {
-    pub start_line: usize,
-    pub start_col: usize,
-    pub end_line: usize,
-    pub end_col: usize,
-}
-
-impl Selection {
-    pub fn new(start_line: usize, start_col: usize) -> Self {
-        Self {
-            start_line,
-            start_col,
-            end_line: start_line,
-            end_col: start_col,
-        }
-    }
-    
-    pub fn extend_to(&mut self, line: usize, col: usize) {
-        self.end_line = line;
-        self.end_col = col;
-    }
-    
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.start_line == self.end_line && self.start_col == self.end_col
-    }
-    
-    pub fn normalized(&self) -> Self {
-        // Normalize so start <= end
-        if self.start_line > self.end_line || 
-           (self.start_line == self.end_line && self.start_col > self.end_col) {
-            Self {
-                start_line: self.end_line,
-                start_col: self.end_col,
-                end_line: self.start_line,
-                end_col: self.start_col,
-            }
-        } else {
-            *self
-        }
-    }
-    
-    #[allow(dead_code)]
-    pub fn contains(&self, line: usize, col: usize) -> bool {
-        let norm = self.normalized();
-        if line < norm.start_line || line > norm.end_line {
-            return false;
-        }
-        if line == norm.start_line && line == norm.end_line {
-            return col >= norm.start_col && col <= norm.end_col;
-        }
-        if line == norm.start_line {
-            return col >= norm.start_col;
-        }
-        if line == norm.end_line {
-            return col <= norm.end_col;
-        }
-        true  // Middle line
-    }
 }
 
 /// Loop task - repeatedly send message
@@ -214,9 +145,6 @@ impl TuiApp {
             pending_messages: Vec::new(),
             loop_task: None,
             cron_tasks: Vec::new(),
-            selection: None,
-            selecting: false,
-            msg_area_top: std::cell::Cell::new(0),
             debug_mode: false,
         }
     }
@@ -317,118 +245,6 @@ impl TuiApp {
         }
     }
 
-    /// Get selected text from messages
-    /// Simplified: returns raw message content for the selected range
-    /// Maps rendered line numbers to original message content
-    pub(crate) fn get_selected_text(&self, selection: Selection) -> String {
-        let norm = selection.normalized();
-
-        // Build a mapping from rendered line index to message content
-        // This matches the rendering logic in draw_messages
-        let mut line_to_content: Vec<(usize, String)> = Vec::new();  // (message_idx, line_content)
-        let mut rendered_lines: Vec<String> = Vec::new();
-
-        // Welcome message lines (7 MATRIX lines + 1 subtitle + 1 empty)
-        if self.show_welcome && self.messages.is_empty() {
-            // MATRIX ASCII art lines (user wants to copy these)
-            rendered_lines.push("  █     █    █    ███████ ██████  ███ █     █ ".into());
-            rendered_lines.push("  ██   ██   █ █      █    █     █  █   █   █  ".into());
-            rendered_lines.push("  █ █ █ █  █   █     █    █     █  █    █ █   ".into());
-            rendered_lines.push("  █  █  █ █     █    █    ██████   █     █    ".into());
-            rendered_lines.push("  █     █ ███████    █    █   █    █    █ █   ".into());
-            rendered_lines.push("  █     █ █     █    █    █    █   █   █   █  ".into());
-            rendered_lines.push("  █     █ █     █    █    █     █ ███ █     █ ".into());
-            rendered_lines.push("    AI coding assistant | /help for commands".into());
-            rendered_lines.push(String::new());
-        }
-
-        // Process messages - simplified format matching actual rendering
-        for (msg_idx, msg) in self.messages.iter().enumerate() {
-            match &msg.role {
-                Role::User => {
-                    // User: │ prefix for each content line
-                    for line in msg.content.lines() {
-                        rendered_lines.push(format!("│ {}", line));
-                        line_to_content.push((msg_idx, line.to_string()));
-                    }
-                    rendered_lines.push(String::new());
-                }
-                Role::Assistant => {
-                    // Assistant: ── separator + content lines
-                    rendered_lines.push("  ──".into());
-                    for line in msg.content.lines() {
-                        rendered_lines.push(format!("  {}", line));
-                        line_to_content.push((msg_idx, line.to_string()));
-                    }
-                    rendered_lines.push(String::new());
-                }
-                Role::Thinking => {
-                    // Thinking: 💭 prefix
-                    rendered_lines.push("  💭 ▼ Thinking".into());
-                    for line in msg.content.lines() {
-                        rendered_lines.push(format!("    {}", line));
-                        line_to_content.push((msg_idx, line.to_string()));
-                    }
-                }
-                Role::Tool { name, .. } => {
-                    // Tool: simplified header + content
-                    rendered_lines.push(format!("  {} →", name));
-                    for line in msg.content.lines() {
-                        rendered_lines.push(format!("    {}", line));
-                        line_to_content.push((msg_idx, line.to_string()));
-                    }
-                    rendered_lines.push(String::new());
-                }
-                Role::System => {
-                    // System: ⚡ prefix or just content
-                    if msg.content.contains("APPROVAL") {
-                        for line in msg.content.lines() {
-                            rendered_lines.push(format!("  ⚡ {}", line));
-                        }
-                    } else {
-                        for line in msg.content.lines() {
-                            rendered_lines.push(format!("  {}", line));
-                        }
-                    }
-                    rendered_lines.push(String::new());
-                }
-                Role::Ask => {
-                    // Ask: full content with borders
-                    for line in msg.content.lines() {
-                        rendered_lines.push(line.to_string());
-                        line_to_content.push((msg_idx, line.to_string()));
-                    }
-                    rendered_lines.push(String::new());
-                }
-            }
-        }
-
-        // Extract selected range
-        let mut result = String::new();
-        for i in norm.start_line..=norm.end_line {
-            if let Some(line) = rendered_lines.get(i) {
-                let (start_col, end_col) = if i == norm.start_line && i == norm.end_line {
-                    (norm.start_col, norm.end_col)
-                } else if i == norm.start_line {
-                    (norm.start_col, usize::MAX)
-                } else if i == norm.end_line {
-                    (0, norm.end_col)
-                } else {
-                    (0, usize::MAX)
-                };
-
-                // Extract substring from visual column position
-                let extracted = extract_by_visual_col(line, start_col, end_col);
-                result.push_str(&extracted);
-                if i != norm.end_line {
-                    result.push('\n');
-                }
-            }
-        }
-
-        result
-    }
-
     pub fn run(&mut self, term: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         loop {
             // Animation frame - cycle through 10 frames for spinner
@@ -443,7 +259,7 @@ impl TuiApp {
             if event::poll(Duration::from_millis(16))? {
                 match event::read()? {
                     Event::Key(k) => self.on_key(k),
-                    Event::Mouse(m) => self.on_mouse(m, self.msg_area_top.get()),
+                    Event::Mouse(m) => self.on_mouse(m),
                     Event::Paste(text) => self.on_paste(&text),
                     _ => {}
                 }
@@ -458,87 +274,22 @@ impl TuiApp {
         }
         Ok(())
     }
-    fn on_mouse(&mut self, m: MouseEvent, msg_area_y: u16) {
+    fn on_mouse(&mut self, m: MouseEvent) {
         match m.kind {
             MouseEventKind::ScrollUp => {
-                // Scroll up = view earlier content = decrease offset
-                // ratatui scroll(offset) skips first N lines, so:
-                // - scroll_offset=0 shows top, scroll_offset=max shows bottom
-                // - scroll up (earlier) = decrease offset
                 if self.auto_scroll {
                     self.auto_scroll = false;
-                    // We need to start from bottom, then scroll up
-                    // Use max_scroll (will be updated in draw) or a large value
                     self.scroll_offset = self.max_scroll.get().max(50);
                 }
                 self.scroll_offset = self.scroll_offset.saturating_sub(3);
-                self.selection = None;  // Clear selection on scroll
             }
             MouseEventKind::ScrollDown => {
-                // Scroll down = view newer content = increase offset
                 if !self.auto_scroll {
                     self.scroll_offset = self.scroll_offset.saturating_add(3);
-                    // Check if we've scrolled to the bottom
-                    // Use max_scroll if available, otherwise just keep scrolling
                     let max = self.max_scroll.get();
                     if max > 0 && self.scroll_offset >= max {
                         self.auto_scroll = true;
                         self.scroll_offset = 0;
-                    }
-                }
-                self.selection = None;  // Clear selection on scroll
-            }
-            MouseEventKind::Down(MouseButton::Left) => {
-                // Start selection in messages area
-                if m.row >= msg_area_y {
-                    // If auto_scroll is on, sync scroll_offset first before disabling it
-                    if self.auto_scroll {
-                        self.scroll_offset = self.max_scroll.get().max(50);
-                    }
-                    let line = self.scroll_offset as usize + (m.row - msg_area_y) as usize;
-                    let col = m.column as usize;
-                    self.selection = Some(Selection::new(line, col));
-                    self.selecting = true;
-                    self.auto_scroll = false;  // Stop auto scroll when selecting
-                }
-            }
-            MouseEventKind::Drag(MouseButton::Left) => {
-                // Extend selection
-                if self.selecting && m.row >= msg_area_y {
-                    // Sync scroll_offset if auto_scroll was on
-                    if self.auto_scroll {
-                        self.scroll_offset = self.max_scroll.get().max(50);
-                        self.auto_scroll = false;
-                    }
-                    let line = self.scroll_offset as usize + (m.row - msg_area_y) as usize;
-                    let col = m.column as usize;
-                    if let Some(ref mut sel) = self.selection {
-                        sel.extend_to(line, col);
-                    }
-                }
-            }
-            MouseEventKind::Up(MouseButton::Left) => {
-                self.selecting = false;
-                // Auto-copy to clipboard on mouse release (like terminal behavior)
-                if let Some(sel) = self.selection {
-                    let text = self.get_selected_text(sel);
-                    if !text.is_empty() {
-                        // Try clipboard and show result in debug mode
-                        let result = arboard::Clipboard::new()
-                            .and_then(|mut cb| cb.set_text(&text));
-                        if self.debug_mode {
-                            match result {
-                                Ok(_) => self.messages.push(Message {
-                                    role: Role::System,
-                                    content: format!("✓ Copied {} chars", text.len())
-                                }),
-                                Err(e) => self.messages.push(Message {
-                                    role: Role::System,
-                                    content: format!("❌ Copy failed: {}", e)
-                                }),
-                            }
-                            self.auto_scroll = true;
-                        }
                     }
                 }
             }

@@ -46,23 +46,9 @@ impl TuiApp {
                 }
             }
 
-            // Ctrl+C: copy selection or interrupt
+            // Ctrl+C: interrupt
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some(sel) = self.selection {
-                    // Copy selected text
-                    let selected_text = self.get_selected_text(sel);
-                    if !selected_text.is_empty() {
-                        // Try to copy to clipboard
-                        let clipboard_result = arboard::Clipboard::new()
-                            .and_then(|mut cb| cb.set_text(&selected_text));
-                        
-                        // Copy to clipboard (silent)
-                        let _ = clipboard_result;
-                        self.selection = None;
-                        self.selecting = false;
-                    }
-                } else if self.activity != Activity::Idle {
-                    // Signal cancellation - backend will respond with Error event
+                if self.activity != Activity::Idle {
                     self.cancel.cancel();
                     self.messages.push(Message { role: Role::System, content: "⚡ Interrupting...".into() });
                 }

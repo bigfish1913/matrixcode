@@ -42,9 +42,6 @@ impl TuiApp {
         let status_area = Rect::new(f.area().x, status_y, f.area().width, status_height);
         let input_area = Rect::new(f.area().x, input_y, f.area().width, input_height);
 
-        // Store messages area top for mouse selection
-        self.msg_area_top.set(messages_area.y);
-
         self.draw_messages(f, messages_area);
         if !self.pending_messages.is_empty() {
             self.draw_queue(f, queue_area);
@@ -156,8 +153,6 @@ impl TuiApp {
     fn draw_messages(&self, f: &mut ratatui::Frame, area: Rect) {
         let mut lines: Vec<Line> = Vec::new();
         let max_w = area.width.saturating_sub(4) as usize;
-
-        let selection = self.selection.map(|s| s.normalized());
 
         // Welcome (responsive) - MATRIX in solid █ (banner font) - Blue-purple gradient (tech style)
         if self.show_welcome && self.messages.is_empty() {
@@ -591,22 +586,6 @@ impl TuiApp {
             self.scroll_offset.min(max_scroll)
         };
 
-        // Selection highlight (preserve span styles)
-        let highlighted_lines = if let Some(sel) = selection {
-            lines.into_iter().enumerate().map(|(i, line)| {
-                if i >= sel.start_line && i <= sel.end_line {
-                    let new_spans: Vec<Span> = line.spans.iter().map(|s| {
-                        Span::styled(s.content.to_string(), s.style.bg(Color::DarkGray))
-                    }).collect();
-                    Line::from(new_spans)
-                } else {
-                    line
-                }
-            }).collect()
-        } else {
-            lines
-        };
-
         // Render with scroll indicator
         if !self.auto_scroll && max_scroll > 0 {
             let pct = (scroll_offset as f64 / max_scroll as f64 * 100.0) as u16;
@@ -616,12 +595,10 @@ impl TuiApp {
             );
             let indicator_area = Rect::new(area.x, area.y, area.width, 1);
             f.render_widget(Paragraph::new(indicator), indicator_area);
-            // Note: scroll_offset is relative to total lines, not the visible area
-            // The scroll indicator just shows position, doesn't affect scrolling
             let msg_area = Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1));
-            f.render_widget(Paragraph::new(highlighted_lines).scroll((scroll_offset, 0)), msg_area);
+            f.render_widget(Paragraph::new(lines).scroll((scroll_offset, 0)), msg_area);
         } else {
-            f.render_widget(Paragraph::new(highlighted_lines).scroll((scroll_offset, 0)), area);
+            f.render_widget(Paragraph::new(lines).scroll((scroll_offset, 0)), area);
         }
     }
 
