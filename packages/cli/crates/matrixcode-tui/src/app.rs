@@ -62,6 +62,8 @@ pub struct TuiApp {
     // Ask tool channel
     pub(crate) ask_tx: Option<tokio::sync::mpsc::Sender<String>>,
     pub(crate) waiting_for_ask: bool,
+    pub(crate) ask_options: Vec<crate::types::AskOption>,
+    pub(crate) ask_selected_index: usize,
     // Channels
     pub(crate) tx: tokio::sync::mpsc::Sender<String>,
     pub(crate) rx: tokio::sync::mpsc::Receiver<AgentEvent>,
@@ -206,6 +208,8 @@ impl TuiApp {
             shared_approve_mode: None,
             ask_tx: None,
             waiting_for_ask: false,
+            ask_options: Vec::new(),
+            ask_selected_index: 0,
             tx, rx, cancel,
             pending_messages: Vec::new(),
             loop_task: None,

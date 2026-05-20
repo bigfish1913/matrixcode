@@ -100,7 +100,7 @@ impl TuiApp {
         };
         let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
 
-        // New layout: model | in/ctx  out | c r/w | status
+        // New layout: model mode │ in % out │ c │ status
         let width = area.width as usize;
         let mut spans: Vec<Span> = Vec::new();
 
@@ -112,46 +112,43 @@ impl TuiApp {
         };
         spans.push(Span::styled(model_display, Style::default().fg(Color::DarkGray)));
 
-        // Mode indicator
-        spans.push(Span::styled(" ", Style::default()));
-        spans.push(Span::styled(self.approve_mode.label(), Style::default().fg(mode_color)));
+        // Mode indicator (space separator, not │)
+        spans.push(Span::styled(format!(" {}", self.approve_mode.label()), Style::default().fg(mode_color)));
 
-        // Separator
-        spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        // Separator before in/ctx
+        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
 
-        // in/ctx: input tokens / context window percentage
+        // in/ctx: input tokens percentage
         if width >= 40 {
-            let in_ctx = format!("in {:.0}% {}", context_pct, fmt_tokens(actual_tokens));
-            spans.push(Span::styled(in_ctx, Style::default().fg(ctx_color)));
+            spans.push(Span::styled(format!(" in {:.0}% {}", context_pct, fmt_tokens(actual_tokens)), Style::default().fg(ctx_color)));
         }
 
-        // out: session output tokens
+        // out: session output tokens (space separator after in)
         if width >= 55 {
-            spans.push(Span::styled("  out ", Style::default().fg(Color::DarkGray)));
-            spans.push(Span::styled(fmt_tokens(self.session_total_out), Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(format!(" out {}", fmt_tokens(self.session_total_out)), Style::default().fg(Color::DarkGray)));
         }
 
         // Cache info: c r/w
         if width >= 75 && (self.cache_read > 0 || self.cache_created > 0) {
-            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
-                format!("c {}k/{}k", self.cache_read / 1000, self.cache_created / 1000),
+                format!(" c {}k/{}k", self.cache_read / 1000, self.cache_created / 1000),
                 Style::default().fg(Color::DarkGray)
             ));
         }
 
         // Debug stats
         if width >= 100 && self.debug_mode {
-            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
-                format!("api:{} tools:{}", self.api_calls, self.tool_calls),
+                format!(" api:{} tools:{}", self.api_calls, self.tool_calls),
                 Style::default().fg(Color::DarkGray)
             ));
         }
 
         // Status (always at end)
-        spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-        spans.push(Span::styled(status_text, Style::default().fg(status_color)));
+        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(format!(" {} ", status_text), Style::default().fg(status_color)));
 
         f.render_widget(Paragraph::new(Line::from(spans)), area);
     }
@@ -431,11 +428,30 @@ impl TuiApp {
                 }
                 Role::Ask => {
                     // Ask/Approval requests - VERY PROMINENT display
-                    // Yellow background with bright content
                     lines.push(Line::styled("", Style::default()));
-                    for line in msg.content.lines() {
-                        // Use bright yellow/white text with bold for prominence
-                        let styled_line = if line.contains("AWAITING INPUT") || line.contains("⚡") {
+
+                    // Check if we have options and should highlight selection
+                    let has_options = self.waiting_for_ask && !self.ask_options.is_empty();
+
+                    for (_line_idx, line) in msg.content.lines().enumerate() {
+                        // Highlight selected option line if we have options
+                        let is_option_line = has_options && line.starts_with("  [") && line.contains("]");
+                        let is_selected_line = if is_option_line && has_options {
+                            // Parse option letter from line: "  [A] label - desc"
+                            let letter = line.chars().nth(4).unwrap_or(' ');
+                            let option_idx = (letter as u8 - b'A') as usize;
+                            option_idx == self.ask_selected_index
+                        } else {
+                            false
+                        };
+
+                        let styled_line = if is_selected_line {
+                            // Selected option: bright green background
+                            Line::styled(
+                                format!("▶ {}", line),
+                                Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                            )
+                        } else if line.contains("AWAITING INPUT") || line.contains("⚡") {
                             Line::styled(
                                 line.to_string(),
                                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
@@ -449,6 +465,12 @@ impl TuiApp {
                             Line::styled(
                                 line.to_string(),
                                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                            )
+                        } else if is_option_line && has_options {
+                            // Other options: white on dark background
+                            Line::styled(
+                                format!("  {}", line),
+                                Style::default().fg(Color::White)
                             )
                         } else {
                             Line::styled(

@@ -237,11 +237,21 @@ impl TuiApp {
                     // Question content
                     content.push_str(&question);
 
-                    // Show options if available - with automatic A/B/C letter prefixes
+                    // Parse and store options for interactive selection
                     if let Some(ref opts) = options && let Some(arr) = opts.as_array() && !arr.is_empty() {
+                        // Store options for interactive selection
+                        self.ask_options = arr.iter().map(|opt| {
+                            crate::types::AskOption {
+                                id: opt["id"].as_str().unwrap_or("").to_string(),
+                                label: opt["label"].as_str().unwrap_or("").to_string(),
+                                description: opt["description"].as_str().map(|s| s.to_string()),
+                            }
+                        }).collect();
+                        self.ask_selected_index = 0;
+
                         content.push_str("\n\n");
                         content.push_str("─────────────────────────────────────\n");
-                        content.push_str("Options:\n");
+                        content.push_str("Options (↑↓ to select, Enter to confirm):\n");
                         for (idx, opt) in arr.iter().enumerate() {
                             let letter = (b'A' + idx as u8) as char;  // A, B, C, D...
                             let label = opt["label"].as_str().unwrap_or("");
@@ -249,11 +259,19 @@ impl TuiApp {
                             let desc_text = if desc.is_empty() { String::new() } else { format!(" - {}", desc) };
                             content.push_str(&format!("  [{}] {}{}\n", letter, label, desc_text));
                         }
+                    } else {
+                        // No options - free text input
+                        self.ask_options.clear();
+                        self.ask_selected_index = 0;
                     }
 
                     // Add input hint
                     content.push_str("\n─────────────────────────────────────\n");
-                    content.push_str("📌 Type A/B/C or your answer, then Enter\n");
+                    if self.ask_options.is_empty() {
+                        content.push_str("📌 Type your answer, then Enter\n");
+                    } else {
+                        content.push_str("📌 ↑↓ to select, Enter to confirm\n");
+                    }
                     content.push_str("📌 ESC to abort");
 
                     self.messages.push(Message { role: Role::Ask, content });

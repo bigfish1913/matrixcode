@@ -17,6 +17,9 @@ impl TuiApp {
                     self.ensure_char_boundary();
                     self.input.insert(self.cursor_pos, '\n');
                     self.cursor_pos += 1;  // '\n' is 1 byte
+                } else if self.activity == Activity::Asking && self.waiting_for_ask {
+                    // Handle ask confirmation
+                    self.confirm_ask_selection();
                 } else if !self.input.trim().is_empty() {
                     self.send_input();
                 }
@@ -110,23 +113,28 @@ impl TuiApp {
                 }
             }
 
-            // Up arrow: history navigation (single-line) or move cursor (multiline)
+            // Up arrow: ask selection, history navigation, or multiline cursor
             KeyCode::Up if !k.modifiers.contains(KeyModifiers::ALT) => {
-                if self.input.contains('\n') {
+                // Priority 1: Ask selection
+                if self.activity == Activity::Asking && self.waiting_for_ask && !self.ask_options.is_empty() {
+                    if self.ask_selected_index > 0 {
+                        self.ask_selected_index -= 1;
+                    }
+                } else if self.input.contains('\n') {
                     let (current_line_num, col_chars, _) = self.get_line_info();
                     if current_line_num > 1 {
                         let char_pos = self.byte_pos_to_char_pos();
                         let input_chars: Vec<char> = self.input.chars().collect();
                         let before_cursor_str: String = input_chars[..char_pos.min(input_chars.len())].iter().collect();
-                        
+
                         // Previous line is before the last '\n' in before_cursor_str
                         let prev_lines_str = &before_cursor_str[..before_cursor_str.rfind('\n').unwrap_or(0)];
                         let prev_line_start_char = prev_lines_str.chars().count();
-                        
+
                         // Find previous line length
                         let prev_line_end_char = char_pos.saturating_sub(col_chars).saturating_sub(1); // -1 for the newline
                         let prev_line_len_chars = prev_line_end_char.saturating_sub(prev_line_start_char);
-                        
+
                         // Move to same column (or end if shorter)
                         let target_char_pos = prev_line_start_char + col_chars.min(prev_line_len_chars);
                         self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
@@ -150,31 +158,36 @@ impl TuiApp {
                 }
             }
 
-            // Down arrow: history navigation (single-line) or move cursor (multiline)
+            // Down arrow: ask selection, history navigation, or multiline cursor
             KeyCode::Down if !k.modifiers.contains(KeyModifiers::ALT) => {
-                if self.input.contains('\n') {
+                // Priority 1: Ask selection
+                if self.activity == Activity::Asking && self.waiting_for_ask && !self.ask_options.is_empty() {
+                    if self.ask_selected_index < self.ask_options.len() - 1 {
+                        self.ask_selected_index += 1;
+                    }
+                } else if self.input.contains('\n') {
                     let (current_line_num, col_chars, total_lines) = self.get_line_info();
                     if current_line_num < total_lines {
                         let char_pos = self.byte_pos_to_char_pos();
                         let input_chars: Vec<char> = self.input.chars().collect();
-                        
+
                         // Boundary check: char_pos must not exceed input_chars.len()
                         let safe_char_pos = char_pos.min(input_chars.len());
-                        
+
                         // Find next line start
                         let remaining_chars = &input_chars[safe_char_pos..];
                         let next_line_start_char = remaining_chars.iter().position(|c| *c == '\n')
                             .map(|i| safe_char_pos + i + 1)
                             .unwrap_or_else(|| input_chars.len());
-                        
+
                         // Find next line end
                         let next_line_chars = &input_chars[next_line_start_char..];
                         let next_line_end_char = next_line_chars.iter().position(|c| *c == '\n')
                             .map(|i| next_line_start_char + i)
                             .unwrap_or_else(|| input_chars.len());
-                        
+
                         let next_line_len_chars = next_line_end_char.saturating_sub(next_line_start_char);
-                        
+
                         // Move to same column (or end if shorter)
                         let target_char_pos = next_line_start_char + col_chars.min(next_line_len_chars);
                         self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
@@ -405,6 +418,44 @@ impl TuiApp {
         } else {
             // Queue message (AI is processing)
             self.pending_messages.push(input.clone());
+        }
+    }
+
+    /// Confirm ask selection - send selected option or custom input
+    pub(crate) fn confirm_ask_selection(&mut self) {
+        if !self.waiting_for_ask {
+            return;
+        }
+
+        self.waiting_for_ask = false;
+        self.activity = Activity::Thinking;
+        self.auto_scroll = true;
+
+        // Determine response: selected option or custom input
+        let response = if !self.ask_options.is_empty() && self.input.trim().is_empty() {
+            // Use selected option
+            let selected = &self.ask_options[self.ask_selected_index];
+            selected.label.clone()
+        } else if !self.input.trim().is_empty() {
+            // Use custom input
+            self.input.trim().to_string()
+        } else if !self.ask_options.is_empty() {
+            // Default to first option if nothing entered
+            self.ask_options[0].label.clone()
+        } else {
+            "y".to_string()  // Default approval
+        };
+
+        // Clear input and options
+        self.input.clear();
+        self.cursor_pos = 0;
+        self.ask_options.clear();
+        self.ask_selected_index = 0;
+
+        // Send response
+        self.messages.push(Message { role: Role::User, content: response.clone() });
+        if let Some(ask_tx) = &self.ask_tx {
+            ask_tx.try_send(response).ok();
         }
     }
 

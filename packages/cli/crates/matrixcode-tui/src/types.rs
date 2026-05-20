@@ -113,6 +113,15 @@ impl Role {
     }
 }
 
+/// Ask option for interactive selection
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct AskOption {
+    pub id: String,
+    pub label: String,
+    pub description: Option<String>,
+}
+
 /// Message block
 pub struct Message {
     pub role: Role,
