@@ -57,7 +57,7 @@ impl TuiApp {
             // Simple estimation: ~3 chars per token
             (m.content.len() / 3).max(1) as u64
         }).sum::<u64>();
-        
+
         let context_pct = if self.context_size > 0 {
             (estimated_context_tokens as f64 / self.context_size as f64 * 100.0).min(100.0)
         } else { 0.0 };
@@ -71,19 +71,33 @@ impl TuiApp {
             ApproveMode::Strict => Color::Red,
         };
 
+        // Token display: current / max tok (e.g., "45k/200k")
+        let ctx_display = format!(
+            "{} {}/{:.0}%",
+            progress_bar(context_pct, 10),
+            fmt_tokens(estimated_context_tokens),
+            context_pct
+        );
+
+        // Show context size limit if available
+        let ctx_limit = if self.context_size > 0 {
+            fmt_tokens(self.context_size)
+        } else {
+            "0".into()
+        };
+
+        // Output tokens: "15k tok" (tok after the number)
+        let tok_display = format!("{} tok", fmt_tokens(self.session_total_out));
+
         let mut spans = vec![
             Span::styled(format!(" {} ", self.model), Style::default().fg(Color::DarkGray)),
             Span::styled("│", Style::default().fg(Color::DarkGray)),
             Span::styled(format!(" {} ", self.approve_mode.label()), Style::default().fg(mode_color)),
             Span::styled("│", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                format!(" {} {:.0}% ", progress_bar(context_pct, 10), context_pct),
-                Style::default().fg(ctx_color)
-            ),
-            Span::styled(
-                format!("{} tok ", fmt_tokens(self.session_total_out)),
-                Style::default().fg(Color::DarkGray)
-            ),
+            Span::styled(format!(" {} ", ctx_display), Style::default().fg(ctx_color)),
+            // Show context limit: "/200k"
+            Span::styled(format!("/{} ", ctx_limit), Style::default().fg(Color::DarkGray)),
+            Span::styled(format!(" {} ", tok_display), Style::default().fg(Color::DarkGray)),
         ];
 
         // Cache info only when non-zero

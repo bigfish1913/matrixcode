@@ -5,6 +5,16 @@ description: 一个示例 skill，演示如何编写技能
 
 # 示例技能
 
+<objective>
+展示 MatrixCode 技能系统的标准格式和编写方法，供开发者参考
+</objective>
+
+<process>
+1. 用户查看技能示例
+2. AI 展示技能文件结构和格式规范
+3. 用户参考示例创建自定义技能
+</process>
+
 这是一个示例 skill，用于演示 MatrixCode 的技能系统。
 
 ## 用途

@@ -5,6 +5,18 @@ description: 生成规范的 Git 提交信息，遵循 Conventional Commits 规�
 
 # Git 提交信息生成器
 
+<objective>
+帮助用户生成符合 Conventional Commits 规范的提交信息，确保提交历史清晰可追溯
+</objective>
+
+<process>
+1. 使用 `bash` 工具执行 `git status` 和 `git diff --cached` 查看暂存的更改
+2. 分析变更内容，确定合适的 type 和 scope
+3. 生成简洁、准确的提交信息
+4. 询问用户是否满意，或需要调整
+5. 执行 `git commit -m "..."` 提交
+</process>
+
 帮助用户生成符合 Conventional Commits 规范的提交信息。
 
 ## 规范格式
