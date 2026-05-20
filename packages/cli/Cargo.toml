@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 authors = ["bigfish1913"]
 license = "MIT"
@@ -55,8 +55,8 @@ parking_lot = "0.12"
 
 # Workspace crates (with version for publishing)
 matrixcode-core = { path = "crates/matrixcode-core", version = "0.4.0" }
-matrixcode = { path = "crates/matrixcode-tui", version = "0.4.0" }
-matrixcode-cli = { path = "crates/matrixcode-cli", version = "0.4.0" }
+matrixcode-tui = { path = "crates/matrixcode-tui", version = "0.4.0" }
+matrixcode = { path = "crates/matrixcode-cli", version = "0.4.0" }
 
 # TUI dependencies
 ratatui = "0.29"
