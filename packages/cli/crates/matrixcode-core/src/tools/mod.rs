@@ -2,11 +2,15 @@ pub mod ask;
 pub mod bash;
 pub mod edit;
 pub mod glob;
+pub mod grep;
 pub mod ls;
+pub mod monitor;
 pub mod multi_edit;
+pub mod plan_mode;
 pub mod read;
 pub mod search;
 pub mod skill;
+pub mod task;
 pub mod todo_write;
 pub mod webfetch;
 pub mod websearch;
@@ -58,6 +62,7 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(edit::EditTool),
         Box::new(multi_edit::MultiEditTool),
         Box::new(search::SearchTool),
+        Box::new(grep::GrepTool),
         Box::new(glob::GlobTool),
         Box::new(ls::LsTool),
         Box::new(bash::BashTool),
@@ -65,5 +70,37 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(websearch::WebSearchTool),
         Box::new(webfetch::WebFetchTool),
         Box::new(skill::SkillTool::new(skills)),
+        // New high-priority tools
+        Box::new(task::TaskTool),
+        Box::new(task::TaskCreateTool),
+        Box::new(task::TaskGetTool),
+        Box::new(task::TaskListTool),
+        Box::new(task::TaskStopTool),
+        Box::new(plan_mode::EnterPlanModeTool),
+        Box::new(plan_mode::ExitPlanModeTool),
+        Box::new(monitor::MonitorTool),
     ]
+}
+
+/// Generate tools description for system prompt
+pub fn generate_tools_prompt() -> String {
+    let tools = all_tools();
+    let mut lines = vec!["可用工具：".to_string()];
+
+    for tool in tools {
+        let def = tool.definition();
+        // Extract brief description (first sentence or up to 50 chars)
+        let brief = def.description
+            .split('.').next()
+            .or_else(|| def.description.split('\n').next())
+            .unwrap_or(&def.description);
+        let brief = if brief.len() > 60 {
+            format!("{}...", brief.chars().take(57).collect::<String>())
+        } else {
+            brief.to_string()
+        };
+        lines.push(format!("- {}: {}", def.name, brief));
+    }
+
+    lines.join("\n")
 }

@@ -71,92 +71,102 @@ impl TuiApp {
             ApproveMode::Strict => Color::Red,
         };
 
-        // Token display: current / max tok (e.g., "45k/200k")
-        let ctx_display = format!(
-            "{} {}/{:.0}%",
-            progress_bar(context_pct, 10),
-            fmt_tokens(estimated_context_tokens),
-            context_pct
-        );
-
-        // Show context size limit if available
-        let ctx_limit = if self.context_size > 0 {
-            fmt_tokens(self.context_size)
-        } else {
-            "0".into()
-        };
-
-        // Output tokens: "15k tok" (tok after the number)
-        let tok_display = format!("{} tok", fmt_tokens(self.session_total_out));
-
-        let mut spans = vec![
-            Span::styled(format!(" {} ", self.model), Style::default().fg(Color::DarkGray)),
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!(" {} ", self.approve_mode.label()), Style::default().fg(mode_color)),
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!(" {} ", ctx_display), Style::default().fg(ctx_color)),
-            // Show context limit: "/200k"
-            Span::styled(format!("/{} ", ctx_limit), Style::default().fg(Color::DarkGray)),
-            Span::styled(format!(" {} ", tok_display), Style::default().fg(Color::DarkGray)),
-        ];
-
-        // Cache info only when non-zero
-        if self.cache_read > 0 || self.cache_created > 0 {
-            spans.push(Span::styled(
-                format!("c {}k/{}k ", self.cache_read / 1000, self.cache_created / 1000),
-                Style::default().fg(Color::DarkGray)
-            ));
-        }
-
-        // Debug stats
-        if self.debug_mode {
-            spans.push(Span::styled(
-                format!("api:{} tools:{} ", self.api_calls, self.tool_calls),
-                Style::default().fg(Color::DarkGray)
-            ));
-        }
-
         // Status on the right - show real-time info
         let is_tool_activity = matches!(self.activity,
             Activity::Reading | Activity::Writing | Activity::Editing |
             Activity::Searching | Activity::Running | Activity::WebSearch |
             Activity::WebFetch | Activity::Tool(_)
         );
-        
+
         let status_text = if self.activity == Activity::Idle {
             "Ready".to_string()
         } else if is_tool_activity {
-            // Tool activity: show detail (e.g., "editing(file.rs)")
+            // Show tool name with detail: "read src/main.rs" or "bash ls -la"
             if !self.activity_detail.is_empty() {
-                format!("{}({})", self.activity.label(), self.activity_detail)
+                format!("{} {}", self.activity.label(), self.activity_detail)
             } else {
                 self.activity.label().to_string()
             }
         } else if !self.streaming.is_empty() {
-            // Thinking with streaming text: show estimated tokens
             let estimated_tokens = self.streaming.chars().count() / 4;
-            if estimated_tokens > 0 {
-                fmt_tokens(estimated_tokens as u64)
-            } else {
-                "...".to_string()
-            }
+            if estimated_tokens > 0 { fmt_tokens(estimated_tokens as u64) } else { "...".into() }
         } else if !self.thinking.is_empty() {
-            // Thinking with thinking text: show estimated tokens
             let estimated_tokens = self.thinking.chars().count() / 4;
-            if estimated_tokens > 0 {
-                fmt_tokens(estimated_tokens as u64)
-            } else {
-                "...".to_string()
-            }
+            if estimated_tokens > 0 { fmt_tokens(estimated_tokens as u64) } else { "...".into() }
         } else if self.activity == Activity::Thinking {
-            // Thinking but no content yet: show 0 tokens
             "0".to_string()
         } else {
-            // Default: show activity label
             self.activity.label().to_string()
         };
         let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
-        
+
+        // Dynamic layout based on width
+        let width = area.width as usize;
+
+        // Build spans based on available width
+        let mut spans: Vec<Span> = Vec::new();
+
+        // Always show: model (truncated if needed)
+        let model_display = if width < 40 {
+            truncate(&self.model, 10)
+        } else {
+            self.model.clone()
+        };
+        spans.push(Span::styled(format!(" {} ", model_display), Style::default().fg(Color::DarkGray)));
+
+        if width >= 30 {
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(format!(" {} ", self.approve_mode.label()), Style::default().fg(mode_color)));
+        }
+
+        if width >= 50 {
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            // Context: show compact "45k/75%" or just percentage
+            if width >= 70 {
+                // Full: progress bar + tokens + percentage
+                let ctx_display = format!(
+                    "{} {}/{:.0}%",
+                    progress_bar(context_pct, 10),
+                    fmt_tokens(estimated_context_tokens),
+                    context_pct
+                );
+                spans.push(Span::styled(format!(" {} ", ctx_display), Style::default().fg(ctx_color)));
+                // Context limit
+                let ctx_limit = fmt_tokens(self.context_size);
+                spans.push(Span::styled(format!("/{} ", ctx_limit), Style::default().fg(Color::DarkGray)));
+            } else if width >= 60 {
+                // Medium: percentage only
+                spans.push(Span::styled(format!(" {:.0}% ", context_pct), Style::default().fg(ctx_color)));
+            } else {
+                // Compact: just percentage number
+                spans.push(Span::styled(format!("{}% ", context_pct as usize), Style::default().fg(ctx_color)));
+            }
+        }
+
+        if width >= 80 {
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            // Output tokens
+            let tok_display = format!("{} tok", fmt_tokens(self.session_total_out));
+            spans.push(Span::styled(format!(" {} ", tok_display), Style::default().fg(Color::DarkGray)));
+        }
+
+        // Cache info (only if space available)
+        if width >= 100 && (self.cache_read > 0 || self.cache_created > 0) {
+            spans.push(Span::styled(
+                format!("c {}k/{}k ", self.cache_read / 1000, self.cache_created / 1000),
+                Style::default().fg(Color::DarkGray)
+            ));
+        }
+
+        // Debug stats (only if space available)
+        if width >= 120 && self.debug_mode {
+            spans.push(Span::styled(
+                format!("api:{} tools:{} ", self.api_calls, self.tool_calls),
+                Style::default().fg(Color::DarkGray)
+            ));
+        }
+
+        // Always show status at the end
         spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
         spans.push(Span::styled(format!(" {} ", status_text), Style::default().fg(status_color)));
 
@@ -515,18 +525,38 @@ impl TuiApp {
         }
 
         if is_tool_activity && self.streaming.is_empty() && self.thinking.is_empty() {
+            // Tool icon for visual identification
+            let tool_icon = match self.activity {
+                Activity::Reading => "📖",
+                Activity::Writing => "📝",
+                Activity::Editing => "✏️",
+                Activity::Searching => "🔍",
+                Activity::Running => "⚡",
+                Activity::WebSearch => "🌐",
+                Activity::WebFetch => "🔗",
+                Activity::Tool(ref name) => match name.as_str() {
+                    "task" => "🚀",
+                    "plan" => "📋",
+                    "monitor" => "👀",
+                    "skill" => "⚡",
+                    _ => "🔧",
+                },
+                _ => "⚙️",
+            };
+
             let tool_label = if !self.activity_detail.is_empty() {
-                format!("{}({})", self.activity.label(), self.activity_detail)
+                format!("{} {}", self.activity.label(), self.activity_detail)
             } else {
                 self.activity.label()
             };
             let elapsed = self.request_start
-                .map(|s| format!(" {:.1}s)", s.elapsed().as_secs_f64()))
+                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
             let spinner_frame = self.frame % SPINNER.len();
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", SPINNER[spinner_frame]), Style::default().fg(Color::LightGreen)),
-                Span::styled(tool_label, Style::default().fg(self.activity.color())),
+                Span::styled(format!("{} ", tool_icon), Style::default().fg(self.activity.color())),
+                Span::styled(tool_label, Style::default().fg(self.activity.color()).add_modifier(Modifier::BOLD)),
                 Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
             ]));
         }

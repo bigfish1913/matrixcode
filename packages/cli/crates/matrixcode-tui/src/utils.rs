@@ -130,15 +130,16 @@ pub fn extract_by_visual_col(line: &str, start_col: usize, end_col: usize) -> St
 pub fn extract_tool_detail(tool_name: &str, input: Option<&Value>) -> String {
     let Some(input) = input else { return String::new() };
     match tool_name.to_lowercase().as_str() {
-        "read" => input.get("path").and_then(|v| v.as_str())
+        "read" => input.get("file_path").and_then(|v| v.as_str())
+            .or_else(|| input.get("path").and_then(|v| v.as_str()))
             .map(|s| truncate(s, 40)).unwrap_or_default(),
-        "write" => input.get("path").and_then(|v| v.as_str())
+        "write" => input.get("file_path").and_then(|v| v.as_str())
+            .or_else(|| input.get("path").and_then(|v| v.as_str()))
             .map(|s| truncate(s, 40)).unwrap_or_default(),
-        "edit" | "multi_edit" => input.get("path").and_then(|v| v.as_str())
+        "edit" | "multi_edit" => input.get("file_path").and_then(|v| v.as_str())
+            .or_else(|| input.get("path").and_then(|v| v.as_str()))
             .map(|s| truncate(s, 40)).unwrap_or_default(),
-        "search" => input.get("pattern").and_then(|v| v.as_str())
-            .map(|s| truncate(s, 30)).unwrap_or_default(),
-        "glob" => input.get("pattern").and_then(|v| v.as_str())
+        "search" | "grep" | "glob" => input.get("pattern").and_then(|v| v.as_str())
             .map(|s| truncate(s, 30)).unwrap_or_default(),
         "ls" => input.get("path").and_then(|v| v.as_str())
             .map(|s| truncate(s, 40)).unwrap_or_default(),
@@ -148,6 +149,15 @@ pub fn extract_tool_detail(tool_name: &str, input: Option<&Value>) -> String {
             .map(|s| truncate(s, 30)).unwrap_or_default(),
         "webfetch" => input.get("url").and_then(|v| v.as_str())
             .map(|s| truncate(s, 40)).unwrap_or_default(),
+        // New tools
+        "task" => input.get("description").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 30)).unwrap_or_default(),
+        "task_create" => input.get("description").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 30)).unwrap_or_default(),
+        "task_get" | "task_stop" => input.get("task_id").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 20)).unwrap_or_default(),
+        "monitor" => input.get("target").and_then(|v| v.as_str())
+            .map(|s| truncate(s, 30)).unwrap_or_default(),
         _ => String::new(),
     }
 }

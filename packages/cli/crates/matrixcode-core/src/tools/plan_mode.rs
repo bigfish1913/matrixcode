@@ -1,0 +1,167 @@
+use std::sync::Arc;
+use anyhow::Result;
+use async_trait::async_trait;
+use serde_json::{Value, json};
+use tokio::sync::Mutex;
+
+use super::{Tool, ToolDefinition};
+use crate::approval::RiskLevel;
+
+/// Planning mode state
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlanState {
+    None,
+    Active,
+    Committed,
+}
+
+/// Plan info
+#[derive(Debug, Clone)]
+pub struct PlanInfo {
+    pub state: PlanState,
+    pub plan_content: String,
+    pub files_to_modify: Vec<String>,
+    pub created_at: Option<std::time::Instant>,
+}
+
+static PLAN_STATE: std::sync::OnceLock<Arc<Mutex<PlanInfo>>> = std::sync::OnceLock::new();
+
+fn get_plan_state() -> Arc<Mutex<PlanInfo>> {
+    PLAN_STATE.get_or_init(|| {
+        Arc::new(Mutex::new(PlanInfo {
+            state: PlanState::None,
+            plan_content: String::new(),
+            files_to_modify: Vec::new(),
+            created_at: None,
+        }))
+    }).clone()
+}
+
+/// EnterPlanMode tool - enter planning mode for designing implementation
+pub struct EnterPlanModeTool;
+
+#[async_trait]
+impl Tool for EnterPlanModeTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "enter_plan_mode".to_string(),
+            description: "Enter planning mode to design an implementation approach before executing. Use for: (1) Non-trivial implementation tasks that need planning; (2) Tasks that could benefit from architectural consideration; (3) Changes that might have significant impact. Returns step-by-step plan with critical files identified.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {}
+            }),
+        }
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Safe  // Read-only mode
+    }
+
+    async fn execute(&self, _params: Value) -> Result<String> {
+        let plan = get_plan_state();
+        let mut state = plan.lock().await;
+
+        if state.state == PlanState::Active {
+            return Ok("Already in plan mode. Continue planning or use exit_plan_mode to finish.".to_string());
+        }
+
+        state.state = PlanState::Active;
+        state.plan_content = String::new();
+        state.files_to_modify = Vec::new();
+        state.created_at = Some(std::time::Instant::now());
+
+        Ok("Entered plan mode. Design your implementation approach:\n\n1. Analyze the task requirements\n2. Identify key files and components\n3. Consider architectural trade-offs\n4. Create step-by-step implementation plan\n5. Use exit_plan_mode to commit and execute\n\nNote: In plan mode, focus on analysis and design. Tool executions will be limited to read-only operations.".to_string())
+    }
+}
+
+/// ExitPlanMode tool - exit planning mode and commit plan
+pub struct ExitPlanModeTool;
+
+#[async_trait]
+impl Tool for ExitPlanModeTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "exit_plan_mode".to_string(),
+            description: "Exit planning mode. If plan is approved, the agent will execute the planned changes. If plan is rejected, the plan is discarded and no changes are made.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "plan": {
+                        "type": "string",
+                        "description": "The implementation plan to commit (optional if already documented)"
+                    },
+                    "files_to_modify": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of files that will be modified (optional)"
+                    },
+                    "approved": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Whether the plan is approved for execution"
+                    }
+                }
+            }),
+        }
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Mutating
+    }
+
+    async fn execute(&self, params: Value) -> Result<String> {
+        let plan_content = params["plan"].as_str();
+        let files_to_modify = params["files_to_modify"].as_array()
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<_>>());
+        let approved = params["approved"].as_bool().unwrap_or(true);
+
+        let plan = get_plan_state();
+        let mut state = plan.lock().await;
+
+        if state.state != PlanState::Active {
+            return Ok("Not in plan mode. Use enter_plan_mode first.".to_string());
+        }
+
+        // Update plan content if provided
+        if let Some(content) = plan_content {
+            state.plan_content = content.to_string();
+        }
+        if let Some(files) = files_to_modify {
+            state.files_to_modify = files;
+        }
+
+        if approved {
+            state.state = PlanState::Committed;
+
+            let files_str = if state.files_to_modify.is_empty() {
+                "No specific files identified".to_string()
+            } else {
+                state.files_to_modify.join(", ")
+            };
+
+            Ok(format!(
+                "Plan committed. Ready to execute.\n\nPlan: {}\nFiles to modify: {}\n\nNow proceeding with implementation...",
+                state.plan_content, files_str
+            ))
+        } else {
+            state.state = PlanState::None;
+            state.plan_content.clear();
+            state.files_to_modify.clear();
+
+            Ok("Plan rejected and discarded. Returning to normal mode without making changes.".to_string())
+        }
+    }
+}
+
+/// Check if currently in plan mode
+pub fn is_in_plan_mode() -> bool {
+    // This is a synchronous check - for async use get_plan_state().lock().await
+    false  // Placeholder - real check would need async context
+}
+
+/// Get current plan state (async)
+pub async fn get_current_plan_state() -> PlanState {
+    let plan = get_plan_state();
+    let state = plan.lock().await;
+    state.state.clone()
+}

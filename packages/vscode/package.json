@@ -36,7 +36,11 @@
       {
         "command": "matrixcode.openChat",
         "title": "MatrixCode: Open AI Chat",
-        "icon": "$(grid)"
+        "icon": "$(comments-view-icon)"
+      },
+      {
+        "command": "matrixcode.quickAction",
+        "title": "MatrixCode: Quick Action"
       },
       {
         "command": "matrixcode.explain",
@@ -57,6 +61,11 @@
         "command": "matrixcode.refactor",
         "title": "MatrixCode: Refactor Selection",
         "icon": "$(symbol-refactor)"
+      },
+      {
+        "command": "matrixcode.improve",
+        "title": "MatrixCode: Improve Code",
+        "icon": "$(sparkle)"
       },
       {
         "command": "matrixcode.newSession",
@@ -182,6 +191,17 @@
     },
     "keybindings": [
       {
+        "command": "matrixcode.openChat",
+        "key": "ctrl+k",
+        "mac": "cmd+k"
+      },
+      {
+        "command": "matrixcode.quickAction",
+        "key": "ctrl+shift+k",
+        "mac": "cmd+shift+k",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
         "command": "matrixcode.explain",
         "key": "ctrl+shift+e",
         "mac": "cmd+shift+e",
@@ -191,6 +211,18 @@
         "command": "matrixcode.fix",
         "key": "ctrl+shift+f",
         "mac": "cmd+shift+f",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "matrixcode.generateTests",
+        "key": "ctrl+shift+t",
+        "mac": "cmd+shift+t",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "matrixcode.refactor",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
         "when": "editorTextFocus && editorHasSelection"
       }
     ]
@@ -217,5 +249,10 @@
     "eslint": "^8.54.0",
     "sharp": "^0.34.5",
     "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@vscode/webview-ui-toolkit": "^1.4.0",
+    "highlight.js": "^11.11.1",
+    "marked": "^18.0.4"
   }
 }

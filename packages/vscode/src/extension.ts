@@ -10,10 +10,13 @@ import { MatrixCodeClient } from './matrixcodeClient';
 import { ChatPanelProvider } from './chatPanel';
 import { ConfigManager } from './configManager';
 import { SessionManager } from './sessionManager';
+import { EditorContext } from './types';
 
 let client: MatrixCodeClient;
 let chatPanel: ChatPanelProvider;
 let configManager: ConfigManager;
+let statusBarItem: vscode.StatusBarItem;
+let modelStatusBarItem: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     try {
@@ -92,18 +95,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         
         // Add status bar button with custom icon
-        const statusBarItem = vscode.window.createStatusBarItem(
+        statusBarItem = vscode.window.createStatusBarItem(
             vscode.StatusBarAlignment.Left,
             100
         );
         
         // Use the matrix grid icon representation
         statusBarItem.text = '◈ MatrixCode';
-        statusBarItem.tooltip = 'Open MatrixCode AI Chat (Tab)';
+        statusBarItem.tooltip = 'Open MatrixCode AI Chat (Ctrl+K)';
         statusBarItem.command = 'matrixcode.openChat';
         statusBarItem.show();
         context.subscriptions.push(statusBarItem);
-        outputChannel.appendLine('StatusBar item added');
+        
+        // Add model status bar item (right side)
+        modelStatusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Right,
+            200
+        );
+        modelStatusBarItem.text = '$(hub) ' + getModelDisplayName(configManager.getModel(), configManager.getProvider());
+        modelStatusBarItem.tooltip = 'Current Model: ' + (configManager.getModel() || 'Default');
+        modelStatusBarItem.command = 'matrixcode.openSettings';
+        modelStatusBarItem.show();
+        context.subscriptions.push(modelStatusBarItem);
+        
+        outputChannel.appendLine('StatusBar items added');
         
         outputChannel.appendLine('MatrixCode extension activated successfully!');
         console.log('MatrixCode extension activated');
@@ -120,6 +135,63 @@ function registerCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.openChat', () => {
             chatPanel.openOrCreate();
+        })
+    );
+    
+    // Quick action command (Ctrl+Shift+K)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('matrixcode.quickAction', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('No active editor');
+                return;
+            }
+            
+            const selection = editor.selection;
+            if (selection.isEmpty) {
+                vscode.window.showWarningMessage('Please select some code first');
+                return;
+            }
+            
+            // Prompt for question
+            const question = await vscode.window.showInputBox({
+                prompt: 'Ask about the selected code',
+                placeHolder: 'e.g., What does this function do? How can I optimize it?'
+            });
+            
+            if (!question) {
+                return;
+            }
+            
+            const text = editor.document.getText(selection);
+            const ctx = buildEditorContext(editor);
+            
+            // Open chat panel and send question
+            chatPanel.openOrCreate();
+            await chatPanel.sendQuickAction('ask', text, ctx, question);
+        })
+    );
+    
+    // Improve code command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('matrixcode.improve', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showWarningMessage('No active editor');
+                return;
+            }
+            
+            const selection = editor.selection;
+            if (selection.isEmpty) {
+                vscode.window.showWarningMessage('Please select some code to improve');
+                return;
+            }
+            
+            const text = editor.document.getText(selection);
+            const ctx = buildEditorContext(editor);
+            
+            chatPanel.openOrCreate();
+            await chatPanel.sendQuickAction('improve', text, ctx);
         })
     );
     
@@ -265,6 +337,20 @@ function registerCommands(context: vscode.ExtensionContext): void {
     );
 }
 
+function getModelDisplayName(model: string, provider: string): string {
+    if (!model) {
+        return provider === 'anthropic' ? 'Claude' : 'GPT';
+    }
+    // Shorten model name for display
+    if (model.includes('claude')) {
+        return model.replace('claude-', '').split('-').slice(0, 2).join('-');
+    }
+    if (model.includes('gpt')) {
+        return model.replace('gpt-', '');
+    }
+    return model.substring(0, 15);
+}
+
 function buildEditorContext(editor: vscode.TextEditor): EditorContext {
     const document = editor.document;
     const selection = editor.selection;
@@ -302,20 +388,12 @@ export function deactivate(): void {
     if (chatPanel) {
         chatPanel.dispose();
     }
+    if (statusBarItem) {
+        statusBarItem.dispose();
+    }
+    if (modelStatusBarItem) {
+        modelStatusBarItem.dispose();
+    }
     console.log('MatrixCode extension deactivated');
 }
 
-interface EditorContext {
-    workspace?: string;
-    file: string;
-    language: string;
-    selection: {
-        start: { line: number; character: number };
-        end: { line: number; character: number };
-    };
-    diagnostics?: Array<{
-        severity: string;
-        message: string;
-        range: { start: { line: number; character: number }; end: { line: number; character: number } };
-    }>;
-}

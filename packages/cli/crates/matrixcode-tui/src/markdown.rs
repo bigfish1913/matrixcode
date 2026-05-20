@@ -84,7 +84,7 @@ fn bullet_style() -> Style {
 
 /// Render markdown text with proper code block handling
 /// Returns a vector of Lines for rendering in ratatui
-pub fn render_markdown(text: &str, _max_width: usize) -> Vec<Line<'static>> {
+pub fn render_markdown(text: &str, max_width: usize) -> Vec<Line<'static>> {
     if text.is_empty() {
         return Vec::new();
     }
@@ -97,7 +97,7 @@ pub fn render_markdown(text: &str, _max_width: usize) -> Vec<Line<'static>> {
     options.insert(Options::ENABLE_MATH);
 
     let parser = Parser::new_ext(text, options);
-    let mut renderer = MarkdownRenderer::new();
+    let mut renderer = MarkdownRenderer::new(max_width);
     renderer.render(parser);
     renderer.lines
 }
@@ -111,6 +111,8 @@ struct MarkdownRenderer {
     code_block_lang: Option<String>,
     code_block_content: String,
     list_depth: usize,
+    max_width: usize,
+    current_line_width: usize,
     // Table support
     in_table_cell: bool,
     current_table_row: Vec<String>,
@@ -121,7 +123,7 @@ struct MarkdownRenderer {
 }
 
 impl MarkdownRenderer {
-    fn new() -> Self {
+    fn new(max_width: usize) -> Self {
         Self {
             lines: Vec::new(),
             current_spans: Vec::new(),
@@ -130,6 +132,8 @@ impl MarkdownRenderer {
             code_block_lang: None,
             code_block_content: String::new(),
             list_depth: 0,
+            max_width,
+            current_line_width: 0,
             in_table_cell: false,
             current_table_row: Vec::new(),
             current_cell_content: String::new(),
@@ -157,12 +161,72 @@ impl MarkdownRenderer {
         if !self.current_spans.is_empty() {
             self.lines.push(Line::from(self.current_spans.clone()));
             self.current_spans.clear();
+            self.current_line_width = 0;
         }
     }
 
     fn add_text(&mut self, text: &str) {
         let style = self.current_style();
-        self.current_spans.push(Span::styled(text.to_string(), style));
+
+        // Handle width-based wrapping
+        for word in text.split_whitespace() {
+            let word_width = word.width();
+
+            // If word itself is too long, split it
+            if word_width > self.max_width {
+                // Add as much as fits, then flush and continue
+                let mut remaining = word;
+                while !remaining.is_empty() {
+                    let available = self.max_width.saturating_sub(self.current_line_width);
+                    if available <= 0 {
+                        self.flush_line();
+                        continue;
+                    }
+
+                    // Find how many chars fit
+                    let mut chars_len = 0;
+                    let mut fit_width = 0;
+                    for ch in remaining.chars() {
+                        let ch_w = if ch > '\u{7F}' { 2 } else { 1 };
+                        if fit_width + ch_w > available {
+                            break;
+                        }
+                        chars_len += ch.len_utf8();
+                        fit_width += ch_w;
+                    }
+
+                    if chars_len > 0 {
+                        self.current_spans.push(Span::styled(remaining[..chars_len].to_string(), style));
+                        self.current_line_width += fit_width;
+                        remaining = &remaining[chars_len..];
+                    }
+
+                    if !remaining.is_empty() {
+                        self.flush_line();
+                    }
+                }
+            } else {
+                // Word fits within max_width
+                // Need space if not first word on line
+                let needs_space = self.current_line_width > 0;
+                let total_width = word_width + if needs_space { 1 } else { 0 };
+
+                if self.current_line_width + total_width > self.max_width {
+                    // Word doesn't fit on current line, start new line
+                    self.flush_line();
+                    self.current_spans.push(Span::styled(word.to_string(), style));
+                    self.current_line_width = word_width;
+                } else {
+                    // Word fits
+                    if needs_space {
+                        self.current_spans.push(Span::styled(" ".to_string(), style));
+                        self.current_line_width += 1;
+                    }
+                    self.current_spans.push(Span::styled(word.to_string(), style));
+                    self.current_line_width += word_width;
+                }
+            }
+        }
     }
 
     fn render(&mut self, parser: Parser) {
@@ -180,14 +244,20 @@ impl MarkdownRenderer {
                     }
                 }
                 Event::Code(code) => {
-                    self.current_spans.push(Span::styled(code.to_string(), inline_code_style()));
+                    if self.in_table_cell {
+                        // In table cell: collect content as plain text
+                        self.current_cell_content.push_str(&code);
+                    } else {
+                        self.current_spans.push(Span::styled(code.to_string(), inline_code_style()));
+                    }
                 }
                 Event::InlineMath(math) => {
                     // Inline math: $formula$
-                    self.current_spans.push(Span::styled(
-                        format!("${}$", math),
-                        math_style()
-                    ));
+                    if self.in_table_cell {
+                        self.current_cell_content.push_str(&format!("${}$", math));
+                    } else {
+                        self.current_spans.push(Span::styled(format!("${}$", math), math_style()));
+                    }
                 }
                 Event::DisplayMath(math) => {
                     // Display math: $$formula$$ - render as separate block
@@ -197,8 +267,20 @@ impl MarkdownRenderer {
                         math_style()
                     ));
                 }
-                Event::Html(html) => self.add_text(&html),
-                Event::InlineHtml(html) => self.add_text(&html),
+                Event::Html(html) => {
+                    if self.in_table_cell {
+                        self.current_cell_content.push_str(&html);
+                    } else {
+                        self.add_text(&html);
+                    }
+                }
+                Event::InlineHtml(html) => {
+                    if self.in_table_cell {
+                        self.current_cell_content.push_str(&html);
+                    } else {
+                        self.add_text(&html);
+                    }
+                }
                 Event::SoftBreak => self.add_text(" "),
                 Event::HardBreak => self.flush_line(),
                 Event::Rule => {
@@ -243,17 +325,33 @@ impl MarkdownRenderer {
                 self.current_spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
             }
             Tag::Strong => {
-                self.push_style(bold_style());
+                if self.in_table_cell {
+                    // In table: just collect text, no styling
+                } else {
+                    self.push_style(bold_style());
+                }
             }
             Tag::Emphasis => {
-                self.push_style(italic_style());
+                if self.in_table_cell {
+                    // In table: just collect text, no styling
+                } else {
+                    self.push_style(italic_style());
+                }
             }
             Tag::Strikethrough => {
-                self.push_style(strikethrough_style());
+                if self.in_table_cell {
+                    // In table: just collect text, no styling
+                } else {
+                    self.push_style(strikethrough_style());
+                }
             }
             Tag::Link { dest_url: _, .. } => {
-                self.push_style(link_style());
-                self.current_spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
+                if self.in_table_cell {
+                    // In table: just collect text, no link styling
+                } else {
+                    self.push_style(link_style());
+                    self.current_spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
+                }
             }
             Tag::Image { title, .. } => {
                 self.add_text("📷 ");
@@ -314,12 +412,26 @@ impl MarkdownRenderer {
                 self.flush_line();
                 self.pop_style();
             }
-            TagEnd::Strong => self.pop_style(),
-            TagEnd::Emphasis => self.pop_style(),
-            TagEnd::Strikethrough => self.pop_style(),
+            TagEnd::Strong => {
+                if !self.in_table_cell {
+                    self.pop_style();
+                }
+            }
+            TagEnd::Emphasis => {
+                if !self.in_table_cell {
+                    self.pop_style();
+                }
+            }
+            TagEnd::Strikethrough => {
+                if !self.in_table_cell {
+                    self.pop_style();
+                }
+            }
             TagEnd::Link => {
-                self.pop_style();
-                self.current_spans.push(Span::styled("]", Style::default().fg(Color::DarkGray)));
+                if !self.in_table_cell {
+                    self.pop_style();
+                    self.current_spans.push(Span::styled("]", Style::default().fg(Color::DarkGray)));
+                }
             }
             TagEnd::Image => {}
             TagEnd::Table => {
@@ -369,7 +481,127 @@ impl MarkdownRenderer {
         }
 
         for line_spans in self.highlight_code_with_colors(lang, code) {
-            self.lines.push(Line::from(line_spans));
+            // Check total width and wrap if needed
+            let total_width: usize = line_spans.iter().map(|s| s.content.width()).sum();
+
+            if total_width <= self.max_width || self.max_width < 10 {
+                // Line fits, add directly
+                self.lines.push(Line::from(line_spans));
+            } else {
+                // Line too long, need to wrap
+                let mut current_spans: Vec<Span> = Vec::new();
+                let mut current_width = 0;
+
+                for span in line_spans {
+                    let span_width = span.content.width();
+
+                    if current_width + span_width <= self.max_width {
+                        // Span fits
+                        current_spans.push(span);
+                        current_width += span_width;
+                    } else {
+                        // Span doesn't fit, need to split
+                        let available = self.max_width.saturating_sub(current_width);
+
+                        if available > 0 {
+                            // Split span content
+                            let mut fit_len = 0;
+                            let mut fit_width = 0;
+                            for ch in span.content.chars() {
+                                let ch_w = if ch > '\u{7F}' { 2 } else { 1 };
+                                if fit_width + ch_w > available {
+                                    break;
+                                }
+                                fit_len += ch.len_utf8();
+                                fit_width += ch_w;
+                            }
+
+                            if fit_len > 0 {
+                                current_spans.push(Span::styled(
+                                    span.content[..fit_len].to_string(),
+                                    span.style
+                                ));
+
+                                // Flush current line
+                                self.lines.push(Line::from(current_spans.clone()));
+                                current_spans.clear();
+                                current_width = 0;
+
+                                // Handle remaining part of span
+                                let remaining = &span.content[fit_len..];
+                                if remaining.width() > self.max_width {
+                                    // Remaining still too long, split further
+                                    let mut rest = remaining;
+                                    while !rest.is_empty() {
+                                        let mut r_len = 0;
+                                        let mut r_width = 0;
+                                        for ch in rest.chars() {
+                                            let ch_w = if ch > '\u{7F}' { 2 } else { 1 };
+                                            if r_width + ch_w > self.max_width {
+                                                break;
+                                            }
+                                            r_len += ch.len_utf8();
+                                            r_width += ch_w;
+                                        }
+                                        if r_len > 0 {
+                                            self.lines.push(Line::from(vec![
+                                                Span::styled(rest[..r_len].to_string(), span.style)
+                                            ]));
+                                            rest = &rest[r_len..];
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    current_spans.push(Span::styled(remaining.to_string(), span.style));
+                                    current_width = remaining.width();
+                                }
+                            }
+                        } else {
+                            // No space on current line, flush and add span
+                            if !current_spans.is_empty() {
+                                self.lines.push(Line::from(current_spans.clone()));
+                                current_spans.clear();
+                            }
+
+                            // Handle span that might be longer than max_width
+                            if span_width > self.max_width {
+                                let content = &span.content;
+                                let style = span.style;
+                                let mut pos = 0;
+                                while pos < content.len() {
+                                    let mut r_len = 0;
+                                    let mut r_width = 0;
+                                    for ch in content[pos..].chars() {
+                                        let ch_w = if ch > '\u{7F}' { 2 } else { 1 };
+                                        if r_width + ch_w > self.max_width {
+                                            break;
+                                        }
+                                        r_len += ch.len_utf8();
+                                        r_width += ch_w;
+                                    }
+                                    if r_len > 0 {
+                                        self.lines.push(Line::from(vec![
+                                            Span::styled(content[pos..pos+r_len].to_string(), style)
+                                        ]));
+                                        pos += r_len;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            } else {
+                                current_spans.push(span);
+                                current_width = span_width;
+                            }
+                        }
+                    }
+                }
+
+                // Flush remaining spans
+                if !current_spans.is_empty() {
+                    self.lines.push(Line::from(current_spans));
+                }
+            }
         }
     }
 

@@ -52,10 +52,13 @@ impl Activity {
             "read" => Activity::Reading,
             "write" => Activity::Writing,
             "edit" | "multi_edit" => Activity::Editing,
-            "search" | "glob" | "ls" => Activity::Searching,
+            "search" | "grep" | "glob" | "ls" => Activity::Searching,
             "bash" => Activity::Running,
             "websearch" => Activity::WebSearch,
             "webfetch" => Activity::WebFetch,
+            "task" | "task_create" | "task_get" | "task_list" | "task_stop" => Activity::Tool("task".into()),
+            "enter_plan_mode" | "exit_plan_mode" => Activity::Tool("plan".into()),
+            "monitor" => Activity::Tool("monitor".into()),
             other => Activity::Tool(other.to_string()),
         }
     }

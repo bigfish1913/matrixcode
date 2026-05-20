@@ -8,24 +8,6 @@ const SYSTEM_PROMPT_MISSION: &str = r#"核心目标：
 - 以尽可能小的改动完整解决问题。
 - 除非用户明确要求，否则尽量保持现有行为不变。"#;
 
-const SYSTEM_PROMPT_TOOLS: &str = r#"可用工具：
-- read / write / edit / multi_edit：文件读写。修改已有文件前先 read；修改已有文件时优先使用 edit 或 multi_edit，而不是 write。
-- ls：列出目录下的一级内容（非递归）。
-- glob：按模式查找文件。
-- search：按正则搜索文件内容。
-- bash：执行构建、测试、lint、git 检查等 shell 命令。
-- ask：向用户提问澄清歧义或选择方案。遇到不确定的情况时使用此工具，而非自行猜测。
-- todo_write：用于维护非简单任务的待办列表；始终保持且仅保持一个 in_progress。
-- websearch：客户端网页搜索工具，使用 DuckDuckGo 搜索并返回结果列表。
-- web_search：服务端网页搜索工具（仅 Anthropic），由 API 直接执行搜索，结果更精准。
-- webfetch：获取指定 URL 的页面内容。
-- skill：当任务匹配某项技能时，优先加载技能说明，而不是自行猜测。
-
-工具选择建议：
-- 需要搜索网页信息时，优先使用 web_search（服务端搜索，结果更精准）。
-- 如果 web_search 不可用或需要更多控制，可使用 websearch（客户端搜索）。
-- 要获取具体网页内容时，使用 webfetch。
-- 需要用户澄清或决策时，使用 ask 工具。"#;
 
 const SYSTEM_PROMPT_WORKFLOW: &str = r#"工作方式：
 1. 先理解需求，再查看相关代码和文件。
@@ -72,46 +54,54 @@ const SYSTEM_PROMPT_COMPLETION: &str = r#"完成要求：
   2. 已执行的验证；
   3. 剩余风险或后续建议。"#;
 
+const SYSTEM_PROMPT_FILE_REFERENCE: &str = r#"文件引用格式：
+- 在 VS Code 扩展中引用文件时，使用 markdown 链接格式以支持点击跳转：
+  - 文件链接：`[filename.ts](path/to/filename.ts)`
+  - 带行号：`[filename.ts:42](path/to/filename.ts:42)` 或 `[filename.ts:42-51](path/to/filename.ts:42-51)`
+  - 路径使用相对于项目根目录的相对路径
+  - 行号格式为 `:行号` 或 `:起始行-结束行`
+- 不要使用反引号包裹文件路径（除非是代码引用），也不要使用 HTML 标签。"#;
+
 const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
     SYSTEM_PROMPT_MISSION,
-    SYSTEM_PROMPT_TOOLS,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_BEHAVIOR,
     SYSTEM_PROMPT_EDITING,
     SYSTEM_PROMPT_EXECUTION,
     SYSTEM_PROMPT_LANGUAGE,
+    SYSTEM_PROMPT_FILE_REFERENCE,
     SYSTEM_PROMPT_COMPLETION,
 ];
 
 const SAFE_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
     SYSTEM_PROMPT_MISSION,
-    SYSTEM_PROMPT_TOOLS,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_BEHAVIOR,
     SYSTEM_PROMPT_EDITING,
     SYSTEM_PROMPT_LANGUAGE,
+    SYSTEM_PROMPT_FILE_REFERENCE,
     SYSTEM_PROMPT_COMPLETION,
 ];
 
 const FAST_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
     SYSTEM_PROMPT_MISSION,
-    SYSTEM_PROMPT_TOOLS,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_EXECUTION,
     SYSTEM_PROMPT_LANGUAGE,
+    SYSTEM_PROMPT_FILE_REFERENCE,
     SYSTEM_PROMPT_COMPLETION,
 ];
 
 const REVIEW_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
     SYSTEM_PROMPT_MISSION,
-    SYSTEM_PROMPT_TOOLS,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_BEHAVIOR,
     SYSTEM_PROMPT_LANGUAGE,
+    SYSTEM_PROMPT_FILE_REFERENCE,
     SYSTEM_PROMPT_COMPLETION,
 ];
 
@@ -387,15 +377,24 @@ pub fn build_system_prompt(
     memory_summary: Option<&str>,
 ) -> String {
     let builder = SystemPromptBuilder::new(*profile);
-    
-    let mut result = builder.build();
-    
+
+    // Get static prompt parts
+    let static_prompt = build_static_system_prompt(*profile);
+
+    // Dynamically generate tools description
+    let tools_prompt = crate::tools::generate_tools_prompt();
+
+    // Combine: static prompt + tools + sections
+    let mut parts = vec![static_prompt, tools_prompt];
+    parts.extend(builder.context.render_sections());
+    let mut result = parts.join("\n\n");
+
     // Add project overview if provided
     if let Some(overview) = project_overview {
         result.push_str("\n\n[PROJECT CONTEXT]\n");
         result.push_str(overview);
     }
-    
+
     // Add memory summary if provided
     if let Some(memory) = memory_summary {
         result.push_str("\n\n[ACCUMULATED MEMORY]\n");
