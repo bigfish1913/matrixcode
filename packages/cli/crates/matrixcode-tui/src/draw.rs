@@ -83,21 +83,18 @@ impl TuiApp {
         let status_text = if self.activity == Activity::Idle {
             "Ready".to_string()
         } else if is_tool_activity {
+            // Tool activity: show tool name and detail
             if !self.activity_detail.is_empty() {
                 format!("{} {}", self.activity.label(), self.activity_detail)
             } else {
                 self.activity.label().to_string()
             }
-        } else if self.activity == Activity::Thinking {
-            // Thinking: show status, optionally with tokens if available
-            if self.current_request_tokens > 0 {
-                format!("Thinking {}", fmt_tokens(self.current_request_tokens))
-            } else {
-                "Thinking".to_string()
-            }
+        } else if self.current_request_tokens > 0 {
+            // Thinking/streaming: only show tokens, no "Thinking" text
+            fmt_tokens(self.current_request_tokens)
         } else {
-            // Other activity
-            self.activity.label().to_string()
+            // Waiting for response
+            "...".to_string()
         };
         let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
 
