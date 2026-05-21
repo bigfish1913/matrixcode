@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::event::AgentEvent;
 use crate::providers::Usage;
+use crate::truncate::truncate_chars;
 
 use super::types::Agent;
 
@@ -80,8 +81,7 @@ pub(crate) fn extract_tool_detail(tool_name: &str, input: &serde_json::Value) ->
     }
 }
 
-/// Truncate string at char boundary
+/// Truncate string at char boundary (using character count, not bytes)
 pub(crate) fn truncate_str(s: &str, max: usize) -> String {
-    if s.chars().count() <= max { s.to_string() }
-    else { s.chars().take(max.saturating_sub(3)).collect::<String>() + "..." }
+    truncate_chars(s, max)
 }

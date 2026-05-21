@@ -1,5 +1,5 @@
 //! Debug logging for MatrixCode operations
-//! 
+//!
 //! Tracks: API calls, compression, memory saves, tool executions
 
 use std::fs::{File, OpenOptions};
@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::truncate::truncate_with_suffix;
 
 static API_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
 static COMPRESSION_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -148,11 +150,7 @@ impl DebugLog {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() > max {
-        format!("{}...", &s[..max.saturating_sub(3)])
-    } else {
-        s.to_string()
-    }
+    truncate_with_suffix(s, max)
 }
 
 /// Debug statistics

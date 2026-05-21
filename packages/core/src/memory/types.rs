@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::providers::Message;
+use crate::truncate::{find_boundary, truncate_with_suffix};
 use super::config::*;
 use super::retrieval::{TfIdfSearch, compute_relevance, expand_semantic_keywords, extract_context_keywords, has_contradiction_signal, extract_keywords_hybrid};
 
@@ -12,19 +13,18 @@ use super::retrieval::{TfIdfSearch, compute_relevance, expand_semantic_keywords,
 // Helper Functions
 // ============================================================================
 
+/// Truncate string with "..." suffix, respecting UTF-8 boundaries.
 pub(crate) fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() > max_len {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
-    } else {
-        s.to_string()
-    }
+    truncate_with_suffix(s, max_len)
 }
 
+/// Truncate string without suffix, respecting UTF-8 boundaries.
 pub(crate) fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() > max_len {
-        s[..max_len].to_string()
-    } else {
+    if s.len() <= max_len {
         s.to_string()
+    } else {
+        let end = find_boundary(s, max_len);
+        s[..end].to_string()
     }
 }
 

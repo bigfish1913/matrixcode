@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::fs;
 use anyhow::{Context, Result};
+use crate::truncate::find_boundary;
 use crate::prompt::{build_overview_prompt, OverviewContext};
 use crate::providers::{ChatRequest, Message, MessageContent, Provider, Role};
 
@@ -506,11 +507,7 @@ pub fn truncate_content(content: &str, max_len: usize) -> String {
     if content.len() <= max_len {
         content.to_string()
     } else {
-        // Find valid char boundary
-        let mut end = max_len;
-        while end > 0 && !content.is_char_boundary(end) {
-            end -= 1;
-        }
+        let end = find_boundary(content, max_len);
         let mut truncated = content[..end].to_string();
         truncated.push_str("\n... (truncated)");
         truncated

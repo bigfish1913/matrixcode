@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashSet;
 use crate::providers::{ContentBlock, Message, MessageContent, Provider, Role, ChatRequest, ChatResponse};
+use crate::truncate::truncate_with_suffix;
 
 use super::config::{CompressionBias, CompressionConfig};
 use super::types::{CompressionStrategy, SummarizedSegment};
@@ -111,7 +112,7 @@ fn parse_summary_response(text: &str) -> (String, Vec<String>) {
     if summary.is_empty() && !text.is_empty() {
         summary = text.lines().take(3).collect::<Vec<_>>().join(" ");
         if summary.len() > 200 {
-            summary = truncate_text(&summary, 200);
+            summary = truncate_with_suffix(&summary, 200);
         }
     }
 
@@ -335,12 +336,12 @@ pub fn build_summary_prompt(messages: &[Message]) -> String {
             Role::System => "系统",
         };
         let preview = match &m.content {
-            MessageContent::Text(t) => truncate_text(t, 200),
+            MessageContent::Text(t) => truncate_with_suffix(t, 200),
             MessageContent::Blocks(blocks) => {
                 blocks.iter().map(|b| match b {
-                    ContentBlock::Text { text } => truncate_text(text, 100),
+                    ContentBlock::Text { text } => truncate_with_suffix(text, 100),
                     ContentBlock::ToolUse { name, .. } => format!("[工具: {}]", name),
-                    ContentBlock::ToolResult { content, .. } => truncate_text(content, 100),
+                    ContentBlock::ToolResult { content, .. } => truncate_with_suffix(content, 100),
                     _ => "[...]".to_string(),
                 }).collect::<Vec<_>>().join(" | ")
             }
@@ -349,16 +350,6 @@ pub fn build_summary_prompt(messages: &[Message]) -> String {
     }).collect::<Vec<_>>().join("\n");
 
     format!("请将以下对话压缩为简洁摘要（{} 条消息）：\n{}", messages.len(), history)
-}
-
-fn truncate_text(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let mut end = max;
-        while end > 0 && !s.is_char_boundary(end) { end -= 1; }
-        format!("{}...", &s[..end])
-    }
 }
 
 // ============================================================================

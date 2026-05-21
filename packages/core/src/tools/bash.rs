@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use super::{Tool, ToolDefinition};
 use crate::approval::RiskLevel;
+use crate::truncate::truncate_string_in_place;
 
 pub struct BashTool;
 
@@ -132,11 +133,7 @@ fn truncate_output(mut s: String) -> String {
     if s.len() <= MAX_OUTPUT {
         return s;
     }
-    let mut cut = MAX_OUTPUT;
-    while cut > 0 && !s.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    s.truncate(cut);
+    truncate_string_in_place(&mut s, MAX_OUTPUT);
     s.push_str(&format!(
         "\n... (truncated, output exceeded {} bytes)",
         MAX_OUTPUT

@@ -19,6 +19,7 @@ pub mod skills;
 pub mod debug;
 pub mod providers;
 pub mod tools;
+pub mod truncate;
 
 // Public exports
 pub use event::{AgentEvent, EventCollector, EventData, EventType};
@@ -28,6 +29,7 @@ pub use session::{Session, SessionManager};
 pub use providers::{Provider, Message, MessageContent, ContentBlock, Role, ChatRequest, ChatResponse};
 pub use providers::anthropic::AnthropicProvider;
 pub use debug::{DebugLog, DebugStats, debug_log};
+pub use truncate::{find_boundary, truncate_bytes, truncate_with_suffix, truncate_chars};
 
 /// Core version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
