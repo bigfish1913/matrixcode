@@ -6,6 +6,18 @@ use crate::utils::{truncate, extract_tool_detail, fmt_tokens};
 use crate::app::TuiApp;
 
 impl TuiApp {
+    /// Flush partial content to messages.
+    fn flush_partial_content(&mut self) {
+        if !self.thinking.is_empty() {
+            self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
+            self.thinking.clear();
+        }
+        if !self.streaming.is_empty() {
+            self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
+            self.streaming.clear();
+        }
+    }
+
     /// Process pending message queue, returning true if a message was sent.
     fn process_pending_queue(&mut self) -> bool {
         if !self.pending_messages.is_empty() {
@@ -79,14 +91,7 @@ impl TuiApp {
             }
             EventType::SessionEnded => {
                 // Flush remaining content - thinking first, then assistant
-                if !self.thinking.is_empty() {
-                    self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
-                    self.thinking.clear();
-                }
-                if !self.streaming.is_empty() {
-                    self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
-                    self.streaming.clear();
-                }
+                self.flush_partial_content();
 
                 // Clear current request tokens
                 self.current_request_tokens = 0;
@@ -102,17 +107,10 @@ impl TuiApp {
                 if let Some(EventData::Error { message, .. }) = e.data {
                     // Check if this is a cancellation error
                     let is_cancelled = message == "Operation cancelled";
-                    
+
                     if is_cancelled {
                         // Flush partial content before showing cancel message
-                        if !self.thinking.is_empty() {
-                            self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
-                            self.thinking.clear();
-                        }
-                        if !self.streaming.is_empty() {
-                            self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
-                            self.streaming.clear();
-                        }
+                        self.flush_partial_content();
                         self.messages.push(Message { role: Role::System, content: "\u{26a1} Interrupted".into() });
                     } else {
                         self.messages.push(Message { role: Role::System, content: format!("\u{274c} Error: {}", message) });
@@ -282,13 +280,7 @@ impl TuiApp {
 
                     if self.ask_multi_select {
                         let opt_count = self.ask_options.len();
-                        self.ask_submit_mode = if opt_count <= 3 {
-                            SubmitMode::Direct
-                        } else if opt_count <= 10 {
-                            SubmitMode::Option
-                        } else {
-                            SubmitMode::Button
-                        };
+                        self.ask_submit_mode = SubmitMode::from_option_count(opt_count, true);
 
                         if self.ask_submit_mode == SubmitMode::Option {
                             self.ask_options.push(crate::types::AskOption {
@@ -395,13 +387,7 @@ impl TuiApp {
                     }).unwrap_or_default();
 
                     let opt_count = options.len();
-                    let submit_mode = if multi_select {
-                        if opt_count <= 3 { SubmitMode::Direct }
-                        else if opt_count <= 10 { SubmitMode::Option }
-                        else { SubmitMode::Button }
-                    } else {
-                        SubmitMode::Direct
-                    };
+                    let submit_mode = SubmitMode::from_option_count(opt_count, multi_select);
 
                     crate::types::AskQuestion {
                         id,

@@ -487,25 +487,16 @@ async fn handle_sse_event(
                         signature: None,
                     };
                 }
-                "tool_use" => {
-                    let id = block["id"].as_str().unwrap_or("").to_string();
-                    let name = block["name"].as_str().unwrap_or("").to_string();
-                    blocks[idx] = AssembledBlock::ToolUse {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input_json: String::new(),
+                "tool_use" | "server_tool_use" => {
+                    let id = block["id"].as_str().unwrap_or_default();
+                    let name = block["name"].as_str().unwrap_or_default();
+                    let is_server = kind == "server_tool_use";
+                    blocks[idx] = if is_server {
+                        AssembledBlock::ServerToolUse { id: id.into(), name: name.into(), input_json: String::new() }
+                    } else {
+                        AssembledBlock::ToolUse { id: id.into(), name: name.into(), input_json: String::new() }
                     };
-                    let _ = tx.send(StreamEvent::ToolUseStart { id, name }).await;
-                }
-                "server_tool_use" => {
-                    let id = block["id"].as_str().unwrap_or("").to_string();
-                    let name = block["name"].as_str().unwrap_or("").to_string();
-                    blocks[idx] = AssembledBlock::ServerToolUse {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input_json: String::new(),
-                    };
-                    let _ = tx.send(StreamEvent::ToolUseStart { id, name }).await;
+                    let _ = tx.send(StreamEvent::ToolUseStart { id: id.into(), name: name.into() }).await;
                 }
                 "web_search_tool_result" => {
                     let tool_use_id = block["tool_use_id"].as_str().unwrap_or("").to_string();

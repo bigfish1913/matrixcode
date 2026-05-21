@@ -142,6 +142,19 @@ pub enum SubmitMode {
     Button,  // Submit button area at bottom (for many options)
 }
 
+impl SubmitMode {
+    /// Determine submit mode based on option count and multi_select flag.
+    pub fn from_option_count(opt_count: usize, multi_select: bool) -> Self {
+        if multi_select {
+            if opt_count <= 3 { SubmitMode::Direct }
+            else if opt_count <= 10 { SubmitMode::Option }
+            else { SubmitMode::Button }
+        } else {
+            SubmitMode::Direct
+        }
+    }
+}
+
 /// Ask question with options - supports multiple questions
 #[derive(Debug, Clone, Default)]
 pub struct AskQuestion {
