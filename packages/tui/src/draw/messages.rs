@@ -324,7 +324,7 @@ impl TuiApp {
                                 line.to_string(),
                                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                             )
-                        } else if line.starts_with("╔") || line.starts_with("║") || line.starts_with("╚") || line.starts_with("─") {
+                        } else if ['╔', '║', '╚', '─'].contains(&line.chars().next().unwrap_or(' ')) {
                             Line::styled(
                                 line.to_string(),
                                 Style::default().fg(Color::Cyan)

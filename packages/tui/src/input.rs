@@ -202,9 +202,8 @@ impl TuiApp {
                         let target_char_pos = next_line_start_char + col_chars.min(next_line_len_chars);
                         self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
                     }
-                } else if self.history_index.is_some() {
+                } else if let Some(idx) = self.history_index {
                     // Single-line: browse history forward
-                    let idx = self.history_index.unwrap();
                     if idx + 1 < self.input_history.len() {
                         self.history_index = Some(idx + 1);
                         self.input = self.input_history[idx + 1].clone();

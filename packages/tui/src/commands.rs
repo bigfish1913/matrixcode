@@ -27,9 +27,16 @@ impl TuiApp {
                 self.auto_scroll = true;
             }
             "/history" => {
-                let user_count = self.messages.iter().filter(|m| m.role == Role::User).count();
-                let assistant_count = self.messages.iter().filter(|m| m.role == Role::Assistant).count();
-                let tool_count = self.messages.iter().filter(|m| matches!(m.role, Role::Tool { .. })).count();
+                // Count message types in single pass
+                let (user_count, assistant_count, tool_count) = self.messages.iter().fold(
+                    (0, 0, 0),
+                    |(u, a, t), m| match m.role {
+                        Role::User => (u + 1, a, t),
+                        Role::Assistant => (u, a + 1, t),
+                        Role::Tool { .. } => (u, a, t + 1),
+                        _ => (u, a, t),
+                    }
+                );
                 let queue_count = self.pending_messages.len();
                 if self.debug_mode {
                     self.messages.push(Message {
@@ -89,7 +96,7 @@ impl TuiApp {
                 } else if args[0] == "status" {
                     // Show project status
                     self.tx.try_send("/init status".to_string()).ok();
-                } else if args[0] == "reset" || args[0] == "clear" {
+                } else if matches!(args[0], "reset" | "clear") {
                     // Reset configuration
                     self.tx.try_send("/init reset".to_string()).ok();
                 } else {
