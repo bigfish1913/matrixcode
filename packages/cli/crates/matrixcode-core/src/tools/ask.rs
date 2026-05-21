@@ -22,7 +22,8 @@ const ASK_TOOL_DESCRIPTION: &str =
      必须使用此工具的情况：(1) 用户请求含义模糊，(2) 存在多种可行方案需要选择，\
      (3) 决策可能对项目产生重大影响。\
      提供推荐方案及理由，让用户做出知情选择。\
-     不确定时切勿猜测或直接推进。";
+     不确定时切勿猜测或直接推进。\
+     支持单问题或多问题模式，多问题时用户可用 Tab 切换。";
 
 #[async_trait]
 impl Tool for AskTool {
@@ -35,11 +36,22 @@ impl Tool for AskTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
+        // Check for multi-question format
+        if let Some(questions) = params.get("questions").and_then(|q| q.as_array()) {
+            // Multi-question mode - render all questions
+            render_multi_questions(questions);
+            let answer = read_user_answer();
+            println!();
+            return Ok(answer);
+        }
+
+        // Single question mode
         let question = params["question"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'question'"))?;
 
-        let options = params["options"].as_array();
+        let options = params.get("options").and_then(|o| o.get("options")).and_then(|o| o.as_array())
+            .or_else(|| params["options"].as_array());
         let recommendation = params["recommendation"].as_object();
 
         // Render the question UI
@@ -64,11 +76,11 @@ fn ask_tool_schema() -> Value {
         "properties": {
             "question": {
                 "type": "string",
-                "description": "要向用户提问的问题，需具体清晰"
+                "description": "要向用户提问的问题，需具体清晰（单问题模式）"
             },
             "options": {
                 "type": "object",
-                "description": "选项配置",
+                "description": "选项配置（单问题模式）",
                 "properties": {
                     "multiSelect": {
                         "type": "boolean",
@@ -113,9 +125,54 @@ fn ask_tool_schema() -> Value {
                     }
                 },
                 "required": ["option_id", "reason"]
+            },
+            "questions": {
+                "type": "array",
+                "description": "多问题列表（多问题模式，用户可用 Tab 切换问题）",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "问题唯一标识符"
+                        },
+                        "question": {
+                            "type": "string",
+                            "description": "问题内容"
+                        },
+                        "options": {
+                            "type": "object",
+                            "description": "选项配置",
+                            "properties": {
+                                "multiSelect": {
+                                    "type": "boolean",
+                                    "description": "是否允许多选，默认 false"
+                                },
+                                "options": {
+                                    "type": "array",
+                                    "description": "可选方案列表",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": { "type": "string", "description": "选项标识符" },
+                                            "label": { "type": "string", "description": "选项标签" },
+                                            "description": { "type": "string", "description": "选项说明" }
+                                        },
+                                        "required": ["id", "label"]
+                                    }
+                                }
+                            },
+                            "required": ["options"]
+                        }
+                    },
+                    "required": ["id", "question"]
+                }
             }
         },
-        "required": ["question"]
+        "oneOf": [
+            { "required": ["question"] },
+            { "required": ["questions"] }
+        ]
     })
 }
 
@@ -169,6 +226,40 @@ fn render_options(opts: &[Value]) {
         }
     }
     println!("│");
+}
+
+/// Render multiple questions (CLI mode - non-TUI).
+fn render_multi_questions(questions: &[Value]) {
+    println!();
+    println!("┌─ AI 询问 (共 {} 个问题) ───────────────────────────", questions.len());
+
+    for (idx, q) in questions.iter().enumerate() {
+        let question = q["question"].as_str().unwrap_or("");
+        println!("│");
+        println!("│ 【问题 {}】", idx + 1);
+        for line in question.lines() {
+            println!("│   {}", line);
+        }
+
+        // Render options if provided
+        if let Some(opts_obj) = q.get("options") {
+            let opts = opts_obj.get("options").and_then(|o| o.as_array());
+            if let Some(opts) = opts {
+                println!("│   可选方案：");
+                for opt in opts {
+                    let id = opt["id"].as_str().unwrap_or("?");
+                    let label = opt["label"].as_str().unwrap_or("未命名");
+                    println!("│     {} - {}", id, label);
+                }
+            }
+        }
+    }
+
+    println!("│");
+    println!("│ 请依次回答所有问题：");
+    println!("└────────────────────────────────────────────────────");
+    print!("> ");
+    let _ = io::stdout().flush();
 }
 
 /// Render the recommendation with reasoning.

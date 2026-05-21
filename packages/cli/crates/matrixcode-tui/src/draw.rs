@@ -452,6 +452,32 @@ impl TuiApp {
                     // Ask/Approval requests - prominent display with selection highlight
                     lines.push(Line::styled("", Style::default()));
 
+                    // Draw Tab headers for multi-question mode
+                    if self.waiting_for_ask && self.ask_questions.len() > 1 {
+                        let tabs: Vec<Span> = self.ask_questions.iter().enumerate().map(|(idx, _q)| {
+                            let is_current = idx == self.current_question_idx;
+                            let tab_text = format!(" 问题{} ", idx + 1);
+                            if is_current {
+                                Span::styled(tab_text, Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
+                            } else {
+                                Span::styled(tab_text, Style::default().fg(Color::DarkGray).bg(Color::Reset))
+                            }
+                        }).collect();
+
+                        // Add separator spans
+                        let mut all_spans = Vec::new();
+                        for (i, span) in tabs.into_iter().enumerate() {
+                            all_spans.push(span);
+                            if i < self.ask_questions.len() - 1 {
+                                all_spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+                            }
+                        }
+                        all_spans.push(Span::styled("  [Tab切换]", Style::default().fg(Color::DarkGray)));
+
+                        lines.push(Line::from(all_spans));
+                        lines.push(Line::styled("", Style::default()));
+                    }
+
                     // Check if we're actively in ask mode with options
                     let has_active_selection = self.waiting_for_ask && !self.ask_options.is_empty();
 
@@ -504,6 +530,9 @@ impl TuiApp {
                                 line.contains("[✓]")  // Fallback to text
                             };
 
+                            // Check if this is a Submit option
+                            let is_submit_option = option_idx < self.ask_options.len() && self.ask_options[option_idx].is_submit;
+
                             // Rebuild line with actual checkbox state
                             let display_line = if is_checkbox && option_idx < self.ask_options.len() {
                                 let opt = &self.ask_options[option_idx];
@@ -517,7 +546,20 @@ impl TuiApp {
                             // Check if this line matches current selection index
                             if option_idx == self.ask_selected_index {
                                 // Current navigation position: bright highlight
-                                if actually_checked {
+                                if is_submit_option {
+                                    // Submit option - yellow highlight
+                                    if actually_checked {
+                                        Line::styled(
+                                            format!("▶ {}", display_line.trim()),
+                                            Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                                        )
+                                    } else {
+                                        Line::styled(
+                                            format!("▶ {}", display_line.trim()),
+                                            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                                        )
+                                    }
+                                } else if actually_checked {
                                     // Checked and selected: bright green
                                     Line::styled(
                                         format!("▶ {}", display_line.trim()),
@@ -528,6 +570,19 @@ impl TuiApp {
                                     Line::styled(
                                         format!("▶ {}", display_line.trim()),
                                         Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                                    )
+                                }
+                            } else if is_submit_option {
+                                // Submit option not current
+                                if actually_checked {
+                                    Line::styled(
+                                        format!("  {}", display_line.trim()),
+                                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                                    )
+                                } else {
+                                    Line::styled(
+                                        format!("  {}", display_line.trim()),
+                                        Style::default().fg(Color::White)
                                     )
                                 }
                             } else if actually_checked {
@@ -544,27 +599,18 @@ impl TuiApp {
                                 )
                             }
                         } else if has_active_selection && line.starts_with("  >>>") {
-                            // Submit option - special rendering
-                            let is_submit_line = line.contains("Submit");
-                            if is_submit_line {
-                                // Check if this is the current selection
-                                // Submit is always at the last index
-                                let submit_idx = self.ask_options.len() - 1;
-                                if self.ask_selected_index == submit_idx {
-                                    // Submit selected: bright yellow highlight
-                                    Line::styled(
-                                        format!("▶ {} <", line.trim().replace(">>>", "").replace("<<<", "").trim()),
-                                        Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
-                                    )
-                                } else {
-                                    // Submit not selected
-                                    Line::styled(
-                                        format!("  {} <", line.trim().replace(">>>", "").replace("<<<", "").trim()),
-                                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                                    )
-                                }
+                            // Legacy Submit option format (for backward compatibility)
+                            let submit_idx = self.ask_options.len() - 1;
+                            if self.ask_selected_index == submit_idx {
+                                Line::styled(
+                                    format!("▶ {}", line.trim().replace(">>>", "").replace("<<<", "").trim()),
+                                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                                )
                             } else {
-                                Line::styled(line.to_string(), Style::default().fg(Color::Yellow))
+                                Line::styled(
+                                    format!("  {}", line.trim().replace(">>>", "").replace("<<<", "").trim()),
+                                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                                )
                             }
                         } else {
                             Line::styled(

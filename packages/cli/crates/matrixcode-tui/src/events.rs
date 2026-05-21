@@ -1,7 +1,7 @@
 use matrixcode_core::{AgentEvent, EventData, EventType};
 use serde_json::Value;
 
-use crate::types::{Activity, Message, Role, SubmitMode, AskQuestion, AskOption};
+use crate::types::{Activity, Message, Role, SubmitMode};
 use crate::utils::{truncate, extract_tool_detail, fmt_tokens};
 use crate::app::TuiApp;
 
@@ -227,151 +227,255 @@ impl TuiApp {
             }
             EventType::AskQuestion => {
                 if let Some(EventData::AskQuestion { question, options }) = e.data {
-                    // Format the question with clear styling
-                    let mut content = String::new();
+                    // Check for multiple questions format: { "questions": [...] }
+                    let has_multiple = options.as_ref().and_then(|o| o.get("questions")).is_some();
 
-                    // Header line - prominent
-                    content.push_str("╔══════════════════════════════════════╗\n");
-                    content.push_str("║         ⚡ AWAITING INPUT ⚡        ║\n");
-                    content.push_str("╚══════════════════════════════════════╝\n\n");
-
-                    // Question content
-                    content.push_str(&question);
-
-                    // Parse options or create default y/n for approval
-                    // options can be: direct array [...] or object { "options": [...], "multiSelect": bool }
-                    if let Some(ref opts) = options {
-                        // Try to parse as object with "options" and "multiSelect" fields first
-                        let arr: Option<&Vec<Value>> = if let Some(arr) = opts.get("options").and_then(|o| o.as_array()) {
-                            // Object format: { "options": [...], "multiSelect": bool }
-                            self.ask_multi_select = opts.get("multiSelect").and_then(|m| m.as_bool()).unwrap_or(false);
-                            Some(arr)
-                        } else if let Some(arr) = opts.as_array() {
-                            // Direct array format: [...]
-                            self.ask_multi_select = false;  // Default single-select for direct array
-                            Some(arr)
-                        } else {
-                            None
-                        };
-
-                        match arr {
-                            Some(arr) if !arr.is_empty() => {
-                                // Has explicit options from ask tool
-                                self.ask_options = arr.iter().enumerate().map(|(_i, opt)| {
-                                    crate::types::AskOption {
-                                        id: opt["id"].as_str().unwrap_or("").to_string(),
-                                        label: opt["label"].as_str().unwrap_or("").to_string(),
-                                        description: opt["description"].as_str().map(|s| s.to_string()),
-                                        selected: opt.get("selected").and_then(|s| s.as_bool()).unwrap_or(false),
-                                        is_submit: false,
-                                    }
-                                }).collect();
-                                self.ask_selected_index = 0;
-
-                                // Determine submit mode based on option count (only for multi-select)
-                                if self.ask_multi_select {
-                                    let opt_count = self.ask_options.len();
-                                    self.ask_submit_mode = if opt_count <= 3 {
-                                        SubmitMode::Direct
-                                    } else if opt_count <= 10 {
-                                        SubmitMode::Option
-                                    } else {
-                                        SubmitMode::Button
-                                    };
-
-                                    // Add Submit option for Option mode
-                                    if self.ask_submit_mode == SubmitMode::Option {
-                                        self.ask_options.push(crate::types::AskOption {
-                                            id: "__submit__".into(),
-                                            label: "✓ Submit".into(),
-                                            description: Some("确认选择并提交".into()),
-                                            selected: false,
-                                            is_submit: true,
-                                        });
-                                    }
-                                } else {
-                                    // Single-select always uses Direct mode
-                                    self.ask_submit_mode = SubmitMode::Direct;
-                                }
-
-                                // Build option display
-                                content.push_str("\n\n─────────────────────────────────────\n");
-                                if self.ask_multi_select {
-                                    match self.ask_submit_mode {
-                                        SubmitMode::Direct => {
-                                            content.push_str("Options (↑↓ navigate, Space toggle, Enter confirm):\n");
-                                        }
-                                        SubmitMode::Option => {
-                                            content.push_str("Options (↑↓ navigate, Space toggle, Enter on Submit):\n");
-                                        }
-                                        SubmitMode::Button => {
-                                            content.push_str("Options (↑↓ navigate, Space toggle):\n");
-                                        }
-                                    }
-                                } else {
-                                    content.push_str("Options (↑↓ select, Enter confirm):\n");
-                                }
-                                for (i, opt) in self.ask_options.iter().enumerate() {
-                                    if opt.is_submit {
-                                        // Submit option - special rendering
-                                        content.push_str(&format!("  >>> {} <<<\n", opt.label));
-                                    } else {
-                                        let marker = if self.ask_multi_select {
-                                            if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
-                                        } else {
-                                            format!("[{}]", (b'A' + i as u8) as char)
-                                        };
-                                        let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
-                                        content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
-                                    }
-                                }
-
-                                // Clear input so selection shows in input area
-                                self.input.clear();
-                                self.cursor_pos = 0;
-                            }
-                            _ if question.contains("(y/n)") || question.contains("Allow?") => {
-                                // Approval request: create y/n options (single select)
-                                self.ask_multi_select = false;
-                                self.ask_submit_mode = SubmitMode::Direct;
-                                self.ask_options = vec![
-                                    crate::types::AskOption { id: "y".into(), label: "Yes".into(), description: Some("Allow this action".into()), selected: false, is_submit: false },
-                                    crate::types::AskOption { id: "n".into(), label: "No".into(), description: Some("Reject this action".into()), selected: false, is_submit: false },
-                                ];
-                                self.ask_selected_index = 0;
-
-                                content.push_str("\n\n─────────────────────────────────────\n");
-                                content.push_str("Options (↑↓ select, Enter confirm):\n");
-                                content.push_str("  [Y] Yes - Allow this action\n");
-                                content.push_str("  [N] No - Reject this action\n");
-
-                                // Clear input
-                                self.input.clear();
-                                self.cursor_pos = 0;
-                            }
-                            _ => {
-                                // Free text input - no options
-                                self.ask_multi_select = false;
-                                self.ask_submit_mode = SubmitMode::Direct;
-                                self.ask_options.clear();
-                                self.ask_selected_index = 0;
-                            }
-                        }
+                    if has_multiple {
+                        // Multi-question mode
+                        self.handle_multiple_questions(&question, options);
                     } else {
-                        // No options provided - free text input
-                        self.ask_multi_select = false;
-                        self.ask_submit_mode = SubmitMode::Direct;
-                        self.ask_options.clear();
-                        self.ask_selected_index = 0;
+                        // Single question mode
+                        self.handle_single_question(&question, options);
                     }
-
-                    self.messages.push(Message { role: Role::Ask, content });
-                    self.waiting_for_ask = true;
-                    self.activity = Activity::Asking;
-                    self.auto_scroll = true;
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Handle single question
+    fn handle_single_question(&mut self, question: &str, options: Option<Value>) {
+        // Format the question with clear styling
+        let mut content = String::new();
+
+        // Header line - prominent
+        content.push_str("╔══════════════════════════════════════╗\n");
+        content.push_str("║         ⚡ 等待输入 ⚡              ║\n");
+        content.push_str("╚══════════════════════════════════════╝\n\n");
+
+        // Question content
+        content.push_str(question);
+
+        // Parse options or create default y/n for approval
+        if let Some(ref opts) = options {
+            let arr: Option<&Vec<Value>> = if let Some(arr) = opts.get("options").and_then(|o| o.as_array()) {
+                self.ask_multi_select = opts.get("multiSelect").and_then(|m| m.as_bool()).unwrap_or(false);
+                Some(arr)
+            } else if let Some(arr) = opts.as_array() {
+                self.ask_multi_select = false;
+                Some(arr)
+            } else {
+                None
+            };
+
+            match arr {
+                Some(arr) if !arr.is_empty() => {
+                    self.ask_options = arr.iter().enumerate().map(|(_i, opt)| {
+                        crate::types::AskOption {
+                            id: opt["id"].as_str().unwrap_or("").to_string(),
+                            label: opt["label"].as_str().unwrap_or("").to_string(),
+                            description: opt["description"].as_str().map(|s| s.to_string()),
+                            selected: opt.get("selected").and_then(|s| s.as_bool()).unwrap_or(false),
+                            is_submit: false,
+                        }
+                    }).collect();
+                    self.ask_selected_index = 0;
+
+                    if self.ask_multi_select {
+                        let opt_count = self.ask_options.len();
+                        self.ask_submit_mode = if opt_count <= 3 {
+                            SubmitMode::Direct
+                        } else if opt_count <= 10 {
+                            SubmitMode::Option
+                        } else {
+                            SubmitMode::Button
+                        };
+
+                        if self.ask_submit_mode == SubmitMode::Option {
+                            self.ask_options.push(crate::types::AskOption {
+                                id: "__submit__".into(),
+                                label: "提交".into(),
+                                description: Some("确认并提交所有选择".into()),
+                                selected: false,
+                                is_submit: true,
+                            });
+                        }
+                    } else {
+                        self.ask_submit_mode = SubmitMode::Direct;
+                    }
+
+                    content.push_str("\n\n─────────────────────────────────────\n");
+                    if self.ask_multi_select {
+                        match self.ask_submit_mode {
+                            SubmitMode::Direct => content.push_str("选项 (↑↓导航 Space/Enter切换 Enter确认):\n"),
+                            SubmitMode::Option => content.push_str("选项 (↑↓导航 Space/Enter切换 选中提交):\n"),
+                            SubmitMode::Button => content.push_str("选项 (↑↓导航 Space/Enter切换):\n"),
+                        }
+                    } else {
+                        content.push_str("选项 (↑↓选择 Enter确认):\n");
+                    }
+                    for (i, opt) in self.ask_options.iter().enumerate() {
+                        if opt.is_submit {
+                            // Submit 选项也显示为复选框
+                            let marker = if opt.selected { "[✓]" } else { "[ ]" };
+                            content.push_str(&format!("  {} {} - {}\n", marker, opt.label, opt.description.as_ref().map(|d| d.as_str()).unwrap_or("")));
+                        } else {
+                            let marker = if self.ask_multi_select {
+                                if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
+                            } else {
+                                format!("[{}]", (b'A' + i as u8) as char)
+                            };
+                            let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
+                            content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+                        }
+                    }
+                    self.input.clear();
+                    self.cursor_pos = 0;
+                }
+                _ if question.contains("(y/n)") || question.contains("Allow?") => {
+                    self.ask_multi_select = false;
+                    self.ask_submit_mode = SubmitMode::Direct;
+                    self.ask_options = vec![
+                        crate::types::AskOption { id: "y".into(), label: "同意".into(), description: Some("允许此操作".into()), selected: false, is_submit: false },
+                        crate::types::AskOption { id: "n".into(), label: "拒绝".into(), description: Some("拒绝此操作".into()), selected: false, is_submit: false },
+                    ];
+                    self.ask_selected_index = 0;
+                    content.push_str("\n\n─────────────────────────────────────\n");
+                    content.push_str("选项 (↑↓选择 Enter确认):\n");
+                    content.push_str("  [Y] 同意 - 允许此操作\n");
+                    content.push_str("  [N] 拒绝 - 拒绝此操作\n");
+                    self.input.clear();
+                    self.cursor_pos = 0;
+                }
+                _ => {
+                    self.ask_multi_select = false;
+                    self.ask_submit_mode = SubmitMode::Direct;
+                    self.ask_options.clear();
+                    self.ask_selected_index = 0;
+                }
+            }
+        } else {
+            self.ask_multi_select = false;
+            self.ask_submit_mode = SubmitMode::Direct;
+            self.ask_options.clear();
+            self.ask_selected_index = 0;
+        }
+
+        // Single question - clear multi-question state
+        self.ask_questions.clear();
+        self.current_question_idx = 0;
+
+        self.messages.push(Message { role: Role::Ask, content });
+        self.waiting_for_ask = true;
+        self.activity = Activity::Asking;
+        self.auto_scroll = true;
+    }
+
+    /// Handle multiple questions
+    fn handle_multiple_questions(&mut self, _intro: &str, options: Option<Value>) {
+        if let Some(ref opts) = options {
+            if let Some(arr) = opts.get("questions").and_then(|q| q.as_array()).filter(|a| !a.is_empty()) {
+                // Parse each question
+                self.ask_questions = arr.iter().enumerate().map(|(idx, q)| {
+                    let id = q["id"].as_str().unwrap_or(&idx.to_string()).to_string();
+                    let question = q["question"].as_str().unwrap_or("").to_string();
+                    let multi_select = q.get("options")
+                        .and_then(|o| o.get("multiSelect").and_then(|m| m.as_bool()))
+                        .unwrap_or(false);
+
+                    let opts_arr = q.get("options").and_then(|o| o.get("options")).and_then(|o| o.as_array())
+                        .or_else(|| q.get("options").and_then(|o| o.as_array()));
+
+                    let options: Vec<crate::types::AskOption> = opts_arr.map(|arr| {
+                        arr.iter().map(|opt| crate::types::AskOption {
+                            id: opt["id"].as_str().unwrap_or("").to_string(),
+                            label: opt["label"].as_str().unwrap_or("").to_string(),
+                            description: opt["description"].as_str().map(|s| s.to_string()),
+                            selected: opt.get("selected").and_then(|s| s.as_bool()).unwrap_or(false),
+                            is_submit: false,
+                        }).collect()
+                    }).unwrap_or_default();
+
+                    let opt_count = options.len();
+                    let submit_mode = if multi_select {
+                        if opt_count <= 3 { SubmitMode::Direct }
+                        else if opt_count <= 10 { SubmitMode::Option }
+                        else { SubmitMode::Button }
+                    } else {
+                        SubmitMode::Direct
+                    };
+
+                    crate::types::AskQuestion {
+                        id,
+                        question,
+                        options,
+                        multi_select,
+                        selected_index: 0,
+                        submit_mode,
+                    }
+                }).collect();
+
+                self.current_question_idx = 0;
+
+                // Build content for first question with navigation hint
+                let first_q = &self.ask_questions[0];
+                let mut content = String::new();
+
+                content.push_str("╔══════════════════════════════════════╗\n");
+                content.push_str(&format!("║  ⚡ 问题 1 / {} (Tab切换) ⚡        ║\n", self.ask_questions.len()));
+                content.push_str("╚══════════════════════════════════════╝\n\n");
+                content.push_str(&first_q.question);
+
+                // Load first question state
+                self.ask_options = first_q.options.clone();
+                self.ask_selected_index = first_q.selected_index;
+                self.ask_multi_select = first_q.multi_select;
+                self.ask_submit_mode = first_q.submit_mode.clone();
+
+                // Add Submit option for Option mode
+                if self.ask_multi_select && self.ask_submit_mode == SubmitMode::Option {
+                    self.ask_options.push(crate::types::AskOption {
+                        id: "__submit__".into(),
+                        label: "✓ 提交".into(),
+                        description: Some("确认选择并提交".into()),
+                        selected: false,
+                        is_submit: true,
+                    });
+                }
+
+                content.push_str("\n\n─────────────────────────────────────\n");
+                if self.ask_multi_select {
+                    match self.ask_submit_mode {
+                        SubmitMode::Direct => content.push_str("选项 (↑↓导航 Space切换 Enter下一题):\n"),
+                        SubmitMode::Option => content.push_str("选项 (↑↓导航 Space切换 Enter提交):\n"),
+                        SubmitMode::Button => content.push_str("选项 (↑↓导航 Space切换):\n"),
+                    }
+                } else {
+                    content.push_str("选项 (↑↓选择 Enter下一题):\n");
+                }
+
+                for (i, opt) in self.ask_options.iter().enumerate() {
+                    if opt.is_submit {
+                        content.push_str(&format!("  >>> {} <<<\n", opt.label));
+                    } else {
+                        let marker = if self.ask_multi_select {
+                            if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
+                        } else {
+                            format!("[{}]", (b'A' + i as u8) as char)
+                        };
+                        let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
+                        content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+                    }
+                }
+
+                self.input.clear();
+                self.cursor_pos = 0;
+
+                self.messages.push(Message { role: Role::Ask, content });
+                self.waiting_for_ask = true;
+                self.activity = Activity::Asking;
+                self.auto_scroll = true;
+            }
         }
     }
 }

@@ -698,20 +698,46 @@ impl Agent {
 
             // Special handling for "ask" tool in TUI mode
             if name == "ask" && self.ask_rx.is_some() {
-                let question = input["question"].as_str().unwrap_or("").to_string();
-                let options = input.get("options").cloned();
-                
-                // Send AskQuestion event to TUI
-                self.emit(AgentEvent::with_data(
-                    EventType::AskQuestion,
-                    EventData::AskQuestion { question, options },
-                ))?;
-                
-                // Wait for user answer from TUI
-                if let Some(rx) = &mut self.ask_rx {
-                    match rx.recv().await {
-                        Some(answer) => return Ok(answer),
-                        None => return Err(anyhow::anyhow!("Ask channel closed")),
+                // Check for multi-question format
+                if input.get("questions").and_then(|q| q.as_array()).filter(|a| !a.is_empty()).is_some() {
+                    // Multi-question mode
+                    let intro = input.get("intro").and_then(|s| s.as_str()).unwrap_or("");
+                    let questions = input.get("questions").cloned();
+
+                    // Build options with questions array for TUI
+                    let options = serde_json::json!({
+                        "questions": questions
+                    });
+
+                    self.emit(AgentEvent::with_data(
+                        EventType::AskQuestion,
+                        EventData::AskQuestion { question: intro.to_string(), options: Some(options) },
+                    ))?;
+
+                    // Wait for user answer from TUI
+                    if let Some(rx) = &mut self.ask_rx {
+                        match rx.recv().await {
+                            Some(answer) => return Ok(answer),
+                            None => return Err(anyhow::anyhow!("Ask channel closed")),
+                        }
+                    }
+                } else {
+                    // Single question mode
+                    let question = input["question"].as_str().unwrap_or("").to_string();
+                    let options = input.get("options").cloned();
+
+                    // Send AskQuestion event to TUI
+                    self.emit(AgentEvent::with_data(
+                        EventType::AskQuestion,
+                        EventData::AskQuestion { question, options },
+                    ))?;
+
+                    // Wait for user answer from TUI
+                    if let Some(rx) = &mut self.ask_rx {
+                        match rx.recv().await {
+                            Some(answer) => return Ok(answer),
+                            None => return Err(anyhow::anyhow!("Ask channel closed")),
+                        }
                     }
                 }
             }

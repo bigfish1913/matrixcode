@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::types::{Activity, ApproveMode, Message, Role, SubmitMode};
+use crate::types::{Activity, ApproveMode, Message, Role, SubmitMode, AskOption};
 use crate::app::TuiApp;
 
 impl TuiApp {
@@ -18,10 +18,17 @@ impl TuiApp {
                     self.input.insert(self.cursor_pos, '\n');
                     self.cursor_pos += 1;  // '\n' is 1 byte
                 } else if self.activity == Activity::Asking && self.waiting_for_ask {
-                    // Handle ask confirmation
-                    self.confirm_ask_selection();
+                    // Handle ask confirmation or toggle selection in multi-select
+                    self.handle_ask_enter();
                 } else if !self.input.trim().is_empty() {
                     self.send_input();
+                }
+            }
+
+            // Tab: switch between multiple questions or toggle approve mode
+            KeyCode::Tab if !k.modifiers.contains(KeyModifiers::SHIFT) => {
+                if self.activity == Activity::Asking && self.waiting_for_ask && self.ask_questions.len() > 1 {
+                    self.switch_to_next_question();
                 }
             }
 
@@ -31,7 +38,7 @@ impl TuiApp {
                     // Abort approval request
                     self.waiting_for_ask = false;
                     self.activity = Activity::Idle;
-                    self.messages.push(Message { role: Role::System, content: "⚠️ Approval aborted".into() });
+                    self.messages.push(Message { role: Role::System, content: "⚠️ 已取消".into() });
                     if let Some(ask_tx) = &self.ask_tx {
                         ask_tx.try_send("abort".to_string()).ok();
                     }
@@ -39,7 +46,7 @@ impl TuiApp {
                     // Signal cancellation - backend will respond with Error event
                     // The events.rs handler will then process queue
                     self.cancel.cancel();
-                    self.messages.push(Message { role: Role::System, content: "⚡ Interrupting...".into() });
+                    self.messages.push(Message { role: Role::System, content: "⚡ 正在中断...".into() });
                 } else {
                     self.input.clear();
                     self.cursor_pos = 0;
@@ -50,7 +57,7 @@ impl TuiApp {
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.activity != Activity::Idle {
                     self.cancel.cancel();
-                    self.messages.push(Message { role: Role::System, content: "⚡ Interrupting...".into() });
+                    self.messages.push(Message { role: Role::System, content: "⚡ 正在中断...".into() });
                 }
             }
 
@@ -88,8 +95,8 @@ impl TuiApp {
             // Space: toggle selection in multi-select mode
             KeyCode::Char(' ') if !k.modifiers.contains(KeyModifiers::ALT) && !k.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.activity == Activity::Asking && self.waiting_for_ask && self.ask_multi_select && !self.ask_options.is_empty() {
-                    // Toggle current selection
-                    self.ask_options[self.ask_selected_index].selected = !self.ask_options[self.ask_selected_index].selected;
+                    // Toggle current selection (same logic as Enter)
+                    self.toggle_ask_selection();
                 } else {
                     // Normal input: insert space
                     self.ensure_char_boundary();
@@ -424,21 +431,241 @@ impl TuiApp {
         }
     }
 
+    /// Handle Enter key in Ask mode - toggle selection in multi-select or confirm
+    fn handle_ask_enter(&mut self) {
+        if self.ask_multi_select && !self.ask_options.is_empty() {
+            // Multi-select: toggle current selection
+            self.toggle_ask_selection();
+        } else {
+            // Single-select: confirm
+            self.confirm_ask_selection();
+        }
+    }
+
+    /// Toggle current selection in multi-select mode (used by Space and Enter)
+    fn toggle_ask_selection(&mut self) {
+        if !self.ask_multi_select || self.ask_options.is_empty() {
+            return;
+        }
+
+        let current_idx = self.ask_selected_index;
+        if current_idx < self.ask_options.len() {
+            let is_submit = self.ask_options[current_idx].is_submit;
+            // Toggle the selection
+            self.ask_options[current_idx].selected = !self.ask_options[current_idx].selected;
+
+            // If Submit was just checked, confirm immediately in Option mode
+            if is_submit && self.ask_options[current_idx].selected && self.ask_submit_mode == SubmitMode::Option {
+                self.confirm_ask_selection();
+            }
+        }
+    }
+
+    /// Switch to next question in multi-question mode
+    fn switch_to_next_question(&mut self) {
+        if self.ask_questions.len() <= 1 {
+            return;
+        }
+
+        // Save current question state
+        self.save_current_question_state();
+
+        // Move to next question
+        self.current_question_idx = (self.current_question_idx + 1) % self.ask_questions.len();
+
+        // Load next question state
+        self.load_question_state();
+
+        // Update the Ask message content to show new question
+        self.update_ask_message_for_current_question();
+    }
+
+    /// Update the Ask message to display current question
+    fn update_ask_message_for_current_question(&mut self) {
+        if self.current_question_idx >= self.ask_questions.len() {
+            return;
+        }
+
+        let q = &self.ask_questions[self.current_question_idx];
+        let mut content = String::new();
+
+        content.push_str("╔══════════════════════════════════════╗\n");
+        content.push_str(&format!("║  ⚡ 问题 {} / {} (Tab切换) ⚡        ║\n", self.current_question_idx + 1, self.ask_questions.len()));
+        content.push_str("╚══════════════════════════════════════╝\n\n");
+        content.push_str(&q.question);
+
+        // Add Submit option for Option mode if needed
+        let mut display_options = q.options.clone();
+        if q.multi_select && q.submit_mode == SubmitMode::Option {
+            display_options.push(AskOption {
+                id: "__submit__".into(),
+                label: "✓ 提交".into(),
+                description: Some("确认选择并提交".into()),
+                selected: false,
+                is_submit: true,
+            });
+        }
+
+        content.push_str("\n\n─────────────────────────────────────\n");
+        if q.multi_select {
+            match q.submit_mode {
+                SubmitMode::Direct => {
+                    if self.current_question_idx < self.ask_questions.len() - 1 {
+                        content.push_str("选项 (↑↓导航 Space/Enter切换 Enter下一题):\n");
+                    } else {
+                        content.push_str("选项 (↑↓导航 Space/Enter切换 Enter提交):\n");
+                    }
+                }
+                SubmitMode::Option => content.push_str("选项 (↑↓导航 Space/Enter切换 选中[✓提交]):\n"),
+                SubmitMode::Button => content.push_str("选项 (↑↓导航 Space/Enter切换 Enter提交):\n"),
+            }
+        } else {
+            if self.current_question_idx < self.ask_questions.len() - 1 {
+                content.push_str("选项 (↑↓选择 Enter下一题):\n");
+            } else {
+                content.push_str("选项 (↑↓选择 Enter提交):\n");
+            }
+        }
+
+        for (i, opt) in display_options.iter().enumerate() {
+            if opt.is_submit {
+                // Submit option also shows as checkbox
+                let marker = if opt.selected { "[✓]" } else { "[ ]" };
+                let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
+                content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+            } else {
+                let marker = if q.multi_select {
+                    if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
+                } else {
+                    format!("[{}]", (b'A' + i as u8) as char)
+                };
+                let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
+                content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+            }
+        }
+
+        // Update the last Ask message
+        if let Some(last_msg) = self.messages.last_mut() {
+            if last_msg.role == Role::Ask {
+                last_msg.content = content;
+            }
+        }
+    }
+
+    /// Save current question state to ask_questions
+    fn save_current_question_state(&mut self) {
+        if self.current_question_idx < self.ask_questions.len() {
+            let q = &mut self.ask_questions[self.current_question_idx];
+            // Save options excluding the Submit option (it's dynamically added)
+            q.options = self.ask_options.iter()
+                .filter(|opt| !opt.is_submit)
+                .cloned()
+                .collect();
+            q.selected_index = self.ask_selected_index.min(q.options.len().saturating_sub(1));
+            q.multi_select = self.ask_multi_select;
+            q.submit_mode = self.ask_submit_mode.clone();
+        }
+    }
+
+    /// Load question state from ask_questions[current_idx]
+    fn load_question_state(&mut self) {
+        if self.current_question_idx < self.ask_questions.len() {
+            let q = &self.ask_questions[self.current_question_idx];
+            self.ask_options = q.options.clone();
+            self.ask_selected_index = q.selected_index;
+            self.ask_multi_select = q.multi_select;
+            self.ask_submit_mode = q.submit_mode.clone();
+
+            // Add Submit option for Option mode if needed
+            if self.ask_multi_select && self.ask_submit_mode == SubmitMode::Option {
+                self.ask_options.push(AskOption {
+                    id: "__submit__".into(),
+                    label: "提交".into(),
+                    description: Some("确认并提交所有选择".into()),
+                    selected: false,
+                    is_submit: true,
+                });
+            }
+        }
+    }
+
     /// Confirm ask selection - send selected option(s) or custom input
     pub(crate) fn confirm_ask_selection(&mut self) {
         if !self.waiting_for_ask {
             return;
         }
 
-        // In Option submit mode, only submit when on the Submit option
+        // In Option submit mode, only submit when Submit option is selected (checked)
         if self.ask_submit_mode == SubmitMode::Option && !self.ask_options.is_empty() {
-            let current = &self.ask_options[self.ask_selected_index];
-            if !current.is_submit {
-                // Not on submit option, don't submit
+            // Find the Submit option
+            let submit_selected = self.ask_options.iter()
+                .find(|opt| opt.is_submit)
+                .map(|opt| opt.selected)
+                .unwrap_or(false);
+
+            if !submit_selected {
+                // Submit not selected, don't submit
                 return;
             }
         }
 
+        // Multi-question mode: check if all questions answered
+        if self.ask_questions.len() > 1 {
+            // Save current question state first
+            self.save_current_question_state();
+
+            // Check if we're at the last question
+            if self.current_question_idx < self.ask_questions.len() - 1 {
+                // Not at last question, switch to next
+                self.switch_to_next_question();
+                return;
+            }
+
+            // At last question - collect all answers and submit
+            let answers: std::collections::HashMap<String, serde_json::Value> = self.ask_questions.iter()
+                .map(|q| {
+                    let answer = if q.multi_select && !q.options.is_empty() {
+                        // Multi-select: collect selected ids
+                        let selected_ids: Vec<&str> = q.options.iter()
+                            .filter(|opt| opt.selected && !opt.is_submit)
+                            .map(|opt| opt.id.as_str())
+                            .collect();
+                        serde_json::json!(selected_ids)
+                    } else if !q.options.is_empty() {
+                        // Single select: use selected index
+                        serde_json::json!(q.options.get(q.selected_index).map(|o| o.id.clone()).unwrap_or_default())
+                    } else {
+                        serde_json::json!("")
+                    };
+                    (q.id.clone(), answer)
+                })
+                .collect();
+
+            let response = serde_json::to_string(&answers).unwrap_or_else(|_| "{}".to_string());
+            let display_response = format!("已回答 {} 个问题", self.ask_questions.len());
+
+            // Clear state
+            self.waiting_for_ask = false;
+            self.activity = Activity::Thinking;
+            self.auto_scroll = true;
+            self.input.clear();
+            self.cursor_pos = 0;
+            self.ask_options.clear();
+            self.ask_selected_index = 0;
+            self.ask_multi_select = false;
+            self.ask_submit_mode = SubmitMode::default();
+            self.ask_questions.clear();
+            self.current_question_idx = 0;
+
+            // Send response
+            self.messages.push(Message { role: Role::User, content: display_response });
+            if let Some(ask_tx) = &self.ask_tx {
+                ask_tx.try_send(response).ok();
+            }
+            return;
+        }
+
+        // Single question mode
         self.waiting_for_ask = false;
         self.activity = Activity::Thinking;
         self.auto_scroll = true;
@@ -460,7 +687,7 @@ impl TuiApp {
                 .map(|opt| opt.label.as_str())
                 .collect();
             let display = if display_labels.is_empty() {
-                "None selected".to_string()
+                "未选择".to_string()
             } else {
                 display_labels.join(", ")
             };
@@ -483,7 +710,7 @@ impl TuiApp {
             let display = selected.label.clone();
             (response, display)
         } else {
-            ("y".to_string(), "Yes".to_string())  // Default approval
+            ("y".to_string(), "同意".to_string())  // Default approval
         };
 
         // Clear input and options
