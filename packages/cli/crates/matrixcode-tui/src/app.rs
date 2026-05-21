@@ -10,7 +10,7 @@ use ratatui::{
 
 use matrixcode_core::{AgentEvent, cancel::CancellationToken};
 
-use crate::types::{Activity, ApproveMode, Role, Message};
+use crate::types::{Activity, ApproveMode, Role, Message, SubmitMode, AskQuestion};
 use crate::ANIM_MS;
 
 pub struct TuiApp {
@@ -63,6 +63,10 @@ pub struct TuiApp {
     pub(crate) ask_options: Vec<crate::types::AskOption>,
     pub(crate) ask_selected_index: usize,
     pub(crate) ask_multi_select: bool,  // Whether this is a multi-select question
+    pub(crate) ask_submit_mode: SubmitMode,  // How to submit selection
+    // Multi-question support
+    pub(crate) ask_questions: Vec<AskQuestion>,  // Queue of questions
+    pub(crate) current_question_idx: usize,  // Current question index
     // Channels
     pub(crate) tx: tokio::sync::mpsc::Sender<String>,
     pub(crate) rx: tokio::sync::mpsc::Receiver<AgentEvent>,
@@ -143,6 +147,9 @@ impl TuiApp {
             ask_options: Vec::new(),
             ask_selected_index: 0,
             ask_multi_select: false,
+            ask_submit_mode: SubmitMode::default(),
+            ask_questions: Vec::new(),
+            current_question_idx: 0,
             tx, rx, cancel,
             pending_messages: Vec::new(),
             loop_task: None,

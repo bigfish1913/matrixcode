@@ -67,26 +67,37 @@ fn ask_tool_schema() -> Value {
                 "description": "要向用户提问的问题，需具体清晰"
             },
             "options": {
-                "type": "array",
-                "description": "可选方案列表",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": "选项短标识符（如 'A'、'B'、'1'、'2'）"
-                        },
-                        "label": {
-                            "type": "string",
-                            "description": "选项的可读标签"
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "该选项的简要说明"
-                        }
+                "type": "object",
+                "description": "选项配置",
+                "properties": {
+                    "multiSelect": {
+                        "type": "boolean",
+                        "description": "是否允许多选，默认 false"
                     },
-                    "required": ["id", "label"]
-                }
+                    "options": {
+                        "type": "array",
+                        "description": "可选方案列表",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "description": "选项短标识符（如 'A'、'B'、'1'、'2'）"
+                                },
+                                "label": {
+                                    "type": "string",
+                                    "description": "选项的可读标签"
+                                },
+                                "description": {
+                                    "type": "string",
+                                    "description": "该选项的简要说明"
+                                }
+                            },
+                            "required": ["id", "label"]
+                        }
+                    }
+                },
+                "required": ["options"]
             },
             "recommendation": {
                 "type": "object",

@@ -1,7 +1,7 @@
 use matrixcode_core::{AgentEvent, EventData, EventType};
 use serde_json::Value;
 
-use crate::types::{Activity, Message, Role};
+use crate::types::{Activity, Message, Role, SubmitMode, AskQuestion, AskOption};
 use crate::utils::{truncate, extract_tool_detail, fmt_tokens};
 use crate::app::TuiApp;
 
@@ -263,25 +263,67 @@ impl TuiApp {
                                         label: opt["label"].as_str().unwrap_or("").to_string(),
                                         description: opt["description"].as_str().map(|s| s.to_string()),
                                         selected: opt.get("selected").and_then(|s| s.as_bool()).unwrap_or(false),
+                                        is_submit: false,
                                     }
                                 }).collect();
                                 self.ask_selected_index = 0;
 
+                                // Determine submit mode based on option count (only for multi-select)
+                                if self.ask_multi_select {
+                                    let opt_count = self.ask_options.len();
+                                    self.ask_submit_mode = if opt_count <= 3 {
+                                        SubmitMode::Direct
+                                    } else if opt_count <= 10 {
+                                        SubmitMode::Option
+                                    } else {
+                                        SubmitMode::Button
+                                    };
+
+                                    // Add Submit option for Option mode
+                                    if self.ask_submit_mode == SubmitMode::Option {
+                                        self.ask_options.push(crate::types::AskOption {
+                                            id: "__submit__".into(),
+                                            label: "✓ Submit".into(),
+                                            description: Some("确认选择并提交".into()),
+                                            selected: false,
+                                            is_submit: true,
+                                        });
+                                    }
+                                } else {
+                                    // Single-select always uses Direct mode
+                                    self.ask_submit_mode = SubmitMode::Direct;
+                                }
+
                                 // Build option display
                                 content.push_str("\n\n─────────────────────────────────────\n");
                                 if self.ask_multi_select {
-                                    content.push_str("Options (↑↓ navigate, Space toggle, Enter confirm):\n");
+                                    match self.ask_submit_mode {
+                                        SubmitMode::Direct => {
+                                            content.push_str("Options (↑↓ navigate, Space toggle, Enter confirm):\n");
+                                        }
+                                        SubmitMode::Option => {
+                                            content.push_str("Options (↑↓ navigate, Space toggle, Enter on Submit):\n");
+                                        }
+                                        SubmitMode::Button => {
+                                            content.push_str("Options (↑↓ navigate, Space toggle):\n");
+                                        }
+                                    }
                                 } else {
                                     content.push_str("Options (↑↓ select, Enter confirm):\n");
                                 }
                                 for (i, opt) in self.ask_options.iter().enumerate() {
-                                    let marker = if self.ask_multi_select {
-                                        if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
+                                    if opt.is_submit {
+                                        // Submit option - special rendering
+                                        content.push_str(&format!("  >>> {} <<<\n", opt.label));
                                     } else {
-                                        format!("[{}]", (b'A' + i as u8) as char)
-                                    };
-                                    let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
-                                    content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+                                        let marker = if self.ask_multi_select {
+                                            if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
+                                        } else {
+                                            format!("[{}]", (b'A' + i as u8) as char)
+                                        };
+                                        let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
+                                        content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+                                    }
                                 }
 
                                 // Clear input so selection shows in input area
@@ -291,9 +333,10 @@ impl TuiApp {
                             _ if question.contains("(y/n)") || question.contains("Allow?") => {
                                 // Approval request: create y/n options (single select)
                                 self.ask_multi_select = false;
+                                self.ask_submit_mode = SubmitMode::Direct;
                                 self.ask_options = vec![
-                                    crate::types::AskOption { id: "y".into(), label: "Yes".into(), description: Some("Allow this action".into()), selected: false },
-                                    crate::types::AskOption { id: "n".into(), label: "No".into(), description: Some("Reject this action".into()), selected: false },
+                                    crate::types::AskOption { id: "y".into(), label: "Yes".into(), description: Some("Allow this action".into()), selected: false, is_submit: false },
+                                    crate::types::AskOption { id: "n".into(), label: "No".into(), description: Some("Reject this action".into()), selected: false, is_submit: false },
                                 ];
                                 self.ask_selected_index = 0;
 
@@ -309,6 +352,7 @@ impl TuiApp {
                             _ => {
                                 // Free text input - no options
                                 self.ask_multi_select = false;
+                                self.ask_submit_mode = SubmitMode::Direct;
                                 self.ask_options.clear();
                                 self.ask_selected_index = 0;
                             }
@@ -316,6 +360,7 @@ impl TuiApp {
                     } else {
                         // No options provided - free text input
                         self.ask_multi_select = false;
+                        self.ask_submit_mode = SubmitMode::Direct;
                         self.ask_options.clear();
                         self.ask_selected_index = 0;
                     }

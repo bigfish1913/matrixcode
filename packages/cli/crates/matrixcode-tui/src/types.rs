@@ -121,6 +121,7 @@ pub struct AskOption {
     pub label: String,
     pub description: Option<String>,
     pub selected: bool,  // For multi-select: whether this option is checked
+    pub is_submit: bool, // Whether this is a submit button option
 }
 
 impl Default for AskOption {
@@ -130,8 +131,29 @@ impl Default for AskOption {
             label: String::new(),
             description: None,
             selected: false,
+            is_submit: false,
         }
     }
+}
+
+/// Submit mode for ask tool - determines how user confirms selection
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum SubmitMode {
+    #[default]
+    Direct,  // Enter directly submits (for few options)
+    Option,  // Submit as an option in the list (for medium options)
+    Button,  // Submit button area at bottom (for many options)
+}
+
+/// Ask question with options - supports multiple questions
+#[derive(Debug, Clone, Default)]
+pub struct AskQuestion {
+    pub id: String,
+    pub question: String,
+    pub options: Vec<AskOption>,
+    pub multi_select: bool,
+    pub selected_index: usize,
+    pub submit_mode: SubmitMode,
 }
 
 /// Message block

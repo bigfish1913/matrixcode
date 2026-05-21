@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::types::{Activity, ApproveMode, Message, Role};
+use crate::types::{Activity, ApproveMode, Message, Role, SubmitMode};
 use crate::app::TuiApp;
 
 impl TuiApp {
@@ -430,15 +430,24 @@ impl TuiApp {
             return;
         }
 
+        // In Option submit mode, only submit when on the Submit option
+        if self.ask_submit_mode == SubmitMode::Option && !self.ask_options.is_empty() {
+            let current = &self.ask_options[self.ask_selected_index];
+            if !current.is_submit {
+                // Not on submit option, don't submit
+                return;
+            }
+        }
+
         self.waiting_for_ask = false;
         self.activity = Activity::Thinking;
         self.auto_scroll = true;
 
         // Determine response based on mode
         let (response, display_response) = if self.ask_multi_select && !self.ask_options.is_empty() {
-            // Multi-select: collect all selected options
+            // Multi-select: collect all selected options (exclude Submit option)
             let selected_ids: Vec<&str> = self.ask_options.iter()
-                .filter(|opt| opt.selected)
+                .filter(|opt| opt.selected && !opt.is_submit)
                 .map(|opt| opt.id.as_str())
                 .collect();
 
@@ -447,7 +456,7 @@ impl TuiApp {
 
             // Display as comma-separated labels
             let display_labels: Vec<&str> = self.ask_options.iter()
-                .filter(|opt| opt.selected)
+                .filter(|opt| opt.selected && !opt.is_submit)
                 .map(|opt| opt.label.as_str())
                 .collect();
             let display = if display_labels.is_empty() {
@@ -483,6 +492,7 @@ impl TuiApp {
         self.ask_options.clear();
         self.ask_selected_index = 0;
         self.ask_multi_select = false;
+        self.ask_submit_mode = SubmitMode::default();
 
         // Send response
         self.messages.push(Message { role: Role::User, content: display_response });

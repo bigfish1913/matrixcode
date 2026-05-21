@@ -5,7 +5,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::types::{Activity, ApproveMode, Role};
+use crate::types::{Activity, ApproveMode, Role, SubmitMode};
 use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, progress_bar, word_wrap};
 use crate::markdown::render_markdown;
 use crate::app::TuiApp;
@@ -475,7 +475,6 @@ impl TuiApp {
                             // Option line - parse and highlight
                             // Multi-select: [✓] or [ ], Single-select: [A], [B], [Y], [N]
                             let is_checkbox = line.contains("[✓]") || line.contains("[ ]");
-                            let checkbox_checked = line.contains("[✓]");
 
                             // Determine option index
                             let option_idx = if is_checkbox {
@@ -498,34 +497,74 @@ impl TuiApp {
                                 else { 0 }
                             };
 
+                            // Get actual checked state from ask_options (not from static text)
+                            let actually_checked = if option_idx < self.ask_options.len() {
+                                self.ask_options[option_idx].selected
+                            } else {
+                                line.contains("[✓]")  // Fallback to text
+                            };
+
+                            // Rebuild line with actual checkbox state
+                            let display_line = if is_checkbox && option_idx < self.ask_options.len() {
+                                let opt = &self.ask_options[option_idx];
+                                let marker = if actually_checked { "[✓]" } else { "[ ]" };
+                                let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
+                                format!("  {} {}{}", marker, opt.label, desc)
+                            } else {
+                                line.to_string()
+                            };
+
                             // Check if this line matches current selection index
                             if option_idx == self.ask_selected_index {
                                 // Current navigation position: bright highlight
-                                if checkbox_checked {
+                                if actually_checked {
                                     // Checked and selected: bright green
                                     Line::styled(
-                                        format!("▶ {}", line.trim()),
+                                        format!("▶ {}", display_line.trim()),
                                         Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
                                     )
                                 } else {
                                     // Unchecked but navigated: cyan highlight
                                     Line::styled(
-                                        format!("▶ {}", line.trim()),
+                                        format!("▶ {}", display_line.trim()),
                                         Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
                                     )
                                 }
-                            } else if checkbox_checked {
+                            } else if actually_checked {
                                 // Checked but not current navigation: green text
                                 Line::styled(
-                                    format!("  {}", line.trim()),
+                                    format!("  {}", display_line.trim()),
                                     Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
                                 )
                             } else {
                                 // Regular option
                                 Line::styled(
-                                    format!("  {}", line.trim()),
+                                    format!("  {}", display_line.trim()),
                                     Style::default().fg(Color::White)
                                 )
+                            }
+                        } else if has_active_selection && line.starts_with("  >>>") {
+                            // Submit option - special rendering
+                            let is_submit_line = line.contains("Submit");
+                            if is_submit_line {
+                                // Check if this is the current selection
+                                // Submit is always at the last index
+                                let submit_idx = self.ask_options.len() - 1;
+                                if self.ask_selected_index == submit_idx {
+                                    // Submit selected: bright yellow highlight
+                                    Line::styled(
+                                        format!("▶ {} <", line.trim().replace(">>>", "").replace("<<<", "").trim()),
+                                        Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                                    )
+                                } else {
+                                    // Submit not selected
+                                    Line::styled(
+                                        format!("  {} <", line.trim().replace(">>>", "").replace("<<<", "").trim()),
+                                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                                    )
+                                }
+                            } else {
+                                Line::styled(line.to_string(), Style::default().fg(Color::Yellow))
                             }
                         } else {
                             Line::styled(
@@ -535,6 +574,24 @@ impl TuiApp {
                         };
                         lines.push(styled_line);
                     }
+
+                    // Button mode: show submit button area at bottom
+                    if self.waiting_for_ask && self.ask_submit_mode == SubmitMode::Button && self.ask_multi_select {
+                        lines.push(Line::styled("─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─", Style::default().fg(Color::DarkGray)));
+                        let selected_count = self.ask_options.iter().filter(|opt| opt.selected).count();
+                        if selected_count > 0 {
+                            lines.push(Line::styled(
+                                format!("  [Enter] 提交 {} 个选中项", selected_count),
+                                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                            ));
+                        } else {
+                            lines.push(Line::styled(
+                                "  [Enter] 提交 (无选中项)",
+                                Style::default().fg(Color::DarkGray)
+                            ));
+                        }
+                    }
+
                     lines.push(Line::styled("", Style::default()));
                 }
             }
