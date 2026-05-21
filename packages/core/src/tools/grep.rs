@@ -4,6 +4,47 @@ use serde_json::{Value, json};
 
 use super::{Tool, ToolDefinition};
 
+/// Grep search options bundled into a single struct.
+struct GrepOptions {
+    pattern: String,
+    path: String,
+    glob_pattern: Option<String>,
+    file_type: Option<String>,
+    output_mode: String,
+    case_insensitive: bool,
+    show_line_numbers: bool,
+    context_lines: usize,
+    head_limit: usize,
+}
+
+impl GrepOptions {
+    fn from_params(params: &Value) -> Result<Self> {
+        let pattern = params["pattern"].as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'pattern'"))?
+            .to_string();
+        let path = params["path"].as_str().unwrap_or(".").to_string();
+        let glob_pattern = params["glob"].as_str().map(|s| s.to_string());
+        let file_type = params["type"].as_str().map(|s| s.to_string());
+        let output_mode = params["output_mode"].as_str().unwrap_or("content").to_string();
+        let case_insensitive = params["-i"].as_bool().unwrap_or(false);
+        let show_line_numbers = params["-n"].as_bool().unwrap_or(true);
+        let context_lines = params["-C"].as_u64().unwrap_or(0) as usize;
+        let head_limit = params["head_limit"].as_u64().unwrap_or(100) as usize;
+
+        Ok(Self {
+            pattern,
+            path,
+            glob_pattern,
+            file_type,
+            output_mode,
+            case_insensitive,
+            show_line_numbers,
+            context_lines,
+            head_limit,
+        })
+    }
+}
+
 /// High-performance grep tool with advanced filtering options
 pub struct GrepTool;
 
@@ -66,28 +107,10 @@ impl Tool for GrepTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let pattern = params["pattern"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'pattern'"))?;
-        let path = params["path"].as_str().unwrap_or(".");
-        let glob_pattern = params["glob"].as_str();
-        let file_type = params["type"].as_str();
-        let output_mode = params["output_mode"].as_str().unwrap_or("content");
-        let case_insensitive = params["-i"].as_bool().unwrap_or(false);
-        let show_line_numbers = params["-n"].as_bool().unwrap_or(true);
-        let context_lines = params["-C"].as_u64().unwrap_or(0) as usize;
-        let head_limit = params["head_limit"].as_u64().unwrap_or(100) as usize;
-
-        let pattern = pattern.to_string();
-        let path = path.to_string();
-        let glob_pattern = glob_pattern.map(|s| s.to_string());
-        let file_type = file_type.map(|s| s.to_string());
-        let output_mode = output_mode.to_string();
+        let opts = GrepOptions::from_params(&params)?;
 
         tokio::task::spawn_blocking(move || {
-            grep_search(
-                &pattern, &path, glob_pattern.as_deref(),
-                file_type.as_deref(), &output_mode,
-                case_insensitive, show_line_numbers, context_lines, head_limit
-            )
+            grep_search(&opts)
         }).await?
     }
 }
@@ -112,40 +135,30 @@ fn get_extensions_for_type(file_type: &str) -> Vec<&'static str> {
     }
 }
 
-fn grep_search(
-    pattern: &str,
-    path: &str,
-    glob_pattern: Option<&str>,
-    file_type: Option<&str>,
-    output_mode: &str,
-    case_insensitive: bool,
-    show_line_numbers: bool,
-    context_lines: usize,
-    head_limit: usize,
-) -> Result<String> {
+fn grep_search(opts: &GrepOptions) -> Result<String> {
     use std::fs;
     use std::path::Path;
 
     // Build regex with case-insensitive option
-    let regex_pattern = if case_insensitive {
-        regex::RegexBuilder::new(pattern).case_insensitive(true).build()?
+    let regex_pattern = if opts.case_insensitive {
+        regex::RegexBuilder::new(&opts.pattern).case_insensitive(true).build()?
     } else {
-        regex::Regex::new(pattern)?
+        regex::Regex::new(&opts.pattern)?
     };
 
-    let root = Path::new(path);
+    let root = Path::new(&opts.path);
     let mut results: Vec<String> = Vec::new();
     let mut match_count = 0;
     let mut files_with_matches: Vec<String> = Vec::new();
 
     // Get file extensions for type filter
-    let type_extensions = file_type.map(get_extensions_for_type);
+    let type_extensions = opts.file_type.as_deref().map(get_extensions_for_type);
 
-    let entries = collect_grep_files(root, glob_pattern, type_extensions.as_deref())?;
+    let entries = collect_grep_files(root, opts.glob_pattern.as_deref(), type_extensions.as_deref())?;
 
     for file_path in entries {
-        if results.len() >= head_limit && output_mode == "content" {
-            results.push(format!("... (limited to {} results)", head_limit));
+        if results.len() >= opts.head_limit && opts.output_mode == "content" {
+            results.push(format!("... (limited to {} results)", opts.head_limit));
             break;
         }
 
@@ -164,58 +177,49 @@ fn grep_search(
                 file_match_count += 1;
                 match_count += 1;
 
-                if output_mode == "content" && results.len() < head_limit {
-                    // Add context lines before the match first
-                    if context_lines > 0 {
-                        // Before context (in correct order)
-                        let start_ctx = line_idx.saturating_sub(context_lines);
-                        for ctx_idx in start_ctx..line_idx {
-                            let ctx_line_num = ctx_idx + 1;
-                            let ctx_formatted = if show_line_numbers {
-                                format!("{}:{}- {}", file_path.display(), ctx_line_num, lines[ctx_idx].trim())
-                            } else {
-                                format!("{}- {}", file_path.display(), lines[ctx_idx].trim())
-                            };
-                            results.push(ctx_formatted);
+                if opts.output_mode == "content" && results.len() < opts.head_limit {
+                    // Add context lines before the match
+                    if opts.context_lines > 0 {
+                        let start_ctx = line_idx.saturating_sub(opts.context_lines);
+                        for (ctx_idx, ctx_line) in lines.iter().enumerate().skip(start_ctx).take(line_idx - start_ctx) {
+                            results.push(format_line(
+                                &file_path, ctx_idx + 1, ctx_line,
+                                opts.show_line_numbers, true
+                            ));
                         }
                     }
 
-                    // Then add the matching line
-                    let line_num = line_idx + 1;
-                    let formatted = if show_line_numbers {
-                        format!("{}:{}: {}", file_path.display(), line_num, line.trim())
-                    } else {
-                        format!("{}: {}", file_path.display(), line.trim())
-                    };
-                    results.push(formatted);
+                    // Add the matching line
+                    results.push(format_line(
+                        &file_path, line_idx + 1, line,
+                        opts.show_line_numbers, false
+                    ));
 
                     // Add context lines after the match
-                    if context_lines > 0 {
-                        for ctx_idx in (line_idx + 1)..=(line_idx + context_lines).min(lines.len() - 1) {
-                            let ctx_line_num = ctx_idx + 1;
-                            let ctx_formatted = if show_line_numbers {
-                                format!("{}:{}- {}", file_path.display(), ctx_line_num, lines[ctx_idx].trim())
-                            } else {
-                                format!("{}- {}", file_path.display(), lines[ctx_idx].trim())
-                            };
-                            results.push(ctx_formatted);
+                    if opts.context_lines > 0 {
+                        let end_ctx = (line_idx + opts.context_lines).min(lines.len() - 1);
+                        for (ctx_idx, ctx_line) in lines.iter().enumerate().skip(line_idx + 1).take(end_ctx - line_idx) {
+                            results.push(format_line(
+                                &file_path, ctx_idx + 1, ctx_line,
+                                opts.show_line_numbers, true
+                            ));
                         }
                     }
                 }
             }
         }
 
-        if file_has_match && output_mode == "files_with_matches" {
+        if file_has_match && opts.output_mode == "files_with_matches" {
             files_with_matches.push(file_path.display().to_string());
         }
 
-        if output_mode == "count" && file_match_count > 0 {
+        if opts.output_mode == "count" && file_match_count > 0 {
             results.push(format!("{}: {} matches", file_path.display(), file_match_count));
         }
     }
 
     // Format output based on mode
-    match output_mode {
+    match opts.output_mode.as_str() {
         "files_with_matches" => {
             if files_with_matches.is_empty() {
                 Ok("No files matched.".to_string())
@@ -240,6 +244,22 @@ fn grep_search(
     }
 }
 
+/// Format a single line with optional line number and context marker.
+fn format_line(
+    file_path: &std::path::Path,
+    line_num: usize,
+    line: &str,
+    show_line_numbers: bool,
+    is_context: bool,
+) -> String {
+    let marker = if is_context { "-" } else { ":" };
+    if show_line_numbers {
+        format!("{}:{}{} {}", file_path.display(), line_num, marker, line.trim())
+    } else {
+        format!("{}{} {}", file_path.display(), marker, line.trim())
+    }
+}
+
 fn collect_grep_files(
     root: &std::path::Path,
     glob_pattern: Option<&str>,
@@ -253,16 +273,7 @@ fn collect_grep_files(
     }
 
     // Build glob matcher
-    let glob_matcher = if let Some(pattern) = glob_pattern {
-        // Handle **/*.ext patterns
-        if pattern.starts_with("**/") {
-            Some(glob::Pattern::new(pattern)?)
-        } else {
-            Some(glob::Pattern::new(pattern)?)
-        }
-    } else {
-        None
-    };
+    let glob_matcher = glob_pattern.map(glob::Pattern::new).transpose()?;
 
     let walker = walkdir_grep(root)?;
 

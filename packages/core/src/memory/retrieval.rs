@@ -550,14 +550,29 @@ mod tests {
         let mut tfidf = TfIdfSearch::new();
         let mut memory = AutoMemory::new();
 
+        // Add multiple documents so IDF calculation works properly
+        // (IDF = ln(N/df) where N is total docs, df is docs containing word)
         memory.add(super::super::types::MemoryEntry::new(
             super::super::types::MemoryCategory::Decision,
             "使用 PostgreSQL 作为数据库".to_string(),
+            None,
+        ));
+        memory.add(super::super::types::MemoryEntry::new(
+            super::super::types::MemoryCategory::Decision,
+            "前端使用 React 框架开发".to_string(),
+            None,
+        ));
+        memory.add(super::super::types::MemoryEntry::new(
+            super::super::types::MemoryCategory::Decision,
+            "后端采用 Rust 编写".to_string(),
             None,
         ));
 
         tfidf.index(&memory);
         let results = tfidf.search("数据库", Some(5));
         assert!(!results.is_empty());
+
+        // The PostgreSQL document should be the top result
+        assert!(results[0].0.contains("PostgreSQL"));
     }
 }
