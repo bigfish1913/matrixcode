@@ -159,11 +159,10 @@ fn monitor_file(target: Option<&str>, condition: &str, timeout: Duration, start:
                     .and_then(|m| m.modified())
                     .ok();
 
-                if let (Some(initial), Some(current)) = (initial_mtime, current_mtime) {
-                    if current > initial {
+                if let (Some(initial), Some(current)) = (initial_mtime, current_mtime)
+                    && current > initial {
                         return Ok(format!("File {} has been modified", target_str));
                     }
-                }
 
                 std::thread::sleep(Duration::from_millis(500));
             }

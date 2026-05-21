@@ -10,11 +10,11 @@ static SYNTAX_SET: OnceLock<syntect::parsing::SyntaxSet> = OnceLock::new();
 static THEME_SET: OnceLock<syntect::highlighting::ThemeSet> = OnceLock::new();
 
 fn get_syntax_set() -> &'static syntect::parsing::SyntaxSet {
-    SYNTAX_SET.get_or_init(|| syntect::parsing::SyntaxSet::load_defaults_newlines())
+    SYNTAX_SET.get_or_init(syntect::parsing::SyntaxSet::load_defaults_newlines)
 }
 
 fn get_theme_set() -> &'static syntect::highlighting::ThemeSet {
-    THEME_SET.get_or_init(|| syntect::highlighting::ThemeSet::load_defaults())
+    THEME_SET.get_or_init(syntect::highlighting::ThemeSet::load_defaults)
 }
 
 /// Inline code style for `code`
@@ -178,7 +178,7 @@ impl MarkdownRenderer {
                 let mut remaining = word;
                 while !remaining.is_empty() {
                     let available = self.max_width.saturating_sub(self.current_line_width);
-                    if available <= 0 {
+                    if available == 0 {
                         self.flush_line();
                         continue;
                     }

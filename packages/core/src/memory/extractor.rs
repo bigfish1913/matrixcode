@@ -230,15 +230,13 @@ pub async fn detect_memories_smart(
 
     // Check if we need AI fallback
     let mode = AiDetectionMode::from_env();
-    if mode.should_use_ai_for_text(text.len()) && extractor.is_some() {
-        if let Some(ex) = extractor {
-            if let Ok(ai_entries) = ex.extract(text, session_id).await {
+    if mode.should_use_ai_for_text(text.len()) && extractor.is_some()
+        && let Some(ex) = extractor
+            && let Ok(ai_entries) = ex.extract(text, session_id).await {
                 // Combine and deduplicate
                 let combined = rule_entries.into_iter().chain(ai_entries).collect();
                 return deduplicate_entries(combined);
             }
-        }
-    }
 
     rule_entries
 }
@@ -253,11 +251,11 @@ fn extract_memory_content(text: &str, keyword: &str) -> String {
     };
 
     // Find sentence containing the keyword
-    let start = text[..pos].rfind(|c: char| c == '.' || c == '。' || c == '\n')
+    let start = text[..pos].rfind(['.', '。', '\n'])
         .map(|i| i + 1)
         .unwrap_or(0);
 
-    let end = text[pos..].find(|c: char| c == '.' || c == '。' || c == '\n')
+    let end = text[pos..].find(['.', '。', '\n'])
         .map(|i| pos + i + 1)
         .unwrap_or(text.len());
 

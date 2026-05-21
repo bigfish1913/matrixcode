@@ -132,8 +132,7 @@ fn extract_feedback_content(text: &str, pattern: &str) -> String {
     }
 
     let remaining = &text[start..];
-    let end = remaining.find(|c: char| c == '.' || c == '。' || c == '\n')
-        .map(|i| i)
+    let end = remaining.find(['.', '。', '\n'])
         .unwrap_or(remaining.len().min(100));
 
     remaining[..end].trim().to_string()

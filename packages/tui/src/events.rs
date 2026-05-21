@@ -207,8 +207,8 @@ impl TuiApp {
             EventType::KeywordsExtracted => {
                 // Keywords extraction for memory retrieval context
                 // Show extraction info when keywords are found (informative, not debug-only)
-                if let Some(EventData::Keywords { keywords, source }) = e.data {
-                    if !keywords.is_empty() {
+                if let Some(EventData::Keywords { keywords, source }) = e.data
+                    && !keywords.is_empty() {
                         // Always show in status area (brief), full info in debug mode
                         let preview = truncate(&source, 30);
                         if self.debug_mode {
@@ -223,7 +223,6 @@ impl TuiApp {
                         self.activity_detail = format!("keywords: {}", 
                             keywords.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
                     }
-                }
             }
             EventType::AskQuestion => {
                 if let Some(EventData::AskQuestion { question, options }) = e.data {
@@ -270,7 +269,7 @@ impl TuiApp {
 
             match arr {
                 Some(arr) if !arr.is_empty() => {
-                    self.ask_options = arr.iter().enumerate().map(|(_i, opt)| {
+                    self.ask_options = arr.iter().map(|opt| {
                         crate::types::AskOption {
                             id: opt["id"].as_str().unwrap_or("").to_string(),
                             label: opt["label"].as_str().unwrap_or("").to_string(),
@@ -318,7 +317,7 @@ impl TuiApp {
                         if opt.is_submit {
                             // Submit 选项也显示为复选框
                             let marker = if opt.selected { "[✓]" } else { "[ ]" };
-                            content.push_str(&format!("  {} {} - {}\n", marker, opt.label, opt.description.as_ref().map(|d| d.as_str()).unwrap_or("")));
+                            content.push_str(&format!("  {} {} - {}\n", marker, opt.label, opt.description.as_deref().unwrap_or("")));
                         } else {
                             let marker = if self.ask_multi_select {
                                 if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
@@ -373,8 +372,8 @@ impl TuiApp {
 
     /// Handle multiple questions
     fn handle_multiple_questions(&mut self, _intro: &str, options: Option<Value>) {
-        if let Some(ref opts) = options {
-            if let Some(arr) = opts.get("questions").and_then(|q| q.as_array()).filter(|a| !a.is_empty()) {
+        if let Some(ref opts) = options
+            && let Some(arr) = opts.get("questions").and_then(|q| q.as_array()).filter(|a| !a.is_empty()) {
                 // Parse each question
                 self.ask_questions = arr.iter().enumerate().map(|(idx, q)| {
                     let id = q["id"].as_str().unwrap_or(&idx.to_string()).to_string();
@@ -476,6 +475,5 @@ impl TuiApp {
                 self.activity = Activity::Asking;
                 self.auto_scroll = true;
             }
-        }
     }
 }

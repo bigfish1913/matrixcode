@@ -286,7 +286,7 @@ fn collect_grep_files(
         }
 
         // Check file type extensions
-        if let Some(ref extensions) = type_extensions {
+        if let Some(extensions) = type_extensions {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !extensions.contains(&ext) {
                 continue;

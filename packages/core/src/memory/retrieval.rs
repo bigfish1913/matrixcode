@@ -93,7 +93,7 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
     }
 
     let mut result: Vec<String> = keywords.into_iter().collect();
-    result.sort_by(|a, b| b.len().cmp(&a.len()));
+    result.sort_by_key(|b| std::cmp::Reverse(b.len()));
     result.truncate(15);
 
     result

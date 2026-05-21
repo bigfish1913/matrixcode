@@ -404,11 +404,10 @@ impl AutoMemory {
             let topic_overlap = intersection as f64 / min_len as f64;
             let jaccard = Self::calculate_similarity(&entry_lower, &new_lower);
 
-            if topic_overlap > overlap_threshold && jaccard < SIMILARITY_THRESHOLD {
-                if has_contradiction_signal(&entry_lower, &new_lower) {
+            if topic_overlap > overlap_threshold && jaccard < SIMILARITY_THRESHOLD
+                && has_contradiction_signal(&entry_lower, &new_lower) {
                     return Some(i);
                 }
-            }
 
             if has_change_signal {
                 let old_key_terms: Vec<&str> = entry_words.iter()

@@ -545,11 +545,10 @@ impl TuiApp {
         }
 
         // Update the last Ask message
-        if let Some(last_msg) = self.messages.last_mut() {
-            if last_msg.role == Role::Ask {
+        if let Some(last_msg) = self.messages.last_mut()
+            && last_msg.role == Role::Ask {
                 last_msg.content = content;
             }
-        }
     }
 
     /// Save current question state to ask_questions

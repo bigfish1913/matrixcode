@@ -116,6 +116,7 @@ impl Role {
 /// Ask option for interactive selection
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
+#[derive(Default)]
 pub struct AskOption {
     pub id: String,
     pub label: String,
@@ -124,17 +125,6 @@ pub struct AskOption {
     pub is_submit: bool, // Whether this is a submit button option
 }
 
-impl Default for AskOption {
-    fn default() -> Self {
-        Self {
-            id: String::new(),
-            label: String::new(),
-            description: None,
-            selected: false,
-            is_submit: false,
-        }
-    }
-}
 
 /// Submit mode for ask tool - determines how user confirms selection
 #[derive(Debug, Clone, PartialEq, Default)]

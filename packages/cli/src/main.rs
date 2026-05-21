@@ -258,7 +258,7 @@ fn interactive_resume() -> Result<()> {
     println!("📚 Sessions:\n");
     for (i, session) in sessions.iter().enumerate() {
         let project = session.project_path.as_deref()
-            .map(|p| p.split('/').last().unwrap_or(p))
+            .map(|p| p.split('/').next_back().unwrap_or(p))
             .unwrap_or("unknown");
         let is_current = mgr.has_current() && mgr.current_id() == Some(session.id.as_str());
         
@@ -288,8 +288,8 @@ fn interactive_resume() -> Result<()> {
         }
         
         // Try to parse as number
-        if let Ok(num) = input.parse::<usize>() {
-            if num > 0 && num <= sessions.len() {
+        if let Ok(num) = input.parse::<usize>()
+            && num > 0 && num <= sessions.len() {
                 let session = &sessions[num - 1];
                 println!("\n✓ Resuming session: {}", session.short_id());
                 println!("  Project: {}", session.project_path.as_deref().unwrap_or("unknown"));
@@ -310,7 +310,6 @@ fn interactive_resume() -> Result<()> {
                 };
                 return run_terminal_mode(cli);
             }
-        }
         
         // Try to match by short_id or full id
         for session in sessions.iter() {
@@ -367,9 +366,9 @@ fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill> {
     roots.extend(extra_dirs.iter().cloned());
 
     // Discover and load skills
-    let skills = discover_skills(&roots);
+    
 
-    skills
+    discover_skills(&roots)
 }
 
 /// List sessions
@@ -500,11 +499,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         let provider = AnthropicProvider::new(agent_api_key.clone(), agent_model.clone(), agent_base_url.clone());
         
         // Create fast provider for keyword extraction (uses haiku/fast model if configured)
-        let fast_provider: Option<AnthropicProvider> = if let Some(ref fast_model) = agent_fast_model {
-            Some(AnthropicProvider::new(agent_api_key.clone(), fast_model.clone(), agent_base_url.clone()))
-        } else {
-            None
-        };
+        let fast_provider: Option<AnthropicProvider> = agent_fast_model.as_ref().map(|fast_model| AnthropicProvider::new(agent_api_key.clone(), fast_model.clone(), agent_base_url.clone()));
 
         // Load memory
         let project_path_ref = agent_project_path.as_deref();
@@ -576,8 +571,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         let mut turn_count: usize = 0;
 
         // Auto-analyze project structure on first run if no memories exist
-        if let Some(ref project_path) = agent_project_path {
-            if let Some(ref mut ms) = memory_storage {
+        if let Some(ref project_path) = agent_project_path
+            && let Some(ref mut ms) = memory_storage {
                 let memory_file = project_path.join(".matrix/memory.json");
                 if !memory_file.exists() {
                     // First time in this project - analyze structure
@@ -593,7 +588,6 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     }
                 }
             }
-        }
 
         while let Some(msg) = task_rx.recv().await {
             // Make msg mutable for skill activation transformation
@@ -1024,7 +1018,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
                                 if let Some(content) = removed {
                                     // Save to appropriate storage
-                                    if let Err(_) = ms.save_global(&mem) {
+                                    if ms.save_global(&mem).is_err() {
                                         // Try project storage if global failed
                                         ms.save_project(&mem).ok();
                                     }
@@ -1162,8 +1156,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     mgr.save_current().ok();
                     
                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
-                        if name.is_some() { 
-                            format!("✓ Session saved as '{}'", name.unwrap())
+                        if let Some(ref name) = name {
+                            format!("✓ Session saved as '{}'", name)
                         } else {
                             "✓ Session saved".to_string()
                         },
@@ -1191,7 +1185,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                         let mut info = format!("📚 Sessions ({}):\n\n", sessions.len());
                         for session in sessions.iter().take(10) {
                             let project = session.project_path.as_deref()
-                                .map(|p| p.split('/').last().unwrap_or(p))
+                                .map(|p| p.split('/').next_back().unwrap_or(p))
                                 .unwrap_or("unknown");
                             info.push_str(&format!("• {} - {} ({} msgs, {} out)\n", 
                                 session.short_id(),
@@ -1307,8 +1301,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
                         // 1. Check for user feedback/correction in the user message
                         let feedback_results = matrixcode_core::memory::detect_feedback_patterns(&msg);
-                        if !feedback_results.is_empty() {
-                            if let Ok(mut mem) = ms.load_combined() {
+                        if !feedback_results.is_empty()
+                            && let Ok(mut mem) = ms.load_combined() {
                                 let feedback_count = feedback_results.len();
                                 for feedback in feedback_results {
                                     matrixcode_core::memory::apply_feedback_to_memory(&mut mem, &feedback);
@@ -1326,7 +1320,6 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                     None,
                                 )).await;
                             }
-                        }
 
                         // 2. Detect from last assistant message using AI (fast model)
                         if let Some(last_msg) = messages.last() {
@@ -1380,8 +1373,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             }
 
                             // 3. Infer preferences from behavior (every 5 turns)
-                            if turn_count % 5 == 0 && messages.len() >= 3 {
-                                if let Ok(mut mem) = ms.load_combined() {
+                            if turn_count.is_multiple_of(5) && messages.len() >= 3
+                                && let Ok(mut mem) = ms.load_combined() {
                                     let config = matrixcode_core::memory::BehaviorInferenceConfig::default();
                                     let inferred = matrixcode_core::memory::apply_behavior_inferences_to_memory(
                                         messages, &mut mem, Some(&config)
@@ -1394,12 +1387,11 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                         )).await;
                                     }
                                 }
-                            }
                         }
 
                         // 4. Periodic cleanup (every 10 turns)
-                        if turn_count % 10 == 0 {
-                            if let Ok(mut mem) = ms.load_combined() {
+                        if turn_count.is_multiple_of(10)
+                            && let Ok(mut mem) = ms.load_combined() {
                                 // Apply time decay
                                 mem.apply_time_decay();
                                 // Smart merge
@@ -1416,7 +1408,6 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                     )).await;
                                 }
                             }
-                        }
                     }
                 }
                 Err(e) => {
@@ -1554,8 +1545,8 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                             }
                             
                             // Then show the final assistant message
-                            if let Some(last) = messages.last() {
-                                if last.role == matrixcode_core::providers::Role::Assistant {
+                            if let Some(last) = messages.last()
+                                && last.role == matrixcode_core::providers::Role::Assistant {
                                     let text = match &last.content {
                                         matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
                                         matrixcode_core::providers::MessageContent::Blocks(blocks) => {
@@ -1574,7 +1565,6 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                                         println!("─{}", "─".repeat(40));
                                     }
                                 }
-                            }
                             
                             let (input, output) = agent.get_token_counts();
                             println!();
@@ -1626,7 +1616,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 }
                 
                 // Show sessions
-                if let Some(mgr) = SessionManager::new().ok() {
+                if let Ok(mgr) = SessionManager::new() {
                     println!("  Sessions: {} (current: {})", 
                         mgr.list_sessions().len(),
                         if mgr.has_current() { "yes" } else { "no" }
@@ -1636,11 +1626,10 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 // Show memory
                 let project_path = std::env::current_dir().ok();
                 if let Some(path) = &project_path {
-                    if let Ok(storage) = MemoryStorage::new(Some(path.as_path())) {
-                        if let Ok(mem) = storage.load_combined() {
+                    if let Ok(storage) = MemoryStorage::new(Some(path.as_path()))
+                        && let Ok(mem) = storage.load_combined() {
                             println!("  Memory: {} entries", mem.entries.len());
                         }
-                    }
                     
                     // Show project overview status
                     let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
@@ -1664,7 +1653,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
             }
             Commands::History => {
                 // Show session history (sync)
-                if let Some(mgr) = SessionManager::new().ok() {
+                if let Ok(mgr) = SessionManager::new() {
                     let sessions = mgr.list_sessions();
                     if sessions.is_empty() {
                         println!("No session history found.");
@@ -1693,9 +1682,9 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 // Create new session (sync)
                 println!("Creating new session...");
                 
-                if let Some(mut mgr) = SessionManager::new().ok() {
+                if let Ok(mut mgr) = SessionManager::new() {
                     let project_path = std::env::current_dir().ok();
-                    if let Ok(_) = mgr.start_new(project_path.as_deref()) {
+                    if mgr.start_new(project_path.as_deref()).is_ok() {
                         println!("✓ New session created");
                         
                         if let Some(id) = mgr.current_id() {
@@ -1841,8 +1830,8 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         }
                         
                         // Then show the final assistant message
-                        if let Some(last) = messages.last() {
-                            if last.role == matrixcode_core::providers::Role::Assistant {
+                        if let Some(last) = messages.last()
+                            && last.role == matrixcode_core::providers::Role::Assistant {
                                 let text = match &last.content {
                                     matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
                                     matrixcode_core::providers::MessageContent::Blocks(blocks) => {
@@ -1861,7 +1850,6 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                                     println!("─{}", "─".repeat(40));
                                 }
                             }
-                        }
                         
                         let (input, output) = agent.get_token_counts();
                         println!();
@@ -1951,7 +1939,7 @@ fn run_service_mode(cli: Cli) -> Result<()> {
             // Output session history as JSON events
             println!("{}", AgentEvent::session_started().to_json()?);
             
-            if let Some(mgr) = SessionManager::new().ok() {
+            if let Ok(mgr) = SessionManager::new() {
                 let sessions = mgr.list_sessions();
                 if sessions.is_empty() {
                     let data = serde_json::json!({
@@ -2026,7 +2014,7 @@ fn run_service_mode(cli: Cli) -> Result<()> {
             }
             
             // Add session info
-            if let Some(mgr) = SessionManager::new().ok() {
+            if let Ok(mgr) = SessionManager::new() {
                 status["sessions_count"] = serde_json::json!(mgr.list_sessions().len());
                 status["has_current_session"] = serde_json::json!(mgr.has_current());
             }
@@ -2034,11 +2022,10 @@ fn run_service_mode(cli: Cli) -> Result<()> {
             // Add memory info
             let project_path = std::env::current_dir().ok();
             if let Some(path) = &project_path {
-                if let Ok(storage) = MemoryStorage::new(Some(path.as_path())) {
-                    if let Ok(mem) = storage.load_combined() {
+                if let Ok(storage) = MemoryStorage::new(Some(path.as_path()))
+                    && let Ok(mem) = storage.load_combined() {
                         status["memory_entries"] = serde_json::json!(mem.entries.len());
                     }
-                }
                 
                 // Add overview status
                 let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
@@ -2059,7 +2046,7 @@ fn run_service_mode(cli: Cli) -> Result<()> {
             // Create new session
             println!("{}", AgentEvent::session_started().to_json()?);
             
-            if let Some(mut mgr) = SessionManager::new().ok() {
+            if let Ok(mut mgr) = SessionManager::new() {
                 let project_path = std::env::current_dir().ok();
                 match mgr.start_new(project_path.as_deref()) {
                     Ok(_) => {
@@ -2440,7 +2427,7 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
         }
         "history" => {
             // Return session history
-            if let Some(mgr) = SessionManager::new().ok() {
+            if let Ok(mgr) = SessionManager::new() {
                 let sessions = mgr.list_sessions();
                 let sessions_json: Vec<serde_json::Value> = sessions.iter().map(|s| {
                     serde_json::json!({
@@ -2470,7 +2457,7 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
         }
         "new_session" => {
             // Create new session
-            if let Some(mut mgr) = SessionManager::new().ok() {
+            if let Ok(mut mgr) = SessionManager::new() {
                 let project_path = std::env::current_dir().ok();
                 match mgr.start_new(project_path.as_deref()) {
                     Ok(_) => {
@@ -2498,7 +2485,7 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
         "load_session" => {
             // Load/resume a session
             if let Some(session_id) = request.session_id.clone() {
-                if let Some(mut mgr) = SessionManager::new().ok() {
+                if let Ok(mut mgr) = SessionManager::new() {
                     let project_path = std::env::current_dir().ok();
                     match mgr.resume(&session_id, project_path.as_deref()) {
                         Ok(Some(session)) => {
@@ -2532,7 +2519,7 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
         }
         "list_sessions" => {
             // List all sessions (alias for history)
-            if let Some(mgr) = SessionManager::new().ok() {
+            if let Ok(mgr) = SessionManager::new() {
                 let sessions = mgr.list_sessions();
                 let sessions_json: Vec<serde_json::Value> = sessions.iter().map(|s| {
                     serde_json::json!({
