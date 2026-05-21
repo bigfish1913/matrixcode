@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Stdout;
 use std::time::{Duration, Instant};
 
@@ -185,6 +186,21 @@ impl TuiApp {
     }
 
     pub fn load_messages(&mut self, core_messages: Vec<matrixcode_core::Message>) {
+        // Build mapping from tool_use_id to tool name
+        let mut tool_names: HashMap<String, String> = HashMap::new();
+
+        // First pass: collect tool names from ToolUse blocks
+        for msg in &core_messages {
+            if let matrixcode_core::MessageContent::Blocks(blocks) = &msg.content {
+                for b in blocks {
+                    if let matrixcode_core::ContentBlock::ToolUse { id, name, .. } = b {
+                        tool_names.insert(id.clone(), name.clone());
+                    }
+                }
+            }
+        }
+
+        // Second pass: process messages
         for msg in core_messages {
             // Handle different content block types separately
             match &msg.content {
@@ -228,19 +244,30 @@ impl TuiApp {
                                 self.messages.push(Message { role: Role::Thinking, content: thinking.clone() });
                             }
                             matrixcode_core::ContentBlock::ToolUse { name: _, .. } => {
-                                // Skip tool_use blocks - metadata only
+                                // Skip tool_use blocks - metadata only (already collected in first pass)
                             }
                             matrixcode_core::ContentBlock::ToolResult { content, tool_use_id, .. } => {
                                 if content.is_empty() { continue; }
                                 // Try to determine if this is an error from content
                                 let is_error = content.contains("error") || content.contains("failed") || content.contains("Error");
-                                self.messages.push(Message { 
-                                    role: Role::Tool { 
-                                        name: if tool_use_id.starts_with("bash") { "bash".into() } else { tool_use_id.clone() },
+                                // Use tool name from mapping, or fallback to tool_use_id
+                                let name = tool_names.get(tool_use_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| {
+                                        // Fallback: try to guess from tool_use_id prefix
+                                        if tool_use_id.starts_with("bash") { "bash".into() }
+                                        else if tool_use_id.starts_with("read") { "read".into() }
+                                        else if tool_use_id.starts_with("write") { "write".into() }
+                                        else if tool_use_id.starts_with("edit") { "edit".into() }
+                                        else { "tool".into() }
+                                    });
+                                self.messages.push(Message {
+                                    role: Role::Tool {
+                                        name,
                                         detail: None,
-                                        is_error 
-                                    }, 
-                                    content: content.clone() 
+                                        is_error
+                                    },
+                                    content: content.clone()
                                 });
                             }
                             _ => {}
