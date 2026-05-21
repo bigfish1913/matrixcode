@@ -30,12 +30,6 @@ impl Agent {
         ));
     }
 
-    /// Estimate context size
-    #[allow(dead_code)]
-    pub(crate) fn estimate_context_size(&self) -> u32 {
-        (self.messages.len() as u32) * 100 + self.total_input_tokens.load(Ordering::Relaxed) as u32
-    }
-
     /// Emit event (non-blocking)
     pub(crate) fn emit(&self, event: AgentEvent) -> Result<()> {
         match self.event_tx.try_send(event) {

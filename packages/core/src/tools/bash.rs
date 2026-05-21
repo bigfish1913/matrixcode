@@ -143,16 +143,3 @@ fn truncate_output(mut s: String) -> String {
     ));
     s
 }
-
-#[allow(dead_code)]  // For future use
-fn truncate_command(cmd: &str, max: usize) -> String {
-    if cmd.len() <= max {
-        cmd.to_string()
-    } else {
-        let mut end = max;
-        while end > 0 && !cmd.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("{}...", &cmd[..end])
-    }
-}
