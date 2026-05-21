@@ -1,0 +1,32 @@
+//! Memory system for MatrixCode.
+//!
+//! This module implements automatic memory accumulation for AI agents.
+//! It captures user preferences, project decisions, key findings, and solutions
+//! across sessions, providing persistent context.
+//!
+//! # Module Structure
+//!
+//! - **config**: Constants and configuration
+//! - **types**: Core types (MemoryCategory, MemoryEntry, AutoMemory)
+//! - **storage**: File storage with locking
+//! - **retrieval**: TF-IDF search, keyword extraction
+//! - **extractor**: AI and rule-based memory detection
+//! - **learning**: Feedback learning, behavior inference
+//! - **project**: Project structure analysis
+
+mod config;
+mod types;
+mod storage;
+mod retrieval;
+mod extractor;
+mod learning;
+mod project;
+
+// Re-export all public items
+pub use config::*;
+pub use types::*;
+pub use storage::*;
+pub use retrieval::*;
+pub use extractor::*;
+pub use learning::*;
+pub use project::*;
