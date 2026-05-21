@@ -319,7 +319,7 @@ impl SessionManager {
         let session = Session::new(project_path);
         self.current_session = Some(session);
         self.save_current()?;
-        Ok(self.current_session.as_ref().unwrap())
+        Ok(self.current_session.as_ref().expect("session just set"))
     }
 
     /// Continue the last session (for --continue).
