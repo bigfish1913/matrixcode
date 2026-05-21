@@ -1,0 +1,52 @@
+{
+  "entries": [
+    {
+      "id": "2b1fd834-404f-49e8-982b-13e7d965e8a9",
+      "created_at": "2026-05-21T10:32:45.863861100Z",
+      "last_referenced": "2026-05-21T10:32:45.863864200Z",
+      "category": "technical",
+      "content": "项目技术栈: Rust",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "ec1ca25c-ae93-4a5b-a84e-ce89b6c61f2e",
+      "created_at": "2026-05-21T10:32:45.863896900Z",
+      "last_referenced": "2026-05-21T10:32:45.863897Z",
+      "category": "structure",
+      "content": "入口文件: src/main.rs",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 35.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "3d3432ef-8c32-425a-8a73-b41d75340a62",
+      "created_at": "2026-05-21T10:32:45.863943500Z",
+      "last_referenced": "2026-05-21T10:32:45.863943600Z",
+      "category": "structure",
+      "content": "src 是 代码目录",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 35.0,
+      "tags": [],
+      "is_manual": false
+    }
+  ],
+  "config": {
+    "max_entries": 100,
+    "min_importance": 30.0,
+    "enabled": true,
+    "decay_start_days": 30,
+    "decay_rate": 0.5,
+    "reference_increment": 1.0,
+    "max_importance_ceiling": 100.0
+  },
+  "max_entries": 100,
+  "min_importance": 30.0,
+  "enabled": true
+}

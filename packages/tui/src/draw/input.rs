@@ -58,7 +58,15 @@ impl TuiApp {
                     spans.push(Span::styled("↑↓ select  Enter confirm  ESC abort", Style::default().fg(Color::DarkGray)));
                 }
             } else {
-                spans.push(Span::styled("Type answer, Enter to submit  ESC abort", Style::default().fg(Color::DarkGray)));
+                // Free text input mode - show user input with cursor
+                if self.input.is_empty() {
+                    spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
+                    spans.push(Span::styled("Type y/n, Enter to submit  ESC abort", Style::default().fg(Color::DarkGray)));
+                } else {
+                    spans.push(Span::styled(self.input.clone(), Style::default().fg(Color::White)));
+                    spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
+                    spans.push(Span::styled("  Enter to submit  ESC abort", Style::default().fg(Color::DarkGray)));
+                }
             }
 
             f.render_widget(Paragraph::new(Line::from(spans)), area);
