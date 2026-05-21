@@ -1,3 +1,5 @@
+//! Messages area rendering.
+
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
@@ -5,179 +7,14 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::types::{Activity, ApproveMode, Role, SubmitMode};
-use crate::utils::{truncate, truncate_visual, truncate_visual_end, fmt_tokens, progress_bar, word_wrap};
+use crate::types::{Activity, Role, SubmitMode};
+use crate::utils::{truncate, word_wrap, fmt_tokens};
 use crate::markdown::render_markdown;
 use crate::app::TuiApp;
 use crate::SPINNER;
 
 impl TuiApp {
-    pub(crate) fn draw(&self, f: &mut ratatui::Frame) {
-        // Dynamic input height: expand for multiline content
-        let input_lines = self.input.lines().count().max(1);
-        let input_height = if input_lines <= 1 {
-            1u16
-        } else {
-            input_lines.min(5) as u16 + 1
-        };
-        
-        // Calculate fixed bottom elements first (from bottom to top)
-        // This ensures input box position is stable for IME candidate window
-        let total_height = f.area().height;
-        let status_height = 1u16;
-        let queue_height_actual = if self.pending_messages.is_empty() { 0u16 } else { 1u16 };
-        
-        // Input at bottom, fixed position
-        let input_y = total_height.saturating_sub(input_height);
-        // Status above input
-        let status_y = input_y.saturating_sub(status_height);
-        // Queue above status (if any)
-        let queue_y = status_y.saturating_sub(queue_height_actual);
-        // Messages fill remaining space from top
-        let messages_height = queue_y;
-        
-        // Create fixed-position areas instead of dynamic layout
-        let messages_area = Rect::new(f.area().x, f.area().y, f.area().width, messages_height);
-        let queue_area = Rect::new(f.area().x, queue_y, f.area().width, queue_height_actual);
-        let status_area = Rect::new(f.area().x, status_y, f.area().width, status_height);
-        let input_area = Rect::new(f.area().x, input_y, f.area().width, input_height);
-
-        self.draw_messages(f, messages_area);
-        if !self.pending_messages.is_empty() {
-            self.draw_queue(f, queue_area);
-        }
-        self.draw_status(f, status_area);
-        self.draw_input(f, input_area);
-    }
-
-    fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
-        // Use tokens_in (API-reported) as primary source, estimate as fallback
-        let actual_tokens = if self.tokens_in > 0 {
-            self.tokens_in
-        } else {
-            self.messages.iter().map(|m| {
-                estimate_message_tokens(&m.content) as u64
-            }).sum::<u64>()
-        };
-
-        let context_pct = if self.context_size > 0 {
-            (actual_tokens as f64 / self.context_size as f64 * 100.0).min(100.0)
-        } else { 0.0 };
-        let ctx_color = if context_pct < 50.0 { Color::DarkGray }
-                       else if context_pct < 75.0 { Color::Yellow }
-                       else { Color::Red };
-
-        let mode_color = match self.approve_mode {
-            ApproveMode::Ask => Color::DarkGray,
-            ApproveMode::Auto => Color::Green,
-            ApproveMode::Strict => Color::Red,
-        };
-
-        // Status on the right - show real-time info during activity
-        let is_tool_activity = matches!(self.activity,
-            Activity::Reading | Activity::Writing | Activity::Editing |
-            Activity::Searching | Activity::Running | Activity::WebSearch |
-            Activity::WebFetch | Activity::Tool(_)
-        );
-
-        let status_text = if self.activity == Activity::Idle {
-            "Ready".to_string()
-        } else if is_tool_activity {
-            // Tool activity: show tool name and detail
-            if !self.activity_detail.is_empty() {
-                format!("{} {}", self.activity.label(), self.activity_detail)
-            } else {
-                self.activity.label().to_string()
-            }
-        } else if self.current_request_tokens > 0 {
-            // Thinking/streaming: only show tokens, no "Thinking" text
-            fmt_tokens(self.current_request_tokens)
-        } else {
-            // Waiting for response
-            "...".to_string()
-        };
-        let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
-
-        // New layout: model │ mode │ in │ out │ c │ status (all centered)
-        let width = area.width as usize;
-        let mut spans: Vec<Span> = Vec::new();
-
-        // Model name
-        let model_display = if width < 50 {
-            truncate(&self.model, 12)
-        } else {
-            self.model.clone()
-        };
-        spans.push(Span::styled(format!(" {} ", model_display), Style::default().fg(Color::DarkGray)));
-
-        // Separator
-        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-
-        // Mode indicator
-        spans.push(Span::styled(format!(" {} ", self.approve_mode.label()), Style::default().fg(mode_color)));
-
-        // Separator
-        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-
-        // in/ctx: input tokens with progress bar and context size
-        if width >= 40 {
-            // Show progress bar when width >= 60
-            let bar = if width >= 60 {
-                progress_bar(context_pct, 6)
-            } else {
-                String::new()
-            };
-            // Show context size when width >= 70
-            let ctx_size_display = if width >= 70 {
-                format!("/{:.0}k", self.context_size as f64 / 1_000.0)
-            } else {
-                String::new()
-            };
-            let ctx_full = if ctx_size_display.is_empty() {
-                fmt_tokens(actual_tokens)
-            } else {
-                format!("{}{}", fmt_tokens(actual_tokens), ctx_size_display)
-            };
-            spans.push(Span::styled(
-                format!(" {} {:.0}% {} ", bar, context_pct, ctx_full),
-                Style::default().fg(ctx_color)
-            ));
-        }
-
-        // Separator
-        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-
-        // out: session output tokens
-        if width >= 55 {
-            spans.push(Span::styled(format!(" out {} ", fmt_tokens(self.session_total_out)), Style::default().fg(Color::DarkGray)));
-        }
-
-        // Cache info: c r/w
-        if width >= 75 && (self.cache_read > 0 || self.cache_created > 0) {
-            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-            spans.push(Span::styled(
-                format!(" c {}k/{}k ", self.cache_read / 1000, self.cache_created / 1000),
-                Style::default().fg(Color::DarkGray)
-            ));
-        }
-
-        // Debug stats
-        if width >= 100 && self.debug_mode {
-            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-            spans.push(Span::styled(
-                format!(" api:{} tools:{} ", self.api_calls, self.tool_calls),
-                Style::default().fg(Color::DarkGray)
-            ));
-        }
-
-        // Status (always at end)
-        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-        spans.push(Span::styled(format!(" {} ", status_text), Style::default().fg(status_color)));
-
-        f.render_widget(Paragraph::new(Line::from(spans)), area);
-    }
-
-    fn draw_messages(&self, f: &mut ratatui::Frame, area: Rect) {
+    pub(crate) fn draw_messages(&self, f: &mut ratatui::Frame, area: Rect) {
         let mut lines: Vec<Line> = Vec::new();
         let max_w = area.width.saturating_sub(4) as usize;
 
@@ -325,7 +162,7 @@ impl TuiApp {
                     } else {
                         Span::styled(format!(" {} \u{2192} {}", detail_text, summary), Style::default().fg(Color::Cyan))
                     };
-                    
+
                     lines.push(Line::from(vec![
                         Span::styled(format!("  {} ", tool_icon), Style::default().fg(status_color)),
                         Span::styled(name.clone(), Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
@@ -337,7 +174,7 @@ impl TuiApp {
                     // Content preview: detect diff format (lines starting with "- " or "+ " after edit header)
                     // More strict detection: first line must be "Successfully edited" and following lines must start with "- " or "+ "
                     let content_lines: Vec<&str> = msg.content.lines().collect();
-                    let has_diff = content_lines.len() > 1 
+                    let has_diff = content_lines.len() > 1
                         && content_lines.first().map(|l| l.starts_with("Successfully edited")).unwrap_or(false)
                         && content_lines.iter().skip(1).any(|l| l.starts_with("- ") || l.starts_with("+ "));
                     let preview_count = if *is_error {
@@ -764,177 +601,4 @@ impl TuiApp {
             f.render_widget(Paragraph::new(lines).scroll((scroll_offset, 0)), area);
         }
     }
-
-    fn draw_queue(&self, f: &mut ratatui::Frame, area: Rect) {
-        let mut spans: Vec<Span> = vec![
-            Span::styled("⏳ ", Style::default().fg(Color::Magenta)),
-            Span::styled(
-                format!("Queue ({}): ", self.pending_messages.len()),
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
-            ),
-        ];
-        
-        // Show preview of each queued message (truncated)
-        for (i, msg) in self.pending_messages.iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-            }
-            let preview = msg.lines().next().unwrap_or("");
-            let truncated = truncate(preview, 30);
-            spans.push(Span::styled(
-                format!("\"{}\"", truncated),
-                Style::default().fg(Color::Yellow)
-            ));
-        }
-        
-        f.render_widget(Paragraph::new(Line::from(spans)), area);
-    }
-
-    fn draw_input(&self, f: &mut ratatui::Frame, area: Rect) {
-        // Prompt indicator based on activity
-        let (prompt, prompt_color) = match self.activity {
-            Activity::Idle => ("❯ ", Color::Yellow),
-            Activity::Asking => ("⚡ ", Color::Red),
-            _ => ("⏳ ", Color::Gray),
-        };
-
-        let max_w = (area.width as usize).saturating_sub(4);
-
-        // Special handling for Ask mode: show simple prompt, not selection details
-        // (selection is already shown in messages area)
-        if self.activity == Activity::Asking && self.waiting_for_ask {
-            let mut spans: Vec<Span> = vec![
-                Span::styled(prompt, Style::default().fg(prompt_color).add_modifier(Modifier::BOLD)),
-            ];
-
-            if !self.ask_options.is_empty() {
-                // Show navigation hint based on mode
-                if self.ask_multi_select {
-                    spans.push(Span::styled("↑↓ navigate  Space toggle  Enter confirm  ESC abort", Style::default().fg(Color::DarkGray)));
-                } else {
-                    spans.push(Span::styled("↑↓ select  Enter confirm  ESC abort", Style::default().fg(Color::DarkGray)));
-                }
-            } else {
-                // Free text input mode
-                spans.push(Span::styled("Type answer, Enter to submit  ESC abort", Style::default().fg(Color::DarkGray)));
-            }
-
-            f.render_widget(Paragraph::new(Line::from(spans)), area);
-            return;
-        }
-
-        // Normal input handling
-        let is_multiline = self.input.contains('\n');
-
-        if !is_multiline {
-            let mut spans: Vec<Span> = vec![
-                Span::styled(prompt, Style::default().fg(prompt_color).add_modifier(Modifier::BOLD)),
-            ];
-
-            if self.input.is_empty() {
-                spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
-                spans.push(Span::styled(" Ask anything...", Style::default().fg(Color::DarkGray)));
-            } else {
-                let display_width = max_w.saturating_sub(15);
-                let before_cursor = &self.input[..self.cursor_pos];
-                let after_cursor = &self.input[self.cursor_pos..];
-
-                let before_vis_width: usize = before_cursor.chars().map(|c| if c > '\u{7F}' { 2 } else { 1 }).sum();
-                let after_vis_width: usize = after_cursor.chars().map(|c| if c > '\u{7F}' { 2 } else { 1 }).sum();
-
-                if before_vis_width + after_vis_width <= display_width {
-                    spans.push(Span::styled(before_cursor.to_string(), Style::default().fg(Color::White)));
-                    spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
-                    spans.push(Span::styled(after_cursor.to_string(), Style::default().fg(Color::White)));
-                } else if before_vis_width < display_width {
-                    spans.push(Span::styled(before_cursor.to_string(), Style::default().fg(Color::White)));
-                    spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
-                    let remaining = display_width.saturating_sub(before_vis_width);
-                    let truncated_after = truncate_visual(after_cursor, remaining);
-                    spans.push(Span::styled(truncated_after, Style::default().fg(Color::White)));
-                } else {
-                    let start_width = display_width.saturating_sub(10);
-                    let truncated_before = truncate_visual_end(before_cursor, start_width);
-                    spans.push(Span::styled(format!("…{}", truncated_before), Style::default().fg(Color::White)));
-                    spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
-                    let remaining = display_width.saturating_sub(start_width + 1);
-                    let truncated_after = truncate_visual(after_cursor, remaining);
-                    spans.push(Span::styled(truncated_after, Style::default().fg(Color::White)));
-                }
-            }
-
-            f.render_widget(Paragraph::new(Line::from(spans)), area);
-        } else {
-            // Multiline mode
-            let mut lines: Vec<Line> = Vec::new();
-            let input_lines: Vec<&str> = self.input.split('\n').collect();
-            let cursor_line = self.input[..self.cursor_pos].matches('\n').count();
-            let cursor_col_byte = self.input[..self.cursor_pos].rfind('\n')
-                .map(|i| self.cursor_pos - i - 1)
-                .unwrap_or(self.cursor_pos);
-
-            let max_display_lines = (area.height as usize).saturating_sub(1);
-            
-            for (i, line) in input_lines.iter().enumerate().take(max_display_lines) {
-                let line_prompt = if i == 0 { prompt } else { "  " };
-                let line_prompt_color = if i == 0 { prompt_color } else { Color::DarkGray };
-                
-                if i == cursor_line {
-                    // This line has the cursor
-                    let before = &line[..cursor_col_byte.min(line.len())];
-                    let after = &line[cursor_col_byte.min(line.len())..];
-                    lines.push(Line::from(vec![
-                        Span::styled(line_prompt, Style::default().fg(line_prompt_color).add_modifier(Modifier::BOLD)),
-                        Span::styled(before.to_string(), Style::default().fg(Color::White)),
-                        Span::styled("▌", Style::default().fg(Color::Cyan)),
-                        Span::styled(after.to_string(), Style::default().fg(Color::White)),
-                    ]));
-                } else {
-                    lines.push(Line::from(vec![
-                        Span::styled(line_prompt, Style::default().fg(line_prompt_color).add_modifier(Modifier::BOLD)),
-                        Span::styled(truncate(line, max_w), Style::default().fg(Color::White)),
-                    ]));
-                }
-            }
-            
-            // Show line count if truncated
-            let total_lines = input_lines.len();
-            if total_lines > max_display_lines {
-                lines.push(Line::styled(
-                    format!("  … ({}/{} lines)", max_display_lines, total_lines),
-                    Style::default().fg(Color::DarkGray)
-                ));
-            }
-            
-            f.render_widget(Paragraph::new(lines), area);
-        }
-    }
-}
-
-/// Estimate tokens for a text string using improved counting.
-/// ASCII: ~0.25 tokens/char, Non-ASCII (Chinese): ~0.67 tokens/char
-fn estimate_text_tokens(text: &str) -> u32 {
-    let (ascii, non_ascii) = count_chars(text);
-    let ascii_tokens = (ascii as f64 * 0.25).ceil() as u32;
-    let non_ascii_tokens = (non_ascii as f64 * 0.67).ceil() as u32;
-    ascii_tokens + non_ascii_tokens
-}
-
-/// Estimate tokens for message content.
-fn estimate_message_tokens(content: &str) -> u32 {
-    estimate_text_tokens(content) + 10  // Add overhead for message structure
-}
-
-/// Count ASCII and non-ASCII characters.
-fn count_chars(s: &str) -> (u32, u32) {
-    let mut ascii = 0u32;
-    let mut non_ascii = 0u32;
-    for ch in s.chars() {
-        if ch.is_ascii() {
-            ascii += 1;
-        } else {
-            non_ascii += 1;
-        }
-    }
-    (ascii, non_ascii)
 }
