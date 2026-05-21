@@ -449,8 +449,11 @@ impl TuiApp {
                     }
                 }
                 Role::Ask => {
-                    // Ask/Approval requests - prominent display
+                    // Ask/Approval requests - prominent display with selection highlight
                     lines.push(Line::styled("", Style::default()));
+
+                    // Check if we're actively in ask mode with options
+                    let has_active_selection = self.waiting_for_ask && !self.ask_options.is_empty();
 
                     for line in msg.content.lines() {
                         let styled_line = if line.contains("AWAITING INPUT") || line.contains("⚡") {
@@ -468,6 +471,62 @@ impl TuiApp {
                                 line.to_string(),
                                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
                             )
+                        } else if has_active_selection && line.starts_with("  [") {
+                            // Option line - parse and highlight
+                            // Multi-select: [✓] or [ ], Single-select: [A], [B], [Y], [N]
+                            let is_checkbox = line.contains("[✓]") || line.contains("[ ]");
+                            let checkbox_checked = line.contains("[✓]");
+
+                            // Determine option index
+                            let option_idx = if is_checkbox {
+                                // Find index by counting checkbox lines in current message
+                                let mut idx = 0;
+                                for l in msg.content.lines() {
+                                    if l == line { break; }
+                                    if l.starts_with("  [") && (l.contains("[✓]") || l.contains("[ ]")) {
+                                        idx += 1;
+                                    }
+                                }
+                                idx
+                            } else {
+                                // Single select: parse letter from "[X]"
+                                // Format: "  [A] label" - letter is at position 3
+                                let letter = line.chars().nth(3).unwrap_or(' ');
+                                if letter == 'Y' { 0 }
+                                else if letter == 'N' { 1 }
+                                else if letter.is_ascii_uppercase() { (letter as u8 - b'A') as usize }
+                                else { 0 }
+                            };
+
+                            // Check if this line matches current selection index
+                            if option_idx == self.ask_selected_index {
+                                // Current navigation position: bright highlight
+                                if checkbox_checked {
+                                    // Checked and selected: bright green
+                                    Line::styled(
+                                        format!("▶ {}", line.trim()),
+                                        Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                                    )
+                                } else {
+                                    // Unchecked but navigated: cyan highlight
+                                    Line::styled(
+                                        format!("▶ {}", line.trim()),
+                                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                                    )
+                                }
+                            } else if checkbox_checked {
+                                // Checked but not current navigation: green text
+                                Line::styled(
+                                    format!("  {}", line.trim()),
+                                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                                )
+                            } else {
+                                // Regular option
+                                Line::styled(
+                                    format!("  {}", line.trim()),
+                                    Style::default().fg(Color::White)
+                                )
+                            }
                         } else {
                             Line::styled(
                                 line.to_string(),
@@ -638,32 +697,24 @@ impl TuiApp {
 
         let max_w = (area.width as usize).saturating_sub(4);
 
-        // Special handling for Ask mode: show selection instead of input
-        if self.activity == Activity::Asking && self.waiting_for_ask && !self.ask_options.is_empty() {
+        // Special handling for Ask mode: show simple prompt, not selection details
+        // (selection is already shown in messages area)
+        if self.activity == Activity::Asking && self.waiting_for_ask {
             let mut spans: Vec<Span> = vec![
                 Span::styled(prompt, Style::default().fg(prompt_color).add_modifier(Modifier::BOLD)),
             ];
 
-            // Show current selection
-            let selected = &self.ask_options[self.ask_selected_index];
-            let letter = if selected.id == "y" { 'Y' }
-                        else if selected.id == "n" { 'N' }
-                        else { (b'A' + self.ask_selected_index as u8) as char };
-
-            spans.push(Span::styled(
-                format!("[{}] {} ", letter, selected.label),
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-            ));
-
-            if let Some(desc) = &selected.description {
-                spans.push(Span::styled(
-                    truncate(desc, max_w.saturating_sub(20)),
-                    Style::default().fg(Color::DarkGray)
-                ));
+            if !self.ask_options.is_empty() {
+                // Show navigation hint based on mode
+                if self.ask_multi_select {
+                    spans.push(Span::styled("↑↓ navigate  Space toggle  Enter confirm  ESC abort", Style::default().fg(Color::DarkGray)));
+                } else {
+                    spans.push(Span::styled("↑↓ select  Enter confirm  ESC abort", Style::default().fg(Color::DarkGray)));
+                }
+            } else {
+                // Free text input mode
+                spans.push(Span::styled("Type answer, Enter to submit  ESC abort", Style::default().fg(Color::DarkGray)));
             }
-
-            // Show navigation hint
-            spans.push(Span::styled("  ↑↓", Style::default().fg(Color::DarkGray)));
 
             f.render_widget(Paragraph::new(Line::from(spans)), area);
             return;
@@ -676,10 +727,6 @@ impl TuiApp {
             let mut spans: Vec<Span> = vec![
                 Span::styled(prompt, Style::default().fg(prompt_color).add_modifier(Modifier::BOLD)),
             ];
-
-            if self.activity == Activity::Asking {
-                spans.push(Span::styled("[Y/N?] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
-            }
 
             if self.input.is_empty() {
                 spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));

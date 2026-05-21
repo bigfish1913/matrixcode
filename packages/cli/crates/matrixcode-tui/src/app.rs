@@ -62,6 +62,7 @@ pub struct TuiApp {
     pub(crate) waiting_for_ask: bool,
     pub(crate) ask_options: Vec<crate::types::AskOption>,
     pub(crate) ask_selected_index: usize,
+    pub(crate) ask_multi_select: bool,  // Whether this is a multi-select question
     // Channels
     pub(crate) tx: tokio::sync::mpsc::Sender<String>,
     pub(crate) rx: tokio::sync::mpsc::Receiver<AgentEvent>,
@@ -141,6 +142,7 @@ impl TuiApp {
             waiting_for_ask: false,
             ask_options: Vec::new(),
             ask_selected_index: 0,
+            ask_multi_select: false,
             tx, rx, cancel,
             pending_messages: Vec::new(),
             loop_task: None,

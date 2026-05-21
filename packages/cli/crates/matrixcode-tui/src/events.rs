@@ -1,4 +1,5 @@
 use matrixcode_core::{AgentEvent, EventData, EventType};
+use serde_json::Value;
 
 use crate::types::{Activity, Message, Role};
 use crate::utils::{truncate, extract_tool_detail, fmt_tokens};
@@ -238,31 +239,83 @@ impl TuiApp {
                     content.push_str(&question);
 
                     // Parse options or create default y/n for approval
-                    if let Some(ref opts) = options && let Some(arr) = opts.as_array() && !arr.is_empty() {
-                        // Has explicit options from ask tool
-                        self.ask_options = arr.iter().map(|opt| {
-                            crate::types::AskOption {
-                                id: opt["id"].as_str().unwrap_or("").to_string(),
-                                label: opt["label"].as_str().unwrap_or("").to_string(),
-                                description: opt["description"].as_str().map(|s| s.to_string()),
+                    // options can be: direct array [...] or object { "options": [...], "multiSelect": bool }
+                    if let Some(ref opts) = options {
+                        // Try to parse as object with "options" and "multiSelect" fields first
+                        let arr: Option<&Vec<Value>> = if let Some(arr) = opts.get("options").and_then(|o| o.as_array()) {
+                            // Object format: { "options": [...], "multiSelect": bool }
+                            self.ask_multi_select = opts.get("multiSelect").and_then(|m| m.as_bool()).unwrap_or(false);
+                            Some(arr)
+                        } else if let Some(arr) = opts.as_array() {
+                            // Direct array format: [...]
+                            self.ask_multi_select = false;  // Default single-select for direct array
+                            Some(arr)
+                        } else {
+                            None
+                        };
+
+                        match arr {
+                            Some(arr) if !arr.is_empty() => {
+                                // Has explicit options from ask tool
+                                self.ask_options = arr.iter().enumerate().map(|(_i, opt)| {
+                                    crate::types::AskOption {
+                                        id: opt["id"].as_str().unwrap_or("").to_string(),
+                                        label: opt["label"].as_str().unwrap_or("").to_string(),
+                                        description: opt["description"].as_str().map(|s| s.to_string()),
+                                        selected: opt.get("selected").and_then(|s| s.as_bool()).unwrap_or(false),
+                                    }
+                                }).collect();
+                                self.ask_selected_index = 0;
+
+                                // Build option display
+                                content.push_str("\n\n─────────────────────────────────────\n");
+                                if self.ask_multi_select {
+                                    content.push_str("Options (↑↓ navigate, Space toggle, Enter confirm):\n");
+                                } else {
+                                    content.push_str("Options (↑↓ select, Enter confirm):\n");
+                                }
+                                for (i, opt) in self.ask_options.iter().enumerate() {
+                                    let marker = if self.ask_multi_select {
+                                        if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
+                                    } else {
+                                        format!("[{}]", (b'A' + i as u8) as char)
+                                    };
+                                    let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
+                                    content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+                                }
+
+                                // Clear input so selection shows in input area
+                                self.input.clear();
+                                self.cursor_pos = 0;
                             }
-                        }).collect();
-                        self.ask_selected_index = 0;
-                        // Clear input so selection shows in input area
-                        self.input.clear();
-                        self.cursor_pos = 0;
-                    } else if question.contains("(y/n)") || question.contains("Allow?") {
-                        // Approval request: create y/n options
-                        self.ask_options = vec![
-                            crate::types::AskOption { id: "y".into(), label: "Yes".into(), description: Some("Allow this action".into()) },
-                            crate::types::AskOption { id: "n".into(), label: "No".into(), description: Some("Reject this action".into()) },
-                        ];
-                        self.ask_selected_index = 0;
-                        // Clear input so selection shows in input area
-                        self.input.clear();
-                        self.cursor_pos = 0;
+                            _ if question.contains("(y/n)") || question.contains("Allow?") => {
+                                // Approval request: create y/n options (single select)
+                                self.ask_multi_select = false;
+                                self.ask_options = vec![
+                                    crate::types::AskOption { id: "y".into(), label: "Yes".into(), description: Some("Allow this action".into()), selected: false },
+                                    crate::types::AskOption { id: "n".into(), label: "No".into(), description: Some("Reject this action".into()), selected: false },
+                                ];
+                                self.ask_selected_index = 0;
+
+                                content.push_str("\n\n─────────────────────────────────────\n");
+                                content.push_str("Options (↑↓ select, Enter confirm):\n");
+                                content.push_str("  [Y] Yes - Allow this action\n");
+                                content.push_str("  [N] No - Reject this action\n");
+
+                                // Clear input
+                                self.input.clear();
+                                self.cursor_pos = 0;
+                            }
+                            _ => {
+                                // Free text input - no options
+                                self.ask_multi_select = false;
+                                self.ask_options.clear();
+                                self.ask_selected_index = 0;
+                            }
+                        }
                     } else {
-                        // Free text input
+                        // No options provided - free text input
+                        self.ask_multi_select = false;
                         self.ask_options.clear();
                         self.ask_selected_index = 0;
                     }

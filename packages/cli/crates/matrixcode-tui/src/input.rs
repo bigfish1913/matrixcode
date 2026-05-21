@@ -85,6 +85,23 @@ impl TuiApp {
                 }
             }
 
+            // Space: toggle selection in multi-select mode
+            KeyCode::Char(' ') if !k.modifiers.contains(KeyModifiers::ALT) && !k.modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.activity == Activity::Asking && self.waiting_for_ask && self.ask_multi_select && !self.ask_options.is_empty() {
+                    // Toggle current selection
+                    self.ask_options[self.ask_selected_index].selected = !self.ask_options[self.ask_selected_index].selected;
+                } else {
+                    // Normal input: insert space
+                    self.ensure_char_boundary();
+                    self.input.insert(self.cursor_pos, ' ');
+                    self.cursor_pos += 1;
+                    if self.history_index.is_some() {
+                        self.history_index = None;
+                        self.history_draft.clear();
+                    }
+                }
+            }
+
             // Left arrow: move cursor left (one character)
             KeyCode::Left => {
                 if self.cursor_pos > 0 {
@@ -407,7 +424,7 @@ impl TuiApp {
         }
     }
 
-    /// Confirm ask selection - send selected option or custom input
+    /// Confirm ask selection - send selected option(s) or custom input
     pub(crate) fn confirm_ask_selection(&mut self) {
         if !self.waiting_for_ask {
             return;
@@ -417,25 +434,47 @@ impl TuiApp {
         self.activity = Activity::Thinking;
         self.auto_scroll = true;
 
-        // Determine response: selected option or custom input
-        let response = if !self.ask_options.is_empty() && self.input.trim().is_empty() {
-            // Use selected option
-            let selected = &self.ask_options[self.ask_selected_index];
-            selected.label.clone()
-        } else if !self.input.trim().is_empty() {
-            // Use custom input
-            self.input.trim().to_string()
-        } else if !self.ask_options.is_empty() {
-            // Use selected option's id (y/n for approval, or label for ask tool)
-            let selected = &self.ask_options[self.ask_selected_index];
-            // For y/n options, send the id; for other options, send the label
-            if selected.id == "y" || selected.id == "n" {
-                selected.id.clone()
+        // Determine response based on mode
+        let (response, display_response) = if self.ask_multi_select && !self.ask_options.is_empty() {
+            // Multi-select: collect all selected options
+            let selected_ids: Vec<&str> = self.ask_options.iter()
+                .filter(|opt| opt.selected)
+                .map(|opt| opt.id.as_str())
+                .collect();
+
+            // Send as JSON array
+            let response = serde_json::to_string(&selected_ids).unwrap_or_else(|_| "[]".to_string());
+
+            // Display as comma-separated labels
+            let display_labels: Vec<&str> = self.ask_options.iter()
+                .filter(|opt| opt.selected)
+                .map(|opt| opt.label.as_str())
+                .collect();
+            let display = if display_labels.is_empty() {
+                "None selected".to_string()
             } else {
-                selected.label.clone()
-            }
+                display_labels.join(", ")
+            };
+
+            (response, display)
+        } else if !self.ask_options.is_empty() && self.input.trim().is_empty() {
+            // Single select: use selected option's id
+            let selected = &self.ask_options[self.ask_selected_index];
+            let response = selected.id.clone();
+            let display = selected.label.clone();
+            (response, display)
+        } else if !self.input.trim().is_empty() {
+            // Custom text input
+            let text = self.input.trim().to_string();
+            (text.clone(), text)
+        } else if !self.ask_options.is_empty() {
+            // Default: first option
+            let selected = &self.ask_options[0];
+            let response = selected.id.clone();
+            let display = selected.label.clone();
+            (response, display)
         } else {
-            "y".to_string()  // Default approval
+            ("y".to_string(), "Yes".to_string())  // Default approval
         };
 
         // Clear input and options
@@ -443,18 +482,9 @@ impl TuiApp {
         self.cursor_pos = 0;
         self.ask_options.clear();
         self.ask_selected_index = 0;
+        self.ask_multi_select = false;
 
         // Send response
-        // For display, show the label (Yes/No or option label), but send the actual response
-        let display_response = if !self.input.trim().is_empty() {
-            response.clone()
-        } else if response == "y" {
-            "Yes".to_string()
-        } else if response == "n" {
-            "No".to_string()
-        } else {
-            response.clone()
-        };
         self.messages.push(Message { role: Role::User, content: display_response });
         if let Some(ask_tx) = &self.ask_tx {
             ask_tx.try_send(response).ok();

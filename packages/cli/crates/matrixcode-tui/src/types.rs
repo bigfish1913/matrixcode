@@ -120,6 +120,18 @@ pub struct AskOption {
     pub id: String,
     pub label: String,
     pub description: Option<String>,
+    pub selected: bool,  // For multi-select: whether this option is checked
+}
+
+impl Default for AskOption {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            label: String::new(),
+            description: None,
+            selected: false,
+        }
+    }
 }
 
 /// Message block
