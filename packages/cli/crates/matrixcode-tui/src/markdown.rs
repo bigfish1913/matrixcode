@@ -638,9 +638,9 @@ impl MarkdownRenderer {
             return;
         }
 
-        // Calculate column widths using Unicode display width (+2 for padding)
+        // Calculate column widths: content width + 2 (1 space padding on each side)
         let mut widths: Vec<usize> = self.table_header.iter()
-            .map(|c| c.width().max(3) + 2)
+            .map(|c| c.width() + 2)
             .collect();
 
         for row in &self.table_rows {
@@ -651,58 +651,64 @@ impl MarkdownRenderer {
             }
         }
 
-        // Build border parts
-        let top_border = self.make_border(&widths, "┌", "┬", "┐");
-        let mid_border = self.make_border(&widths, "├", "┼", "┤");
-        let bottom_border = self.make_border(&widths, "└", "┴", "┘");
+        // Build borders with matching widths
+        // Top: ┌───┬───┐
+        let top_border = format!("┌{}┐", widths.iter()
+            .map(|w| "─".repeat(*w))
+            .collect::<Vec<_>>()
+            .join("┬"));
+
+        // Separator: ├───┼───┤
+        let row_sep = format!("├{}┤", widths.iter()
+            .map(|w| "─".repeat(*w))
+            .collect::<Vec<_>>()
+            .join("┼"));
+
+        // Bottom: └───┴───┘
+        let bottom_border = format!("└{}┘", widths.iter()
+            .map(|w| "─".repeat(*w))
+            .collect::<Vec<_>>()
+            .join("┴"));
 
         // Top border
         self.lines.push(Line::styled(top_border, Style::default().fg(Color::DarkGray)));
 
-        // Header row
-        let header_line = self.format_table_row(&self.table_header, &widths);
+        // Header row: │ A │ B │
+        let header_line = format!("│{}│", widths.iter()
+            .enumerate()
+            .map(|(i, w)| self.pad_cell(&self.table_header[i], *w))
+            .collect::<Vec<_>>()
+            .join("│"));
         self.lines.push(Line::styled(header_line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
 
         // Separator after header
-        self.lines.push(Line::styled(mid_border, Style::default().fg(Color::DarkGray)));
+        self.lines.push(Line::styled(row_sep.clone(), Style::default().fg(Color::DarkGray)));
 
         // Data rows
-        for row in &self.table_rows {
-            let row_line = self.format_table_row(row, &widths);
+        for (idx, row) in self.table_rows.iter().enumerate() {
+            let row_line = format!("│{}│", widths.iter()
+                .enumerate()
+                .map(|(i, w)| self.pad_cell(&row[i], *w))
+                .collect::<Vec<_>>()
+                .join("│"));
             self.lines.push(Line::styled(row_line, Style::default().fg(Color::Gray)));
+
+            // Add separator between rows (but not after last row)
+            if idx < self.table_rows.len() - 1 {
+                self.lines.push(Line::styled(row_sep.clone(), Style::default().fg(Color::DarkGray)));
+            }
         }
 
         // Bottom border
         self.lines.push(Line::styled(bottom_border, Style::default().fg(Color::DarkGray)));
     }
 
-    fn make_border(&self, widths: &[usize], left: &str, mid: &str, right: &str) -> String {
-        let parts: Vec<String> = widths.iter().map(|w| "─".repeat(*w)).collect();
-        format!("{}{}{}", left, parts.join(mid), right)
-    }
-
-    fn format_table_row(&self, cells: &[String], widths: &[usize]) -> String {
-        let formatted: Vec<String> = cells.iter()
-            .enumerate()
-            .map(|(i, cell)| {
-                let cell_width = widths.get(i).copied().unwrap_or(cell.width() + 2);
-                self.center_cell(cell, cell_width)
-            })
-            .collect();
-        format!("│{}│", formatted.join("│"))
-    }
-
-    fn center_cell(&self, content: &str, cell_width: usize) -> String {
+    fn pad_cell(&self, content: &str, width: usize) -> String {
+        // Pad content to fit in width (width includes 2 padding spaces)
         let content_width = content.width();
-        let total_padding = cell_width.saturating_sub(content_width);
-
-        if total_padding == 0 {
-            return content.to_string();
-        }
-
-        let left_pad = total_padding / 2;
-        let right_pad = total_padding - left_pad;
-
+        let padding = width.saturating_sub(content_width);
+        let left_pad = padding / 2;
+        let right_pad = padding - left_pad;
         format!("{}{}{}", " ".repeat(left_pad), content, " ".repeat(right_pad))
     }
 }

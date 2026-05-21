@@ -9,6 +9,7 @@ use matrixcode_core::{
     SessionManager,
     tools::all_tools_with_skills,
     memory::MemoryStorage,
+    providers::Provider,
 };
 use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
 use std::path::{PathBuf, Path};
@@ -571,6 +572,29 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         agent.set_cancel_token(agent_cancel.clone());
         agent.set_ask_channel(ask_rx);
 
+        // Turn counter for periodic cleanup
+        let mut turn_count: usize = 0;
+
+        // Auto-analyze project structure on first run if no memories exist
+        if let Some(ref project_path) = agent_project_path {
+            if let Some(ref mut ms) = memory_storage {
+                let memory_file = project_path.join(".matrix/memory.json");
+                if !memory_file.exists() {
+                    // First time in this project - analyze structure
+                    let count = matrixcode_core::memory::generate_project_structure_memories(
+                        project_path.as_path(),
+                        ms
+                    );
+                    if count > 0 {
+                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                            format!("🧠 自动分析项目结构，创建 {} 条记忆", count),
+                            None,
+                        )).await;
+                    }
+                }
+            }
+        }
+
         while let Some(msg) = task_rx.recv().await {
             // Make msg mutable for skill activation transformation
             let mut msg = msg;
@@ -891,54 +915,184 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             if msg == "/memory" || msg.starts_with("/memory ") {
                 let parts: Vec<&str> = msg.split_whitespace().collect();
                 let subcmd = parts.get(1).copied().unwrap_or("");
-                
+
                 if let Some(ref mut ms) = memory_storage {
                     let response = match subcmd {
                         "" | "list" => {
-                            // List all memories
+                            // List all memories with better formatting
                             if let Ok(mem) = ms.load_combined() {
                                 if mem.entries.is_empty() {
-                                    "📝 No memories stored yet.\n\nMemories are auto-detected from AI responses.".to_string()
+                                    "📝 No memories stored yet.\n\nMemories are auto-detected from AI responses.\nUse '/memory analyze' to scan project structure.".to_string()
                                 } else {
-                                    let mut info = format!("📝 Memories ({} entries):\n\n", mem.entries.len());
-                                    for (i, entry) in mem.entries.iter().enumerate().take(20) {
-                                        info.push_str(&format!("{}. {}\n", i + 1, 
-                                            entry.content.chars().take(100).collect::<String>().trim_end_matches('\n')));
+                                    let stats = mem.generate_statistics();
+                                    let mut info = stats.format_summary();
+                                    info.push_str("\n\n📋 Recent entries:\n");
+                                    for (i, entry) in mem.entries.iter().enumerate().take(10) {
+                                        let content_preview: String = entry.content.chars().take(80).collect();
+                                        let content_preview = content_preview.trim_end_matches('\n');
+                                        let importance_marker = if entry.importance >= 80.0 { "⭐" } else { "" };
+                                        let manual_marker = if entry.is_manual { "📝" } else { "" };
+                                        info.push_str(&format!("{}. {}{}{} {} {}\n",
+                                            i + 1,
+                                            entry.category.icon(),
+                                            importance_marker,
+                                            manual_marker,
+                                            content_preview,
+                                            entry.category.display_name()));
                                     }
-                                    if mem.entries.len() > 20 {
-                                        info.push_str(&format!("\n... and {} more entries", mem.entries.len() - 20));
+                                    if mem.entries.len() > 10 {
+                                        info.push_str(&format!("\n... and {} more entries", mem.entries.len() - 10));
                                     }
+                                    info.push_str("\n\nCommands: stats, search <query>, add <content>, forget <id>, analyze, merge");
                                     info
                                 }
                             } else {
                                 "❌ Failed to load memories".to_string()
                             }
                         }
-                        "clear" => {
-                            // Clear all memories
-                            if let Ok(mut mem) = ms.load_global() {
-                                mem.entries.clear();
-                                ms.save_global(&mem).ok();
-                                "✓ All memories cleared".to_string()
-                            } else {
-                                "❌ Failed to clear memories".to_string()
-                            }
-                        }
                         "stats" => {
-                            // Show memory stats
+                            // Show detailed memory stats
                             if let Ok(mem) = ms.load_combined() {
-                                format!("📝 Memory stats:\n  Total entries: {}\n  Enabled: {}", 
-                                    mem.entries.len(),
-                                    mem.enabled)
+                                let stats = mem.generate_statistics();
+                                stats.format_summary()
                             } else {
                                 "❌ Failed to get memory stats".to_string()
                             }
                         }
+                        "search" => {
+                            // Search memories by query
+                            let query = parts.get(2..).map(|p| p.join(" ")).unwrap_or_default();
+                            if query.is_empty() {
+                                "Usage: /memory search <query>".to_string()
+                            } else if let Ok(mem) = ms.load_combined() {
+                                let results = mem.search_with_limit(&query, Some(10));
+                                if results.is_empty() {
+                                    format!("No memories found for '{}'", query)
+                                } else {
+                                    let mut info = format!("🔍 Search results for '{}':\n\n", query);
+                                    for (i, entry) in results.iter().enumerate() {
+                                        info.push_str(&format!("{}. {} {} (重要性: {:.0})\n   {}\n",
+                                            i + 1,
+                                            entry.category.icon(),
+                                            entry.category.display_name(),
+                                            entry.importance,
+                                            entry.content.chars().take(100).collect::<String>().trim_end_matches('\n')));
+                                    }
+                                    info
+                                }
+                            } else {
+                                "❌ Failed to search memories".to_string()
+                            }
+                        }
+                        "add" => {
+                            // Add manual memory
+                            let content = parts.get(2..).map(|p| p.join(" ")).unwrap_or_default();
+                            if content.is_empty() {
+                                "Usage: /memory add <content>".to_string()
+                            } else if let Ok(mut mem) = ms.load_global() {
+                                // Infer category from content
+                                let category = matrixcode_core::memory::infer_category_from_content(&content);
+                                let entry = matrixcode_core::memory::MemoryEntry::manual(category, content.clone());
+                                mem.add(entry);
+                                if ms.save_global(&mem).is_ok() {
+                                    format!("✓ Added memory: {} {}\n  {}", category.icon(), category.display_name(), content)
+                                } else {
+                                    "❌ Failed to save memory".to_string()
+                                }
+                            } else {
+                                "❌ Failed to add memory".to_string()
+                            }
+                        }
+                        "forget" | "delete" | "remove" => {
+                            // Delete memory by index or ID
+                            let target = parts.get(2).copied().unwrap_or("");
+                            if target.is_empty() {
+                                "Usage: /memory forget <index|id>".to_string()
+                            } else if let Ok(mut mem) = ms.load_combined() {
+                                // Try to parse as index first
+                                let removed = if let Ok(idx) = target.parse::<usize>() {
+                                    if idx > 0 && idx <= mem.entries.len() {
+                                        let entry = mem.entries.remove(idx - 1);
+                                        Some(entry.content)
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    // Try to remove by ID (partial match)
+                                    mem.remove(target).then_some(target.to_string())
+                                };
+
+                                if let Some(content) = removed {
+                                    // Save to appropriate storage
+                                    if let Err(_) = ms.save_global(&mem) {
+                                        // Try project storage if global failed
+                                        ms.save_project(&mem).ok();
+                                    }
+                                    format!("✓ Removed memory: {}", content.chars().take(50).collect::<String>())
+                                } else {
+                                    format!("❌ Memory not found: {}", target)
+                                }
+                            } else {
+                                "❌ Failed to delete memory".to_string()
+                            }
+                        }
+                        "analyze" => {
+                            // Analyze project structure and create memories
+                            if let Some(ref project_path) = agent_project_path {
+                                let count = matrixcode_core::memory::generate_project_structure_memories(
+                                    project_path.as_path(),
+                                    ms
+                                );
+                                if count > 0 {
+                                    format!("✓ Generated {} structure memories from project analysis", count)
+                                } else {
+                                    "No new structure memories generated (may already exist)".to_string()
+                                }
+                            } else {
+                                "❌ No project path available for analysis".to_string()
+                            }
+                        }
+                        "merge" => {
+                            // Execute smart merge
+                            if let Ok(mut mem) = ms.load_combined() {
+                                let count = mem.smart_merge();
+                                if count > 0 {
+                                    ms.save_global(&mem).ok();
+                                    format!("✓ Merged {} similar memories", count)
+                                } else {
+                                    "No similar memories found to merge".to_string()
+                                }
+                            } else {
+                                "❌ Failed to merge memories".to_string()
+                            }
+                        }
+                        "clear" => {
+                            // Clear all memories (with confirmation)
+                            if let Ok(mut mem) = ms.load_global() {
+                                let count = mem.entries.len();
+                                mem.entries.clear();
+                                ms.save_global(&mem).ok();
+                                format!("✓ Cleared {} memories", count)
+                            } else {
+                                "❌ Failed to clear memories".to_string()
+                            }
+                        }
+                        "help" => {
+                            "📝 Memory commands:\n\
+                            list     - Show all memories\n\
+                            stats    - Show detailed statistics\n\
+                            search   - Search memories by query\n\
+                            add      - Add manual memory\n\
+                            forget   - Delete memory by index\n\
+                            analyze  - Scan project structure\n\
+                            merge    - Merge similar memories\n\
+                            clear    - Clear all memories".to_string()
+                        }
                         _ => {
-                            "Unknown memory command. Use: list, clear, stats".to_string()
+                            "Unknown memory command. Use '/memory help' for available commands.".to_string()
                         }
                     };
-                    
+
                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
                         response,
                         None,
@@ -1130,6 +1284,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             }
 
             // Run agent - events are sent directly via event_tx during run()
+            // Track turn count for periodic cleanup
+            turn_count += 1;
+
             match agent.run(msg.clone()).await {
                 Ok(_) => {
                     // Auto-save session after each turn
@@ -1139,15 +1296,39 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                         mgr.set_messages(messages.to_vec());
                         mgr.update_stats(input_tokens as u32, output_tokens);
                         let _ = mgr.save_current();
-                        
+
                         // Debug log: session save
                         matrixcode_core::debug::debug_log().session_save(messages.len(), output_tokens);
                     }
-                    
-                    // Auto-detect and save memories
+
+                    // Auto-detect and save memories (enhanced)
                     if let Some(ref mut ms) = memory_storage {
                         let messages = agent.get_messages();
-                        // Detect from last assistant message
+
+                        // 1. Check for user feedback/correction in the user message
+                        let feedback_results = matrixcode_core::memory::detect_feedback_patterns(&msg);
+                        if !feedback_results.is_empty() {
+                            if let Ok(mut mem) = ms.load_combined() {
+                                let feedback_count = feedback_results.len();
+                                for feedback in feedback_results {
+                                    matrixcode_core::memory::apply_feedback_to_memory(&feedback, &mut mem);
+                                }
+                                // Save to appropriate storage
+                                if mem.entries.iter().any(|e| e.tags.contains(&"project".to_string())) {
+                                    ms.save_project(&mem).ok();
+                                } else {
+                                    ms.save_global(&mem).ok();
+                                }
+
+                                // Send feedback event
+                                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                                    format!("🧠 Learned from feedback: {} corrections", feedback_count),
+                                    None,
+                                )).await;
+                            }
+                        }
+
+                        // 2. Detect from last assistant message using AI (fast model)
                         if let Some(last_msg) = messages.last() {
                             let text = match &last_msg.content {
                                 matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
@@ -1159,29 +1340,79 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                 }
                             };
 
-                            // Use smart detection (AI when MEMORY_AI_DETECTION=always)
-                            // For now, use rule-based (fast) - AI detection can be enabled via env var
-                            let detected = matrixcode_core::memory::detect_memories_from_text(
-                                &text, None
-                            );
+                            // Use AI extraction with fast provider (smart detection)
+                            // Falls back to rule-based if AI fails or unavailable
+                            let detected = if let Some(ref fp) = fast_provider {
+                                // AI extraction with fast model
+                                let model_name = agent_fast_model.clone().unwrap_or_default();
+                                let extractor = matrixcode_core::memory::AiMemoryExtractor::new(
+                                    fp.clone_box(),
+                                    model_name,
+                                );
+                                matrixcode_core::memory::detect_memories_smart(
+                                    &text, None, Some(&extractor)
+                                ).await
+                            } else {
+                                // Fallback to rule-based detection
+                                matrixcode_core::memory::detect_memories_from_text(&text, None)
+                            };
+
                             if !detected.is_empty() {
                                 let detected_count = detected.len();
-                                if let Ok(mut mem) = ms.load_global() {
+                                if let Ok(mut mem) = ms.load_combined() {
                                     for entry in detected {
                                         mem.add(entry);
                                     }
-                                    let _ = ms.save_global(&mem);
-                                    
+                                    ms.save_global(&mem).ok();
+
                                     // Debug log: memory save
                                     matrixcode_core::debug_memory!(detected_count, text.len());
-                                    
+
                                     // Send event to TUI
                                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
                                         matrixcode_core::EventType::MemoryDetected,
                                         matrixcode_core::EventData::Memory {
-                                            summary: format!("Detected {} memory entries", detected_count),
+                                            summary: format!("检测到 {} 条记忆", detected_count),
                                             entries_count: detected_count,
                                         },
+                                    )).await;
+                                }
+                            }
+
+                            // 3. Infer preferences from behavior (every 5 turns)
+                            if turn_count % 5 == 0 && messages.len() >= 3 {
+                                if let Ok(mut mem) = ms.load_combined() {
+                                    let config = matrixcode_core::memory::BehaviorInferenceConfig::default();
+                                    let inferred = matrixcode_core::memory::apply_behavior_inferences_to_memory(
+                                        messages, &mut mem, Some(&config)
+                                    );
+                                    if inferred > 0 {
+                                        ms.save_global(&mem).ok();
+                                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                                            format!("🧠 推断出 {} 个使用偏好", inferred),
+                                            None,
+                                        )).await;
+                                    }
+                                }
+                            }
+                        }
+
+                        // 4. Periodic cleanup (every 10 turns)
+                        if turn_count % 10 == 0 {
+                            if let Ok(mut mem) = ms.load_combined() {
+                                // Apply time decay
+                                mem.apply_time_decay();
+                                // Smart merge
+                                let merged = mem.smart_merge();
+                                // Prune low importance
+                                mem.prune();
+                                // Save
+                                ms.save_global(&mem).ok();
+
+                                if merged > 0 {
+                                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                                        format!("🧠 合并了 {} 条相似记忆", merged),
+                                        None,
                                     )).await;
                                 }
                             }

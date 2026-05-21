@@ -3,17 +3,35 @@
 //! This module implements automatic memory accumulation inspired by Claude Code.
 //! It captures user preferences, project decisions, key findings, and solutions
 //! across sessions, providing persistent context that survives conversation compression.
+//!
+//! # Module Structure
+//!
+//! | Section | Description |
+//! |--------|-------------|
+//! | SECTION 1 | Constants & Configuration |
+//! | SECTION 2 | Core Types (MemoryCategory, MemoryEntry, AutoMemory) |
+//! | SECTION 3 | Storage (MemoryStorage, File Operations) |
+//! | SECTION 4 | Retrieval (TF-IDF Search) |
+//! | SECTION 5 | Semantic Similarity (Aliases, Relevance) |
+//! | SECTION 6 | AI Enhancement (MemoryExtractor) |
+//! | SECTION 7 | Detection (Rule-based) |
+//! | SECTION 8 | Feedback Learning |
+//! | SECTION 9 | Behavior Inference |
+//! | SECTION 10 | Project Analysis |
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs;
 
 use crate::providers::Message;
 
-// Helper function to truncate strings (replaces ui::truncate_str)
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
 fn truncate_str(s: &str, max_len: usize) -> String {
     if s.len() > max_len {
         format!("{}...", &s[..max_len.saturating_sub(3)])
@@ -31,7 +49,7 @@ fn truncate(s: &str, max_len: usize) -> String {
 }
 
 // ============================================================================
-// Constants
+// SECTION 1: Constants & Configuration
 // ============================================================================
 
 /// Maximum importance score ceiling (entries cannot exceed this).
@@ -43,6 +61,10 @@ pub const MIN_SIMILARITY_LENGTH: usize = 10;
 /// Similarity threshold for considering entries as duplicates (0.0-1.0).
 /// Higher value (0.85) reduces duplicate detection false negatives.
 pub const SIMILARITY_THRESHOLD: f64 = 0.85;
+
+/// Similarity threshold for merging similar memories (0.0-1.0).
+/// Lower than duplicate threshold to allow semantic merging.
+pub const MERGE_SIMILARITY_THRESHOLD: f64 = 0.7;
 
 /// Minimum content length for memory detection (to avoid capturing too generic content).
 /// Increased to 20 to filter out short fragments.
@@ -258,6 +280,10 @@ impl MemoryConfig {
         }
     }
 }
+
+// ============================================================================
+// SECTION 2: Core Types (MemoryCategory, MemoryEntry, AutoMemory)
+// ============================================================================
 
 // ============================================================================
 // Memory Categories
@@ -760,14 +786,14 @@ impl AutoMemory {
             .iter()
             .cloned()
             .partition(|e| e.is_manual);
-        
+
         // Sort auto entries by importance (descending) + recency as tiebreaker
         let mut sorted_auto = auto_entries;
         sorted_auto.sort_by(|a, b| {
             // First compare by importance
             let importance_cmp = b.importance.partial_cmp(&a.importance)
                 .unwrap_or(std::cmp::Ordering::Equal);
-            
+
             // If equal importance, prefer more recently referenced
             if importance_cmp == std::cmp::Ordering::Equal {
                 b.last_referenced.cmp(&a.last_referenced)
@@ -775,17 +801,17 @@ impl AutoMemory {
                 importance_cmp
             }
         });
-        
+
         // Filter auto entries above min_importance threshold
         let kept_auto: Vec<_> = sorted_auto
             .into_iter()
             .filter(|e| e.importance >= self.min_importance)
             .take(self.max_entries.saturating_sub(manual_entries.len()))
             .collect();
-        
+
         // Combine: manual entries first, then sorted auto entries
         self.entries = manual_entries.into_iter().chain(kept_auto).collect();
-        
+
         // Final safety check: if still too many, truncate oldest/least important
         if self.entries.len() > self.max_entries {
             self.entries.sort_by(|a, b| {
@@ -799,8 +825,173 @@ impl AutoMemory {
             });
             self.entries.truncate(self.max_entries);
         }
-        
+
         self.invalidate_index();  // Index needs rebuild after prune
+    }
+
+    /// Smart merge of similar memories (rule-based, no AI needed).
+    /// Merges high-similarity entries of the same category.
+    /// Returns the number of entries merged (reduced count).
+    pub fn smart_merge(&mut self) -> usize {
+        if self.entries.len() < 2 {
+            return 0;
+        }
+
+        let mut merged_count = 0;
+        let mut to_remove: Vec<String> = Vec::new();
+        let mut new_entries: Vec<MemoryEntry> = Vec::new();
+        let mut processed: HashSet<String> = HashSet::new();
+
+        // Find groups of similar entries
+        for i in 0..self.entries.len() {
+            let entry_i = &self.entries[i];
+            if processed.contains(&entry_i.id) {
+                continue;
+            }
+
+            // Find similar entries of the same category
+            let mut similar_group: Vec<usize> = vec![i];
+
+            for j in (i + 1)..self.entries.len() {
+                let entry_j = &self.entries[j];
+                if processed.contains(&entry_j.id) {
+                    continue;
+                }
+
+                // Must be same category
+                if entry_i.category != entry_j.category {
+                    continue;
+                }
+
+                // Check similarity
+                let similarity = Self::calculate_similarity(&entry_i.content, &entry_j.content);
+                if similarity >= MERGE_SIMILARITY_THRESHOLD {
+                    similar_group.push(j);
+                }
+            }
+
+            // If we have a group to merge
+            if similar_group.len() >= 2 {
+                // Get all entries in group
+                let group_entries: Vec<&MemoryEntry> = similar_group
+                    .iter()
+                    .map(|&idx| &self.entries[idx])
+                    .collect();
+
+                // Create merged entry
+                let merged = self.merge_group(&group_entries);
+
+                // Mark old entries for removal
+                for entry in &group_entries {
+                    to_remove.push(entry.id.clone());
+                    processed.insert(entry.id.clone());
+                }
+
+                // Add merged entry
+                new_entries.push(merged);
+                merged_count += similar_group.len() - 1;
+            } else {
+                // No merge needed, just keep the entry
+                processed.insert(entry_i.id.clone());
+            }
+        }
+
+        // Remove merged entries
+        for id in &to_remove {
+            self.remove(id);
+        }
+
+        // Add new merged entries
+        for entry in new_entries {
+            self.add(entry);
+        }
+
+        if merged_count > 0 {
+            log::debug!("Smart merge: reduced {} entries", merged_count);
+            self.invalidate_index();
+        }
+
+        merged_count
+    }
+
+    /// Merge a group of similar entries into one.
+    fn merge_group(&self, entries: &[&MemoryEntry]) -> MemoryEntry {
+        // Find the entry with highest importance (or most detailed)
+        let best = entries
+            .iter()
+            .max_by(|a, b| {
+                // Prefer more detailed (longer) + higher importance
+                let score_a = a.importance + (a.content.len() as f64 / 100.0);
+                let score_b = b.importance + (b.content.len() as f64 / 100.0);
+                score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap();
+
+        // If entries are almost identical, just keep the best one
+        let all_same = entries.iter().all(|e| {
+            Self::calculate_similarity(&e.content, &best.content) >= 0.95
+        });
+
+        if all_same {
+            // Return best entry with combined importance
+            // Clone the actual MemoryEntry (dereference the reference)
+            let mut merged: MemoryEntry = (*best).clone();
+            merged.importance = entries
+                .iter()
+                .map(|e| e.importance)
+                .fold(best.importance, |max, val| val.max(max));
+            merged.tags.push("merged".to_string());
+            return merged;
+        }
+
+        // Otherwise, create combined content
+        // Take the best content and add key differences from others
+        let mut merged_content = best.content.clone();
+
+        // Extract unique keywords from other entries
+        for entry in entries {
+            if entry.id == best.id {
+                continue;
+            }
+            // Find unique words in this entry
+            let unique_words = entry.content
+                .split_whitespace()
+                .filter(|word| !best.content.contains(word))
+                .take(3)  // Add at most 3 unique words
+                .collect::<Vec<_>>();
+
+            if !unique_words.is_empty() {
+                // Append as additional context (if meaningful)
+                let additions = unique_words.join(", ");
+                if additions.len() > 10 {
+                    merged_content = format!("{} ({})", merged_content.trim_end_matches('.'), additions);
+                }
+            }
+        }
+
+        // Create merged entry
+        let mut merged = MemoryEntry::new(best.category, merged_content, None);
+        merged.importance = entries
+            .iter()
+            .map(|e| e.importance)
+            .fold(best.importance, |max, val| val.max(max))
+            + 5.0;  // Boost merged entries
+        merged.importance = merged.importance.min(MAX_IMPORTANCE_CEILING);
+
+        // Combine tags
+        merged.tags.push("merged".to_string());
+        for entry in entries {
+            for tag in &entry.tags {
+                if !merged.tags.contains(tag) && !tag.starts_with("merged") {
+                    merged.tags.push(tag.clone());
+                }
+            }
+        }
+
+        // Keep manual status if any was manual
+        merged.is_manual = entries.iter().any(|e| e.is_manual);
+
+        merged
     }
 
     /// Get entries by category.
@@ -1020,22 +1211,50 @@ impl AutoMemory {
     }
     
     /// Generate context-aware summary with pre-extracted keywords.
-    /// More efficient when keywords are already extracted (e.g., by AI).
-    pub fn generate_contextual_summary_with_keywords(&self, context_keywords: &[String], max_entries: usize) -> String {
+/// More efficient when keywords are already extracted (e.g., by AI).
+/// Enhanced with TF-IDF search for better relevance ranking.
+pub fn generate_contextual_summary_with_keywords(&self, context_keywords: &[String], max_entries: usize) -> String {
         if self.entries.is_empty() {
             return String::new();
         }
 
-        // Score each entry by relevance to context keywords
+        // Expand keywords with semantic aliases for better matching
+        let expanded_keywords = expand_semantic_keywords(context_keywords);
+
+        // Use TF-IDF search for initial ranking
+        let mut tfidf = TfIdfSearch::new();
+        tfidf.index(self);
+        let keywords_slice: Vec<&str> = expanded_keywords.iter().map(|s| s.as_str()).collect();
+        let tfidf_results = tfidf.search_multi(&keywords_slice, Some(max_entries * 2));
+
+        // Convert TF-IDF results to a relevance map
+        let mut tfidf_scores: HashMap<String, f64> = HashMap::new();
+        for (content, score) in &tfidf_results {
+            // Find matching entry by content
+            if let Some(entry) = self.entries.iter().find(|e| &e.content == content) {
+                tfidf_scores.insert(entry.id.clone(), *score);
+            }
+        }
+
+        // Score each entry with combined TF-IDF + compute_relevance
         let mut scored: Vec<(&MemoryEntry, f64)> = self.entries
             .iter()
             .map(|entry| {
-                let relevance = compute_relevance(entry, &context_keywords);
-                (entry, relevance)
+                // Traditional relevance score
+                let relevance = compute_relevance(entry, &expanded_keywords);
+
+                // TF-IDF score (normalized)
+                let tfidf = tfidf_scores.get(&entry.id).copied().unwrap_or(0.0);
+
+                // Combine: TF-IDF (semantic) + relevance (keyword match)
+                // Weight TF-IDF more for semantic similarity, relevance for exact matches
+                let combined = tfidf * 0.4 + relevance * 0.6;
+
+                (entry, combined)
             })
             .collect();
-        
-        // Sort by: manual first, then relevance + importance combined
+
+        // Sort by: manual first, then combined score + importance
         scored.sort_by(|a, b| {
             // Manual entries always first
             if a.0.is_manual && !b.0.is_manual {
@@ -1044,27 +1263,36 @@ impl AutoMemory {
             if !a.0.is_manual && b.0.is_manual {
                 return std::cmp::Ordering::Greater;
             }
-            
-            // Combined score: relevance weight + importance weight
+
+            // Combined score: relevance + importance
             let score_a = a.1 * CONTEXT_RELEVANCE_WEIGHT + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
             let score_b = b.1 * CONTEXT_RELEVANCE_WEIGHT + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
-            
+
             score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
         });
-        
-        // Take top entries
+
+        // Take top entries and collect IDs (for potential reference update)
+        let _selected_ids: Vec<String> = scored
+            .iter()
+            .take(max_entries)
+            .map(|(entry, _)| entry.id.clone())
+            .collect();
+
         let selected: Vec<&MemoryEntry> = scored
             .iter()
             .take(max_entries)
             .map(|(entry, _)| *entry)
             .collect();
-        
+
         if selected.is_empty() {
             return String::new();
         }
 
+        // Note: We can't update entries here since self is borrowed
+        // The reference update should be done separately after retrieval
+
         let mut summary = String::from("【跨会话记忆】\n\n");
-        
+
         // Group by category
         let mut by_cat: HashMap<MemoryCategory, Vec<&MemoryEntry>> = HashMap::new();
         for entry in selected {
@@ -1080,6 +1308,53 @@ impl AutoMemory {
         }
 
         summary
+    }
+
+    /// Update reference statistics for retrieved memories.
+    /// Call this after generating a summary to boost importance of frequently used memories.
+    pub fn update_retrieval_stats(&mut self, retrieved_ids: &[String]) {
+        for id in retrieved_ids {
+            if let Some(entry) = self.entries.iter_mut().find(|e| &e.id == id) {
+                entry.mark_referenced();
+                log::debug!("Updated reference stats for memory {}", id);
+            }
+        }
+    }
+
+    /// Get IDs of entries that would be selected for a context.
+    /// Useful for updating reference stats after retrieval.
+    pub fn get_retrieval_ids(&self, context_keywords: &[String], max_entries: usize) -> Vec<String> {
+        if self.entries.is_empty() {
+            return Vec::new();
+        }
+
+        let expanded_keywords = expand_semantic_keywords(context_keywords);
+
+        // Simple relevance scoring
+        let mut scored: Vec<(&MemoryEntry, f64)> = self.entries
+            .iter()
+            .map(|entry| {
+                let relevance = compute_relevance(entry, &expanded_keywords);
+                (entry, relevance)
+            })
+            .collect();
+
+        // Sort by manual + score
+        scored.sort_by(|a, b| {
+            if a.0.is_manual && !b.0.is_manual {
+                return std::cmp::Ordering::Less;
+            }
+            if !a.0.is_manual && b.0.is_manual {
+                return std::cmp::Ordering::Greater;
+            }
+
+            let score_a = a.1 + (a.0.importance / MAX_IMPORTANCE_CEILING);
+            let score_b = b.1 + (b.0.importance / MAX_IMPORTANCE_CEILING);
+
+            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        scored.iter().take(max_entries).map(|(e, _)| e.id.clone()).collect()
     }
 
     /// Generate context-aware summary with AI-enhanced keyword extraction.
@@ -1441,6 +1716,10 @@ impl Drop for MemoryFileLock {
     }
 }
 
+// ============================================================================
+// SECTION 3: Storage (MemoryStorage, File Operations)
+// ============================================================================
+
 /// Storage for memory files (global and project-level) with file locking.
 pub struct MemoryStorage {
     /// Base directory for global memory (~/.matrix).
@@ -1799,35 +2078,128 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
     result
 }
 
+// ============================================================================
+// SECTION 5: Semantic Similarity Enhancement (Aliases, Relevance)
+// ============================================================================
+
+/// Semantic alias mappings for better keyword matching.
+/// Maps related terms to common equivalents.
+pub const SEMANTIC_ALIASES: &[(&str, &str)] = &[
+    // Database related
+    ("数据库", "database"), ("db", "database"),
+    ("postgresql", "postgres"), ("mysql", "mysql"),
+    ("mongodb", "mongo"), ("redis", "redis"),
+    ("sqlite", "sqlite"), ("sql", "database"),
+    // Frontend related
+    ("前端", "frontend"), ("ui", "frontend"),
+    ("界面", "frontend"), ("页面", "page"),
+    ("组件", "component"), ("react", "react"),
+    ("vue", "vue"), ("angular", "angular"),
+    // Backend related
+    ("后端", "backend"), ("api", "api"),
+    ("接口", "api"), ("服务", "service"),
+    ("server", "backend"), ("服务器", "backend"),
+    // Framework/Language
+    ("rust", "rust"), ("python", "python"),
+    ("javascript", "js"), ("typescript", "ts"),
+    ("java", "java"), ("go", "golang"),
+    ("golang", "go"), ("c++", "cpp"),
+    ("cpp", "c++"), ("nodejs", "node"),
+    ("node", "nodejs"),
+    // Tools
+    ("编辑器", "editor"), ("ide", "editor"),
+    ("vim", "vim"), ("vscode", "vscode"),
+    ("emacs", "emacs"),
+    // Config
+    ("配置", "config"), ("设置", "config"),
+    ("config", "config"), ("setting", "config"),
+    // Structure
+    ("目录", "directory"), ("文件", "file"),
+    ("文件夹", "directory"), ("路径", "path"),
+    ("模块", "module"), ("包", "package"),
+    // Testing
+    ("测试", "test"), ("test", "test"),
+    ("单元测试", "unittest"), ("unittest", "test"),
+    // Cache
+    ("缓存", "cache"), ("cache", "cache"),
+    // Auth
+    ("认证", "auth"), ("登录", "login"),
+    ("auth", "auth"), ("登录", "auth"),
+    // Performance
+    ("性能", "performance"), ("优化", "optimize"),
+    ("速度", "speed"), ("慢", "slow"),
+    // Common verbs
+    ("创建", "create"), ("删除", "delete"),
+    ("修改", "modify"), ("添加", "add"),
+    ("更新", "update"), ("查询", "query"),
+];
+
+/// Expand keywords with semantic aliases.
+/// Returns expanded keywords including original + aliases.
+pub fn expand_semantic_keywords(keywords: &[String]) -> Vec<String> {
+    let mut expanded: Vec<String> = keywords.to_vec();
+
+    for keyword in keywords {
+        let kw_lower = keyword.to_lowercase();
+        // Find aliases for this keyword
+        for (alias, target) in SEMANTIC_ALIASES {
+            if kw_lower.contains(alias) {
+                // Add both the target and the alias
+                expanded.push(target.to_string());
+            }
+            if kw_lower.contains(target) {
+                expanded.push(alias.to_string());
+            }
+        }
+    }
+
+    // Deduplicate
+    expanded.sort();
+    expanded.dedup();
+    expanded
+}
+
 /// Compute relevance score of a memory entry to context keywords.
 /// Returns 0.0-1.0 where 1.0 means highly relevant.
+/// Enhanced with semantic alias expansion for better matching.
 fn compute_relevance(entry: &MemoryEntry, context_keywords: &[String]) -> f64 {
     if context_keywords.is_empty() {
         return 0.0;
     }
-    
+
+    // Expand keywords with semantic aliases
+    let expanded_keywords = expand_semantic_keywords(context_keywords);
+
     let content_lower = entry.content.to_lowercase();
-    
-    // Count how many context keywords appear in this entry
-    let matches = context_keywords
+
+    // Count how many expanded keywords appear in this entry
+    let matches = expanded_keywords
         .iter()
-        .filter(|kw| content_lower.contains(kw.as_str()))
+        .filter(|kw| {
+            let kw_lower = kw.to_lowercase();
+            // Check both exact match and semantic alias match
+            content_lower.contains(&kw_lower)
+        })
         .count();
-    
+
     // Normalize by total keywords (0.0-1.0)
-    let keyword_score = matches as f64 / context_keywords.len() as f64;
-    
-    // Boost for tag matches
+    // Use expanded count for better normalization
+    let keyword_score = matches as f64 / expanded_keywords.len().max(context_keywords.len()) as f64;
+
+    // Boost for tag matches (tags often contain key technologies/topics)
     let tag_matches = entry.tags
         .iter()
         .filter(|tag| {
             let tag_lower = tag.to_lowercase();
-            context_keywords.iter().any(|kw| tag_lower.contains(kw.as_str()))
+            expanded_keywords.iter().any(|kw| {
+                tag_lower.contains(&kw.to_lowercase()) ||
+                kw.to_lowercase().contains(&tag_lower)
+            })
         })
         .count();
-    
-    let tag_score = if tag_matches > 0 { 0.2 } else { 0.0 };
-    
+
+    let tag_score = if tag_matches > 0 { 0.2 + (tag_matches as f64 * 0.05).min(0.1) } else { 0.0 };
+
     // Combined score (capped at 1.0)
     (keyword_score + tag_score).min(1.0)
 }
@@ -1880,7 +2252,7 @@ fn has_contradiction_signal(old: &str, new: &str) -> bool {
 }
 
 // ============================================================================
-// AI-Based Memory Extraction
+// SECTION 6: AI Enhancement (MemoryExtractor, AiMemoryProcessor)
 // ============================================================================
 
 /// Trait for memory extraction implementations.
@@ -2906,7 +3278,7 @@ impl AutoMemory {
 
 
 // ============================================================================
-// Memory Detection (Fallback - Rule-based)
+// SECTION 7: Detection (Rule-based Memory Detection)
 // ============================================================================
 
 /// Detect potential memory entries from conversation content.
@@ -2917,17 +3289,26 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<Mem
     let text_lower = text.to_lowercase();
 
     // Detection patterns for each category (specific phrases to avoid generic matches)
+    // Extended with more natural expressions for better detection coverage
     let patterns: Vec<(MemoryCategory, Vec<&str>)> = vec![
         (MemoryCategory::Decision, vec![
-            // Chinese: specific decision phrases
+            // Chinese: specific decision phrases (original)
             "最终决定", "决定采用", "我们决定", "最终选择", "经过讨论决定",
             "项目决定", "团队决定", "最终选定", "确定使用",
+            // Chinese: extended decision phrases (new)
+            "选择使用", "采用方案", "最终方案", "定下来",
+            "就定这个", "确定方案", "敲定", "拍板",
+            "那就用", "用这个", "选定了", "定好",
+            "统一用", "标准是", "规范是",
             // English: specific decision phrases
             "we decided", "final decision", "decided to use", "chose to use",
             "team decided", "final choice", "ultimately chose",
+            // English: extended decision phrases (new)
+            "selected", "will use", "going with", "settled on",
+            "agreed to use", "conclusion is", "our choice is",
         ]),
         (MemoryCategory::Preference, vec![
-            // Chinese: explicit preference phrases
+            // Chinese: explicit preference phrases (original)
             // "我喜欢xxx" - direct preference declaration
             "我喜欢", "我最喜欢", "我特别喜欢", "我非常喜欢",
             // "我偏好xxx" - formal preference
@@ -2936,43 +3317,93 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<Mem
             "我习惯", "我习惯用", "我的习惯", "通常我会",
             // "倾向于xxx" - tendency/inclination
             "我倾向于", "更倾向于", "我偏爱",
+            // Chinese: extended preference phrases (new)
+            "最常用", "一直用", "推荐", "建议使用",
+            "觉得好", "感觉很顺手", "我的选择",
+            "首选", "优先考虑", "比较喜欢",
+            "最好用", "最顺手", "最熟悉",
+            "一直都是", "长期使用", "经验上是",
             // English: explicit preference phrases
             "i like", "i prefer", "my favorite", "i love",
             "i prefer using", "my preference is", "i usually use",
             "i tend to use", "my habit is", "i really like",
+            // English: extended preference phrases (new)
+            "i recommend", "i suggest", "my go-to",
+            "best choice", "preferred", "always use",
+            "comfortable with", "familiar with", "i stick to",
         ]),
         (MemoryCategory::Solution, vec![
-            // Chinese: specific fix/solution phrases
+            // Chinese: specific fix/solution phrases (original)
             "通过修改", "通过添加", "通过删除", "解决方案是",
             "修复方法是", "解决方法是", "根本原因是",
             "修复了问题", "解决了问题", "关键修复",
+            // Chinese: extended solution phrases (new)
+            "搞定", "解决了", "修复成功", "问题解决了",
+            "改成", "改成这样", "调整后", "优化了",
+            "处理方式", "办法是", "做法是",
+            "改好了", "修好了", "调好了",
+            "这样改", "这样修", "改完之后",
             // English: specific fix phrases
             "fixed by", "solved by", "solution is", "root cause is",
             "the fix was", "fixed the issue",
+            // English: extended solution phrases (new)
+            "resolved", "patched", "corrected",
+            "workaround is", "fix applied", "changed to fix",
+            "solution was", "how we fixed", "fixing approach",
         ]),
         (MemoryCategory::Finding, vec![
-            // Chinese: explicit findings
+            // Chinese: explicit findings (original)
             "关键发现", "重要发现", "我注意到", "发现问题是",
             "问题根源是", "问题出在", "主要原因是",
+            // Chinese: extended finding phrases (new)
+            "发现", "注意到", "原来", "找到问题",
+            "定位到", "排查发现", "原因是", "问题在",
+            "找到了", "查到了", "找到了问题",
+            "原来如此", "原来是", "实际是",
+            "原因是这个", "根源是", "症结是",
             // English: explicit findings
             "key finding", "important discovery", "found that the",
             "the issue is", "root cause", "discovered that",
+            // English: extended finding phrases (new)
+            "found", "noticed", "observed", "identified",
+            "located", "traced", "diagnosed",
+            "the problem is", "the cause is", "it turns out",
         ]),
         (MemoryCategory::Technical, vec![
-            // Chinese: technical context
+            // Chinese: technical context (original)
             "技术栈是", "框架使用", "依赖的是", "构建工具是",
             "数据库是", "后端框架", "前端框架",
+            // Chinese: extended technical phrases (new)
+            "用的是", "基于", "跑在", "写的是",
+            "开发语言是", "语言是", "运行在",
+            "环境是", "版本是", "库是",
+            "包是", "模块是", "组件是",
+            "服务是", "端是", "层是",
             // English: technical context
             "tech stack is", "using framework", "built with",
             "database is", "backend uses", "frontend uses",
+            // English: extended technical phrases (new)
+            "implemented with", "written in", "runs on",
+            "powered by", "based on", "developed with",
+            "version", "library is", "package is",
         ]),
         (MemoryCategory::Structure, vec![
-            // Chinese: structure info
+            // Chinese: structure info (original)
             "入口文件是", "主文件位于", "核心模块是", "项目结构是",
             "主要目录", "核心目录", "重要文件是",
+            // Chinese: extended structure phrases (new)
+            "入口是", "主入口", "启动文件", "入口点",
+            "主要在", "核心在", "重点在",
+            "文件结构", "目录结构", "代码结构",
+            "位于", "放在", "存放在",
+            "目录是", "文件夹是", "路径是",
             // English: structure info
             "entry point is", "main file is", "core module is",
             "project structure", "main directory",
+            // English: extended structure phrases (new)
+            "entry is", "starts from", "boot file",
+            "located at", "placed in", "stored in",
+            "directory is", "folder is", "path is",
         ]),
     ];
 
@@ -3002,6 +3433,977 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<Mem
 /// This is kept for backward compatibility and for cases where AI is unavailable.
 pub fn detect_memories_from_text(text: &str, session_id: Option<&str>) -> Vec<MemoryEntry> {
     detect_memories_fallback(text, session_id)
+}
+
+// ============================================================================
+// SECTION 8: Feedback Learning (User Correction Detection)
+// ============================================================================
+
+/// Action to take when user feedback is detected.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FeedbackAction {
+    /// Correct/replace existing memory with new content.
+    Correct,
+    /// Delete existing memory.
+    Delete,
+    /// Add new manual memory.
+    Add,
+    /// Negative preference (user dislikes something).
+    NegativePreference,
+}
+
+/// Result of feedback detection.
+#[derive(Debug, Clone)]
+pub struct FeedbackResult {
+    /// The action to take.
+    pub action: FeedbackAction,
+    /// Target memory category (if applicable).
+    pub category: Option<MemoryCategory>,
+    /// The new content (for Correct/Add actions).
+    pub new_content: Option<String>,
+    /// Keywords to search for existing memories (for Correct/Delete actions).
+    pub search_keywords: Vec<String>,
+    /// Original feedback text.
+    pub original_text: String,
+}
+
+/// Detect user feedback patterns that indicate memory correction.
+/// This allows the system to learn from user corrections like:
+/// - "不对，应该是..." (No, it should be...)
+/// - "错了，实际上是..." (Wrong, actually it's...)
+/// - "不要那个了" (Don't want that anymore)
+/// - "记一下..." (Remember this...)
+pub fn detect_feedback_patterns(text: &str) -> Vec<FeedbackResult> {
+    let mut results = Vec::new();
+    let text_lower = text.to_lowercase();
+
+    // Correction patterns (Chinese)
+    let correction_patterns: Vec<&str> = vec![
+        "不对，应该是", "不对应该是", "错了，实际上", "错了实际上",
+        "不是，是", "不是是", "搞错了，应该是", "搞错了应该是",
+        "搞错了，实际上是", "搞错了实际上", "误解了，实际上是",
+        "那不对", "这不对", "不对的", "不正确的",
+        "应该是", "实际上是", "真实情况是",
+    ];
+
+    // Correction patterns (English)
+    let correction_patterns_en: Vec<&str> = vec![
+        "no, it should be", "wrong, actually",
+        "not correct, the", "incorrect, it's",
+        "actually it is", "the correct", "should be",
+        "it's actually", "what i meant",
+    ];
+
+    // Delete/negative patterns (Chinese)
+    let delete_patterns: Vec<&str> = vec![
+        "不要那个", "不需要那个", "删掉那个", "去掉那个",
+        "不再用", "不再使用", "不再需要", "弃用",
+        "不要了", "不需要了", "不用了",
+    ];
+
+    // Delete/negative patterns (English)
+    let delete_patterns_en: Vec<&str> = vec![
+        "don't need that", "no longer need",
+        "remove that", "delete that",
+        "not using anymore", "stop using",
+        "don't want", "not needed",
+    ];
+
+    // Add/manual patterns (Chinese)
+    let add_patterns: Vec<&str> = vec![
+        "记一下", "记住", "记录一下", "记着",
+        "要记住", "需要记住", "记下来",
+        "帮我记", "帮我记住", "记录",
+    ];
+
+    // Add/manual patterns (English)
+    let add_patterns_en: Vec<&str> = vec![
+        "remember this", "note this", "keep this",
+        "write down", "save this", "store this",
+        "make a note", "take note",
+    ];
+
+    // Negative preference patterns (Chinese)
+    let negative_pref_patterns: Vec<&str> = vec![
+        "不喜欢", "不偏好", "讨厌", "不喜欢用",
+        "不想用", "不愿意用", "反感",
+        "不太喜欢", "不怎么喜欢", "最不喜欢",
+    ];
+
+    // Negative preference patterns (English)
+    let negative_pref_patterns_en: Vec<&str> = vec![
+        "i don't like", "i dislike", "i hate",
+        "not my preference", "don't prefer",
+        "not fond of", "don't want to use",
+    ];
+
+    // Check correction patterns
+    for pattern in correction_patterns.iter().chain(correction_patterns_en.iter()) {
+        if text_lower.contains(pattern) {
+            // Extract content after the correction marker
+            let content = extract_feedback_content(text, pattern);
+            if !content.is_empty() && content.len() >= MIN_MEMORY_CONTENT_LENGTH {
+                // Determine category from content
+                let category = infer_category_from_content(&content);
+                results.push(FeedbackResult {
+                    action: FeedbackAction::Correct,
+                    category: Some(category),
+                    new_content: Some(content.clone()),
+                    search_keywords: extract_search_keywords_from_correction(&content),
+                    original_text: text.to_string(),
+                });
+            }
+        }
+    }
+
+    // Check delete patterns
+    for pattern in delete_patterns.iter().chain(delete_patterns_en.iter()) {
+        if text_lower.contains(pattern) {
+            let content = extract_feedback_content(text, pattern);
+            results.push(FeedbackResult {
+                action: FeedbackAction::Delete,
+                category: None,
+                new_content: None,
+                search_keywords: if !content.is_empty() {
+                    extract_context_keywords(&content)
+                } else {
+                    vec![pattern.to_string()]
+                },
+                original_text: text.to_string(),
+            });
+        }
+    }
+
+    // Check add/manual patterns
+    for pattern in add_patterns.iter().chain(add_patterns_en.iter()) {
+        if text_lower.contains(pattern) {
+            let content = extract_feedback_content(text, pattern);
+            if !content.is_empty() && content.len() >= MIN_MEMORY_CONTENT_LENGTH {
+                let category = infer_category_from_content(&content);
+                results.push(FeedbackResult {
+                    action: FeedbackAction::Add,
+                    category: Some(category),
+                    new_content: Some(content),
+                    search_keywords: vec![],  // No search for add
+                    original_text: text.to_string(),
+                });
+            }
+        }
+    }
+
+    // Check negative preference patterns
+    for pattern in negative_pref_patterns.iter().chain(negative_pref_patterns_en.iter()) {
+        if text_lower.contains(pattern) {
+            let content = extract_feedback_content(text, pattern);
+            if !content.is_empty() && content.len() >= MIN_MEMORY_CONTENT_LENGTH {
+                results.push(FeedbackResult {
+                    action: FeedbackAction::NegativePreference,
+                    category: Some(MemoryCategory::Preference),
+                    new_content: Some(format!("不喜欢/不偏好: {}", content)),
+                    search_keywords: extract_context_keywords(&content),
+                    original_text: text.to_string(),
+                });
+            }
+        }
+    }
+
+    // Deduplicate results by action + content
+    deduplicate_feedback_results(results)
+}
+
+/// Extract content after feedback pattern marker.
+fn extract_feedback_content(text: &str, pattern: &str) -> String {
+    let text_lower = text.to_lowercase();
+    let pattern_lower = pattern.to_lowercase();
+
+    // Find pattern position
+    let pos = match text_lower.find(&pattern_lower) {
+        Some(p) => p,
+        None => return String::new(),
+    };
+
+    // Extract content after the pattern
+    let start = pos + pattern.len();
+    if start >= text.len() {
+        return String::new();
+    }
+
+    // Find sentence end markers
+    let sentence_end_markers: &[char] = &['.', '!', '?', '。', '！', '？', '\n'];
+
+    // Extract until sentence end or reasonable length
+    let remaining = &text[start..];
+    let end = remaining.find(|c: char| sentence_end_markers.contains(&c))
+        .map(|i| i + 1)
+        .unwrap_or_else(|| remaining.len().min(MAX_MEMORY_CONTENT_LENGTH));
+
+    let content = remaining[..end].trim();
+
+    // Quality check
+    if content.len() < MIN_MEMORY_CONTENT_LENGTH || is_low_quality_memory(content) {
+        return String::new();
+    }
+
+    content.to_string()
+}
+
+/// Infer memory category from content keywords.
+pub fn infer_category_from_content(content: &str) -> MemoryCategory {
+    let content_lower = content.to_lowercase();
+
+    // Check for decision keywords
+    if content_lower.contains("决定") || content_lower.contains("选择") ||
+       content_lower.contains("采用") || content_lower.contains("decided") ||
+       content_lower.contains("chose") || content_lower.contains("selected") {
+        return MemoryCategory::Decision;
+    }
+
+    // Check for preference keywords
+    if content_lower.contains("喜欢") || content_lower.contains("偏好") ||
+       content_lower.contains("习惯") || content_lower.contains("prefer") ||
+       content_lower.contains("like") || content_lower.contains("habit") {
+        return MemoryCategory::Preference;
+    }
+
+    // Check for solution keywords
+    if content_lower.contains("修复") || content_lower.contains("解决") ||
+       content_lower.contains("改成") || content_lower.contains("fixed") ||
+       content_lower.contains("solved") || content_lower.contains("solution") {
+        return MemoryCategory::Solution;
+    }
+
+    // Check for finding keywords
+    if content_lower.contains("发现") || content_lower.contains("原因") ||
+       content_lower.contains("问题") || content_lower.contains("found") ||
+       content_lower.contains("issue") || content_lower.contains("cause") {
+        return MemoryCategory::Finding;
+    }
+
+    // Check for structure keywords
+    if content_lower.contains("文件") || content_lower.contains("目录") ||
+       content_lower.contains("入口") || content_lower.contains("file") ||
+       content_lower.contains("directory") || content_lower.contains("entry") {
+        return MemoryCategory::Structure;
+    }
+
+    // Default to Technical for general information
+    MemoryCategory::Technical
+}
+
+/// Extract keywords to search for existing memories when correcting.
+fn extract_search_keywords_from_correction(content: &str) -> Vec<String> {
+    // Use existing keyword extraction but limit to key terms
+    let keywords = extract_context_keywords(content);
+    // Take top 5 keywords for search
+    keywords.iter().take(5).cloned().collect::<Vec<_>>()
+}
+
+/// Deduplicate feedback results by action and content.
+fn deduplicate_feedback_results(results: Vec<FeedbackResult>) -> Vec<FeedbackResult> {
+    if results.is_empty() {
+        return results;
+    }
+
+    let mut unique: Vec<FeedbackResult> = Vec::new();
+    for result in results {
+        // Check if similar result already exists
+        let is_duplicate = unique.iter().any(|existing| {
+            existing.action == result.action &&
+            existing.new_content == result.new_content
+        });
+
+        if !is_duplicate {
+            unique.push(result);
+        }
+    }
+
+    unique
+}
+
+/// Apply feedback to memory storage.
+/// Returns the number of changes made (added, corrected, or deleted).
+pub fn apply_feedback_to_memory(
+    feedback: &FeedbackResult,
+    memory: &mut AutoMemory,
+) -> usize {
+    let mut changes = 0;
+
+    match feedback.action {
+        FeedbackAction::Correct => {
+            // Search for existing memories to correct
+            if !feedback.search_keywords.is_empty() {
+                let search_query = feedback.search_keywords.join(" ");
+                let matching = memory.search(&search_query);
+
+                // Find best match to correct
+                if let Some(best_match) = matching.first() {
+                    // Remove old entry
+                    let old_id = best_match.id.clone();
+                    if memory.remove(&old_id) {
+                        log::debug!("Corrected memory: removed {}", old_id);
+                        changes += 1;
+                    }
+                }
+            }
+
+            // Add new corrected content
+            if let Some(ref content) = feedback.new_content {
+                let category = feedback.category.unwrap_or(MemoryCategory::Technical);
+                let mut entry = MemoryEntry::new(category, content.clone(), None);
+                entry.is_manual = true;  // User-corrected memories are manual
+                entry.importance = 80.0;  // Higher importance for user corrections
+                memory.add(entry);
+                log::debug!("Added corrected memory: {}", content);
+                changes += 1;
+            }
+        }
+
+        FeedbackAction::Delete => {
+            // Search for memories to delete
+            if !feedback.search_keywords.is_empty() {
+                let search_query = feedback.search_keywords.join(" ");
+                let matching = memory.search(&search_query);
+
+                // Collect IDs to delete first (to avoid borrow conflict)
+                let ids_to_delete: Vec<String> = matching.iter().take(3).map(|e| e.id.clone()).collect();
+
+                // Delete all matching memories (up to 3 to avoid over-deletion)
+                for id in ids_to_delete {
+                    if memory.remove(&id) {
+                        log::debug!("Deleted memory: {}", id);
+                        changes += 1;
+                    }
+                }
+            }
+        }
+
+        FeedbackAction::Add => {
+            // Add new manual memory
+            if let Some(ref content) = feedback.new_content {
+                let category = feedback.category.unwrap_or(MemoryCategory::Technical);
+                let entry = MemoryEntry::manual(category, content.clone());
+                memory.add(entry);
+                log::debug!("Added manual memory: {}", content);
+                changes += 1;
+            }
+        }
+
+        FeedbackAction::NegativePreference => {
+            // Add negative preference as a preference entry
+            if let Some(ref content) = feedback.new_content {
+                let mut entry = MemoryEntry::new(MemoryCategory::Preference, content.clone(), None);
+                entry.importance = 70.0;  // Higher importance for explicit dislikes
+                entry.tags.push("negative".to_string());
+                memory.add(entry);
+                log::debug!("Added negative preference: {}", content);
+                changes += 1;
+            }
+        }
+    }
+
+    if changes > 0 {
+        memory.prune();
+    }
+
+    changes
+}
+
+// ============================================================================
+// SECTION 9: Behavior Inference (Preference Learning from Patterns)
+// ============================================================================
+
+/// Configuration for behavior inference.
+pub struct BehaviorInferenceConfig {
+    /// Minimum occurrences to infer a preference.
+    pub min_occurrences: usize,
+    /// Minimum confidence threshold (0.0 - 1.0).
+    pub min_confidence: f64,
+    /// Maximum preferences to infer per analysis.
+    pub max_inferences: usize,
+}
+
+impl Default for BehaviorInferenceConfig {
+    fn default() -> Self {
+        Self {
+            min_occurrences: 2,
+            min_confidence: 0.6,
+            max_inferences: 5,
+        }
+    }
+}
+
+/// Result of behavior inference analysis.
+#[derive(Debug, Clone)]
+pub struct BehaviorInference {
+    /// inferred preference content.
+    pub content: String,
+    /// Confidence level (0.0 - 1.0).
+    pub confidence: f64,
+    /// Occurrence count in messages.
+    pub occurrences: usize,
+    /// Related keywords/technologies detected.
+    pub keywords: Vec<String>,
+}
+
+/// Infer user preferences from conversation behavior patterns.
+/// Analyzes messages to detect repeated choices, frequently used terms,
+/// and patterns that indicate user preferences.
+pub fn infer_preferences_from_behavior(
+    messages: &[crate::providers::Message],
+    config: &BehaviorInferenceConfig,
+) -> Vec<BehaviorInference> {
+    let mut inferences: Vec<BehaviorInference> = Vec::new();
+
+    // Collect user messages
+    let user_texts: Vec<String> = messages.iter()
+        .filter_map(|msg| {
+            if msg.role == crate::providers::Role::User {
+                match &msg.content {
+                    crate::providers::MessageContent::Text(t) => Some(t.clone()),
+                    crate::providers::MessageContent::Blocks(blocks) => {
+                        // Extract text from blocks
+                        Some(blocks.iter().filter_map(|b| {
+                            if let crate::providers::ContentBlock::Text { text } = b {
+                                Some(text.as_str())
+                            } else {
+                                None
+                            }
+                        }).collect::<Vec<_>>().join(" "))
+                    }
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if user_texts.len() < config.min_occurrences {
+        return inferences;
+    }
+
+    // Combine all user texts for analysis
+    let all_text = user_texts.join(" ");
+    let all_text_lower = all_text.to_lowercase();
+
+    // Technology/framework patterns to detect
+    let tech_patterns: Vec<(&str, &str)> = vec![
+        // Programming languages
+        ("rust", "Rust"), ("python", "Python"), ("javascript", "JavaScript"),
+        ("typescript", "TypeScript"), ("go", "Go"), ("java", "Java"),
+        ("c++", "C++"), ("c#", "C#"), ("kotlin", "Kotlin"), ("swift", "Swift"),
+        // Frameworks
+        ("react", "React"), ("vue", "Vue"), ("angular", "Angular"),
+        ("next.js", "Next.js"), ("svelte", "Svelte"),
+        ("express", "Express"), ("fastapi", "FastAPI"), ("django", "Django"),
+        ("spring", "Spring"), ("rails", "Rails"),
+        // Tools
+        ("docker", "Docker"), ("kubernetes", "Kubernetes"), ("git", "Git"),
+        ("vim", "Vim"), ("emacs", "Emacs"), ("vscode", "VS Code"),
+        ("linux", "Linux"), ("macos", "macOS"), ("windows", "Windows"),
+        // Databases
+        ("postgresql", "PostgreSQL"), ("mysql", "MySQL"), ("mongodb", "MongoDB"),
+        ("redis", "Redis"), ("sqlite", "SQLite"),
+        // Testing
+        ("pytest", "pytest"), ("jest", "Jest"), ("cargo test", "cargo test"),
+    ];
+
+    // Count occurrences of each technology
+    let mut tech_counts: HashMap<String, usize> = HashMap::new();
+    for (pattern_lower, pattern_display) in &tech_patterns {
+        let count = all_text_lower.matches(pattern_lower).count();
+        if count >= config.min_occurrences {
+            tech_counts.insert(pattern_display.to_string(), count);
+        }
+    }
+
+    // Detect positive choice patterns
+    let positive_patterns: Vec<&str> = vec![
+        "用", "使用", "选择", "喜欢", "推荐", "偏好",
+        "prefer", "use", "choose", "like", "recommend",
+    ];
+
+    let negative_patterns: Vec<&str> = vec![
+        "不用", "不喜欢", "避免", "拒绝", "放弃",
+        "don't use", "avoid", "dislike", "reject",
+    ];
+
+    // Analyze each detected technology for preference indicators
+    for (tech, count) in &tech_counts {
+        let mut positive_signals = 0;
+        let mut negative_signals = 0;
+
+        // Check context around technology mentions
+        for text in &user_texts {
+            let text_lower = text.to_lowercase();
+            if text_lower.contains(&tech.to_lowercase()) {
+                // Check for positive indicators
+                for pattern in &positive_patterns {
+                    if text_lower.contains(pattern) {
+                        positive_signals += 1;
+                    }
+                }
+                // Check for negative indicators
+                for pattern in &negative_patterns {
+                    if text_lower.contains(pattern) {
+                        negative_signals += 1;
+                    }
+                }
+            }
+        }
+
+        // Calculate confidence
+        let total_signals = positive_signals + negative_signals;
+        let confidence = if total_signals > 0 {
+            (positive_signals as f64 - negative_signals as f64 * 0.5) / (*count).max(1) as f64
+        } else {
+            // No explicit signals, use occurrence frequency as implicit preference
+            *count as f64 / user_texts.len() as f64
+        };
+
+        // Only add if confidence is sufficient and more positive than negative
+        if confidence >= config.min_confidence && positive_signals >= negative_signals {
+            let content = if positive_signals > 0 {
+                format!("偏好使用 {} (出现 {} 次，正面信号 {} 次)", tech, count, positive_signals)
+            } else {
+                format!("频繁使用 {} (出现 {} 次)", tech, count)
+            };
+
+            inferences.push(BehaviorInference {
+                content,
+                confidence,
+                occurrences: *count,
+                keywords: vec![tech.clone()],
+            });
+        }
+    }
+
+    // Sort by confidence and limit
+    inferences.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+    inferences.truncate(config.max_inferences);
+
+    inferences
+}
+
+/// Convert behavior inference to memory entry.
+pub fn inference_to_memory_entry(inference: &BehaviorInference) -> MemoryEntry {
+    let mut entry = MemoryEntry::new(
+        MemoryCategory::Preference,
+        inference.content.clone(),
+        None,
+    );
+    // Set importance based on confidence
+    entry.importance = 50.0 + (inference.confidence * 30.0);  // Range: 50-80
+    // Add inferred tag
+    entry.tags.push("inferred".to_string());
+    for keyword in &inference.keywords {
+        entry.tags.push(keyword.clone());
+    }
+    entry
+}
+
+/// Apply behavior inferences to memory storage.
+/// Returns the number of new preferences added.
+pub fn apply_behavior_inferences_to_memory(
+    messages: &[crate::providers::Message],
+    memory: &mut AutoMemory,
+    config: Option<&BehaviorInferenceConfig>,
+) -> usize {
+    let default_config = BehaviorInferenceConfig::default();
+    let cfg = config.unwrap_or(&default_config);
+    let inferences = infer_preferences_from_behavior(messages, cfg);
+
+    let mut added = 0;
+    for inference in &inferences {
+        // Check if similar preference already exists
+        let tech_keywords = inference.keywords.join(" ");
+        if memory.search(&tech_keywords).is_empty() {
+            // Add new inferred preference
+            let entry = inference_to_memory_entry(inference);
+            memory.add(entry);
+            added += 1;
+            log::debug!("Added inferred preference: {} (confidence: {:.2})", inference.content, inference.confidence);
+        }
+    }
+
+    if added > 0 {
+        memory.prune();
+    }
+
+    added
+}
+
+// ============================================================================
+// SECTION 10: Project Analysis (Auto Structure Detection)
+// ============================================================================
+
+/// Project type detection configuration.
+/// Maps detection files to project type and key files.
+pub struct ProjectTypeConfig {
+    pub type_name: &'static str,
+    pub detect_files: &'static [&'static str],
+    pub entry_files: &'static [&'static str],
+    pub key_dirs: &'static [&'static str],
+    pub tech_stack: &'static str,
+}
+
+/// Default project type configurations.
+pub const PROJECT_TYPE_CONFIGS: &[ProjectTypeConfig] = &[
+    ProjectTypeConfig {
+        type_name: "Rust",
+        detect_files: &["Cargo.toml"],
+        entry_files: &["src/main.rs", "src/lib.rs"],
+        key_dirs: &["src", "tests", "examples"],
+        tech_stack: "Rust",
+    },
+    ProjectTypeConfig {
+        type_name: "Node.js",
+        detect_files: &["package.json"],
+        entry_files: &["index.js", "src/index.js", "app.js", "main.js"],
+        key_dirs: &["src", "lib", "components", "pages"],
+        tech_stack: "Node.js",
+    },
+    ProjectTypeConfig {
+        type_name: "TypeScript",
+        detect_files: &["tsconfig.json", "package.json"],
+        entry_files: &["src/index.ts", "src/main.ts", "src/app.ts"],
+        key_dirs: &["src", "lib", "components", "pages"],
+        tech_stack: "TypeScript",
+    },
+    ProjectTypeConfig {
+        type_name: "React",
+        detect_files: &["package.json"],
+        entry_files: &["src/index.tsx", "src/index.jsx", "src/App.tsx", "src/App.jsx"],
+        key_dirs: &["src/components", "src/pages", "src/hooks", "src/utils"],
+        tech_stack: "React + TypeScript",
+    },
+    ProjectTypeConfig {
+        type_name: "Vue",
+        detect_files: &["vue.config.js", "vite.config.js", "package.json"],
+        entry_files: &["src/main.ts", "src/main.js", "src/App.vue"],
+        key_dirs: &["src/components", "src/views", "src/stores", "src/utils"],
+        tech_stack: "Vue.js",
+    },
+    ProjectTypeConfig {
+        type_name: "Python",
+        detect_files: &["requirements.txt", "setup.py", "pyproject.toml"],
+        entry_files: &["main.py", "app.py", "__main__.py", "src/__init__.py"],
+        key_dirs: &["src", "lib", "tests", "app"],
+        tech_stack: "Python",
+    },
+    ProjectTypeConfig {
+        type_name: "Go",
+        detect_files: &["go.mod"],
+        entry_files: &["main.go", "cmd/main.go"],
+        key_dirs: &["cmd", "pkg", "internal", "api"],
+        tech_stack: "Go",
+    },
+    ProjectTypeConfig {
+        type_name: "Java",
+        detect_files: &["pom.xml", "build.gradle", "build.gradle.kts"],
+        entry_files: &["src/main/java/Main.java", "src/main/java/Application.java"],
+        key_dirs: &["src/main/java", "src/test/java", "src/main/resources"],
+        tech_stack: "Java",
+    },
+    ProjectTypeConfig {
+        type_name: "C++",
+        detect_files: &["CMakeLists.txt", "Makefile"],
+        entry_files: &["main.cpp", "src/main.cpp"],
+        key_dirs: &["src", "include", "lib", "tests"],
+        tech_stack: "C++",
+    },
+    ProjectTypeConfig {
+        type_name: "C#",
+        detect_files: &["*.csproj", "*.sln"],
+        entry_files: &["Program.cs", "Main.cs"],
+        key_dirs: &["src", "Tests", "Models", "Controllers"],
+        tech_stack: "C#/.NET",
+    },
+];
+
+/// Directories to ignore when scanning project structure.
+pub const IGNORE_DIRS: &[&str] = &[
+    ".git", ".github", ".matrix", ".idea", ".vscode",
+    "node_modules", "target", "build", "dist", "out",
+    "vendor", "__pycache__", ".venv", "venv", "env",
+    "cache", "tmp", "temp", ".cache", ".tmp",
+];
+
+/// Project structure analyzer for automatic memory creation.
+pub struct ProjectStructureAnalyzer {
+    project_root: std::path::PathBuf,
+}
+
+impl ProjectStructureAnalyzer {
+    /// Create a new analyzer for the given project root.
+    pub fn new(project_root: std::path::PathBuf) -> Self {
+        Self { project_root }
+    }
+
+    /// Detect project type based on configuration files.
+    pub fn detect_project_type(&self) -> Option<&'static ProjectTypeConfig> {
+        for config in PROJECT_TYPE_CONFIGS {
+            for detect_file in config.detect_files {
+                // Handle wildcard patterns (like *.csproj)
+                if detect_file.starts_with('*') {
+                    let extension = detect_file.trim_start_matches('*');
+                    if let Ok(entries) = std::fs::read_dir(&self.project_root) {
+                        for entry in entries.flatten() {
+                            if entry.file_name().to_string_lossy().ends_with(extension) {
+                                return Some(config);
+                            }
+                        }
+                    }
+                } else {
+                    let path = self.project_root.join(detect_file);
+                    if path.exists() {
+                        return Some(config);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Find entry file for the project.
+    pub fn find_entry_file(&self, config: &ProjectTypeConfig) -> Option<String> {
+        for entry_file in config.entry_files {
+            let path = self.project_root.join(entry_file);
+            if path.exists() {
+                return Some(entry_file.to_string());
+            }
+        }
+        // Fallback: search for common patterns
+        None
+    }
+
+    /// Scan project directories and identify their purposes.
+    pub fn scan_key_directories(&self, config: &ProjectTypeConfig) -> Vec<(String, String)> {
+        let mut dirs_info: Vec<(String, String)> = Vec::new();
+
+        for key_dir in config.key_dirs {
+            let path = self.project_root.join(key_dir);
+            if path.exists() && path.is_dir() {
+                // Determine directory purpose based on name
+                let purpose = self.infer_directory_purpose(key_dir);
+                dirs_info.push((key_dir.to_string(), purpose));
+            }
+        }
+
+        // Also scan for additional common directories
+        for entry in std::fs::read_dir(&self.project_root).unwrap_or_else(|_| std::fs::read_dir(".").unwrap()).flatten() {
+            if entry.path().is_dir() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                // Skip ignore directories
+                if IGNORE_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                // Check if already in config dirs
+                if config.key_dirs.contains(&name.as_str()) {
+                    continue;
+                }
+                // Infer purpose for additional directories
+                let purpose = self.infer_directory_purpose(&name);
+                if !purpose.is_empty() {
+                    dirs_info.push((name, purpose));
+                }
+            }
+        }
+
+        dirs_info
+    }
+
+    /// Infer directory purpose based on name.
+    fn infer_directory_purpose(&self, dir_name: &str) -> String {
+        let dir_lower = dir_name.to_lowercase();
+
+        // Common directory purposes
+        if dir_lower.contains("component") || dir_lower == "components" {
+            return "组件目录".to_string();
+        }
+        if dir_lower.contains("page") || dir_lower == "pages" || dir_lower == "views" {
+            return "页面/视图目录".to_string();
+        }
+        if dir_lower.contains("hook") || dir_lower == "hooks" {
+            return "Hook 目录".to_string();
+        }
+        if dir_lower.contains("util") || dir_lower == "utils" || dir_lower == "lib" || dir_lower == "libs" {
+            return "工具/库目录".to_string();
+        }
+        if dir_lower.contains("test") || dir_lower == "tests" || dir_lower == "__tests__" || dir_lower == "spec" {
+            return "测试目录".to_string();
+        }
+        if dir_lower.contains("model") || dir_lower == "models" {
+            return "模型目录".to_string();
+        }
+        if dir_lower.contains("controller") || dir_lower == "controllers" {
+            return "控制器目录".to_string();
+        }
+        if dir_lower.contains("service") || dir_lower == "services" {
+            return "服务目录".to_string();
+        }
+        if dir_lower.contains("api") || dir_lower == "api" || dir_lower == "apis" {
+            return "API 目录".to_string();
+        }
+        if dir_lower.contains("config") || dir_lower == "config" || dir_lower == "configs" {
+            return "配置目录".to_string();
+        }
+        if dir_lower.contains("store") || dir_lower == "stores" || dir_lower == "state" {
+            return "状态管理目录".to_string();
+        }
+        if dir_lower.contains("asset") || dir_lower == "assets" || dir_lower == "static" || dir_lower == "public" {
+            return "资源目录".to_string();
+        }
+        if dir_lower.contains("doc") || dir_lower == "docs" || dir_lower == "documentation" {
+            return "文档目录".to_string();
+        }
+        if dir_lower.contains("example") || dir_lower == "examples" || dir_lower == "demo" {
+            return "示例目录".to_string();
+        }
+        if dir_lower == "src" || dir_lower == "source" {
+            return "源代码目录".to_string();
+        }
+
+        // Return empty if purpose is unclear
+        String::new()
+    }
+
+    /// Analyze project and generate Structure memory entries.
+    pub fn analyze(&self) -> Vec<MemoryEntry> {
+        let mut entries: Vec<MemoryEntry> = Vec::new();
+
+        // Detect project type
+        let project_type = self.detect_project_type();
+
+        if let Some(config) = project_type {
+            // Add project type as Technical memory
+            entries.push(MemoryEntry::new(
+                MemoryCategory::Technical,
+                format!("项目类型: {}，技术栈: {}", config.type_name, config.tech_stack),
+                None,
+            ));
+
+            // Add entry file as Structure memory
+            if let Some(entry_file) = self.find_entry_file(config) {
+                entries.push(MemoryEntry::new(
+                    MemoryCategory::Structure,
+                    format!("入口文件: {}", entry_file),
+                    None,
+                ));
+            }
+
+            // Add key directories as Structure memories
+            let dirs_info = self.scan_key_directories(config);
+            for (dir_name, purpose) in dirs_info.iter().take(10) {  // Limit to 10 directories
+                if !purpose.is_empty() {
+                    entries.push(MemoryEntry::new(
+                        MemoryCategory::Structure,
+                        format!("{} 目录: {} ({})", dir_name, self.project_root.join(dir_name).display(), purpose),
+                        None,
+                    ));
+                }
+            }
+
+            // Add configuration file info
+            for detect_file in config.detect_files.iter().take(3) {
+                if !detect_file.starts_with('*') {  // Skip wildcard patterns
+                    let path = self.project_root.join(detect_file);
+                    if path.exists() {
+                        entries.push(MemoryEntry::new(
+                            MemoryCategory::Structure,
+                            format!("配置文件: {}", detect_file),
+                            None,
+                        ));
+                    }
+                }
+            }
+        } else {
+            // Unknown project type - still try to find basic structure
+            // Check for common entry files
+            let common_entries = [
+                "main.rs", "main.go", "main.py", "main.js", "main.ts",
+                "index.js", "index.ts", "app.js", "app.py",
+                "src/main.rs", "src/main.rs", "src/index.ts",
+            ];
+
+            for entry in common_entries {
+                let path = self.project_root.join(entry);
+                if path.exists() {
+                    entries.push(MemoryEntry::new(
+                        MemoryCategory::Structure,
+                        format!("入口文件: {}", entry),
+                        None,
+                    ));
+                    break;
+                }
+            }
+
+            // Add project root as basic structure
+            entries.push(MemoryEntry::new(
+                MemoryCategory::Structure,
+                format!("项目根目录: {}", self.project_root.display()),
+                None,
+            ));
+        }
+
+        // Set appropriate importance for structure memories
+        for entry in &mut entries {
+            if entry.category == MemoryCategory::Structure {
+                entry.importance = 40.0;  // Lower importance for auto-generated structure
+            } else if entry.category == MemoryCategory::Technical {
+                entry.importance = 50.0;  // Medium importance for tech stack
+            }
+            entry.tags.push("auto-analyzed".to_string());
+        }
+
+        log::debug!("Project structure analysis found {} potential memories", entries.len());
+        entries
+    }
+}
+
+/// Generate project structure memories and save to project memory file.
+/// Returns the number of memories created.
+pub fn generate_project_structure_memories(
+    project_root: &std::path::Path,
+    memory_storage: &mut MemoryStorage,
+) -> usize {
+    // Check if project memory already exists
+    if let Ok(Some(existing)) = memory_storage.load_project() {
+        // Check if already has structure memories
+        let has_structure = existing.entries.iter().any(|e| {
+            e.category == MemoryCategory::Structure && e.tags.contains(&"auto-analyzed".to_string())
+        });
+        if has_structure {
+            log::debug!("Project already has structure memories, skipping analysis");
+            return 0;
+        }
+    }
+
+    // Analyze project structure
+    let analyzer = ProjectStructureAnalyzer::new(project_root.to_path_buf());
+    let entries = analyzer.analyze();
+
+    if entries.is_empty() {
+        return 0;
+    }
+
+    // Load existing project memory (if any) and merge
+    let mut project_memory = memory_storage.load_project()
+        .unwrap_or_else(|_| Some(AutoMemory::new()))
+        .unwrap_or_else(AutoMemory::new);
+
+    let count = entries.len();
+    for entry in entries {
+        project_memory.add(entry);
+    }
+
+    // Save project memory
+    if let Err(e) = memory_storage.save_project(&project_memory) {
+        log::warn!("Failed to save project structure memories: {}", e);
+        return 0;
+    }
+
+    log::info!("Generated {} project structure memories", count);
+    count
 }
 
 /// Smart memory detection that chooses the best method based on environment.
@@ -3430,6 +4832,10 @@ impl SemanticUtils {
 }
 
 
+// ============================================================================
+// SECTION 4: Retrieval (TF-IDF Search, Semantic Search)
+// ============================================================================
+
 /// Semantic search without AI (using TF-IDF like approach).
 /// 
 /// ## TF-IDF 语义搜索
@@ -3583,21 +4989,53 @@ impl TfIdfSearch {
     pub fn search(&self, query: &str, limit: Option<usize>) -> Vec<(String, f32)> {
         let query_words = self.tokenize(query);
         let query_freq = self.compute_word_freq(&query_words);
-        
+
         let mut results: Vec<(String, f32)> = Vec::new();
-        
+
         for (doc, doc_freq) in &self.doc_word_freq {
             // Compute TF-IDF dot product similarity
             let similarity = self.compute_similarity(&query_freq, doc_freq);
-            
+
             if similarity > 0.0 {
                 results.push((doc.clone(), similarity));
             }
         }
-        
+
         // Sort by similarity
         results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
+        // Apply limit
+        if let Some(max) = limit {
+            results.into_iter().take(max).collect()
+        } else {
+            results
+        }
+    }
+
+    /// Search with multiple keywords (returns combined scores).
+    /// Useful when you have expanded keywords with semantic aliases.
+    pub fn search_multi(&self, keywords: &[&str], limit: Option<usize>) -> Vec<(String, f64)> {
+        // Aggregate results from all keywords
+        let mut doc_scores: HashMap<String, f64> = HashMap::new();
+
+        for keyword in keywords {
+            let results = self.search(keyword, None);
+            for (doc, score) in results {
+                // Accumulate scores (normalized)
+                *doc_scores.entry(doc).or_insert(0.0) += score as f64;
+            }
+        }
+
+        // Normalize by number of keywords
+        let num_keywords = keywords.len().max(1);
+        for (_, score) in doc_scores.iter_mut() {
+            *score /= num_keywords as f64;
+        }
+
+        // Convert to vector and sort
+        let mut results: Vec<(String, f64)> = doc_scores.into_iter().collect();
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
         // Apply limit
         if let Some(max) = limit {
             results.into_iter().take(max).collect()
