@@ -324,8 +324,7 @@ impl TuiApp {
                             } else {
                                 format!("[{}]", (b'A' + i as u8) as char)
                             };
-                            let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
-                            content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+                            content.push_str(&format!("  {} {}{}\n", marker, opt.label, opt.format_description()));
                         }
                     }
                     self.input.clear();
@@ -462,8 +461,7 @@ impl TuiApp {
                         } else {
                             format!("[{}]", (b'A' + i as u8) as char)
                         };
-                        let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
-                        content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+                        content.push_str(&format!("  {} {}{}\n", marker, opt.label, opt.format_description()));
                     }
                 }
 

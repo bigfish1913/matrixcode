@@ -125,6 +125,13 @@ pub struct AskOption {
     pub is_submit: bool, // Whether this is a submit button option
 }
 
+impl AskOption {
+    /// Format description with prefix for display.
+    pub fn format_description(&self) -> String {
+        self.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default()
+    }
+}
+
 
 /// Submit mode for ask tool - determines how user confirms selection
 #[derive(Debug, Clone, PartialEq, Default)]

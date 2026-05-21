@@ -374,8 +374,7 @@ impl TuiApp {
                             let display_line = if is_checkbox && option_idx < self.ask_options.len() {
                                 let opt = &self.ask_options[option_idx];
                                 let marker = if actually_checked { "[✓]" } else { "[ ]" };
-                                let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
-                                format!("  {} {}{}", marker, opt.label, desc)
+                                format!("  {} {}{}", marker, opt.label, opt.format_description())
                             } else {
                                 line.to_string()
                             };

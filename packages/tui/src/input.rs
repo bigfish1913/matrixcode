@@ -530,16 +530,14 @@ impl TuiApp {
             if opt.is_submit {
                 // Submit option also shows as checkbox
                 let marker = if opt.selected { "[✓]" } else { "[ ]" };
-                let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
-                content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+                content.push_str(&format!("  {} {}{}\n", marker, opt.label, opt.format_description()));
             } else {
                 let marker = if q.multi_select {
                     if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
                 } else {
                     format!("[{}]", (b'A' + i as u8) as char)
                 };
-                let desc = opt.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default();
-                content.push_str(&format!("  {} {}{}\n", marker, opt.label, desc));
+                content.push_str(&format!("  {} {}{}\n", marker, opt.label, opt.format_description()));
             }
         }
 
