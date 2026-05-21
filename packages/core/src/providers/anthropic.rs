@@ -5,6 +5,7 @@ use log::debug;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
+use crate::models::context_window_for;
 use crate::tools::ToolDefinition;
 
 use super::{
@@ -769,60 +770,6 @@ fn parse_web_search_content(value: &serde_json::Value) -> crate::providers::WebS
         .unwrap_or_default();
 
     crate::providers::WebSearchContent { results }
-}
-
-/// Best-effort mapping from an Anthropic-ish model name to its context
-/// window size. Honours the `CONTEXT_SIZE` env variable first so users
-/// can pin a value when running through a proxy gateway (e.g. Kimi via
-/// an Anthropic-shaped endpoint). Returns `None` only when we truly
-/// cannot infer; callers treat that as "hide the fullness bar".
-fn context_window_for(model: &str) -> Option<u32> {
-    if let Ok(raw) = std::env::var("CONTEXT_SIZE")
-        && let Ok(n) = raw.trim().parse::<u32>()
-            && n > 0 {
-                return Some(n);
-            }
-    let m = model.to_ascii_lowercase();
-    
-    // Claude Opus 4.7 and the 1M-context variants expose a 1M window.
-    if m.contains("[1m]") || m.contains("opus-4-7") || m.contains("opus-4.7") {
-        return Some(1_000_000);
-    }
-    // Claude 3.5/4 series: 200K standard window
-    if m.contains("claude-3") || m.contains("claude-4") || m.contains("claude-opus") || m.contains("claude-sonnet") {
-        return Some(200_000);
-    }
-    // Claude 2: 100K
-    if m.contains("claude-2") {
-        return Some(100_000);
-    }
-    // Claude Instant: 100K
-    if m.contains("claude-instant") {
-        return Some(100_000);
-    }
-    // Kimi K2 / K2.5 ship with a 128K window on the public endpoint.
-    if m.contains("kimi") {
-        return Some(128_000);
-    }
-    // DeepSeek via Anthropic endpoint
-    if m.contains("deepseek") {
-        return Some(128_000);
-    }
-    // GLM models (Zhipu AI) via Anthropic-compatible endpoints
-    // GLM-4 has 128K, GLM-5 typically has 128K context
-    if m.contains("glm") {
-        return Some(128_000);
-    }
-    // Qwen models via Anthropic-compatible endpoints (DashScope)
-    if m.contains("qwen") {
-        if m.contains("qwen-max") || m.contains("qwen2.5") {
-            return Some(128_000);
-        }
-        return Some(32_000);
-    }
-    // Default fallback for unknown models: assume 128K (reasonable for modern models)
-    // This ensures context usage is always displayed
-    Some(128_000)
 }
 
 #[cfg(test)]

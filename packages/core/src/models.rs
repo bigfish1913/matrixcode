@@ -84,22 +84,34 @@ impl ModelConfig {
 }
 
 /// Infer context window size from model name.
-fn infer_context_size(model: &str) -> Option<u32> {
+/// Honours the `CONTEXT_SIZE` env variable first so users can override.
+pub fn context_window_for(model: &str) -> Option<u32> {
+    // Allow user override via environment variable
+    if let Ok(raw) = std::env::var("CONTEXT_SIZE")
+        && let Ok(n) = raw.trim().parse::<u32>()
+            && n > 0 {
+                return Some(n);
+            }
+
     let m = model.to_ascii_lowercase();
-    
+
     // Anthropic models
-    if m.contains("opus-4-7") || m.contains("opus-4.7") || m.contains("[1m]") {
+    if m.contains("[1m]") || m.contains("opus-4-7") || m.contains("opus-4.7") {
         return Some(1_000_000);
     }
-    if m.contains("claude") {
+    if m.contains("claude-3") || m.contains("claude-4") || m.contains("claude-opus")
+        || m.contains("claude-sonnet") || m.contains("claude-haiku") {
         return Some(200_000);
     }
-    
+    if m.contains("claude-2") || m.contains("claude-instant") {
+        return Some(100_000);
+    }
+
     // OpenAI models
     if m.contains("gpt-4o") || m.contains("gpt-4-turbo") {
         return Some(128_000);
     }
-    if m.contains("o1") {
+    if m.contains("o1") || m.contains("o3") || m.contains("o4") {
         return Some(200_000);
     }
     if m.contains("gpt-4-32k") {
@@ -108,19 +120,56 @@ fn infer_context_size(model: &str) -> Option<u32> {
     if m.contains("gpt-4") && !m.contains("turbo") && !m.contains("o") {
         return Some(8_192);
     }
-    if m.contains("gpt-3.5") {
+    if m.contains("gpt-3.5-turbo-16k") {
         return Some(16_384);
     }
-    
-    // DeepSeek
+    if m.contains("gpt-3.5") {
+        return Some(4_096);
+    }
+
+    // DeepSeek models
     if m.contains("deepseek-v3") || m.contains("deepseek-r1") {
         return Some(128_000);
     }
     if m.contains("deepseek") {
         return Some(64_000);
     }
-    
+
+    // Kimi models
+    if m.contains("kimi") {
+        return Some(128_000);
+    }
+
+    // Qwen models
+    if m.contains("qwen") {
+        if m.contains("qwen-max") || m.contains("qwen2.5-72b") || m.contains("qwen2.5") {
+            return Some(128_000);
+        }
+        if m.contains("qwen2") {
+            return Some(32_000);
+        }
+        return Some(8_192);
+    }
+
+    // Llama models
+    if m.contains("llama-3") || m.contains("llama3") {
+        if m.contains("70b") || m.contains("405b") {
+            return Some(128_000);
+        }
+        return Some(8_192);
+    }
+
+    // GLM models (Zhipu AI)
+    if m.contains("glm") {
+        return Some(128_000);
+    }
+
     None
+}
+
+/// Legacy alias for context_window_for (internal use).
+fn infer_context_size(model: &str) -> Option<u32> {
+    context_window_for(model)
 }
 
 /// Multi-model configuration manager.
