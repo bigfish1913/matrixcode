@@ -75,34 +75,13 @@ impl OpenAIProvider {
                     result.push(msg_obj);
                 }
                 (Role::Tool, MessageContent::Blocks(blocks)) => {
-                    for block in blocks {
-                        if let ContentBlock::ToolResult { tool_use_id, content } = block {
-                            result.push(json!({
-                                "role": "tool",
-                                "tool_call_id": tool_use_id,
-                                "content": content,
-                            }));
-                        }
-                    }
+                    self.push_tool_results(blocks, &mut result);
                 }
                 (Role::User, MessageContent::Blocks(blocks)) => {
                     // Check if this is a tool result message (agent wraps tool results as User role)
-                    let tool_results: Vec<&ContentBlock> = blocks
-                        .iter()
-                        .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
-                        .collect();
-                    
-                    if !tool_results.is_empty() {
+                    if blocks.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. })) {
                         // Emit as OpenAI tool messages
-                        for block in blocks {
-                            if let ContentBlock::ToolResult { tool_use_id, content } = block {
-                                result.push(json!({
-                                    "role": "tool",
-                                    "tool_call_id": tool_use_id,
-                                    "content": content,
-                                }));
-                            }
-                        }
+                        self.push_tool_results(blocks, &mut result);
                     } else {
                         // Regular user message with blocks
                         let text: String = blocks
@@ -121,6 +100,19 @@ impl OpenAIProvider {
         }
 
         result
+    }
+
+    /// Push tool result blocks to message array
+    fn push_tool_results(&self, blocks: &[ContentBlock], result: &mut Vec<Value>) {
+        for block in blocks {
+            if let ContentBlock::ToolResult { tool_use_id, content } = block {
+                result.push(json!({
+                    "role": "tool",
+                    "tool_call_id": tool_use_id,
+                    "content": content,
+                }));
+            }
+        }
     }
 
     fn convert_tools(&self, tools: &[ToolDefinition]) -> Vec<Value> {
