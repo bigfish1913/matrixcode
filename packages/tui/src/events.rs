@@ -6,6 +6,21 @@ use crate::utils::{truncate, extract_tool_detail, fmt_tokens};
 use crate::app::TuiApp;
 
 impl TuiApp {
+    /// Process pending message queue, returning true if a message was sent.
+    fn process_pending_queue(&mut self) -> bool {
+        if !self.pending_messages.is_empty() {
+            let next_msg = self.pending_messages.remove(0);
+            self.messages.push(Message { role: Role::User, content: next_msg.clone() });
+            self.tx.try_send(next_msg).ok();
+            self.activity = Activity::Thinking;
+            self.auto_scroll = true;
+            true
+        } else {
+            self.activity = Activity::Idle;
+            false
+        }
+    }
+
     pub(crate) fn on_event(&mut self, e: AgentEvent) {
         match e.event_type {
             EventType::ThinkingStart => {
@@ -77,14 +92,7 @@ impl TuiApp {
                 self.current_request_tokens = 0;
 
                 // Process queue or go idle
-                if !self.pending_messages.is_empty() {
-                    let next_msg = self.pending_messages.remove(0);
-                    self.messages.push(Message { role: Role::User, content: next_msg.clone() });
-                    self.tx.try_send(next_msg).ok();
-                    self.activity = Activity::Thinking;
-                    self.auto_scroll = true;
-                } else {
-                    self.activity = Activity::Idle;
+                if !self.process_pending_queue() {
                     self.request_start = None;
                 }
                 self.activity_detail.clear();
@@ -115,17 +123,9 @@ impl TuiApp {
                 self.activity_detail.clear();
                 self.request_start = None;
                 self.cancel.reset();  // Reset cancel state for next request
-                
+
                 // Process queue after cancellation or error
-                if !self.pending_messages.is_empty() {
-                    let next_msg = self.pending_messages.remove(0);
-                    self.messages.push(Message { role: Role::User, content: next_msg.clone() });
-                    self.tx.try_send(next_msg).ok();
-                    self.activity = Activity::Thinking;
-                    self.auto_scroll = true;
-                } else {
-                    self.activity = Activity::Idle;
-                }
+                self.process_pending_queue();
             }
             EventType::Usage => {
                 if let Some(EventData::Usage { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens }) = e.data {

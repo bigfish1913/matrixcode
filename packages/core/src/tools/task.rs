@@ -150,6 +150,18 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+impl std::fmt::Display for TaskStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskStatus::Pending => write!(f, "pending"),
+            TaskStatus::Running => write!(f, "running"),
+            TaskStatus::Completed => write!(f, "completed"),
+            TaskStatus::Failed => write!(f, "failed"),
+            TaskStatus::Cancelled => write!(f, "cancelled"),
+        }
+    }
+}
+
 /// Task info
 #[derive(Debug, Clone)]
 pub struct TaskInfo {
@@ -312,13 +324,7 @@ impl Tool for TaskGetTool {
         let tasks = manager.tasks.lock().await;
 
         if let Some(task) = tasks.get(task_id) {
-            let status_str = match task.status {
-                TaskStatus::Pending => "pending",
-                TaskStatus::Running => "running",
-                TaskStatus::Completed => "completed",
-                TaskStatus::Failed => "failed",
-                TaskStatus::Cancelled => "cancelled",
-            };
+            let status_str = task.status.to_string();
 
             let elapsed = task.started_at
                 .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
@@ -362,14 +368,7 @@ impl Tool for TaskListTool {
 
         let mut result = Vec::new();
         for (id, task) in tasks.iter() {
-            let status_str = match task.status {
-                TaskStatus::Pending => "pending",
-                TaskStatus::Running => "running",
-                TaskStatus::Completed => "completed",
-                TaskStatus::Failed => "failed",
-                TaskStatus::Cancelled => "cancelled",
-            };
-            result.push(format!("{} [{}] - {}", id, status_str, task.description));
+            result.push(format!("{} [{}] - {}", id, task.status, task.description));
         }
 
         Ok(result.join("\n"))
