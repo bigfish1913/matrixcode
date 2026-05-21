@@ -1,4 +1,5 @@
 # Build outputs
+target/
 packages/cli/target/
 packages/vscode/dist/
 packages/vscode/node_modules/

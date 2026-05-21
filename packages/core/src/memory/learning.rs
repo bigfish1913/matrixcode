@@ -202,6 +202,7 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
 // ============================================================================
 
 /// Configuration for behavior inference.
+#[derive(Clone)]
 pub struct BehaviorInferenceConfig {
     pub min_occurrences: usize,
     pub min_confidence: f64,
@@ -304,4 +305,27 @@ pub fn inference_to_memory_entry(inference: &BehaviorInference) -> MemoryEntry {
     entry.importance = (inference.confidence * 70.0 + 30.0).min(80.0);
     entry.tags = inference.keywords.clone();
     entry
+}
+
+/// Apply behavior inferences to memory.
+/// Returns the number of new entries added.
+pub fn apply_behavior_inferences_to_memory(
+    messages: &[crate::providers::Message],
+    memory: &mut AutoMemory,
+    config: Option<&BehaviorInferenceConfig>,
+) -> usize {
+    let cfg = config.cloned().unwrap_or_default();
+    let inferences = infer_preferences_from_behavior(messages, &cfg);
+
+    let mut added = 0;
+    for inference in inferences {
+        let entry = inference_to_memory_entry(&inference);
+        // Check if similar entry already exists
+        if !memory.entries.iter().any(|e| e.content == entry.content) {
+            memory.entries.push(entry);
+            added += 1;
+        }
+    }
+
+    added
 }

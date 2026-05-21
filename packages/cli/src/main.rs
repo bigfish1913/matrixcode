@@ -1311,7 +1311,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             if let Ok(mut mem) = ms.load_combined() {
                                 let feedback_count = feedback_results.len();
                                 for feedback in feedback_results {
-                                    matrixcode_core::memory::apply_feedback_to_memory(&feedback, &mut mem);
+                                    matrixcode_core::memory::apply_feedback_to_memory(&mut mem, &feedback);
                                 }
                                 // Save to appropriate storage
                                 if mem.entries.iter().any(|e| e.tags.contains(&"project".to_string())) {

@@ -13,15 +13,15 @@ name = "matrixcode_tui"
 
 [dependencies]
 matrixcode-core = { workspace = true }
-ratatui = "0.30"
-crossterm = { workspace = true, features = ["event-stream"] }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 arboard = { workspace = true }
-pulldown-cmark = "0.13"
-syntect = "5.3"
-unicode-width = "0.2"
+pulldown-cmark = { workspace = true }
+syntect = { workspace = true }
+unicode-width = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
