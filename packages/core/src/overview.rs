@@ -399,15 +399,15 @@ fn build_tree_recursive(dir: &Path, depth: usize, max_depth: usize, result: &mut
         return Ok(());
     }
     
-    let entries = fs::read_dir(dir).ok();
-    if entries.is_none() {
-        return Ok(());
-    }
-    
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(()),
+    };
+
     let mut dirs: Vec<String> = Vec::new();
     let mut files: Vec<String> = Vec::new();
-    
-    for entry in entries.unwrap().flatten() {
+
+    for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if should_ignore(&name) {
             continue;

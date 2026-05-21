@@ -587,6 +587,7 @@ impl AutoMemory {
 
     /// Merge a group of similar entries into one.
     fn merge_group(&self, entries: &[&MemoryEntry]) -> MemoryEntry {
+        // entries is guaranteed non-empty by caller (similar_group.len() >= 2)
         let best = entries
             .iter()
             .max_by(|a, b| {
@@ -594,7 +595,7 @@ impl AutoMemory {
                 let score_b = b.importance + (b.content.len() as f64 / 100.0);
                 score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
             })
-            .unwrap();
+            .expect("merge_group called with empty entries");
 
         let all_same = entries.iter().all(|e| {
             Self::calculate_similarity(&e.content, &best.content) >= 0.95
@@ -1170,29 +1171,27 @@ pub struct MemoryStatistics {
 impl MemoryStatistics {
     /// Format statistics for display.
     pub fn format_summary(&self) -> String {
-        use std::fmt::Write;
-
         let mut output = String::new();
 
-        writeln!(output, "记忆统计：").unwrap();
-        writeln!(output, "  总计: {} 条", self.total).unwrap();
-        writeln!(output, "  ├─ 手动添加: {} 条", self.manual).unwrap();
-        writeln!(output, "  └─ 自动检测: {} 条", self.auto).unwrap();
-        writeln!(output).unwrap();
+        output.push_str("记忆统计：\n");
+        output.push_str(&format!("  总计: {} 条\n", self.total));
+        output.push_str(&format!("  ├─ 手动添加: {} 条\n", self.manual));
+        output.push_str(&format!("  └─ 自动检测: {} 条\n", self.auto));
+        output.push('\n');
 
-        writeln!(output, "分类统计：").unwrap();
+        output.push_str("分类统计：\n");
         for (cat, count) in &self.by_category {
-            writeln!(output, "  {} {}: {} 条", cat.icon(), cat.display_name(), count).unwrap();
+            output.push_str(&format!("  {} {}: {} 条\n", cat.icon(), cat.display_name(), count));
         }
-        writeln!(output).unwrap();
+        output.push('\n');
 
-        writeln!(output, "质量指标：").unwrap();
-        writeln!(output, "  平均重要性: {:.1} 分", self.avg_importance).unwrap();
-        writeln!(output, "  高频引用: {} 条 (≥3次)", self.highly_referenced).unwrap();
+        output.push_str("质量指标：\n");
+        output.push_str(&format!("  平均重要性: {:.1} 分\n", self.avg_importance));
+        output.push_str(&format!("  高频引用: {} 条 (≥3次)\n", self.highly_referenced));
 
         if let Some(oldest) = self.oldest {
             let days = (Utc::now() - oldest).num_days();
-            writeln!(output, "  记忆跨度: {} 天", days).unwrap();
+            output.push_str(&format!("  记忆跨度: {} 天\n", days));
         }
 
         output
