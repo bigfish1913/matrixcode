@@ -1,26 +1,26 @@
+mod app;
+mod commands;
+mod draw;
+mod events;
+mod input;
+mod markdown;
 mod types;
 mod utils;
-mod markdown;
-mod app;
-mod draw;
-mod input;
-mod commands;
-mod events;
 
 use anyhow::Result;
-use std::io::Stdout;
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     crossterm::{
-        event,
-        terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
-        execute, cursor::Show,
+        cursor::Show,
+        event, execute,
+        terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
     },
-    Terminal,
 };
+use std::io::Stdout;
 
-pub use matrixcode_core::{AgentEvent, EventData, EventType, cancel::CancellationToken};
 pub use app::TuiApp;
+pub use matrixcode_core::{AgentEvent, EventData, EventType, cancel::CancellationToken};
 
 pub(crate) const ANIM_MS: u64 = 80;
 pub(crate) const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

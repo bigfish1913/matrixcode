@@ -36,23 +36,43 @@ pub fn detect_feedback_patterns(text: &str) -> Vec<FeedbackResult> {
     let text_lower = text.to_lowercase();
 
     let correction_patterns = [
-        "不对，应该是", "错了，实际上", "不是，是", "应该是",
-        "no, it should be", "wrong, actually", "should be",
+        "不对，应该是",
+        "错了，实际上",
+        "不是，是",
+        "应该是",
+        "no, it should be",
+        "wrong, actually",
+        "should be",
     ];
 
     let delete_patterns = [
-        "不要那个", "不需要那个", "删掉那个", "不再用",
-        "don't need that", "no longer need", "remove that",
+        "不要那个",
+        "不需要那个",
+        "删掉那个",
+        "不再用",
+        "don't need that",
+        "no longer need",
+        "remove that",
     ];
 
     let add_patterns = [
-        "记一下", "记住", "记录一下", "要记住",
-        "remember this", "note this", "keep this",
+        "记一下",
+        "记住",
+        "记录一下",
+        "要记住",
+        "remember this",
+        "note this",
+        "keep this",
     ];
 
     let negative_patterns = [
-        "不喜欢", "不偏好", "讨厌", "不想用",
-        "i don't like", "i dislike", "i hate",
+        "不喜欢",
+        "不偏好",
+        "讨厌",
+        "不想用",
+        "i don't like",
+        "i dislike",
+        "i hate",
     ];
 
     for pattern in correction_patterns {
@@ -132,7 +152,8 @@ fn extract_feedback_content(text: &str, pattern: &str) -> String {
     }
 
     let remaining = &text[start..];
-    let end = remaining.find(['.', '。', '\n'])
+    let end = remaining
+        .find(['.', '。', '\n'])
         .unwrap_or(remaining.len().min(100));
 
     remaining[..end].trim().to_string()
@@ -147,7 +168,11 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
             if let Some(ref content) = feedback.new_content {
                 // Find matching entries and update
                 for entry in &mut memory.entries {
-                    if feedback.search_keywords.iter().any(|k| entry.content.to_lowercase().contains(&k.to_lowercase())) {
+                    if feedback
+                        .search_keywords
+                        .iter()
+                        .any(|k| entry.content.to_lowercase().contains(&k.to_lowercase()))
+                    {
                         entry.content = content.clone();
                         entry.importance = entry.importance.max(80.0);
                         changes += 1;
@@ -162,9 +187,15 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
             }
         }
         FeedbackAction::Delete => {
-            let ids_to_delete: Vec<String> = memory.entries
+            let ids_to_delete: Vec<String> = memory
+                .entries
                 .iter()
-                .filter(|e| feedback.search_keywords.iter().any(|k| e.content.to_lowercase().contains(&k.to_lowercase())))
+                .filter(|e| {
+                    feedback
+                        .search_keywords
+                        .iter()
+                        .any(|k| e.content.to_lowercase().contains(&k.to_lowercase()))
+                })
                 .take(3)
                 .map(|e| e.id.clone())
                 .collect();
@@ -234,20 +265,25 @@ pub fn infer_preferences_from_behavior(
 ) -> Vec<BehaviorInference> {
     let mut inferences: Vec<BehaviorInference> = Vec::new();
 
-    let user_texts: Vec<String> = messages.iter()
+    let user_texts: Vec<String> = messages
+        .iter()
         .filter_map(|msg| {
             if msg.role == crate::providers::Role::User {
                 match &msg.content {
                     crate::providers::MessageContent::Text(t) => Some(t.clone()),
-                    crate::providers::MessageContent::Blocks(blocks) => {
-                        Some(blocks.iter().filter_map(|b| {
-                            if let crate::providers::ContentBlock::Text { text } = b {
-                                Some(text.as_str())
-                            } else {
-                                None
-                            }
-                        }).collect::<Vec<_>>().join(" "))
-                    }
+                    crate::providers::MessageContent::Blocks(blocks) => Some(
+                        blocks
+                            .iter()
+                            .filter_map(|b| {
+                                if let crate::providers::ContentBlock::Text { text } = b {
+                                    Some(text.as_str())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    ),
                 }
             } else {
                 None
@@ -263,9 +299,15 @@ pub fn infer_preferences_from_behavior(
     let all_text_lower = all_text.to_lowercase();
 
     let tech_patterns: Vec<(&str, &str)> = vec![
-        ("rust", "Rust"), ("python", "Python"), ("react", "React"),
-        ("vue", "Vue"), ("typescript", "TypeScript"), ("go", "Go"),
-        ("docker", "Docker"), ("postgres", "PostgreSQL"), ("vim", "Vim"),
+        ("rust", "Rust"),
+        ("python", "Python"),
+        ("react", "React"),
+        ("vue", "Vue"),
+        ("typescript", "TypeScript"),
+        ("go", "Go"),
+        ("docker", "Docker"),
+        ("postgres", "PostgreSQL"),
+        ("vim", "Vim"),
     ];
 
     let mut tech_counts: HashMap<&str, usize> = HashMap::new();
@@ -296,11 +338,7 @@ pub fn infer_preferences_from_behavior(
 
 /// Convert inference to memory entry.
 pub fn inference_to_memory_entry(inference: &BehaviorInference) -> MemoryEntry {
-    let mut entry = MemoryEntry::new(
-        MemoryCategory::Preference,
-        inference.content.clone(),
-        None,
-    );
+    let mut entry = MemoryEntry::new(MemoryCategory::Preference, inference.content.clone(), None);
     entry.importance = (inference.confidence * 70.0 + 30.0).min(80.0);
     entry.tags = inference.keywords.clone();
     entry

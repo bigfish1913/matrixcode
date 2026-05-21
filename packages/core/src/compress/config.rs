@@ -64,9 +64,12 @@ impl CompressionBias {
             compact_long_outputs: false,
             aggressive: false,
             preserve_keywords: vec![
-                "决定".to_string(), "decision".to_string(),
-                "重要".to_string(), "important".to_string(),
-                "关键".to_string(), "key".to_string()
+                "决定".to_string(),
+                "decision".to_string(),
+                "重要".to_string(),
+                "important".to_string(),
+                "关键".to_string(),
+                "key".to_string(),
             ],
         }
     }
@@ -80,11 +83,16 @@ impl CompressionBias {
             compact_long_outputs: true,
             aggressive: false,
             preserve_keywords: vec![
-                "决定".to_string(), "decision".to_string(),
-                "重要".to_string(), "important".to_string(),
-                "关键".to_string(), "key".to_string(),
-                "完成".to_string(), "done".to_string(),
-                "成功".to_string(), "success".to_string()
+                "决定".to_string(),
+                "decision".to_string(),
+                "重要".to_string(),
+                "important".to_string(),
+                "关键".to_string(),
+                "key".to_string(),
+                "完成".to_string(),
+                "done".to_string(),
+                "成功".to_string(),
+                "success".to_string(),
             ],
         }
     }
@@ -110,9 +118,12 @@ impl CompressionBias {
             compact_long_outputs: false,
             aggressive: false,
             preserve_keywords: vec![
-                "工具".to_string(), "tool".to_string(),
-                "执行".to_string(), "execute".to_string(),
-                "文件".to_string(), "file".to_string()
+                "工具".to_string(),
+                "tool".to_string(),
+                "执行".to_string(),
+                "execute".to_string(),
+                "文件".to_string(),
+                "file".to_string(),
             ],
         }
     }
@@ -149,7 +160,8 @@ impl CompressionBias {
                     }
                 }
             } else if let Some(keyword_list) = part.strip_prefix("keywords:") {
-                bias.preserve_keywords = keyword_list.split(',')
+                bias.preserve_keywords = keyword_list
+                    .split(',')
                     .map(|k| k.trim().to_string())
                     .filter(|k| !k.is_empty())
                     .collect();
@@ -165,17 +177,31 @@ impl CompressionBias {
     pub fn format(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
 
-        if self.preserve_tools { parts.push("tools".to_string()); }
-        if self.preserve_thinking { parts.push("thinking".to_string()); }
-        if self.preserve_user_questions { parts.push("user".to_string()); }
-        if self.compact_long_outputs { parts.push("compact".to_string()); }
-        if self.aggressive { parts.push("aggressive".to_string()); }
+        if self.preserve_tools {
+            parts.push("tools".to_string());
+        }
+        if self.preserve_thinking {
+            parts.push("thinking".to_string());
+        }
+        if self.preserve_user_questions {
+            parts.push("user".to_string());
+        }
+        if self.compact_long_outputs {
+            parts.push("compact".to_string());
+        }
+        if self.aggressive {
+            parts.push("aggressive".to_string());
+        }
 
         if !self.preserve_keywords.is_empty() {
             parts.push(format!("keywords:{}", self.preserve_keywords.join(",")));
         }
 
-        if parts.is_empty() { "default".to_string() } else { parts.join(", ") }
+        if parts.is_empty() {
+            "default".to_string()
+        } else {
+            parts.join(", ")
+        }
     }
 }
 
@@ -216,6 +242,8 @@ impl Default for CompressionConfig {
 impl CompressionConfig {
     /// Get the compressor model name.
     pub fn compressor_model_name(&self) -> &str {
-        self.compressor_model.as_deref().unwrap_or(DEFAULT_COMPRESSOR_MODEL)
+        self.compressor_model
+            .as_deref()
+            .unwrap_or(DEFAULT_COMPRESSOR_MODEL)
     }
 }

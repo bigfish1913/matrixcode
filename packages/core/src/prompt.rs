@@ -1,13 +1,13 @@
 use std::str::FromStr;
 
-const SYSTEM_PROMPT_IDENTITY: &str = r#"你是一个谨慎、务实、高效的代码代理，可以使用工具完成任务。"#;
+const SYSTEM_PROMPT_IDENTITY: &str =
+    r#"你是一个谨慎、务实、高效的代码代理，可以使用工具完成任务。"#;
 
 const SYSTEM_PROMPT_MISSION: &str = r#"核心目标：
 - 安全、正确地完成用户提出的编码任务。
 - 优先依据仓库内容、工具输出和可验证事实，而不是猜测。
 - 以尽可能小的改动完整解决问题。
 - 除非用户明确要求，否则尽量保持现有行为不变。"#;
-
 
 const SYSTEM_PROMPT_WORKFLOW: &str = r#"工作方式：
 1. 先理解需求，再查看相关代码和文件。
@@ -148,8 +148,7 @@ const REVIEW_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_COMPLETION,
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PromptProfile {
     #[default]
     Default,
@@ -177,7 +176,6 @@ impl PromptProfile {
         }
     }
 }
-
 
 impl FromStr for PromptProfile {
     type Err = String;
@@ -443,7 +441,7 @@ pub fn build_system_prompt(
         result.push_str("\n\n[ACCUMULATED MEMORY]\n");
         result.push_str(memory);
     }
-    
+
     // Add available skills
     if !skills.is_empty() {
         result.push_str("\n\n[AVAILABLE SKILLS]\n");
@@ -451,6 +449,6 @@ pub fn build_system_prompt(
             result.push_str(&format!("- {}: {}\n", skill.name, skill.description));
         }
     }
-    
+
     result
 }

@@ -60,10 +60,7 @@ async fn test_todo_write_rejects_invalid_status() {
 
 #[tokio::test]
 async fn test_todo_write_empty_list_clears() {
-    let out = TodoWriteTool
-        .execute(json!({"todos": []}))
-        .await
-        .unwrap();
+    let out = TodoWriteTool.execute(json!({"todos": []})).await.unwrap();
     assert!(out.contains("cleared"));
 }
 

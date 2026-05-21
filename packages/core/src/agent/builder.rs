@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use crate::providers::Provider;
-use crate::tools::Tool;
 use crate::approval::ApproveMode;
 use crate::event::AgentEvent;
-use crate::skills::Skill;
 use crate::prompt::PromptProfile;
+use crate::providers::Provider;
+use crate::skills::Skill;
+use crate::tools::Tool;
 
 use super::types::{Agent, AgentBuilder};
 

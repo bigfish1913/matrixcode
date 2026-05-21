@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::sync::{mpsc, Mutex};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{Mutex, mpsc};
 use uuid::Uuid;
 
 use super::{Tool, ToolDefinition};
@@ -53,13 +53,19 @@ impl Tool for TaskTool {
     }
 
     fn risk_level(&self) -> RiskLevel {
-        RiskLevel::Mutating  // Tasks can modify files
+        RiskLevel::Mutating // Tasks can modify files
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let description = params["description"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'description'"))?;
-        let prompt = params["prompt"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'prompt'"))?;
-        let subagent_type = params["subagent_type"].as_str().unwrap_or("general-purpose");
+        let description = params["description"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'description'"))?;
+        let prompt = params["prompt"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'prompt'"))?;
+        let subagent_type = params["subagent_type"]
+            .as_str()
+            .unwrap_or("general-purpose");
         let run_in_background = params["run_in_background"].as_bool().unwrap_or(false);
         let isolation = params["isolation"].as_str().unwrap_or("none");
 
@@ -95,7 +101,9 @@ impl Tool for TaskTool {
             let isolation_clone = isolation.to_string();
 
             tokio::spawn(async move {
-                let result = execute_subagent_task(&prompt_clone, &subagent_type_clone, &isolation_clone).await;
+                let result =
+                    execute_subagent_task(&prompt_clone, &subagent_type_clone, &isolation_clone)
+                        .await;
 
                 // Update task status
                 let mut tasks = manager_clone.tasks.lock().await;
@@ -121,7 +129,10 @@ impl Tool for TaskTool {
                 }
             });
 
-            Ok(format!("Task {} started in background. You'll be notified when it completes.", task_id))
+            Ok(format!(
+                "Task {} started in background. You'll be notified when it completes.",
+                task_id
+            ))
         } else {
             // Execute synchronously
             let result = execute_subagent_task(prompt, subagent_type, isolation).await?;
@@ -190,16 +201,22 @@ pub struct TaskManager {
 static TASK_MANAGER: std::sync::OnceLock<Arc<TaskManager>> = std::sync::OnceLock::new();
 
 fn get_task_manager() -> Arc<TaskManager> {
-    TASK_MANAGER.get_or_init(|| {
-        Arc::new(TaskManager {
-            tasks: Mutex::new(HashMap::new()),
-            notification_tx: None,
+    TASK_MANAGER
+        .get_or_init(|| {
+            Arc::new(TaskManager {
+                tasks: Mutex::new(HashMap::new()),
+                notification_tx: None,
+            })
         })
-    }).clone()
+        .clone()
 }
 
 /// Execute subagent task
-async fn execute_subagent_task(prompt: &str, subagent_type: &str, isolation: &str) -> Result<String> {
+async fn execute_subagent_task(
+    prompt: &str,
+    subagent_type: &str,
+    isolation: &str,
+) -> Result<String> {
     // For now, return a placeholder indicating the task type
     // In full implementation, this would spawn a real agent
 
@@ -270,8 +287,12 @@ impl Tool for TaskCreateTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let description = params["description"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'description'"))?;
-        let prompt = params["prompt"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'prompt'"))?;
+        let description = params["description"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'description'"))?;
+        let prompt = params["prompt"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'prompt'"))?;
 
         let task_id = Uuid::new_v4().to_string();
         let manager = get_task_manager();
@@ -318,7 +339,9 @@ impl Tool for TaskGetTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let task_id = params["task_id"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'task_id'"))?;
+        let task_id = params["task_id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'task_id'"))?;
 
         let manager = get_task_manager();
         let tasks = manager.tasks.lock().await;
@@ -326,11 +349,15 @@ impl Tool for TaskGetTool {
         if let Some(task) = tasks.get(task_id) {
             let status_str = task.status.to_string();
 
-            let elapsed = task.started_at
+            let elapsed = task
+                .started_at
                 .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
                 .unwrap_or_else(|| "N/A".to_string());
 
-            let result_str = task.result.clone().unwrap_or_else(|| "No result yet".to_string());
+            let result_str = task
+                .result
+                .clone()
+                .unwrap_or_else(|| "No result yet".to_string());
 
             Ok(format!(
                 "Task: {}\nDescription: {}\nStatus: {}\nElapsed: {}\nResult: {}",
@@ -402,7 +429,9 @@ impl Tool for TaskStopTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let task_id = params["task_id"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'task_id'"))?;
+        let task_id = params["task_id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'task_id'"))?;
 
         let manager = get_task_manager();
         let mut tasks = manager.tasks.lock().await;

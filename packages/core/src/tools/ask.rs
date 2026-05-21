@@ -17,8 +17,7 @@ use crate::approval::RiskLevel;
 
 pub struct AskTool;
 
-const ASK_TOOL_DESCRIPTION: &str =
-    "当遇到不确定或多种选择时，向用户提问以获取明确指示。\
+const ASK_TOOL_DESCRIPTION: &str = "当遇到不确定或多种选择时，向用户提问以获取明确指示。\
      必须使用此工具的情况：(1) 用户请求含义模糊，(2) 存在多种可行方案需要选择，\
      (3) 决策可能对项目产生重大影响。\
      提供推荐方案及理由，让用户做出知情选择。\
@@ -50,7 +49,10 @@ impl Tool for AskTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'question'"))?;
 
-        let options = params.get("options").and_then(|o| o.get("options")).and_then(|o| o.as_array())
+        let options = params
+            .get("options")
+            .and_then(|o| o.get("options"))
+            .and_then(|o| o.as_array())
             .or_else(|| params["options"].as_array());
         let recommendation = params["recommendation"].as_object();
 
@@ -197,9 +199,10 @@ fn render_question_ui(
 
     // Print options if provided
     if let Some(opts) = options
-        && !opts.is_empty() {
-            render_options(opts);
-        }
+        && !opts.is_empty()
+    {
+        render_options(opts);
+    }
 
     // Print recommendation if provided
     if let Some(rec) = recommendation {
@@ -231,7 +234,10 @@ fn render_options(opts: &[Value]) {
 /// Render multiple questions (CLI mode - non-TUI).
 fn render_multi_questions(questions: &[Value]) {
     println!();
-    println!("┌─ AI 询问 (共 {} 个问题) ───────────────────────────", questions.len());
+    println!(
+        "┌─ AI 询问 (共 {} 个问题) ───────────────────────────",
+        questions.len()
+    );
 
     for (idx, q) in questions.iter().enumerate() {
         let question = q["question"].as_str().unwrap_or("");
@@ -263,10 +269,7 @@ fn render_multi_questions(questions: &[Value]) {
 }
 
 /// Render the recommendation with reasoning.
-fn render_recommendation(
-    rec: &serde_json::Map<String, Value>,
-    options: Option<&Vec<Value>>,
-) {
+fn render_recommendation(rec: &serde_json::Map<String, Value>, options: Option<&Vec<Value>>) {
     let opt_id = rec["option_id"].as_str().unwrap_or("?");
     let reason = rec["reason"].as_str().unwrap_or("无理由");
 

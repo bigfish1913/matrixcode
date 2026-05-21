@@ -71,9 +71,9 @@ mod tests {
     fn test_find_boundary_multibyte() {
         // Chinese: each char is 3 bytes
         let s = "你好世界";
-        assert_eq!(find_boundary(s, 4), 3);  // Falls in middle of '好', back to '你'
-        assert_eq!(find_boundary(s, 6), 6);  // Exactly at boundary of '世'
-        assert_eq!(find_boundary(s, 7), 6);  // Falls in '世', back to 6
+        assert_eq!(find_boundary(s, 4), 3); // Falls in middle of '好', back to '你'
+        assert_eq!(find_boundary(s, 6), 6); // Exactly at boundary of '世'
+        assert_eq!(find_boundary(s, 7), 6); // Falls in '世', back to 6
     }
 
     #[test]
@@ -87,7 +87,7 @@ mod tests {
     fn test_truncate_bytes_chinese() {
         let s = "你好世界";
         assert_eq!(truncate_bytes(s, 100), "你好世界");
-        assert_eq!(truncate_bytes(s, 5), "你");  // 3 bytes, not 5 (boundary at 3)
+        assert_eq!(truncate_bytes(s, 5), "你"); // 3 bytes, not 5 (boundary at 3)
     }
 
     #[test]
@@ -118,6 +118,6 @@ mod tests {
 
         let mut s2 = "你好世界".to_string();
         truncate_string_in_place(&mut s2, 5);
-        assert_eq!(s2, "你");  // 3 bytes, not 5
+        assert_eq!(s2, "你"); // 3 bytes, not 5
     }
 }

@@ -38,9 +38,15 @@ impl Tool for EditTool {
         // Create spinner immediately at the start to fill the gap before actual operation
         // let mut spinner = ToolSpinner::new("preparing edit");
 
-        let path = params["path"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
-        let old_string = params["old_string"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'old_string'"))?;
-        let new_string = params["new_string"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'new_string'"))?;
+        let path = params["path"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
+        let old_string = params["old_string"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'old_string'"))?;
+        let new_string = params["new_string"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'new_string'"))?;
 
         // Update spinner message for the actual edit operation
         // spinner.set_message(&format!("editing {}", path));
@@ -54,7 +60,11 @@ impl Tool for EditTool {
         }
         if count > 1 {
             // spinner.finish_error("multiple matches");
-            anyhow::bail!("old_string found {} times in {} — must be unique", count, path);
+            anyhow::bail!(
+                "old_string found {} times in {} — must be unique",
+                count,
+                path
+            );
         }
 
         let new_content = content.replacen(old_string, new_string, 1);

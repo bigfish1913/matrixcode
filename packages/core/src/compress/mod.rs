@@ -9,11 +9,11 @@
 //! - **types**: Compression strategy, result, and segment types
 //! - **compressor**: AI compressor and compression functions
 
+mod compressor;
 mod config;
 mod types;
-mod compressor;
 
 // Re-export all public items
+pub use compressor::*;
 pub use config::*;
 pub use types::*;
-pub use compressor::*;

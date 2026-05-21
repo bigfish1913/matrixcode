@@ -90,8 +90,10 @@ pub fn generate_tools_prompt() -> String {
     for tool in tools {
         let def = tool.definition();
         // Extract brief description (first sentence or up to 50 chars)
-        let brief = def.description
-            .split('.').next()
+        let brief = def
+            .description
+            .split('.')
+            .next()
             .or_else(|| def.description.split('\n').next())
             .unwrap_or(&def.description);
         let brief = if brief.len() > 60 {

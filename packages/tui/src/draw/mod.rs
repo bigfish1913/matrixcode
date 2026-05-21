@@ -1,12 +1,12 @@
 //! TUI drawing module.
 
 mod helpers;
-mod status;
 mod input;
 mod messages;
+mod status;
 
-use ratatui::layout::Rect;
 use crate::app::TuiApp;
+use ratatui::layout::Rect;
 
 impl TuiApp {
     pub(crate) fn draw(&self, f: &mut ratatui::Frame) {
@@ -22,7 +22,11 @@ impl TuiApp {
         // This ensures input box position is stable for IME candidate window
         let total_height = f.area().height;
         let status_height = 1u16;
-        let queue_height_actual = if self.pending_messages.is_empty() { 0u16 } else { 1u16 };
+        let queue_height_actual = if self.pending_messages.is_empty() {
+            0u16
+        } else {
+            1u16
+        };
 
         // Input at bottom, fixed position
         let input_y = total_height.saturating_sub(input_height);

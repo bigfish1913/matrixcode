@@ -1,8 +1,8 @@
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use pulldown_cmark::{Parser, Event, Tag, TagEnd, HeadingLevel, CodeBlockKind, Options};
-use unicode_width::UnicodeWidthStr;
 use std::sync::OnceLock;
+use unicode_width::UnicodeWidthStr;
 
 /// Lazy-loaded syntax set for code highlighting
 static SYNTAX_SET: OnceLock<syntect::parsing::SyntaxSet> = OnceLock::new();
@@ -19,16 +19,12 @@ fn get_theme_set() -> &'static syntect::highlighting::ThemeSet {
 
 /// Inline code style for `code`
 fn inline_code_style() -> Style {
-    Style::default()
-        .fg(Color::Yellow)
-        .bg(Color::DarkGray)
+    Style::default().fg(Color::Yellow).bg(Color::DarkGray)
 }
 
 /// Math formula style
 fn math_style() -> Style {
-    Style::default()
-        .fg(Color::LightMagenta)
-        .bg(Color::DarkGray)
+    Style::default().fg(Color::LightMagenta).bg(Color::DarkGray)
 }
 
 /// Heading style for # ## ### etc.
@@ -39,9 +35,7 @@ fn heading_style(level: HeadingLevel) -> Style {
         HeadingLevel::H3 => Color::White,
         _ => Color::Gray,
     };
-    Style::default()
-        .fg(color)
-        .add_modifier(Modifier::BOLD)
+    Style::default().fg(color).add_modifier(Modifier::BOLD)
 }
 
 /// Bold text style
@@ -196,7 +190,8 @@ impl MarkdownRenderer {
                     }
 
                     if chars_len > 0 {
-                        self.current_spans.push(Span::styled(remaining[..chars_len].to_string(), style));
+                        self.current_spans
+                            .push(Span::styled(remaining[..chars_len].to_string(), style));
                         self.current_line_width += fit_width;
                         remaining = &remaining[chars_len..];
                     }
@@ -214,15 +209,18 @@ impl MarkdownRenderer {
                 if self.current_line_width + total_width > self.max_width {
                     // Word doesn't fit on current line, start new line
                     self.flush_line();
-                    self.current_spans.push(Span::styled(word.to_string(), style));
+                    self.current_spans
+                        .push(Span::styled(word.to_string(), style));
                     self.current_line_width = word_width;
                 } else {
                     // Word fits
                     if needs_space {
-                        self.current_spans.push(Span::styled(" ".to_string(), style));
+                        self.current_spans
+                            .push(Span::styled(" ".to_string(), style));
                         self.current_line_width += 1;
                     }
-                    self.current_spans.push(Span::styled(word.to_string(), style));
+                    self.current_spans
+                        .push(Span::styled(word.to_string(), style));
                     self.current_line_width += word_width;
                 }
             }
@@ -248,7 +246,8 @@ impl MarkdownRenderer {
                         // In table cell: collect content as plain text
                         self.current_cell_content.push_str(&code);
                     } else {
-                        self.current_spans.push(Span::styled(code.to_string(), inline_code_style()));
+                        self.current_spans
+                            .push(Span::styled(code.to_string(), inline_code_style()));
                     }
                 }
                 Event::InlineMath(math) => {
@@ -256,16 +255,15 @@ impl MarkdownRenderer {
                     if self.in_table_cell {
                         self.current_cell_content.push_str(&format!("${}$", math));
                     } else {
-                        self.current_spans.push(Span::styled(format!("${}$", math), math_style()));
+                        self.current_spans
+                            .push(Span::styled(format!("${}$", math), math_style()));
                     }
                 }
                 Event::DisplayMath(math) => {
                     // Display math: $$formula$$ - render as separate block
                     self.flush_line();
-                    self.lines.push(Line::styled(
-                        format!("  $${}$$", math),
-                        math_style()
-                    ));
+                    self.lines
+                        .push(Line::styled(format!("  $${}$$", math), math_style()));
                 }
                 Event::Html(html) => {
                     if self.in_table_cell {
@@ -285,7 +283,10 @@ impl MarkdownRenderer {
                 Event::HardBreak => self.flush_line(),
                 Event::Rule => {
                     self.flush_line();
-                    self.lines.push(Line::styled("─".repeat(40), Style::default().fg(Color::DarkGray)));
+                    self.lines.push(Line::styled(
+                        "─".repeat(40),
+                        Style::default().fg(Color::DarkGray),
+                    ));
                 }
                 Event::FootnoteReference(_) | Event::TaskListMarker(_) => {}
             }
@@ -317,12 +318,14 @@ impl MarkdownRenderer {
             Tag::Item => {
                 self.flush_line();
                 let indent = "  ".repeat(self.list_depth.saturating_sub(1));
-                self.current_spans.push(Span::styled(format!("{}• ", indent), bullet_style()));
+                self.current_spans
+                    .push(Span::styled(format!("{}• ", indent), bullet_style()));
             }
             Tag::BlockQuote(_) => {
                 self.flush_line();
                 self.push_style(Style::default().fg(Color::DarkGray));
-                self.current_spans.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
+                self.current_spans
+                    .push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
             }
             Tag::Strong => {
                 if self.in_table_cell {
@@ -350,7 +353,8 @@ impl MarkdownRenderer {
                     // In table: just collect text, no link styling
                 } else {
                     self.push_style(link_style());
-                    self.current_spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
+                    self.current_spans
+                        .push(Span::styled("[", Style::default().fg(Color::DarkGray)));
                 }
             }
             Tag::Image { title, .. } => {
@@ -430,7 +434,8 @@ impl MarkdownRenderer {
             TagEnd::Link => {
                 if !self.in_table_cell {
                     self.pop_style();
-                    self.current_spans.push(Span::styled("]", Style::default().fg(Color::DarkGray)));
+                    self.current_spans
+                        .push(Span::styled("]", Style::default().fg(Color::DarkGray)));
                 }
             }
             TagEnd::Image => {}
@@ -453,7 +458,8 @@ impl MarkdownRenderer {
                 self.current_table_row.clear();
             }
             TagEnd::TableCell => {
-                self.current_table_row.push(self.current_cell_content.clone());
+                self.current_table_row
+                    .push(self.current_cell_content.clone());
                 self.current_cell_content.clear();
                 self.in_table_cell = false;
             }
@@ -476,7 +482,7 @@ impl MarkdownRenderer {
         if !lang.is_empty() {
             self.lines.push(Line::styled(
                 format!("// {}", lang),
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(Color::DarkGray),
             ));
         }
 
@@ -519,7 +525,7 @@ impl MarkdownRenderer {
                             if fit_len > 0 {
                                 current_spans.push(Span::styled(
                                     span.content[..fit_len].to_string(),
-                                    span.style
+                                    span.style,
                                 ));
 
                                 // Flush current line
@@ -544,16 +550,18 @@ impl MarkdownRenderer {
                                             r_width += ch_w;
                                         }
                                         if r_len > 0 {
-                                            self.lines.push(Line::from(vec![
-                                                Span::styled(rest[..r_len].to_string(), span.style)
-                                            ]));
+                                            self.lines.push(Line::from(vec![Span::styled(
+                                                rest[..r_len].to_string(),
+                                                span.style,
+                                            )]));
                                             rest = &rest[r_len..];
                                         } else {
                                             break;
                                         }
                                     }
                                 } else {
-                                    current_spans.push(Span::styled(remaining.to_string(), span.style));
+                                    current_spans
+                                        .push(Span::styled(remaining.to_string(), span.style));
                                     current_width = remaining.width();
                                 }
                             }
@@ -581,9 +589,10 @@ impl MarkdownRenderer {
                                         r_width += ch_w;
                                     }
                                     if r_len > 0 {
-                                        self.lines.push(Line::from(vec![
-                                            Span::styled(content[pos..pos+r_len].to_string(), style)
-                                        ]));
+                                        self.lines.push(Line::from(vec![Span::styled(
+                                            content[pos..pos + r_len].to_string(),
+                                            style,
+                                        )]));
                                         pos += r_len;
                                     } else {
                                         break;
@@ -609,15 +618,18 @@ impl MarkdownRenderer {
         let ss = get_syntax_set();
         let ts = get_theme_set();
 
-        let syntax = ss.find_syntax_by_token(lang)
+        let syntax = ss
+            .find_syntax_by_token(lang)
             .or_else(|| ss.find_syntax_by_extension(lang))
             .unwrap_or_else(|| ss.find_syntax_plain_text());
 
-        let theme = ts.themes.get("base16-eighties.dark")
+        let theme = ts
+            .themes
+            .get("base16-eighties.dark")
             .or_else(|| ts.themes.get("Solarized (dark)"))
             .or_else(|| ts.themes.get("base16-mono.dark"))
             .or_else(|| ts.themes.values().next())
-            .unwrap();
+            .expect("theme set should always have at least one theme");
 
         use syntect::easy::HighlightLines;
         let mut highlighter = HighlightLines::new(syntax, theme);
@@ -625,10 +637,13 @@ impl MarkdownRenderer {
         code.lines()
             .map(|line| {
                 let highlighted = highlighter.highlight_line(line, ss).unwrap_or_default();
-                highlighted.iter().map(|(style, text)| {
-                    let fg = syntect_color_to_ratatui(style.foreground);
-                    Span::styled(text.to_string(), Style::default().fg(fg))
-                }).collect()
+                highlighted
+                    .iter()
+                    .map(|(style, text)| {
+                        let fg = syntect_color_to_ratatui(style.foreground);
+                        Span::styled(text.to_string(), Style::default().fg(fg))
+                    })
+                    .collect()
             })
             .collect()
     }
@@ -639,9 +654,7 @@ impl MarkdownRenderer {
         }
 
         // Calculate column widths: content width + 2 (1 space padding on each side)
-        let mut widths: Vec<usize> = self.table_header.iter()
-            .map(|c| c.width() + 2)
-            .collect();
+        let mut widths: Vec<usize> = self.table_header.iter().map(|c| c.width() + 2).collect();
 
         for row in &self.table_rows {
             for (i, cell) in row.iter().enumerate() {
@@ -653,54 +666,92 @@ impl MarkdownRenderer {
 
         // Build borders with matching widths
         // Top: ┌───┬───┐
-        let top_border = format!("┌{}┐", widths.iter()
-            .map(|w| "─".repeat(*w))
-            .collect::<Vec<_>>()
-            .join("┬"));
+        let top_border = format!(
+            "┌{}┐",
+            widths
+                .iter()
+                .map(|w| "─".repeat(*w))
+                .collect::<Vec<_>>()
+                .join("┬")
+        );
 
         // Separator: ├───┼───┤
-        let row_sep = format!("├{}┤", widths.iter()
-            .map(|w| "─".repeat(*w))
-            .collect::<Vec<_>>()
-            .join("┼"));
+        let row_sep = format!(
+            "├{}┤",
+            widths
+                .iter()
+                .map(|w| "─".repeat(*w))
+                .collect::<Vec<_>>()
+                .join("┼")
+        );
 
         // Bottom: └───┴───┘
-        let bottom_border = format!("└{}┘", widths.iter()
-            .map(|w| "─".repeat(*w))
-            .collect::<Vec<_>>()
-            .join("┴"));
+        let bottom_border = format!(
+            "└{}┘",
+            widths
+                .iter()
+                .map(|w| "─".repeat(*w))
+                .collect::<Vec<_>>()
+                .join("┴")
+        );
 
         // Top border
-        self.lines.push(Line::styled(top_border, Style::default().fg(Color::DarkGray)));
+        self.lines.push(Line::styled(
+            top_border,
+            Style::default().fg(Color::DarkGray),
+        ));
 
         // Header row: │ A │ B │
-        let header_line = format!("│{}│", widths.iter()
-            .enumerate()
-            .map(|(i, w)| self.pad_cell(&self.table_header[i], *w))
-            .collect::<Vec<_>>()
-            .join("│"));
-        self.lines.push(Line::styled(header_line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        let header_line = format!(
+            "│{}│",
+            widths
+                .iter()
+                .enumerate()
+                .map(|(i, w)| self.pad_cell(&self.table_header[i], *w))
+                .collect::<Vec<_>>()
+                .join("│")
+        );
+        self.lines.push(Line::styled(
+            header_line,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
         // Separator after header
-        self.lines.push(Line::styled(row_sep.clone(), Style::default().fg(Color::DarkGray)));
+        self.lines.push(Line::styled(
+            row_sep.clone(),
+            Style::default().fg(Color::DarkGray),
+        ));
 
         // Data rows
         for (idx, row) in self.table_rows.iter().enumerate() {
-            let row_line = format!("│{}│", widths.iter()
-                .enumerate()
-                .map(|(i, w)| self.pad_cell(&row[i], *w))
-                .collect::<Vec<_>>()
-                .join("│"));
-            self.lines.push(Line::styled(row_line, Style::default().fg(Color::Gray)));
+            let row_line = format!(
+                "│{}│",
+                widths
+                    .iter()
+                    .enumerate()
+                    .map(|(i, w)| self.pad_cell(&row[i], *w))
+                    .collect::<Vec<_>>()
+                    .join("│")
+            );
+            self.lines
+                .push(Line::styled(row_line, Style::default().fg(Color::Gray)));
 
             // Add separator between rows (but not after last row)
             if idx < self.table_rows.len() - 1 {
-                self.lines.push(Line::styled(row_sep.clone(), Style::default().fg(Color::DarkGray)));
+                self.lines.push(Line::styled(
+                    row_sep.clone(),
+                    Style::default().fg(Color::DarkGray),
+                ));
             }
         }
 
         // Bottom border
-        self.lines.push(Line::styled(bottom_border, Style::default().fg(Color::DarkGray)));
+        self.lines.push(Line::styled(
+            bottom_border,
+            Style::default().fg(Color::DarkGray),
+        ));
     }
 
     fn pad_cell(&self, content: &str, width: usize) -> String {
@@ -709,7 +760,12 @@ impl MarkdownRenderer {
         let padding = width.saturating_sub(content_width);
         let left_pad = padding / 2;
         let right_pad = padding - left_pad;
-        format!("{}{}{}", " ".repeat(left_pad), content, " ".repeat(right_pad))
+        format!(
+            "{}{}{}",
+            " ".repeat(left_pad),
+            content,
+            " ".repeat(right_pad)
+        )
     }
 }
 
@@ -721,18 +777,28 @@ fn syntect_color_to_ratatui(c: syntect::highlighting::Color) -> Color {
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
     if max - min < 20 {
-        if r < 80 { return Color::DarkGray; }
-        if r < 160 { return Color::Gray; }
+        if r < 80 {
+            return Color::DarkGray;
+        }
+        if r < 160 {
+            return Color::Gray;
+        }
         return Color::White;
     }
 
     if r >= g && r >= b && r > 150 {
-        if g > 100 && b < 100 { return Color::Yellow; }
-        if b > 100 && g < 100 { return Color::Magenta; }
+        if g > 100 && b < 100 {
+            return Color::Yellow;
+        }
+        if b > 100 && g < 100 {
+            return Color::Magenta;
+        }
         return Color::Red;
     }
     if g >= r && g >= b && g > 150 {
-        if b > 100 && r < 100 { return Color::Cyan; }
+        if b > 100 && r < 100 {
+            return Color::Cyan;
+        }
         return Color::Green;
     }
     if b >= r && b >= g && b > 150 {
@@ -750,7 +816,11 @@ mod tests {
     fn test_plain_text() {
         let result = render_markdown("Hello world", 80);
         assert!(!result.is_empty());
-        let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+        let text = result[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>();
         assert!(text.contains("Hello"));
     }
 
@@ -758,7 +828,11 @@ mod tests {
     fn test_heading() {
         let result = render_markdown("# Title", 80);
         assert!(!result.is_empty());
-        let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+        let text = result[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>();
         assert!(text.contains("Title"));
     }
 
@@ -774,7 +848,11 @@ mod tests {
         let md = "Inline: $E=mc^2$";
         let result = render_markdown(md, 80);
         assert!(!result.is_empty());
-        let text = result[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+        let text = result[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>();
         assert!(text.contains("$E=mc^2$"));
     }
 }
@@ -789,7 +867,11 @@ mod debug_tests {
         println!("\n=== Simple Table ===");
         let lines = render_markdown(md, 60);
         for (i, line) in lines.iter().enumerate() {
-            let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            let text = line
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>();
             println!("[{}] '{}'", i, text);
         }
     }
@@ -800,7 +882,11 @@ mod debug_tests {
         println!("\n=== Chinese Table ===");
         let lines = render_markdown(md, 80);
         for (i, line) in lines.iter().enumerate() {
-            let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            let text = line
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>();
             println!("[{}] '{}'", i, text);
         }
     }
@@ -811,7 +897,11 @@ mod debug_tests {
         println!("\n=== Multi-row Table ===");
         let lines = render_markdown(md, 80);
         for (i, line) in lines.iter().enumerate() {
-            let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            let text = line
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>();
             println!("[{}] '{}'", i, text);
         }
     }
@@ -823,7 +913,11 @@ mod debug_tests {
         println!("\n=== Complex Table ===");
         let lines = render_markdown(md, 80);
         for (i, line) in lines.iter().enumerate() {
-            let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            let text = line
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>();
             println!("[{}] '{}'", i, text);
         }
     }
@@ -846,7 +940,11 @@ mod debug_tests {
         println!("\n=== Math ===");
         let lines = render_markdown(md, 80);
         for (i, line) in lines.iter().enumerate() {
-            let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+            let text = line
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>();
             println!("[{}] '{}'", i, text);
         }
     }

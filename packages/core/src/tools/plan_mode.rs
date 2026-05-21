@@ -1,7 +1,7 @@
-use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use super::{Tool, ToolDefinition};
@@ -27,14 +27,16 @@ pub struct PlanInfo {
 static PLAN_STATE: std::sync::OnceLock<Arc<Mutex<PlanInfo>>> = std::sync::OnceLock::new();
 
 fn get_plan_state() -> Arc<Mutex<PlanInfo>> {
-    PLAN_STATE.get_or_init(|| {
-        Arc::new(Mutex::new(PlanInfo {
-            state: PlanState::None,
-            plan_content: String::new(),
-            files_to_modify: Vec::new(),
-            created_at: None,
-        }))
-    }).clone()
+    PLAN_STATE
+        .get_or_init(|| {
+            Arc::new(Mutex::new(PlanInfo {
+                state: PlanState::None,
+                plan_content: String::new(),
+                files_to_modify: Vec::new(),
+                created_at: None,
+            }))
+        })
+        .clone()
 }
 
 /// EnterPlanMode tool - enter planning mode for designing implementation
@@ -54,7 +56,7 @@ impl Tool for EnterPlanModeTool {
     }
 
     fn risk_level(&self) -> RiskLevel {
-        RiskLevel::Safe  // Read-only mode
+        RiskLevel::Safe // Read-only mode
     }
 
     async fn execute(&self, _params: Value) -> Result<String> {
@@ -62,7 +64,10 @@ impl Tool for EnterPlanModeTool {
         let mut state = plan.lock().await;
 
         if state.state == PlanState::Active {
-            return Ok("Already in plan mode. Continue planning or use exit_plan_mode to finish.".to_string());
+            return Ok(
+                "Already in plan mode. Continue planning or use exit_plan_mode to finish."
+                    .to_string(),
+            );
         }
 
         state.state = PlanState::Active;
@@ -111,8 +116,11 @@ impl Tool for ExitPlanModeTool {
 
     async fn execute(&self, params: Value) -> Result<String> {
         let plan_content = params["plan"].as_str();
-        let files_to_modify = params["files_to_modify"].as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<_>>());
+        let files_to_modify = params["files_to_modify"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        });
         let approved = params["approved"].as_bool().unwrap_or(true);
 
         let plan = get_plan_state();
@@ -148,7 +156,10 @@ impl Tool for ExitPlanModeTool {
             state.plan_content.clear();
             state.files_to_modify.clear();
 
-            Ok("Plan rejected and discarded. Returning to normal mode without making changes.".to_string())
+            Ok(
+                "Plan rejected and discarded. Returning to normal mode without making changes."
+                    .to_string(),
+            )
         }
     }
 }
@@ -156,7 +167,7 @@ impl Tool for ExitPlanModeTool {
 /// Check if currently in plan mode
 pub fn is_in_plan_mode() -> bool {
     // This is a synchronous check - for async use get_plan_state().lock().await
-    false  // Placeholder - real check would need async context
+    false // Placeholder - real check would need async context
 }
 
 /// Get current plan state (async)

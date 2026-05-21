@@ -31,8 +31,12 @@ impl Tool for WriteTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let path = params["path"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
-        let content = params["content"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'content'"))?;
+        let path = params["path"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
+        let content = params["content"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'content'"))?;
 
         // Create spinner immediately at the start to fill the gap before actual operation
         // let mut spinner = ToolSpinner::new(&format!("preparing write to {}", path));
@@ -52,7 +56,10 @@ impl Tool for WriteTool {
 
         // spinner.finish_success(&format!("wrote {} bytes", total_bytes));
 
-        Ok(format!("Successfully wrote {} bytes to {}", total_bytes, path))
+        Ok(format!(
+            "Successfully wrote {} bytes to {}",
+            total_bytes, path
+        ))
     }
 
     fn risk_level(&self) -> RiskLevel {

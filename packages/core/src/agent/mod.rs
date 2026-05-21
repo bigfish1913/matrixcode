@@ -2,12 +2,12 @@
 //!
 //! Provides Agent struct with streaming responses, tool execution, and event output.
 
-mod types;
 mod builder;
+mod helpers;
 mod run;
 mod streaming;
 mod tools;
-mod helpers;
+mod types;
 
 // Re-export public items from types directly
 pub use types::{Agent, AgentBuilder};

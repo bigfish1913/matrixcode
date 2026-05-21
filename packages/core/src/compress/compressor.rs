@@ -1,10 +1,12 @@
 //! Compression functions and AI compressor implementation.
 
+use crate::providers::{
+    ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role,
+};
+use crate::truncate::truncate_with_suffix;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashSet;
-use crate::providers::{ContentBlock, Message, MessageContent, Provider, Role, ChatRequest, ChatResponse};
-use crate::truncate::truncate_with_suffix;
 
 use super::config::{CompressionBias, CompressionConfig};
 use super::types::{CompressionStrategy, SummarizedSegment};
@@ -17,7 +19,11 @@ use super::types::{CompressionStrategy, SummarizedSegment};
 #[async_trait]
 pub trait Compressor: Send + Sync {
     /// Compress messages using AI summarization.
-    async fn summarize(&self, messages: &[Message], config: &CompressionConfig) -> Result<SummarizedSegment>;
+    async fn summarize(
+        &self,
+        messages: &[Message],
+        config: &CompressionConfig,
+    ) -> Result<SummarizedSegment>;
 
     /// Get the model name used.
     fn model_name(&self) -> &str;
@@ -46,7 +52,11 @@ const SUMMARY_SYSTEM_PROMPT: &str = r#"你是一个对话历史压缩助手。�
 
 #[async_trait]
 impl Compressor for AiCompressor {
-    async fn summarize(&self, messages: &[Message], _config: &CompressionConfig) -> Result<SummarizedSegment> {
+    async fn summarize(
+        &self,
+        messages: &[Message],
+        _config: &CompressionConfig,
+    ) -> Result<SummarizedSegment> {
         let prompt = build_summary_prompt(messages);
 
         let request = ChatRequest {
@@ -80,7 +90,8 @@ impl Compressor for AiCompressor {
 }
 
 fn extract_text_from_response(response: &ChatResponse) -> String {
-    response.content
+    response
+        .content
         .iter()
         .filter_map(|block| {
             if let ContentBlock::Text { text } = block {
@@ -138,7 +149,10 @@ pub fn compress_messages(
 }
 
 /// Compress with bias-based scoring.
-pub fn compress_with_bias(messages: &[Message], config: &CompressionConfig) -> Result<Vec<Message>> {
+pub fn compress_with_bias(
+    messages: &[Message],
+    config: &CompressionConfig,
+) -> Result<Vec<Message>> {
     if messages.len() <= config.min_preserve_messages {
         return Ok(messages.to_vec());
     }
@@ -146,7 +160,13 @@ pub fn compress_with_bias(messages: &[Message], config: &CompressionConfig) -> R
     let scored: Vec<(usize, Message, f64)> = messages
         .iter()
         .enumerate()
-        .map(|(idx, msg)| (idx, msg.clone(), calculate_preservation_score(msg, idx, messages.len(), &config.bias)))
+        .map(|(idx, msg)| {
+            (
+                idx,
+                msg.clone(),
+                calculate_preservation_score(msg, idx, messages.len(), &config.bias),
+            )
+        })
         .collect();
 
     let mut scored_with_recency: Vec<(usize, Message, f64)> = scored
@@ -188,14 +208,31 @@ pub fn compress_with_bias(messages: &[Message], config: &CompressionConfig) -> R
     Ok(compressed)
 }
 
-fn calculate_preservation_score(message: &Message, _index: usize, _total: usize, bias: &CompressionBias) -> f64 {
+fn calculate_preservation_score(
+    message: &Message,
+    _index: usize,
+    _total: usize,
+    bias: &CompressionBias,
+) -> f64 {
     let mut score: f64 = 10.0;
 
     match message.role {
-        Role::User => { if bias.preserve_user_questions { score += 30.0; } }
-        Role::Assistant => { score += 5.0; }
-        Role::Tool => { if bias.preserve_tools { score += 25.0; } }
-        Role::System => { score += 40.0; }
+        Role::User => {
+            if bias.preserve_user_questions {
+                score += 30.0;
+            }
+        }
+        Role::Assistant => {
+            score += 5.0;
+        }
+        Role::Tool => {
+            if bias.preserve_tools {
+                score += 25.0;
+            }
+        }
+        Role::System => {
+            score += 40.0;
+        }
     }
 
     match &message.content {
@@ -213,20 +250,27 @@ fn calculate_preservation_score(message: &Message, _index: usize, _total: usize,
             for block in blocks {
                 match block {
                     ContentBlock::ToolUse { name, .. } => {
-                        if bias.preserve_tools { score += 20.0; }
+                        if bias.preserve_tools {
+                            score += 20.0;
+                        }
                         if name == "write" || name == "edit" || name == "bash" {
                             score += 10.0;
                         }
                     }
                     ContentBlock::ToolResult { content, .. } => {
-                        if bias.preserve_tools { score += 20.0; }
+                        if bias.preserve_tools {
+                            score += 20.0;
+                        }
                         if contains_sensitive_instructions(content) {
                             score += 30.0;
                         }
                     }
                     ContentBlock::Thinking { .. } => {
-                        if bias.preserve_thinking { score += 25.0; }
-                        else { score -= 5.0; }
+                        if bias.preserve_thinking {
+                            score += 25.0;
+                        } else {
+                            score -= 5.0;
+                        }
                     }
                     ContentBlock::Text { text } => {
                         if contains_sensitive_instructions(text) {
@@ -244,7 +288,15 @@ fn calculate_preservation_score(message: &Message, _index: usize, _total: usize,
 
 fn contains_sensitive_instructions(text: &str) -> bool {
     let lower = text.to_lowercase();
-    let patterns = ["不要", "禁止", "必须", "不允许", "never", "must not", "do not"];
+    let patterns = [
+        "不要",
+        "禁止",
+        "必须",
+        "不允许",
+        "never",
+        "must not",
+        "do not",
+    ];
     patterns.iter().any(|p| lower.contains(p))
 }
 
@@ -255,7 +307,10 @@ fn truncate_compress(messages: &[Message], config: &CompressionConfig) -> Result
     Ok(messages[messages.len() - config.min_preserve_messages..].to_vec())
 }
 
-fn sliding_window_compress(messages: &[Message], config: &CompressionConfig) -> Result<Vec<Message>> {
+fn sliding_window_compress(
+    messages: &[Message],
+    config: &CompressionConfig,
+) -> Result<Vec<Message>> {
     if messages.len() <= config.min_preserve_messages {
         return Ok(messages.to_vec());
     }
@@ -285,13 +340,29 @@ pub fn estimate_tokens(message: &Message) -> u32 {
             let mut n = 0u32;
             for block in blocks {
                 match block {
-                    ContentBlock::Text { text } => { let (ca, cn) = count_chars(text); a += ca; n += cn; }
-                    ContentBlock::ToolUse { name, input, .. } => {
-                        let (ca, cn) = count_chars(name); a += ca; n += cn;
-                        let (ja, jn) = count_chars(&input.to_string()); a += ja; n += jn;
+                    ContentBlock::Text { text } => {
+                        let (ca, cn) = count_chars(text);
+                        a += ca;
+                        n += cn;
                     }
-                    ContentBlock::ToolResult { content, .. } => { let (ca, cn) = count_chars(content); a += ca; n += cn; }
-                    ContentBlock::Thinking { thinking, .. } => { let (ca, cn) = count_chars(thinking); a += ca; n += cn; }
+                    ContentBlock::ToolUse { name, input, .. } => {
+                        let (ca, cn) = count_chars(name);
+                        a += ca;
+                        n += cn;
+                        let (ja, jn) = count_chars(&input.to_string());
+                        a += ja;
+                        n += jn;
+                    }
+                    ContentBlock::ToolResult { content, .. } => {
+                        let (ca, cn) = count_chars(content);
+                        a += ca;
+                        n += cn;
+                    }
+                    ContentBlock::Thinking { thinking, .. } => {
+                        let (ca, cn) = count_chars(thinking);
+                        a += ca;
+                        n += cn;
+                    }
                     _ => {}
                 }
             }
@@ -308,7 +379,11 @@ fn count_chars(s: &str) -> (u32, u32) {
     let mut ascii = 0u32;
     let mut non_ascii = 0u32;
     for ch in s.chars() {
-        if ch.is_ascii() { ascii += 1; } else { non_ascii += 1; }
+        if ch.is_ascii() {
+            ascii += 1;
+        } else {
+            non_ascii += 1;
+        }
     }
     (ascii, non_ascii)
 }
@@ -319,7 +394,11 @@ pub fn estimate_total_tokens(messages: &[Message]) -> u32 {
 }
 
 /// Check if compression should be triggered.
-pub fn should_compress(current_tokens: u32, context_size: Option<u32>, config: &CompressionConfig) -> bool {
+pub fn should_compress(
+    current_tokens: u32,
+    context_size: Option<u32>,
+    config: &CompressionConfig,
+) -> bool {
     match context_size {
         Some(size) => (current_tokens as f64 / size as f64) >= config.threshold,
         None => false,
@@ -328,28 +407,40 @@ pub fn should_compress(current_tokens: u32, context_size: Option<u32>, config: &
 
 /// Build a prompt for summarization.
 pub fn build_summary_prompt(messages: &[Message]) -> String {
-    let history = messages.iter().map(|m| {
-        let role = match m.role {
-            Role::User => "用户",
-            Role::Assistant => "助手",
-            Role::Tool => "工具",
-            Role::System => "系统",
-        };
-        let preview = match &m.content {
-            MessageContent::Text(t) => truncate_with_suffix(t, 200),
-            MessageContent::Blocks(blocks) => {
-                blocks.iter().map(|b| match b {
-                    ContentBlock::Text { text } => truncate_with_suffix(text, 100),
-                    ContentBlock::ToolUse { name, .. } => format!("[工具: {}]", name),
-                    ContentBlock::ToolResult { content, .. } => truncate_with_suffix(content, 100),
-                    _ => "[...]".to_string(),
-                }).collect::<Vec<_>>().join(" | ")
-            }
-        };
-        format!("{}: {}", role, preview)
-    }).collect::<Vec<_>>().join("\n");
+    let history = messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                Role::User => "用户",
+                Role::Assistant => "助手",
+                Role::Tool => "工具",
+                Role::System => "系统",
+            };
+            let preview = match &m.content {
+                MessageContent::Text(t) => truncate_with_suffix(t, 200),
+                MessageContent::Blocks(blocks) => blocks
+                    .iter()
+                    .map(|b| match b {
+                        ContentBlock::Text { text } => truncate_with_suffix(text, 100),
+                        ContentBlock::ToolUse { name, .. } => format!("[工具: {}]", name),
+                        ContentBlock::ToolResult { content, .. } => {
+                            truncate_with_suffix(content, 100)
+                        }
+                        _ => "[...]".to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" | "),
+            };
+            format!("{}: {}", role, preview)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    format!("请将以下对话压缩为简洁摘要（{} 条消息）：\n{}", messages.len(), history)
+    format!(
+        "请将以下对话压缩为简洁摘要（{} 条消息）：\n{}",
+        messages.len(),
+        history
+    )
 }
 
 // ============================================================================
@@ -362,7 +453,10 @@ mod tests {
 
     #[test]
     fn test_estimate_tokens_simple() {
-        let msg = Message { role: Role::User, content: MessageContent::Text("Hello world".to_string()) };
+        let msg = Message {
+            role: Role::User,
+            content: MessageContent::Text("Hello world".to_string()),
+        };
         assert!(estimate_tokens(&msg) >= 3);
     }
 

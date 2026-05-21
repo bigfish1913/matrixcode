@@ -1,5 +1,8 @@
 use ratatui::style::Color;
 
+// Re-export ApproveMode from core
+pub use matrixcode_core::ApproveMode;
+
 /// Activity state
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum Activity {
@@ -14,7 +17,7 @@ pub enum Activity {
     WebSearch,
     WebFetch,
     Tool(String),
-    Asking,  // Waiting for approval/ask response
+    Asking, // Waiting for approval/ask response
 }
 
 impl Activity {
@@ -56,7 +59,9 @@ impl Activity {
             "bash" => Activity::Running,
             "websearch" => Activity::WebSearch,
             "webfetch" => Activity::WebFetch,
-            "task" | "task_create" | "task_get" | "task_list" | "task_stop" => Activity::Tool("task".into()),
+            "task" | "task_create" | "task_get" | "task_list" | "task_stop" => {
+                Activity::Tool("task".into())
+            }
             "enter_plan_mode" | "exit_plan_mode" => Activity::Tool("plan".into()),
             "monitor" => Activity::Tool("monitor".into()),
             other => Activity::Tool(other.to_string()),
@@ -70,9 +75,13 @@ pub enum Role {
     User,
     Assistant,
     Thinking,
-    Tool { name: String, detail: Option<String>, is_error: bool },
+    Tool {
+        name: String,
+        detail: Option<String>,
+        is_error: bool,
+    },
     System,
-    Ask,  // Approval/question requests - needs prominent display
+    Ask, // Approval/question requests - needs prominent display
 }
 
 impl Role {
@@ -82,7 +91,13 @@ impl Role {
             Role::User => "👤",
             Role::Assistant => "🤖",
             Role::Thinking => "💭",
-            Role::Tool { is_error, .. } => if *is_error { "❌" } else { "✅" },
+            Role::Tool { is_error, .. } => {
+                if *is_error {
+                    "❌"
+                } else {
+                    "✅"
+                }
+            }
             Role::System => "⚠️",
             Role::Ask => "⚡",
         }
@@ -106,7 +121,13 @@ impl Role {
             Role::User => Color::Green,
             Role::Assistant => Color::Blue,
             Role::Thinking => Color::Magenta,
-            Role::Tool { is_error, .. } => if *is_error { Color::Red } else { Color::Cyan },
+            Role::Tool { is_error, .. } => {
+                if *is_error {
+                    Color::Red
+                } else {
+                    Color::Cyan
+                }
+            }
             Role::System => Color::Yellow,
             Role::Ask => Color::Yellow,
         }
@@ -128,27 +149,33 @@ pub struct AskOption {
 impl AskOption {
     /// Format description with prefix for display.
     pub fn format_description(&self) -> String {
-        self.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default()
+        self.description
+            .as_ref()
+            .map(|d| format!(" - {}", d))
+            .unwrap_or_default()
     }
 }
-
 
 /// Submit mode for ask tool - determines how user confirms selection
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum SubmitMode {
     #[default]
-    Direct,  // Enter directly submits (for few options)
-    Option,  // Submit as an option in the list (for medium options)
-    Button,  // Submit button area at bottom (for many options)
+    Direct, // Enter directly submits (for few options)
+    Option, // Submit as an option in the list (for medium options)
+    Button, // Submit button area at bottom (for many options)
 }
 
 impl SubmitMode {
     /// Determine submit mode based on option count and multi_select flag.
     pub fn from_option_count(opt_count: usize, multi_select: bool) -> Self {
         if multi_select {
-            if opt_count <= 3 { SubmitMode::Direct }
-            else if opt_count <= 10 { SubmitMode::Option }
-            else { SubmitMode::Button }
+            if opt_count <= 3 {
+                SubmitMode::Direct
+            } else if opt_count <= 10 {
+                SubmitMode::Option
+            } else {
+                SubmitMode::Button
+            }
         } else {
             SubmitMode::Direct
         }
@@ -170,40 +197,4 @@ pub struct AskQuestion {
 pub struct Message {
     pub role: Role,
     pub content: String,
-}
-
-/// Approval mode for tool execution
-#[derive(Debug, Clone, PartialEq, Default)]
-pub enum ApproveMode {
-    #[default]
-    Ask,
-    Auto,
-    Strict,
-}
-
-impl ApproveMode {
-    pub fn label(&self) -> &'static str {
-        match self {
-            ApproveMode::Ask => "ask",
-            ApproveMode::Auto => "auto",
-            ApproveMode::Strict => "strict",
-        }
-    }
-
-    pub fn next(&self) -> Self {
-        match self {
-            ApproveMode::Ask => ApproveMode::Auto,
-            ApproveMode::Auto => ApproveMode::Strict,
-            ApproveMode::Strict => ApproveMode::Ask,
-        }
-    }
-
-    /// Convert to u8 for atomic storage (matches matrixcode_core::approval::ApproveMode).
-    pub fn to_u8(&self) -> u8 {
-        match self {
-            ApproveMode::Auto => 0,
-            ApproveMode::Ask => 1,
-            ApproveMode::Strict => 2,
-        }
-    }
 }

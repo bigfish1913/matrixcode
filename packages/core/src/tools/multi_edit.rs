@@ -12,11 +12,10 @@ impl Tool for MultiEditTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "multi_edit".to_string(),
-            description:
-                "对单个文件应用多处精确字符串替换，一次性原子写入。\
+            description: "对单个文件应用多处精确字符串替换，一次性原子写入。\
                  每个编辑必须在前序编辑后的文件状态中精确匹配一次。\
                  若任一编辑失败，文件不会被修改。"
-                    .to_string(),
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -102,13 +101,19 @@ impl Tool for MultiEditTool {
                 diff.push_str(&format!("- {}\n", line));
             }
             if old_string.lines().count() > 3 {
-                diff.push_str(&format!("  ... ({} more lines removed)\n", old_string.lines().count() - 3));
+                diff.push_str(&format!(
+                    "  ... ({} more lines removed)\n",
+                    old_string.lines().count() - 3
+                ));
             }
             for line in new_string.lines().take(3) {
                 diff.push_str(&format!("+ {}\n", line));
             }
             if new_string.lines().count() > 3 {
-                diff.push_str(&format!("  ... ({} more lines added)\n", new_string.lines().count() - 3));
+                diff.push_str(&format!(
+                    "  ... ({} more lines added)\n",
+                    new_string.lines().count() - 3
+                ));
             }
         }
         Ok(diff)

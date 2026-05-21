@@ -18,10 +18,9 @@ impl Tool for BashTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "bash".to_string(),
-            description:
-                "在当前工作目录执行 shell 命令，返回合并的 stdout + stderr。\
+            description: "在当前工作目录执行 shell 命令，返回合并的 stdout + stderr。\
                  用于构建、测试、git、包管理器等操作。命令通过 `sh -c` 执行并有超时限制。"
-                    .to_string(),
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

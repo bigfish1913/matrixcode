@@ -1,17 +1,19 @@
 //! Agent run loop and public methods.
 
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
 use anyhow::Result;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::sync::mpsc;
 
-use crate::event::{AgentEvent, EventType, EventData};
+use crate::approval::ApproveMode;
+use crate::cancel::CancellationToken;
+use crate::compress::{
+    CompressionStrategy, compress_messages, estimate_total_tokens, should_compress,
+};
+use crate::event::{AgentEvent, EventData, EventType};
+use crate::prompt;
 use crate::providers::{ChatRequest, Message, MessageContent, Role};
 use crate::tools::ToolDefinition;
-use crate::approval::ApproveMode;
-use crate::compress::{should_compress, estimate_total_tokens, CompressionStrategy, compress_messages};
-use crate::cancel::CancellationToken;
-use crate::prompt;
 
 use super::types::{Agent, AgentBuilder, MAX_ITERATIONS};
 
@@ -103,12 +105,19 @@ impl Agent {
         while should_continue && iterations < MAX_ITERATIONS {
             iterations += 1;
 
-            if let Some(token) = &self.cancel_token && token.is_cancelled() {
-                self.emit(AgentEvent::error("Operation cancelled".to_string(), None, None))?;
+            if let Some(token) = &self.cancel_token
+                && token.is_cancelled()
+            {
+                self.emit(AgentEvent::error(
+                    "Operation cancelled".to_string(),
+                    None,
+                    None,
+                ))?;
                 break;
             }
 
-            let tool_defs: Vec<ToolDefinition> = self.tools.iter().map(|t| t.definition()).collect();
+            let tool_defs: Vec<ToolDefinition> =
+                self.tools.iter().map(|t| t.definition()).collect();
             let request = ChatRequest {
                 system: Some(self.system_prompt.clone()),
                 messages: self.messages.clone(),
@@ -143,8 +152,14 @@ impl Agent {
 
             crate::debug::debug_log().log(
                 "compression",
-                &format!("check: api={}, estimated={}, using={}, context={}, threshold={}",
-                    api_tokens, estimated_tokens, current_tokens, context_size.unwrap_or(0), self.compression_config.threshold),
+                &format!(
+                    "check: api={}, estimated={}, using={}, context={}, threshold={}",
+                    api_tokens,
+                    estimated_tokens,
+                    current_tokens,
+                    context_size.unwrap_or(0),
+                    self.compression_config.threshold
+                ),
             );
 
             if should_compress(current_tokens, context_size, &self.compression_config) {
@@ -152,15 +167,25 @@ impl Agent {
 
                 let original_tokens = current_tokens;
 
-                match compress_messages(&self.messages, CompressionStrategy::SlidingWindow, &self.compression_config) {
+                match compress_messages(
+                    &self.messages,
+                    CompressionStrategy::SlidingWindow,
+                    &self.compression_config,
+                ) {
                     Ok(compressed) => {
                         let compressed_tokens = estimate_total_tokens(&compressed);
                         self.messages = compressed;
-                        self.total_input_tokens.store(compressed_tokens as u64, Ordering::Relaxed);
-                        self.last_input_tokens.store(compressed_tokens as u64, Ordering::Relaxed);
+                        self.total_input_tokens
+                            .store(compressed_tokens as u64, Ordering::Relaxed);
+                        self.last_input_tokens
+                            .store(compressed_tokens as u64, Ordering::Relaxed);
 
                         let ratio = compressed_tokens as f32 / original_tokens as f32;
-                        crate::debug::debug_log().compression(original_tokens, compressed_tokens, ratio);
+                        crate::debug::debug_log().compression(
+                            original_tokens,
+                            compressed_tokens,
+                            ratio,
+                        );
 
                         self.emit(AgentEvent::with_data(
                             EventType::CompressionCompleted,
@@ -172,7 +197,10 @@ impl Agent {
                         ))?;
                     }
                     Err(e) => {
-                        self.emit(AgentEvent::progress(format!("Compression failed: {}", e), None))?;
+                        self.emit(AgentEvent::progress(
+                            format!("Compression failed: {}", e),
+                            None,
+                        ))?;
                     }
                 }
             }
@@ -181,7 +209,8 @@ impl Agent {
         self.emit(AgentEvent::usage_with_cache(
             self.total_input_tokens.load(Ordering::Relaxed),
             self.total_output_tokens.load(Ordering::Relaxed),
-            0, 0,
+            0,
+            0,
         ))?;
 
         self.emit(AgentEvent::session_ended())?;

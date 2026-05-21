@@ -37,7 +37,7 @@ impl SessionMetadata {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
-            name: None,  // Will be auto-generated from first meaningful user message
+            name: None, // Will be auto-generated from first meaningful user message
             project_path: project_path.map(|p| p.to_string_lossy().to_string()),
             created_at: now,
             updated_at: now,
@@ -67,7 +67,10 @@ impl SessionMetadata {
 
     /// Get total tokens saved across all compressions.
     pub fn total_tokens_saved(&self) -> u32 {
-        self.compression_history.iter().map(|e| e.tokens_saved).sum()
+        self.compression_history
+            .iter()
+            .map(|e| e.tokens_saved)
+            .sum()
     }
 
     /// Get compression count.
@@ -96,7 +99,8 @@ impl SessionMetadata {
         let marker = if is_current { "*" } else { " " };
         let name = self.display_name();
         let msgs = self.message_count;
-        let project = self.project_path
+        let project = self
+            .project_path
             .as_ref()
             .map(|p| {
                 // Show just the directory name, not full path
@@ -106,15 +110,18 @@ impl SessionMetadata {
                     .unwrap_or_else(|| p.clone())
             })
             .unwrap_or_else(|| "-".to_string());
-        
+
         // Add compression info if any
         let compression_info = if self.compression_count() > 0 {
             format!("  💾 {} comps", self.compression_count())
         } else {
             "".to_string()
         };
-        
-        format!("{} {}  {} msgs  {}{}", marker, name, msgs, project, compression_info)
+
+        format!(
+            "{} {}  {} msgs  {}{}",
+            marker, name, msgs, project, compression_info
+        )
     }
 }
 
@@ -135,7 +142,11 @@ impl SessionIndex {
             return Some(s);
         }
         // Then try exact name match
-        if let Some(s) = self.sessions.iter().find(|s| s.name.as_deref() == Some(query)) {
+        if let Some(s) = self
+            .sessions
+            .iter()
+            .find(|s| s.name.as_deref() == Some(query))
+        {
             return Some(s);
         }
         // Then try partial ID match (for convenience)
@@ -161,7 +172,8 @@ impl SessionIndex {
         // Update last_session_id
         self.last_session_id = Some(meta.id);
         // Sort by updated_at descending (most recent first)
-        self.sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        self.sessions
+            .sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     }
 
     /// Remove a session from the index.
@@ -304,8 +316,8 @@ impl SessionManager {
     /// Save the session index to disk.
     fn save_index(&self) -> Result<()> {
         let path = self.index_path();
-        let json = serde_json::to_string_pretty(&self.index)
-            .context("serializing session index")?;
+        let json =
+            serde_json::to_string_pretty(&self.index).context("serializing session index")?;
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, json)
             .with_context(|| format!("writing index tmp file {}", tmp.display()))?;
@@ -329,9 +341,10 @@ impl SessionManager {
             self.load_session(&id)?;
             // Update project path if provided and different
             if let Some(path) = project_path
-                && let Some(ref mut session) = self.current_session {
-                    session.metadata.project_path = Some(path.to_string_lossy().to_string());
-                }
+                && let Some(ref mut session) = self.current_session
+            {
+                session.metadata.project_path = Some(path.to_string_lossy().to_string());
+            }
             Ok(self.current_session.as_ref())
         } else {
             Ok(None)
@@ -345,9 +358,10 @@ impl SessionManager {
             self.load_session(&id)?;
             // Update project path if provided
             if let Some(path) = project_path
-                && let Some(ref mut session) = self.current_session {
-                    session.metadata.project_path = Some(path.to_string_lossy().to_string());
-                }
+                && let Some(ref mut session) = self.current_session
+            {
+                session.metadata.project_path = Some(path.to_string_lossy().to_string());
+            }
             Ok(self.current_session.as_ref())
         } else {
             Ok(None)
@@ -364,13 +378,14 @@ impl SessionManager {
             .with_context(|| format!("reading session file {}", path.display()))?;
         let mut session: Session = serde_json::from_str(&data)
             .with_context(|| format!("parsing session file {}", path.display()))?;
-        
+
         // If session name is null but index has a name, use index's name
         if session.metadata.name.is_none()
-            && let Some(index_meta) = self.index.find(id) {
-                session.metadata.name = index_meta.name.clone();
-            }
-        
+            && let Some(index_meta) = self.index.find(id)
+        {
+            session.metadata.name = index_meta.name.clone();
+        }
+
         self.current_session = Some(session);
         Ok(())
     }
@@ -379,14 +394,13 @@ impl SessionManager {
     pub fn save_current(&mut self) -> Result<()> {
         if let Some(ref session) = self.current_session {
             let path = self.session_path(&session.metadata.id);
-            let json = serde_json::to_string(session)
-                .context("serializing session")?;
+            let json = serde_json::to_string(session).context("serializing session")?;
             let tmp = path.with_extension("json.tmp");
             std::fs::write(&tmp, json)
                 .with_context(|| format!("writing session tmp file {}", tmp.display()))?;
             std::fs::rename(&tmp, &path)
                 .with_context(|| format!("renaming session tmp file to {}", path.display()))?;
-            
+
             // Update index
             self.index.upsert(session.metadata.clone());
             self.save_index()?;
@@ -412,11 +426,13 @@ impl SessionManager {
     pub fn set_messages(&mut self, messages: Vec<Message>) {
         if let Some(ref mut session) = self.current_session {
             // Auto-generate name from first user message if name is None
-            if session.metadata.name.is_none() && !messages.is_empty()
-                && let Some(name) = Self::generate_name_from_messages(&messages) {
-                    session.metadata.name = Some(name);
-                }
-            
+            if session.metadata.name.is_none()
+                && !messages.is_empty()
+                && let Some(name) = Self::generate_name_from_messages(&messages)
+            {
+                session.metadata.name = Some(name);
+            }
+
             session.messages = messages;
             session.metadata.message_count = session.messages.len();
             session.metadata.updated_at = Utc::now();
@@ -426,34 +442,35 @@ impl SessionManager {
     /// Generate a human-readable session name from the first user message.
     /// Takes the first meaningful user input and truncates it.
     fn generate_name_from_messages(messages: &[Message]) -> Option<String> {
-        use crate::providers::{Role, MessageContent, ContentBlock};
-        
+        use crate::providers::{ContentBlock, MessageContent, Role};
+
         // Find first meaningful user message (skip very short/generic ones)
-        let user_messages: Vec<&Message> = messages.iter()
-            .filter(|m| m.role == Role::User)
-            .collect();
-        
+        let user_messages: Vec<&Message> =
+            messages.iter().filter(|m| m.role == Role::User).collect();
+
         for msg in user_messages.iter().take(3) {
             let text = match &msg.content {
                 MessageContent::Text(t) => t.clone(),
-                MessageContent::Blocks(blocks) => {
-                    blocks.iter().filter_map(|b| {
+                MessageContent::Blocks(blocks) => blocks
+                    .iter()
+                    .filter_map(|b| {
                         if let ContentBlock::Text { text } = b {
                             Some(text.clone())
                         } else {
                             None
                         }
-                    }).collect::<Vec<_>>().join(" ")
-                }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
             };
-            
+
             let cleaned = text.trim().lines().next().unwrap_or("").trim();
-            
+
             // Skip too short or generic messages
             if cleaned.len() < 5 || is_generic_message(cleaned) {
                 continue;
             }
-            
+
             // Truncate to reasonable length for display
             let name = if cleaned.chars().count() > 40 {
                 let truncated: String = cleaned.chars().take(37).collect();
@@ -461,10 +478,10 @@ impl SessionManager {
             } else {
                 cleaned.to_string()
             };
-            
+
             return Some(name);
         }
-        
+
         None
     }
 
@@ -480,7 +497,9 @@ impl SessionManager {
 
     /// Get the current session ID.
     pub fn current_id(&self) -> Option<&str> {
-        self.current_session.as_ref().map(|s| s.metadata.id.as_str())
+        self.current_session
+            .as_ref()
+            .map(|s| s.metadata.id.as_str())
     }
 
     /// Get the current session name.
@@ -548,9 +567,8 @@ use anyhow::Context;
 /// Check if a message is too generic to be a good session name.
 fn is_generic_message(msg: &str) -> bool {
     let generic = [
-        "继续", "好的", "ok", "yes", "no", "是", "否",
-        "嗯", "对", "行", "可以", "好", "谢谢", "thanks",
-        "hi", "hello", "你好", "开始", "start",
+        "继续", "好的", "ok", "yes", "no", "是", "否", "嗯", "对", "行", "可以", "好", "谢谢",
+        "thanks", "hi", "hello", "你好", "开始", "start",
     ];
     generic.iter().any(|g| msg.eq_ignore_ascii_case(g))
 }

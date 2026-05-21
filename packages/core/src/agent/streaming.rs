@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::event::AgentEvent;
-use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, Usage, StreamEvent};
+use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, StreamEvent, Usage};
 
 use super::types::Agent;
 
@@ -18,7 +18,9 @@ impl Agent {
         loop {
             attempt += 1;
 
-            if let Some(token) = &self.cancel_token && token.is_cancelled() {
+            if let Some(token) = &self.cancel_token
+                && token.is_cancelled()
+            {
                 return Err(anyhow::anyhow!("Operation cancelled"));
             }
 
@@ -38,7 +40,9 @@ impl Agent {
                     let mut should_retry = false;
 
                     loop {
-                        if let Some(token) = &self.cancel_token && token.is_cancelled() {
+                        if let Some(token) = &self.cancel_token
+                            && token.is_cancelled()
+                        {
                             return Err(anyhow::anyhow!("Operation cancelled"));
                         }
 
@@ -77,14 +81,21 @@ impl Agent {
                                 }
                                 if !current_text.is_empty() {
                                     self.emit(AgentEvent::text_end())?;
-                                    response_content.push(ContentBlock::Text { text: current_text.clone() });
+                                    response_content.push(ContentBlock::Text {
+                                        text: current_text.clone(),
+                                    });
                                     current_text.clear();
                                 }
                                 self.emit(AgentEvent::tool_use_start(&id, &name, None))?;
                             }
                             Some(StreamEvent::ToolInputDelta { bytes_so_far: _ }) => {}
                             Some(StreamEvent::Usage { output_tokens }) => {
-                                self.emit(AgentEvent::usage_with_cache(0, output_tokens as u64, 0, 0))?;
+                                self.emit(AgentEvent::usage_with_cache(
+                                    0,
+                                    output_tokens as u64,
+                                    0,
+                                    0,
+                                ))?;
                                 usage.output_tokens = output_tokens;
                             }
                             Some(StreamEvent::Done(resp)) => {
@@ -97,7 +108,9 @@ impl Agent {
                                 }
                                 if !current_text.is_empty() {
                                     self.emit(AgentEvent::text_end())?;
-                                    response_content.push(ContentBlock::Text { text: current_text.clone() });
+                                    response_content.push(ContentBlock::Text {
+                                        text: current_text.clone(),
+                                    });
                                 }
                                 for block in &resp.content {
                                     if !response_content.iter().any(|b| b == block) {
@@ -109,16 +122,24 @@ impl Agent {
                             Some(StreamEvent::Error(msg)) => {
                                 if attempt < MAX_RETRIES {
                                     self.emit(AgentEvent::progress(
-                                        format!("⚠️ Stream error, retrying ({}/{}): {}", attempt, MAX_RETRIES, &msg),
+                                        format!(
+                                            "⚠️ Stream error, retrying ({}/{}): {}",
+                                            attempt, MAX_RETRIES, &msg
+                                        ),
                                         None,
                                     ))?;
                                     let delay = RETRY_DELAY_MS * (1 << (attempt - 1));
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(delay))
+                                        .await;
                                     should_retry = true;
                                     break;
                                 } else {
                                     self.emit(AgentEvent::error(msg.clone(), None, None))?;
-                                    return Err(anyhow::anyhow!("Stream error after {} retries: {}", MAX_RETRIES, msg));
+                                    return Err(anyhow::anyhow!(
+                                        "Stream error after {} retries: {}",
+                                        MAX_RETRIES,
+                                        msg
+                                    ));
                                 }
                             }
                         }
@@ -138,13 +159,20 @@ impl Agent {
                     if attempt < MAX_RETRIES {
                         let error_msg = e.to_string();
                         self.emit(AgentEvent::progress(
-                            format!("⚠️ API error, retrying ({}/{}): {}", attempt, MAX_RETRIES, &error_msg),
+                            format!(
+                                "⚠️ API error, retrying ({}/{}): {}",
+                                attempt, MAX_RETRIES, &error_msg
+                            ),
                             None,
                         ))?;
                         let delay = RETRY_DELAY_MS * (1 << (attempt - 1));
                         tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
                     } else {
-                        return Err(anyhow::anyhow!("API error after {} retries: {}", MAX_RETRIES, e));
+                        return Err(anyhow::anyhow!(
+                            "API error after {} retries: {}",
+                            MAX_RETRIES,
+                            e
+                        ));
                     }
                 }
             }

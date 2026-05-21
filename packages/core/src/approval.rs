@@ -8,8 +8,8 @@
 use std::fmt;
 use std::io::{self, BufRead, Write as _};
 
-use serde_json::Value;
 use crate::truncate::truncate_with_suffix;
+use serde_json::Value;
 
 // ============================================================================
 // Risk Level

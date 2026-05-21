@@ -1,14 +1,14 @@
 //! Agent tool execution implementation.
 
-use std::sync::atomic::Ordering;
 use anyhow::Result;
+use std::sync::atomic::Ordering;
 
-use crate::event::{AgentEvent, EventType, EventData};
-use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role};
 use crate::approval::{ApproveMode, needs_approval};
+use crate::event::{AgentEvent, EventData, EventType};
+use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role};
 
-use super::types::Agent;
 use super::helpers::extract_tool_detail;
+use super::types::Agent;
 
 impl Agent {
     /// Process response and handle tool_use
@@ -23,7 +23,10 @@ impl Agent {
                     assistant_content.push(ContentBlock::Text { text: text.clone() });
                 }
 
-                ContentBlock::Thinking { thinking, signature } => {
+                ContentBlock::Thinking {
+                    thinking,
+                    signature,
+                } => {
                     assistant_content.push(ContentBlock::Thinking {
                         thinking: thinking.clone(),
                         signature: signature.clone(),
@@ -31,7 +34,9 @@ impl Agent {
                 }
 
                 ContentBlock::ToolUse { id, name, input } => {
-                    if let Some(token) = &self.cancel_token && token.is_cancelled() {
+                    if let Some(token) = &self.cancel_token
+                        && token.is_cancelled()
+                    {
                         return Err(anyhow::anyhow!("Operation cancelled"));
                     }
 
@@ -44,7 +49,13 @@ impl Agent {
                         Err(e) => (e.to_string(), true),
                     };
 
-                    self.emit(AgentEvent::tool_result(id.clone(), name.clone(), extract_tool_detail(name, input), content.clone(), is_error))?;
+                    self.emit(AgentEvent::tool_result(
+                        id.clone(),
+                        name.clone(),
+                        extract_tool_detail(name, input),
+                        content.clone(),
+                        is_error,
+                    ))?;
 
                     assistant_content.push(ContentBlock::ToolUse {
                         id: id.clone(),
@@ -56,7 +67,11 @@ impl Agent {
                         role: Role::User,
                         content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
                             tool_use_id: id.clone(),
-                            content: format!("{}: {}", if is_error { "Error" } else { "Result" }, content),
+                            content: format!(
+                                "{}: {}",
+                                if is_error { "Error" } else { "Result" },
+                                content
+                            ),
                         }]),
                     });
                 }
@@ -80,7 +95,11 @@ impl Agent {
     }
 
     /// Execute a tool
-    pub(crate) async fn execute_tool(&mut self, name: &str, input: serde_json::Value) -> Result<String> {
+    pub(crate) async fn execute_tool(
+        &mut self,
+        name: &str,
+        input: serde_json::Value,
+    ) -> Result<String> {
         let tool = self.tools.iter().find(|t| t.definition().name == name);
 
         if let Some(tool) = tool {
@@ -88,7 +107,9 @@ impl Agent {
 
             log::debug!(
                 "Tool '{}' approval check: mode={}, risk={}, needs_approval={}",
-                name, current_mode, tool.risk_level(),
+                name,
+                current_mode,
+                tool.risk_level(),
                 needs_approval(current_mode, tool.risk_level())
             );
 
@@ -97,28 +118,42 @@ impl Agent {
                     let detail = match name {
                         "bash" => format!("Command: {}", input["command"].as_str().unwrap_or("?")),
                         "write" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
-                        "edit" | "multi_edit" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
+                        "edit" | "multi_edit" => {
+                            format!("File: {}", input["path"].as_str().unwrap_or("?"))
+                        }
                         _ => format!("Tool: {}", name),
                     };
 
                     let question = format!(
                         "⚠️ Tool '{}' requires approval (risk: {})\n{}\n\nAllow? (y/n)",
-                        name, tool.risk_level(), detail
+                        name,
+                        tool.risk_level(),
+                        detail
                     );
 
                     self.emit(AgentEvent::with_data(
                         EventType::AskQuestion,
-                        EventData::AskQuestion { question, options: None },
+                        EventData::AskQuestion {
+                            question,
+                            options: None,
+                        },
                     ))?;
 
                     if let Some(rx) = &mut self.ask_rx {
                         match rx.recv().await {
                             Some(answer) => {
                                 let answer_lower = answer.trim().to_lowercase();
-                                if matches!(answer_lower.as_str(), "a" | "abort" | "q" | "quit" | "stop") {
+                                if matches!(
+                                    answer_lower.as_str(),
+                                    "a" | "abort" | "q" | "quit" | "stop"
+                                ) {
                                     self.emit(AgentEvent::with_data(
                                         EventType::Error,
-                                        EventData::Error { message: "Aborted by user".into(), code: None, source: None },
+                                        EventData::Error {
+                                            message: "Aborted by user".into(),
+                                            code: None,
+                                            source: None,
+                                        },
                                     ))?;
                                     return Err(anyhow::anyhow!("Session aborted by user"));
                                 }
@@ -128,7 +163,9 @@ impl Agent {
                                 );
                                 if !approved {
                                     return Err(anyhow::anyhow!(
-                                        "Tool '{}' rejected by user (answer: '{}')", name, answer_lower
+                                        "Tool '{}' rejected by user (answer: '{}')",
+                                        name,
+                                        answer_lower
                                     ));
                                 }
                             }
@@ -140,14 +177,20 @@ impl Agent {
                 } else {
                     return Err(anyhow::anyhow!(
                         "Tool '{}' requires manual approval (risk: {}). Use --approve-mode auto to auto-approve.",
-                        name, tool.risk_level()
+                        name,
+                        tool.risk_level()
                     ));
                 }
             }
 
             // Special handling for "ask" tool in TUI mode
             if name == "ask" && self.ask_rx.is_some() {
-                if input.get("questions").and_then(|q| q.as_array()).filter(|a| !a.is_empty()).is_some() {
+                if input
+                    .get("questions")
+                    .and_then(|q| q.as_array())
+                    .filter(|a| !a.is_empty())
+                    .is_some()
+                {
                     let intro = input.get("intro").and_then(|s| s.as_str()).unwrap_or("");
                     let questions = input.get("questions").cloned();
 
@@ -157,7 +200,10 @@ impl Agent {
 
                     self.emit(AgentEvent::with_data(
                         EventType::AskQuestion,
-                        EventData::AskQuestion { question: intro.to_string(), options: Some(options) },
+                        EventData::AskQuestion {
+                            question: intro.to_string(),
+                            options: Some(options),
+                        },
                     ))?;
 
                     if let Some(rx) = &mut self.ask_rx {

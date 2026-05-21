@@ -1,7 +1,7 @@
 //! Project structure analysis for automatic memory creation.
 
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 use super::storage::MemoryStorage;
 use super::types::{MemoryCategory, MemoryEntry};
@@ -79,9 +79,21 @@ pub const PROJECT_TYPE_CONFIGS: &[ProjectTypeConfig] = &[
 ];
 
 pub const IGNORE_DIRS: &[&str] = &[
-    ".git", ".github", ".matrix", ".idea", ".vscode",
-    "node_modules", "target", "build", "dist", "out",
-    "vendor", "__pycache__", ".venv", "venv", "env",
+    ".git",
+    ".github",
+    ".matrix",
+    ".idea",
+    ".vscode",
+    "node_modules",
+    "target",
+    "build",
+    "dist",
+    "out",
+    "vendor",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
 ];
 
 // ============================================================================
@@ -147,14 +159,30 @@ impl ProjectStructureAnalyzer {
     fn infer_directory_purpose(&self, dir_name: &str) -> String {
         let dir_lower = dir_name.to_lowercase();
 
-        if dir_lower.contains("component") { return "组件目录".to_string(); }
-        if dir_lower.contains("page") || dir_lower == "views" { return "页面目录".to_string(); }
-        if dir_lower.contains("hook") { return "Hook目录".to_string(); }
-        if dir_lower.contains("util") || dir_lower == "lib" { return "工具目录".to_string(); }
-        if dir_lower.contains("test") { return "测试目录".to_string(); }
-        if dir_lower.contains("api") { return "API目录".to_string(); }
-        if dir_lower.contains("model") { return "模型目录".to_string(); }
-        if dir_lower.contains("service") { return "服务目录".to_string(); }
+        if dir_lower.contains("component") {
+            return "组件目录".to_string();
+        }
+        if dir_lower.contains("page") || dir_lower == "views" {
+            return "页面目录".to_string();
+        }
+        if dir_lower.contains("hook") {
+            return "Hook目录".to_string();
+        }
+        if dir_lower.contains("util") || dir_lower == "lib" {
+            return "工具目录".to_string();
+        }
+        if dir_lower.contains("test") {
+            return "测试目录".to_string();
+        }
+        if dir_lower.contains("api") {
+            return "API目录".to_string();
+        }
+        if dir_lower.contains("model") {
+            return "模型目录".to_string();
+        }
+        if dir_lower.contains("service") {
+            return "服务目录".to_string();
+        }
 
         "代码目录".to_string()
     }
@@ -197,7 +225,10 @@ impl ProjectStructureAnalyzer {
 }
 
 /// Generate project structure memories and save.
-pub fn generate_project_structure_memories(project_root: &std::path::Path, storage: &mut MemoryStorage) -> usize {
+pub fn generate_project_structure_memories(
+    project_root: &std::path::Path,
+    storage: &mut MemoryStorage,
+) -> usize {
     let analyzer = ProjectStructureAnalyzer::new(project_root.to_path_buf());
     let entries = analyzer.generate_memories();
 

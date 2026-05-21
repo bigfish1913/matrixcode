@@ -81,7 +81,7 @@ pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            
+
             if path.is_dir() {
                 // Try Format 1: SKILL.md exists
                 let skill_md = path.join("SKILL.md");
@@ -96,7 +96,7 @@ pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {
                     }
                     continue;
                 }
-                
+
                 // Try Format 2: multiple .md files in directory
                 load_multi_file_skills(&path, &mut out);
             } else if path.is_file() {
@@ -147,24 +147,24 @@ fn load_multi_file_skills(dir: &Path, out: &mut Vec<Skill>) {
             return;
         }
     };
-    
+
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
-        
+
         // Only process .md files
         let ext = path.extension().and_then(|e| e.to_str());
         if ext != Some("md") {
             continue;
         }
-        
+
         // Skip SKILL.md (already handled in Format 1)
         if path.file_name().and_then(|n| n.to_str()) == Some("SKILL.md") {
             continue;
         }
-        
+
         match load_skill_from_file(&path, dir) {
             Ok(skill) => {
                 add_skill(out, skill);
@@ -247,7 +247,9 @@ fn split_frontmatter(raw: &str) -> Result<(std::collections::BTreeMap<String, St
         return Ok((front, trimmed));
     };
     // Require newline right after opening ---
-    let rest = rest.strip_prefix('\n').or_else(|| rest.strip_prefix("\r\n"));
+    let rest = rest
+        .strip_prefix('\n')
+        .or_else(|| rest.strip_prefix("\r\n"));
     let Some(rest) = rest else {
         return Ok((front, trimmed));
     };
@@ -312,8 +314,11 @@ pub fn format_catalogue(skills: &[Skill]) -> Option<String> {
 ",
     );
     for sk in skills {
-        s.push_str(&format!("- {}: {}
-", sk.name, sk.description));
+        s.push_str(&format!(
+            "- {}: {}
+",
+            sk.name, sk.description
+        ));
     }
     Some(s)
 }
@@ -342,9 +347,10 @@ fn walk(root: &Path, cur: &Path, out: &mut Vec<String>) {
         if file_type.is_dir() {
             walk(root, &p, out);
         } else if file_type.is_file()
-            && let Ok(rel) = p.strip_prefix(root) {
-                out.push(rel.display().to_string());
-            }
+            && let Ok(rel) = p.strip_prefix(root)
+        {
+            out.push(rel.display().to_string());
+        }
     }
 }
 
@@ -424,11 +430,11 @@ mod tests {
 
         let skills = discover_skills(&[root]);
         assert_eq!(skills.len(), 2);
-        
+
         let debug_skill = skills.iter().find(|s| s.name == "debug").unwrap();
         assert_eq!(debug_skill.description, "debug issues");
         assert!(debug_skill.body.contains("Debug workflow"));
-        
+
         let feature_skill = skills.iter().find(|s| s.name == "feature").unwrap();
         assert_eq!(feature_skill.description, "build features");
         assert!(feature_skill.body.contains("Feature workflow"));

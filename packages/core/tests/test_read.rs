@@ -1,5 +1,5 @@
-use matrixcode_core::tools::read::ReadTool;
 use matrixcode_core::tools::Tool;
+use matrixcode_core::tools::read::ReadTool;
 use serde_json::json;
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -56,9 +56,7 @@ async fn test_read_missing_path_param() {
 #[tokio::test]
 async fn test_read_nonexistent_file() {
     let tool = ReadTool;
-    let result = tool
-        .execute(json!({"path": "/nonexistent/file.txt"}))
-        .await;
+    let result = tool.execute(json!({"path": "/nonexistent/file.txt"})).await;
     assert!(result.is_err());
 }
 

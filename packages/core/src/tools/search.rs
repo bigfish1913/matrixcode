@@ -34,7 +34,9 @@ impl Tool for SearchTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let pattern = params["pattern"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'pattern'"))?;
+        let pattern = params["pattern"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'pattern'"))?;
         let path = params["path"].as_str().unwrap_or(".");
         let glob_pattern = params["glob"].as_str();
 
@@ -44,8 +46,6 @@ impl Tool for SearchTool {
         let pattern = pattern.to_string();
         let path = path.to_string();
         let glob_pattern = glob_pattern.map(|s| s.to_string());
-
-        
 
         tokio::task::spawn_blocking(move || search_files(&pattern, &path, glob_pattern.as_deref()))
             .await?
@@ -70,7 +70,12 @@ fn search_files(pattern: &str, path: &str, glob_pattern: Option<&str>) -> Result
 
         for (line_num, line) in content.lines().enumerate() {
             if regex.is_match(line) {
-                results.push(format!("{}:{}: {}", file_path.display(), line_num + 1, line.trim()));
+                results.push(format!(
+                    "{}:{}: {}",
+                    file_path.display(),
+                    line_num + 1,
+                    line.trim()
+                ));
             }
         }
 
@@ -87,7 +92,10 @@ fn search_files(pattern: &str, path: &str, glob_pattern: Option<&str>) -> Result
     }
 }
 
-fn collect_files(root: &std::path::Path, glob_pattern: Option<&str>) -> Result<Vec<std::path::PathBuf>> {
+fn collect_files(
+    root: &std::path::Path,
+    glob_pattern: Option<&str>,
+) -> Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
 
     if root.is_file() {
@@ -101,9 +109,10 @@ fn collect_files(root: &std::path::Path, glob_pattern: Option<&str>) -> Result<V
     for entry in walker {
         if let Some(ref matcher) = glob_matcher
             && let Some(name) = entry.file_name().and_then(|n| n.to_str())
-                && !matcher.matches(name) {
-                    continue;
-                }
+            && !matcher.matches(name)
+        {
+            continue;
+        }
         files.push(entry);
     }
 

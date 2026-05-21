@@ -5,12 +5,12 @@
 //!
 //! The overview file is stored at `MATRIX.md` in the project root.
 
-use std::path::{Path, PathBuf};
-use std::fs;
-use anyhow::{Context, Result};
-use crate::truncate::find_boundary;
-use crate::prompt::{build_overview_prompt, OverviewContext};
+use crate::prompt::{OverviewContext, build_overview_prompt};
 use crate::providers::{ChatRequest, Message, MessageContent, Provider, Role};
+use crate::truncate::find_boundary;
+use anyhow::{Context, Result};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 // =============================================================================
 // Configuration Constants
@@ -94,9 +94,12 @@ pub const PROJECT_TYPE_CONFIGS: &[ProjectTypeConfig] = &[
         type_name: "Node.js/TypeScript",
         detect_files: &["package.json"],
         key_source_files: &[
-            "src/index.ts", "src/index.js",
-            "src/main.ts", "src/main.js",
-            "src/app.ts", "src/app.js",
+            "src/index.ts",
+            "src/index.js",
+            "src/main.ts",
+            "src/main.js",
+            "src/app.ts",
+            "src/app.js",
         ],
     },
     ProjectTypeConfig {
@@ -176,10 +179,10 @@ impl ProjectOverview {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(DEFAULT_PROJECT_NAME);
-        
+
         // Collect project context
         let context = collect_project_context(project_root)?;
-        
+
         // Build the AI prompt
         let prompt = build_overview_prompt(&OverviewContext {
             project_name: project_name.to_string(),
@@ -189,7 +192,7 @@ impl ProjectOverview {
             readme: context.readme.clone(),
             source_files: context.source_files.clone(),
         });
-        
+
         // Call AI API
         let request = ChatRequest {
             messages: vec![Message {
@@ -203,18 +206,20 @@ impl ProjectOverview {
             server_tools: vec![],
             enable_caching: false, // No caching for overview generation
         };
-        
-        let response = provider.chat(request).await
+
+        let response = provider
+            .chat(request)
+            .await
             .with_context(|| "calling AI for overview generation")?;
-        
+
         // Extract content from response
         let content = extract_response_content(&response);
-        
+
         // Save to file
         let path = overview_path(project_root);
         fs::write(&path, &content)
             .with_context(|| format!("writing overview file {}", path.display()))?;
-        
+
         Ok(Self { content, path })
     }
 
@@ -319,19 +324,19 @@ struct ProjectContext {
 fn collect_project_context(project_root: &Path) -> Result<ProjectContext> {
     // Detect project type
     let project_type = detect_project_type(project_root);
-    
+
     // Collect config files
     let config_files = collect_config_files(project_root)?;
-    
+
     // Get README
     let readme = read_readme(project_root)?;
-    
+
     // Build directory structure
     let directory_structure = build_directory_structure(project_root)?;
-    
+
     // Collect key source files
     let source_files = collect_key_source_files(project_root, project_type)?;
-    
+
     Ok(ProjectContext {
         config_files,
         readme,
@@ -359,13 +364,13 @@ fn collect_config_files(project_root: &Path) -> Result<Vec<(String, String)>> {
     for filename in CONFIG_FILENAMES {
         let path = project_root.join(filename);
         if path.exists() {
-            let content = fs::read_to_string(&path)
-                .with_context(|| format!("reading {}", filename))?;
+            let content =
+                fs::read_to_string(&path).with_context(|| format!("reading {}", filename))?;
             let truncated = truncate_content(&content, CONFIG_FILE_MAX_CHARS);
             files.push((filename.to_string(), truncated));
         }
     }
-    
+
     Ok(files)
 }
 
@@ -375,30 +380,41 @@ fn read_readme(project_root: &Path) -> Result<Option<String>> {
     if !readme_path.exists() {
         return Ok(None);
     }
-    
-    let content = fs::read_to_string(&readme_path)
-        .with_context(|| format!("reading {}", README_FILENAME))?;
-    
+
+    let content =
+        fs::read_to_string(&readme_path).with_context(|| format!("reading {}", README_FILENAME))?;
+
     Ok(Some(truncate_content(&content, README_MAX_CHARS)))
 }
 
 /// Build directory structure string.
 fn build_directory_structure(project_root: &Path) -> Result<String> {
     let mut result = String::new();
-    result.push_str(&format!("{}/\n", project_root.file_name().and_then(|n| n.to_str()).unwrap_or(DEFAULT_PROJECT_NAME)));
-    
+    result.push_str(&format!(
+        "{}/\n",
+        project_root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(DEFAULT_PROJECT_NAME)
+    ));
+
     build_tree_recursive(project_root, 0, DIRECTORY_MAX_DEPTH, &mut result)?;
-    
+
     Ok(result)
 }
 
 /// Build directory tree recursively.
-fn build_tree_recursive(dir: &Path, depth: usize, max_depth: usize, result: &mut String) -> Result<()> {
+fn build_tree_recursive(
+    dir: &Path,
+    depth: usize,
+    max_depth: usize,
+    result: &mut String,
+) -> Result<()> {
     if depth > max_depth {
         result.push_str(&format!("{}  ...\n", "  ".repeat(depth)));
         return Ok(());
     }
-    
+
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return Ok(()),
@@ -418,43 +434,59 @@ fn build_tree_recursive(dir: &Path, depth: usize, max_depth: usize, result: &mut
             files.push(name);
         }
     }
-    
+
     dirs.sort();
     files.sort();
-    
+
     let indent = "  ".repeat(depth);
-    let max_items = if depth == 0 { DIRECTORY_ROOT_MAX_ITEMS } else { DIRECTORY_OTHER_MAX_ITEMS };
-    
+    let max_items = if depth == 0 {
+        DIRECTORY_ROOT_MAX_ITEMS
+    } else {
+        DIRECTORY_OTHER_MAX_ITEMS
+    };
+
     let mut count = 0;
     for d in &dirs {
         if count >= max_items {
-            result.push_str(&format!("{}  ... ({} more dirs)\n", indent, dirs.len() - count));
+            result.push_str(&format!(
+                "{}  ... ({} more dirs)\n",
+                indent,
+                dirs.len() - count
+            ));
             break;
         }
         result.push_str(&format!("{}  {}/\n", indent, d));
         build_tree_recursive(&dir.join(d), depth + 1, max_depth, result)?;
         count += 1;
     }
-    
+
     for f in files.iter().take(max_items - count) {
         result.push_str(&format!("{}  {}\n", indent, f));
     }
-    
+
     if files.len() > max_items - count {
-        result.push_str(&format!("{}  ... ({} more files)\n", indent, files.len() - (max_items - count)));
+        result.push_str(&format!(
+            "{}  ... ({} more files)\n",
+            indent,
+            files.len() - (max_items - count)
+        ));
     }
-    
+
     Ok(())
 }
 
 /// Collect key source files for analysis.
-fn collect_key_source_files(project_root: &Path, project_type: &str) -> Result<Vec<(String, String)>> {
+fn collect_key_source_files(
+    project_root: &Path,
+    project_type: &str,
+) -> Result<Vec<(String, String)>> {
     let mut files = Vec::new();
-    
+
     // Find the matching project type config
-    let config = PROJECT_TYPE_CONFIGS.iter()
+    let config = PROJECT_TYPE_CONFIGS
+        .iter()
         .find(|c| c.type_name == project_type);
-    
+
     // Collect key source files from config
     if let Some(config) = config {
         for path_str in config.key_source_files {
@@ -462,12 +494,15 @@ fn collect_key_source_files(project_root: &Path, project_type: &str) -> Result<V
             if path.exists() {
                 let content = fs::read_to_string(&path).ok();
                 if let Some(content) = content {
-                    files.push((path_str.to_string(), truncate_content(&content, SOURCE_FILE_MAX_CHARS)));
+                    files.push((
+                        path_str.to_string(),
+                        truncate_content(&content, SOURCE_FILE_MAX_CHARS),
+                    ));
                 }
             }
         }
     }
-    
+
     // Special handling for Rust: collect lib.rs and module files
     if project_type == "Rust" {
         // Collect lib.rs
@@ -476,21 +511,30 @@ fn collect_key_source_files(project_root: &Path, project_type: &str) -> Result<V
             let lib_relative = format!("{}/{}", SRC_DIR, RUST_LIB_FILE);
             let content = fs::read_to_string(&lib_path).ok();
             if let Some(content) = content {
-                files.push((lib_relative, truncate_content(&content, SOURCE_FILE_MAX_CHARS)));
+                files.push((
+                    lib_relative,
+                    truncate_content(&content, SOURCE_FILE_MAX_CHARS),
+                ));
             }
-            
+
             // Collect module files (mod.rs in subdirectories)
             let src_path = project_root.join(SRC_DIR);
             if src_path.exists() {
                 for entry in fs::read_dir(&src_path)?.flatten() {
                     let name = entry.file_name().to_string_lossy().into_owned();
-                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) && !should_ignore(&name) {
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                        && !should_ignore(&name)
+                    {
                         let mod_path = src_path.join(&name).join(RUST_MOD_FILE);
                         if mod_path.exists() {
                             let content = fs::read_to_string(&mod_path).ok();
                             if let Some(content) = content {
-                                let mod_relative = format!("{}/{}/{}", SRC_DIR, name, RUST_MOD_FILE);
-                                files.push((mod_relative, truncate_content(&content, MODULE_FILE_MAX_CHARS)));
+                                let mod_relative =
+                                    format!("{}/{}/{}", SRC_DIR, name, RUST_MOD_FILE);
+                                files.push((
+                                    mod_relative,
+                                    truncate_content(&content, MODULE_FILE_MAX_CHARS),
+                                ));
                             }
                         }
                     }
@@ -498,7 +542,7 @@ fn collect_key_source_files(project_root: &Path, project_type: &str) -> Result<V
             }
         }
     }
-    
+
     Ok(files)
 }
 
@@ -528,27 +572,27 @@ fn extract_response_content(response: &crate::providers::ChatResponse) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn truncate_content_respects_char_boundary() {
         // Chinese text with multibyte characters
         let text = "这是一个包含中文字符的测试文本，用于验证截断功能是否正确处理字符边界问题。";
-        
+
         // Truncate at a position that would fall inside a multibyte character
         let truncated = truncate_content(text, 50);
-        
+
         // Should not panic and should end with truncated marker
         assert!(truncated.contains("... (truncated)"));
         // String in Rust is always valid UTF-8, no need to check
     }
-    
+
     #[test]
     fn truncate_content_preserves_short_text() {
         let short = "hello world";
         let result = truncate_content(short, 100);
         assert_eq!(result, short);
     }
-    
+
     #[test]
     fn truncate_content_exact_boundary() {
         // ASCII text - every byte is a char boundary
@@ -556,7 +600,7 @@ mod tests {
         let truncated = truncate_content(text, 10);
         assert_eq!(truncated, "abcdefghij\n... (truncated)");
     }
-    
+
     #[test]
     fn truncate_content_multibyte_edge() {
         // Text ending exactly at a multibyte char

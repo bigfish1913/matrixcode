@@ -79,7 +79,10 @@ impl OpenAIProvider {
                 }
                 (Role::User, MessageContent::Blocks(blocks)) => {
                     // Check if this is a tool result message (agent wraps tool results as User role)
-                    if blocks.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. })) {
+                    if blocks
+                        .iter()
+                        .any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+                    {
                         // Emit as OpenAI tool messages
                         self.push_tool_results(blocks, &mut result);
                     } else {
@@ -105,7 +108,11 @@ impl OpenAIProvider {
     /// Push tool result blocks to message array
     fn push_tool_results(&self, blocks: &[ContentBlock], result: &mut Vec<Value>) {
         for block in blocks {
-            if let ContentBlock::ToolResult { tool_use_id, content } = block {
+            if let ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+            } = block
+            {
                 result.push(json!({
                     "role": "tool",
                     "tool_call_id": tool_use_id,
@@ -203,14 +210,20 @@ impl Provider for OpenAIProvider {
         };
 
         if let Some(text) = message["content"].as_str()
-            && !text.is_empty() {
-                content.push(ContentBlock::Text { text: text.to_string() });
-            }
+            && !text.is_empty()
+        {
+            content.push(ContentBlock::Text {
+                text: text.to_string(),
+            });
+        }
 
         if let Some(tool_calls) = message["tool_calls"].as_array() {
             for tc in tool_calls {
                 let id = tc["id"].as_str().unwrap_or_default().to_string();
-                let name = tc["function"]["name"].as_str().unwrap_or_default().to_string();
+                let name = tc["function"]["name"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
                 let arguments = tc["function"]["arguments"].as_str().unwrap_or("{}");
                 let input: Value = serde_json::from_str(arguments).unwrap_or(json!({}));
 

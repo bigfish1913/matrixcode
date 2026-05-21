@@ -95,7 +95,10 @@ impl AiKeywordMode {
             "never" | "false" | "0" => AiKeywordMode::Never,
             "auto" | "" => AiKeywordMode::Auto,
             other => {
-                log::warn!("Unknown MEMORY_AI_KEYWORDS value: '{}', using 'auto'", other);
+                log::warn!(
+                    "Unknown MEMORY_AI_KEYWORDS value: '{}', using 'auto'",
+                    other
+                );
                 AiKeywordMode::Auto
             }
         }
@@ -136,7 +139,10 @@ impl AiDetectionMode {
             "never" | "false" | "0" => AiDetectionMode::Never,
             "auto" | "" => AiDetectionMode::Auto,
             other => {
-                log::warn!("Unknown MEMORY_AI_DETECTION value: '{}', using 'auto'", other);
+                log::warn!(
+                    "Unknown MEMORY_AI_DETECTION value: '{}', using 'auto'",
+                    other
+                );
                 AiDetectionMode::Auto
             }
         }

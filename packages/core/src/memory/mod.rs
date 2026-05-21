@@ -15,18 +15,18 @@
 //! - **project**: Project structure analysis
 
 mod config;
-mod types;
-mod storage;
-mod retrieval;
 mod extractor;
 mod learning;
 mod project;
+mod retrieval;
+mod storage;
+mod types;
 
 // Re-export all public items
 pub use config::*;
-pub use types::*;
-pub use storage::*;
-pub use retrieval::*;
 pub use extractor::*;
 pub use learning::*;
 pub use project::*;
+pub use retrieval::*;
+pub use storage::*;
+pub use types::*;

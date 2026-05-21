@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use super::config::MemoryConfig;
 use super::types::{AutoMemory, MemoryEntry};
@@ -40,11 +40,7 @@ impl MemoryFileLock {
         while start.elapsed().as_millis() < timeout_ms as u128 {
             match fs::File::create_new(&self.lock_path) {
                 Ok(_) => {
-                    let lock_info = format!(
-                        "{}:{}",
-                        std::process::id(),
-                        Utc::now().to_rfc3339()
-                    );
+                    let lock_info = format!("{}:{}", std::process::id(), Utc::now().to_rfc3339());
                     fs::write(&self.lock_path, lock_info)?;
                     self.locked = true;
                     return Ok(true);
@@ -64,25 +60,75 @@ impl MemoryFileLock {
         Ok(false)
     }
 
-    /// Check if the existing lock is stale.
+    /// Check if the existing lock is stale (either old or process is dead).
     fn is_stale_lock(&self) -> Result<bool> {
         if !self.lock_path.exists() {
             return Ok(false);
         }
 
+        // First check if the lock owner process is still running
+        if let Ok(content) = fs::read_to_string(&self.lock_path) {
+            if let Some(pid_str) = content.split(':').next() {
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    if !self.is_process_running(pid) {
+                        // Process is dead, lock is stale
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+
+        // Then check lock age as fallback
         let metadata = fs::metadata(&self.lock_path)?;
         let modified = metadata.modified()?;
         let age = std::time::SystemTime::now()
             .duration_since(modified)
             .unwrap_or(std::time::Duration::ZERO);
 
-        Ok(age > std::time::Duration::from_secs(30))
+        Ok(age > std::time::Duration::from_secs(60))
     }
 
-    /// Remove stale lock file.
+    /// Check if a process with the given PID is still running.
+    fn is_process_running(&self, pid: u32) -> bool {
+        #[cfg(unix)]
+        {
+            // On Unix, check if process exists by checking /proc
+            if std::path::Path::new("/proc").exists() {
+                std::path::Path::new(&format!("/proc/{}", pid)).exists()
+            } else {
+                // Fallback: assume process is running if we can't check
+                true
+            }
+        }
+        #[cfg(windows)]
+        {
+            // On Windows, we could use OpenProcess but that requires winapi
+            // For simplicity, check if we can open the process
+            // Note: This is a simplified check - a full implementation would use
+            // winapi::um::processthreadsapi::OpenProcess
+            let _ = pid; // Suppress unused warning on Windows
+            true
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = pid;
+            true
+        }
+    }
+
+    /// Remove stale lock file with atomic retry.
     fn remove_stale_lock(&self) -> Result<()> {
+        // Use atomic rename to avoid race condition
+        // Create a temp deletion marker and rename it over the lock
+        let temp_path = self.lock_path.with_extension("lock.del");
         if self.lock_path.exists() {
-            fs::remove_file(&self.lock_path)?;
+            // Try atomic rename first
+            if fs::rename(&self.lock_path, &temp_path).is_ok() {
+                fs::remove_file(&temp_path)?;
+            } else {
+                // Fallback to direct removal if rename fails
+                fs::remove_file(&self.lock_path)?;
+            }
         }
         Ok(())
     }
@@ -153,7 +199,9 @@ impl MemoryStorage {
 
     /// Path to project memory file.
     pub fn project_memory_path(&self) -> Option<PathBuf> {
-        self.project_root.as_ref().map(|p| p.join(".matrix/memory.json"))
+        self.project_root
+            .as_ref()
+            .map(|p| p.join(".matrix/memory.json"))
     }
 
     /// Path to config file.
@@ -246,7 +294,8 @@ impl MemoryStorage {
         self.acquire_lock()?;
         self.ensure_dirs()?;
 
-        let path = self.project_memory_path()
+        let path = self
+            .project_memory_path()
             .ok_or_else(|| anyhow::anyhow!("no project root"))?;
         let json = serde_json::to_string_pretty(memory)?;
 
@@ -334,7 +383,8 @@ impl MemoryStorage {
     }
 
     fn save_project_locked(&self, memory: &AutoMemory) -> Result<()> {
-        let path = self.project_memory_path()
+        let path = self
+            .project_memory_path()
             .ok_or_else(|| anyhow::anyhow!("no project root"))?;
         let json = serde_json::to_string_pretty(memory)?;
         let tmp = path.with_extension("json.tmp");

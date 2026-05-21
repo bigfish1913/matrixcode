@@ -69,10 +69,7 @@ async fn skill_tool_loads_body_and_lists_files() {
         .find(|t| t.definition().name == "skill")
         .expect("skill tool missing");
 
-    let out = skill_tool
-        .execute(json!({ "name": "demo" }))
-        .await
-        .unwrap();
+    let out = skill_tool.execute(json!({ "name": "demo" })).await.unwrap();
 
     assert!(out.contains("# Skill: demo"));
     assert!(out.contains("Do the thing."));
@@ -85,10 +82,7 @@ async fn skill_tool_loads_body_and_lists_files() {
 #[tokio::test]
 async fn skill_tool_rejects_unknown_name() {
     let all = tools::all_tools_with_skills(Arc::new(Vec::new()));
-    let skill_tool = all
-        .iter()
-        .find(|t| t.definition().name == "skill")
-        .unwrap();
+    let skill_tool = all.iter().find(|t| t.definition().name == "skill").unwrap();
 
     let err = skill_tool
         .execute(json!({ "name": "ghost" }))

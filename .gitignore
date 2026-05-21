@@ -49,3 +49,5 @@ code-run.exe
 *~
 .claude/worktrees/
 .playwright-mcp/
+
+target/

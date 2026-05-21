@@ -204,3 +204,56 @@ impl Clone for Box<dyn Provider> {
         self.clone_box()
     }
 }
+
+// ============================================================================
+// Provider Factory
+// ============================================================================
+
+/// Provider type enumeration for factory creation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderType {
+    Anthropic,
+    OpenAI,
+}
+
+/// Create a provider instance based on type and configuration.
+/// This is the recommended way to obtain a Provider instance.
+pub fn create_provider(
+    provider_type: ProviderType,
+    api_key: String,
+    model: String,
+    base_url: Option<String>,
+) -> Result<Box<dyn Provider>> {
+    match provider_type {
+        ProviderType::Anthropic => {
+            let provider = anthropic::AnthropicProvider::new(
+                api_key,
+                model,
+                base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string()),
+            );
+            Ok(Box::new(provider))
+        }
+        ProviderType::OpenAI => {
+            let provider = openai::OpenAIProvider::new(
+                api_key,
+                model,
+                base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+            );
+            Ok(Box::new(provider))
+        }
+    }
+}
+
+/// Infer provider type from model name.
+/// Returns Anthropic for Claude models, OpenAI for GPT models.
+pub fn infer_provider_type(model: &str) -> ProviderType {
+    let lower = model.to_lowercase();
+    if lower.contains("claude") || lower.contains("opus") || lower.contains("sonnet") || lower.contains("haiku") {
+        ProviderType::Anthropic
+    } else if lower.contains("gpt") || lower.contains("o1") || lower.contains("o3") || lower.contains("o4") {
+        ProviderType::OpenAI
+    } else {
+        // Default to Anthropic for unknown models
+        ProviderType::Anthropic
+    }
+}

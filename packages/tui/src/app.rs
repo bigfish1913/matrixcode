@@ -4,15 +4,15 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     crossterm::event::{self, Event, MouseEvent, MouseEventKind},
-    Terminal,
 };
 
 use matrixcode_core::{AgentEvent, cancel::CancellationToken};
 
-use crate::types::{Activity, ApproveMode, Role, Message, SubmitMode, AskQuestion};
 use crate::ANIM_MS;
+use crate::types::{Activity, ApproveMode, AskQuestion, Message, Role, SubmitMode};
 
 pub struct TuiApp {
     pub(crate) activity: Activity,
@@ -26,7 +26,7 @@ pub struct TuiApp {
     pub(crate) tokens_in: u64,
     pub(crate) tokens_out: u64,
     pub(crate) session_total_out: u64,
-    pub(crate) current_request_tokens: u64,  // Tokens for current request (real-time)
+    pub(crate) current_request_tokens: u64, // Tokens for current request (real-time)
     pub(crate) cache_read: u64,
     pub(crate) cache_created: u64,
     pub(crate) context_size: u64,
@@ -46,8 +46,8 @@ pub struct TuiApp {
     pub(crate) cursor_pos: usize,
     // Input history (Up/Down arrow navigation)
     pub(crate) input_history: Vec<String>,
-    pub(crate) history_index: Option<usize>,  // None = not browsing history
-    pub(crate) history_draft: String,  // Saves current input when entering history mode
+    pub(crate) history_index: Option<usize>, // None = not browsing history
+    pub(crate) history_draft: String,        // Saves current input when entering history mode
     // Scroll state
     pub(crate) scroll_offset: u16,
     pub(crate) auto_scroll: bool,
@@ -63,11 +63,11 @@ pub struct TuiApp {
     pub(crate) waiting_for_ask: bool,
     pub(crate) ask_options: Vec<crate::types::AskOption>,
     pub(crate) ask_selected_index: usize,
-    pub(crate) ask_multi_select: bool,  // Whether this is a multi-select question
-    pub(crate) ask_submit_mode: SubmitMode,  // How to submit selection
+    pub(crate) ask_multi_select: bool, // Whether this is a multi-select question
+    pub(crate) ask_submit_mode: SubmitMode, // How to submit selection
     // Multi-question support
-    pub(crate) ask_questions: Vec<AskQuestion>,  // Queue of questions
-    pub(crate) current_question_idx: usize,  // Current question index
+    pub(crate) ask_questions: Vec<AskQuestion>, // Queue of questions
+    pub(crate) current_question_idx: usize,     // Current question index
     // Channels
     pub(crate) tx: tokio::sync::mpsc::Sender<String>,
     pub(crate) rx: tokio::sync::mpsc::Receiver<AgentEvent>,
@@ -97,9 +97,9 @@ pub struct LoopTask {
 pub struct CronTask {
     pub id: usize,
     pub message: String,
-    pub minute_interval: u64,  // Simplified: run every N minutes
+    pub minute_interval: u64, // Simplified: run every N minutes
     #[allow(dead_code)]
-    pub next_run: Instant,  // For future use: precise scheduling
+    pub next_run: Instant, // For future use: precise scheduling
     pub cancel_token: CancellationToken,
 }
 
@@ -140,7 +140,7 @@ impl TuiApp {
             scroll_offset: 0,
             auto_scroll: true,
             max_scroll: std::cell::Cell::new(0),
-            thinking_collapsed: false,  // Default: expanded
+            thinking_collapsed: false, // Default: expanded
             approve_mode: ApproveMode::Ask,
             shared_approve_mode: None,
             ask_tx: None,
@@ -151,7 +151,9 @@ impl TuiApp {
             ask_submit_mode: SubmitMode::default(),
             ask_questions: Vec::new(),
             current_question_idx: 0,
-            tx, rx, cancel,
+            tx,
+            rx,
+            cancel,
             pending_messages: Vec::new(),
             loop_task: None,
             cron_tasks: Vec::new(),
@@ -165,18 +167,30 @@ impl TuiApp {
     }
 
     /// Set shared approve mode atomic for real-time mode switching during agent execution.
-    pub fn with_shared_approve_mode(mut self, shared: std::sync::Arc<std::sync::atomic::AtomicU8>) -> Self {
+    pub fn with_shared_approve_mode(
+        mut self,
+        shared: std::sync::Arc<std::sync::atomic::AtomicU8>,
+    ) -> Self {
         self.shared_approve_mode = Some(shared);
         self
     }
 
-    pub fn with_config(mut self, model: &str, _think: bool, _max_tokens: u32, context_size: Option<u64>) -> Self {
+    pub fn with_config(
+        mut self,
+        model: &str,
+        _think: bool,
+        _max_tokens: u32,
+        context_size: Option<u64>,
+    ) -> Self {
         self.model = model.to_string();
         self.context_size = context_size.unwrap_or_else(|| {
             let m = model.to_ascii_lowercase();
             if m.contains("1m") || m.contains("opus-4-7") {
                 1_000_000
-            } else if m.contains("claude-3") || m.contains("claude-4") || m.contains("claude-sonnet") {
+            } else if m.contains("claude-3")
+                || m.contains("claude-4")
+                || m.contains("claude-sonnet")
+            {
                 200_000
             } else {
                 128_000
@@ -205,69 +219,109 @@ impl TuiApp {
             // Handle different content block types separately
             match &msg.content {
                 matrixcode_core::MessageContent::Text(t) => {
-                    if t.is_empty() { continue; }
+                    if t.is_empty() {
+                        continue;
+                    }
                     let role = match msg.role {
                         matrixcode_core::Role::User => Role::User,
                         matrixcode_core::Role::Assistant => Role::Assistant,
                         matrixcode_core::Role::System => Role::System,
-                        matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), detail: None, is_error: false },
+                        matrixcode_core::Role::Tool => Role::Tool {
+                            name: "tool".into(),
+                            detail: None,
+                            is_error: false,
+                        },
                     };
                     // Restore input history from user messages
-                    if role == Role::User && !t.starts_with('/')
-                        && self.input_history.last().map(|s| s.as_str()) != Some(t) {
+                    if role == Role::User
+                        && !t.starts_with('/')
+                        && self.input_history.last().map(|s| s.as_str()) != Some(t)
+                    {
                         self.input_history.push(t.clone());
                     }
-                    self.messages.push(Message { role, content: t.clone() });
+                    self.messages.push(Message {
+                        role,
+                        content: t.clone(),
+                    });
                 }
                 matrixcode_core::MessageContent::Blocks(blocks) => {
                     // Process each block separately to maintain proper message types
                     for b in blocks {
                         match b {
                             matrixcode_core::ContentBlock::Text { text } => {
-                                if text.is_empty() { continue; }
+                                if text.is_empty() {
+                                    continue;
+                                }
                                 let role = match msg.role {
                                     matrixcode_core::Role::User => Role::User,
                                     matrixcode_core::Role::Assistant => Role::Assistant,
                                     matrixcode_core::Role::System => Role::System,
-                                    matrixcode_core::Role::Tool => Role::Tool { name: "tool".into(), detail: None, is_error: false },
+                                    matrixcode_core::Role::Tool => Role::Tool {
+                                        name: "tool".into(),
+                                        detail: None,
+                                        is_error: false,
+                                    },
                                 };
                                 // Restore input history from user messages
-                                if role == Role::User && !text.starts_with('/')
-                                    && self.input_history.last().map(|s| s.as_str()) != Some(text) {
+                                if role == Role::User
+                                    && !text.starts_with('/')
+                                    && self.input_history.last().map(|s| s.as_str()) != Some(text)
+                                {
                                     self.input_history.push(text.clone());
                                 }
-                                self.messages.push(Message { role, content: text.clone() });
+                                self.messages.push(Message {
+                                    role,
+                                    content: text.clone(),
+                                });
                             }
                             matrixcode_core::ContentBlock::Thinking { thinking, .. } => {
-                                if thinking.is_empty() { continue; }
+                                if thinking.is_empty() {
+                                    continue;
+                                }
                                 // Create separate Thinking message for proper rendering
-                                self.messages.push(Message { role: Role::Thinking, content: thinking.clone() });
+                                self.messages.push(Message {
+                                    role: Role::Thinking,
+                                    content: thinking.clone(),
+                                });
                             }
                             matrixcode_core::ContentBlock::ToolUse { name: _, .. } => {
                                 // Skip tool_use blocks - metadata only (already collected in first pass)
                             }
-                            matrixcode_core::ContentBlock::ToolResult { content, tool_use_id, .. } => {
-                                if content.is_empty() { continue; }
+                            matrixcode_core::ContentBlock::ToolResult {
+                                content,
+                                tool_use_id,
+                                ..
+                            } => {
+                                if content.is_empty() {
+                                    continue;
+                                }
                                 // Try to determine if this is an error from content
-                                let is_error = content.contains("error") || content.contains("failed") || content.contains("Error");
+                                let is_error = content.contains("error")
+                                    || content.contains("failed")
+                                    || content.contains("Error");
                                 // Use tool name from mapping, or fallback to tool_use_id
-                                let name = tool_names.get(tool_use_id)
-                                    .cloned()
-                                    .unwrap_or_else(|| {
+                                let name =
+                                    tool_names.get(tool_use_id).cloned().unwrap_or_else(|| {
                                         // Fallback: try to guess from tool_use_id prefix
-                                        if tool_use_id.starts_with("bash") { "bash".into() }
-                                        else if tool_use_id.starts_with("read") { "read".into() }
-                                        else if tool_use_id.starts_with("write") { "write".into() }
-                                        else if tool_use_id.starts_with("edit") { "edit".into() }
-                                        else { "tool".into() }
+                                        if tool_use_id.starts_with("bash") {
+                                            "bash".into()
+                                        } else if tool_use_id.starts_with("read") {
+                                            "read".into()
+                                        } else if tool_use_id.starts_with("write") {
+                                            "write".into()
+                                        } else if tool_use_id.starts_with("edit") {
+                                            "edit".into()
+                                        } else {
+                                            "tool".into()
+                                        }
                                     });
                                 self.messages.push(Message {
                                     role: Role::Tool {
                                         name,
                                         detail: None,
-                                        is_error
+                                        is_error,
                                     },
-                                    content: content.clone()
+                                    content: content.clone(),
                                 });
                             }
                             _ => {}
@@ -306,7 +360,9 @@ impl TuiApp {
                 self.on_event(e);
             }
 
-            if self.exit { break; }
+            if self.exit {
+                break;
+            }
         }
         Ok(())
     }
@@ -332,5 +388,4 @@ impl TuiApp {
             _ => {}
         }
     }
-
 }

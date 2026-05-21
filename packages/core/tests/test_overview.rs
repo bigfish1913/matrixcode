@@ -1,8 +1,8 @@
 use std::fs;
 
 use matrixcode_core::overview::{
-    detect_project_type, should_ignore, truncate_content, OVERVIEW_FILENAME,
-    ProjectOverview, PROJECT_TYPE_CONFIGS, SRC_DIR,
+    OVERVIEW_FILENAME, PROJECT_TYPE_CONFIGS, ProjectOverview, SRC_DIR, detect_project_type,
+    should_ignore, truncate_content,
 };
 use tempfile::TempDir;
 

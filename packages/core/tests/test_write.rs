@@ -1,5 +1,5 @@
-use matrixcode_core::tools::write::WriteTool;
 use matrixcode_core::tools::Tool;
+use matrixcode_core::tools::write::WriteTool;
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -49,12 +49,16 @@ async fn test_write_definition() {
     let tool = WriteTool;
     let def = tool.definition();
     assert_eq!(def.name, "write");
-    assert!(def.parameters["required"]
-        .as_array()
-        .unwrap()
-        .contains(&json!("path")));
-    assert!(def.parameters["required"]
-        .as_array()
-        .unwrap()
-        .contains(&json!("content")));
+    assert!(
+        def.parameters["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("path"))
+    );
+    assert!(
+        def.parameters["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("content"))
+    );
 }

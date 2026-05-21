@@ -37,7 +37,9 @@ impl Tool for ReadTool {
         // Create spinner immediately at the start to fill the gap before actual operation
         // let mut spinner = ToolSpinner::new("preparing read");
 
-        let path = params["path"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
+        let path = params["path"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
 
         // Update spinner message for the actual read operation
         // spinner.set_message(&format!("reading {}", path));
@@ -48,7 +50,9 @@ impl Tool for ReadTool {
         let limit = params["limit"].as_u64().map(|l| l as usize);
 
         let lines: Vec<&str> = content.lines().collect();
-        let end = limit.map(|l| (offset + l).min(lines.len())).unwrap_or(lines.len());
+        let end = limit
+            .map(|l| (offset + l).min(lines.len()))
+            .unwrap_or(lines.len());
         let selected = &lines[offset.min(lines.len())..end.min(lines.len())];
 
         let result: String = selected

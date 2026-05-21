@@ -2,9 +2,9 @@ use std::time::{Duration, Instant};
 
 use matrixcode_core::cancel::CancellationToken;
 
+use crate::app::{CronTask, LoopTask, TuiApp};
 use crate::types::{Activity, ApproveMode, Message, Role};
-use crate::utils::{truncate, fmt_tokens};
-use crate::app::{TuiApp, LoopTask, CronTask};
+use crate::utils::{fmt_tokens, truncate};
 
 impl TuiApp {
     pub(crate) fn handle_command(&mut self, cmd: &str) {
@@ -20,31 +20,37 @@ impl TuiApp {
                 if self.activity == Activity::Idle {
                     self.messages.clear();
                     self.pending_messages.clear();
-
                 } else {
-                    self.messages.push(Message { role: Role::System, content: "⚠️ Cannot clear while AI is processing".into() });
+                    self.messages.push(Message {
+                        role: Role::System,
+                        content: "⚠️ Cannot clear while AI is processing".into(),
+                    });
                 }
                 self.auto_scroll = true;
             }
             "/history" => {
                 // Count message types in single pass
-                let (user_count, assistant_count, tool_count) = self.messages.iter().fold(
-                    (0, 0, 0),
-                    |(u, a, t), m| match m.role {
-                        Role::User => (u + 1, a, t),
-                        Role::Assistant => (u, a + 1, t),
-                        Role::Tool { .. } => (u, a, t + 1),
-                        _ => (u, a, t),
-                    }
-                );
+                let (user_count, assistant_count, tool_count) =
+                    self.messages
+                        .iter()
+                        .fold((0, 0, 0), |(u, a, t), m| match m.role {
+                            Role::User => (u + 1, a, t),
+                            Role::Assistant => (u, a + 1, t),
+                            Role::Tool { .. } => (u, a, t + 1),
+                            _ => (u, a, t),
+                        });
                 let queue_count = self.pending_messages.len();
                 if self.debug_mode {
                     self.messages.push(Message {
                         role: Role::System,
                         content: format!(
                             "📊 Session: {} user, {} assistant, {} tools, {} queued, {}tok output",
-                            user_count, assistant_count, tool_count, queue_count, fmt_tokens(self.session_total_out)
-                        )
+                            user_count,
+                            assistant_count,
+                            tool_count,
+                            queue_count,
+                            fmt_tokens(self.session_total_out)
+                        ),
                     });
                 }
                 self.auto_scroll = true;
@@ -60,7 +66,7 @@ impl TuiApp {
                         _ => {
                             self.messages.push(Message {
                                 role: Role::System,
-                                content: "Invalid mode. Use: ask, auto, strict".into()
+                                content: "Invalid mode. Use: ask, auto, strict".into(),
                             });
                             return;
                         }
@@ -79,7 +85,7 @@ impl TuiApp {
                 } else {
                     self.messages.push(Message {
                         role: Role::System,
-                        content: "⚠️ Cannot change model while AI is processing".into()
+                        content: "⚠️ Cannot change model while AI is processing".into(),
                     });
                 }
                 self.auto_scroll = true;
@@ -102,7 +108,8 @@ impl TuiApp {
                 } else {
                     self.messages.push(Message {
                         role: Role::System,
-                        content: "Unknown init command. Use: /init, /init status, /init reset".into()
+                        content: "Unknown init command. Use: /init, /init status, /init reset"
+                            .into(),
                     });
                 }
                 self.auto_scroll = true;
@@ -116,14 +123,23 @@ impl TuiApp {
                 // Process pending queue
                 if !self.pending_messages.is_empty() && self.activity == Activity::Idle {
                     let next_msg = self.pending_messages.remove(0);
-                    self.messages.push(Message { role: Role::User, content: next_msg.clone() });
+                    self.messages.push(Message {
+                        role: Role::User,
+                        content: next_msg.clone(),
+                    });
                     self.tx.try_send(next_msg).ok();
                     self.activity = Activity::Thinking;
                     self.auto_scroll = true;
                 } else if self.pending_messages.is_empty() {
-                    self.messages.push(Message { role: Role::System, content: "No pending messages to retry".into() });
+                    self.messages.push(Message {
+                        role: Role::System,
+                        content: "No pending messages to retry".into(),
+                    });
                 } else {
-                    self.messages.push(Message { role: Role::System, content: "AI is busy, please wait".into() });
+                    self.messages.push(Message {
+                        role: Role::System,
+                        content: "AI is busy, please wait".into(),
+                    });
                 }
                 self.auto_scroll = true;
             }
@@ -136,7 +152,10 @@ impl TuiApp {
                     self.session_total_out = 0;
                     self.tx.try_send("/new".to_string()).ok();
                 } else {
-                    self.messages.push(Message { role: Role::System, content: "⚠️ Cannot start new session while AI is processing".into() });
+                    self.messages.push(Message {
+                        role: Role::System,
+                        content: "⚠️ Cannot start new session while AI is processing".into(),
+                    });
                 }
                 self.auto_scroll = true;
             }
@@ -169,7 +188,8 @@ impl TuiApp {
                         "  Enter=send │ Shift+Enter=newline │ PgUp/PgDn=scroll\n",
                         "  Home/End=top/bot │ Alt+M=mode │ Alt+T=thinking\n",
                         "  Esc=interrupt │ Ctrl+D=exit"
-                    ).into()
+                    )
+                    .into(),
                 });
                 self.auto_scroll = true;
             }
@@ -211,11 +231,14 @@ impl TuiApp {
                         task.cancel_token.cancel();
                         self.messages.push(Message {
                             role: Role::System,
-                            content: format!("✓ Loop stopped (executed {} times)", task.count)
+                            content: format!("✓ Loop stopped (executed {} times)", task.count),
                         });
-                        self.loop_task = None;  // Already taken
+                        self.loop_task = None; // Already taken
                     } else {
-                        self.messages.push(Message { role: Role::System, content: "No active loop".into() });
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: "No active loop".into(),
+                        });
                     }
                 } else if args[0] == "status" {
                     if let Some(ref task) = self.loop_task {
@@ -226,24 +249,30 @@ impl TuiApp {
                                 truncate(&task.message, 30),
                                 task.interval_secs,
                                 task.count,
-                                task.max_count.map(|m| format!(" (max {})", m)).unwrap_or_default()
-                            )
+                                task.max_count
+                                    .map(|m| format!(" (max {})", m))
+                                    .unwrap_or_default()
+                            ),
                         });
                     } else {
-                        self.messages.push(Message { role: Role::System, content: "No active loop".into() });
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: "No active loop".into(),
+                        });
                     }
                 } else {
                     // Start new loop: /loop "message" [interval] [max_count]
                     if self.loop_task.is_some() {
-                        self.messages.push(Message { role: Role::System, content: "⚠️ Loop already active. Use /loop stop first".into() });
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: "⚠️ Loop already active. Use /loop stop first".into(),
+                        });
                     } else {
                         let message = args[0].to_string();
-                        let interval_secs: u64 = args.get(1)
-                            .and_then(|s| s.parse().ok())
-                            .unwrap_or(60);
-                        let max_count: Option<u64> = args.get(2)
-                            .and_then(|s| s.parse().ok());
-                        
+                        let interval_secs: u64 =
+                            args.get(1).and_then(|s| s.parse().ok()).unwrap_or(60);
+                        let max_count: Option<u64> = args.get(2).and_then(|s| s.parse().ok());
+
                         let cancel_token = CancellationToken::new();
                         self.loop_task = Some(LoopTask {
                             message: message.clone(),
@@ -252,7 +281,7 @@ impl TuiApp {
                             max_count,
                             cancel_token: cancel_token.clone(),
                         });
-                        
+
                         // Spawn background task
                         let tx = self.tx.clone();
                         let msg = message.clone();
@@ -267,15 +296,17 @@ impl TuiApp {
                                 tokio::time::sleep(Duration::from_secs(interval_secs)).await;
                             }
                         });
-                        
+
                         self.messages.push(Message {
                             role: Role::System,
                             content: format!(
                                 "🔄 Loop started: '{}' every {}s{}",
                                 truncate(&message, 30),
                                 interval_secs,
-                                max_count.map(|m| format!(" (max {})", m)).unwrap_or_default()
-                            )
+                                max_count
+                                    .map(|m| format!(" (max {})", m))
+                                    .unwrap_or_default()
+                            ),
                         });
                     }
                 }
@@ -289,30 +320,43 @@ impl TuiApp {
                     });
                 } else if args[0] == "list" {
                     if self.cron_tasks.is_empty() {
-                        self.messages.push(Message { role: Role::System, content: "No cron tasks".into() });
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: "No cron tasks".into(),
+                        });
                     } else {
-                        let list: Vec<String> = self.cron_tasks.iter()
-                            .map(|t| format!("#{}: '{}' every {}min", t.id, truncate(&t.message, 20), t.minute_interval))
+                        let list: Vec<String> = self
+                            .cron_tasks
+                            .iter()
+                            .map(|t| {
+                                format!(
+                                    "#{}: '{}' every {}min",
+                                    t.id,
+                                    truncate(&t.message, 20),
+                                    t.minute_interval
+                                )
+                            })
                             .collect();
                         self.messages.push(Message {
                             role: Role::System,
-                            content: format!("📋 Cron tasks:\n{}", list.join("\n"))
+                            content: format!("📋 Cron tasks:\n{}", list.join("\n")),
                         });
                     }
                 } else if args[0] == "remove" || args[0] == "rm" {
-                    let id: usize = args.get(1)
-                        .and_then(|s| s.parse().ok())
-                        .unwrap_or(0);
+                    let id: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
                     if let Some(pos) = self.cron_tasks.iter().position(|t| t.id == id) {
                         let task = &self.cron_tasks[pos];
                         task.cancel_token.cancel();
                         self.cron_tasks.remove(pos);
                         self.messages.push(Message {
                             role: Role::System,
-                            content: format!("✓ Cron task #{} removed", id)
+                            content: format!("✓ Cron task #{} removed", id),
                         });
                     } else {
-                        self.messages.push(Message { role: Role::System, content: format!("Cron task #{} not found", id) });
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: format!("Cron task #{} not found", id),
+                        });
                     }
                 } else if args[0] == "clear" {
                     for task in &self.cron_tasks {
@@ -322,24 +366,23 @@ impl TuiApp {
                     self.cron_tasks.clear();
                     self.messages.push(Message {
                         role: Role::System,
-                        content: format!("✓ {} cron tasks cleared", count)
+                        content: format!("✓ {} cron tasks cleared", count),
                     });
                 } else if args[0] == "add" {
                     // /cron add "message" 5
                     if args.len() < 3 {
                         self.messages.push(Message {
                             role: Role::System,
-                            content: "Usage: /cron add <message> <minutes>".into()
+                            content: "Usage: /cron add <message> <minutes>".into(),
                         });
                     } else {
                         let message = args[1].to_string();
-                        let minute_interval: u64 = args.get(2)
-                            .and_then(|s| s.parse().ok())
-                            .unwrap_or(5);
-                        
+                        let minute_interval: u64 =
+                            args.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);
+
                         let id = self.cron_tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
                         let cancel_token = CancellationToken::new();
-                        
+
                         let task = CronTask {
                             id,
                             message: message.clone(),
@@ -347,9 +390,9 @@ impl TuiApp {
                             next_run: Instant::now() + Duration::from_secs(minute_interval * 60),
                             cancel_token: cancel_token.clone(),
                         };
-                        
+
                         self.cron_tasks.push(task.clone());
-                        
+
                         // Spawn background task
                         let tx = self.tx.clone();
                         let msg = message.clone();
@@ -367,16 +410,21 @@ impl TuiApp {
                                 tokio::time::sleep(Duration::from_secs(interval_secs)).await;
                             }
                         });
-                        
+
                         self.messages.push(Message {
                             role: Role::System,
-                            content: format!("✓ Cron #{} added: '{}' every {}min", id, truncate(&message, 30), minute_interval)
+                            content: format!(
+                                "✓ Cron #{} added: '{}' every {}min",
+                                id,
+                                truncate(&message, 30),
+                                minute_interval
+                            ),
                         });
                     }
                 } else {
                     self.messages.push(Message {
                         role: Role::System,
-                        content: "Unknown cron command. Use: add, list, remove, clear".into()
+                        content: "Unknown cron command. Use: add, list, remove, clear".into(),
                     });
                 }
                 self.auto_scroll = true;
@@ -385,7 +433,10 @@ impl TuiApp {
                 // Forward unknown commands to backend for skill handling
                 // Backend will check if it matches a skill name (e.g., /om:debug)
                 if self.activity == Activity::Idle {
-                    self.messages.push(Message { role: Role::User, content: cmd.to_string() });
+                    self.messages.push(Message {
+                        role: Role::User,
+                        content: cmd.to_string(),
+                    });
                     self.tx.try_send(cmd.to_string()).ok();
                     self.activity = Activity::Thinking;
                     self.request_start = Some(Instant::now());

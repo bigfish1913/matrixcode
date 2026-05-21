@@ -1,12 +1,16 @@
-use matrixcode_core::tools::search::SearchTool;
 use matrixcode_core::tools::Tool;
+use matrixcode_core::tools::search::SearchTool;
 use serde_json::json;
 use std::fs;
 use tempfile::TempDir;
 
 fn create_test_dir() -> TempDir {
     let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("foo.rs"), "fn main() {\n    println!(\"hello\");\n}\n").unwrap();
+    fs::write(
+        dir.path().join("foo.rs"),
+        "fn main() {\n    println!(\"hello\");\n}\n",
+    )
+    .unwrap();
     fs::write(dir.path().join("bar.txt"), "some text\nhello world\n").unwrap();
     fs::create_dir(dir.path().join("sub")).unwrap();
     fs::write(dir.path().join("sub/baz.rs"), "fn test() {}\n").unwrap();
@@ -92,8 +96,10 @@ async fn test_search_definition() {
     let tool = SearchTool;
     let def = tool.definition();
     assert_eq!(def.name, "search");
-    assert!(def.parameters["required"]
-        .as_array()
-        .unwrap()
-        .contains(&json!("pattern")));
+    assert!(
+        def.parameters["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("pattern"))
+    );
 }

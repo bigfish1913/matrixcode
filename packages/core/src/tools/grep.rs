@@ -19,13 +19,17 @@ struct GrepOptions {
 
 impl GrepOptions {
     fn from_params(params: &Value) -> Result<Self> {
-        let pattern = params["pattern"].as_str()
+        let pattern = params["pattern"]
+            .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'pattern'"))?
             .to_string();
         let path = params["path"].as_str().unwrap_or(".").to_string();
         let glob_pattern = params["glob"].as_str().map(|s| s.to_string());
         let file_type = params["type"].as_str().map(|s| s.to_string());
-        let output_mode = params["output_mode"].as_str().unwrap_or("content").to_string();
+        let output_mode = params["output_mode"]
+            .as_str()
+            .unwrap_or("content")
+            .to_string();
         let case_insensitive = params["-i"].as_bool().unwrap_or(false);
         let show_line_numbers = params["-n"].as_bool().unwrap_or(true);
         let context_lines = params["-C"].as_u64().unwrap_or(0) as usize;
@@ -109,9 +113,7 @@ impl Tool for GrepTool {
     async fn execute(&self, params: Value) -> Result<String> {
         let opts = GrepOptions::from_params(&params)?;
 
-        tokio::task::spawn_blocking(move || {
-            grep_search(&opts)
-        }).await?
+        tokio::task::spawn_blocking(move || grep_search(&opts)).await?
     }
 }
 
@@ -141,7 +143,9 @@ fn grep_search(opts: &GrepOptions) -> Result<String> {
 
     // Build regex with case-insensitive option
     let regex_pattern = if opts.case_insensitive {
-        regex::RegexBuilder::new(&opts.pattern).case_insensitive(true).build()?
+        regex::RegexBuilder::new(&opts.pattern)
+            .case_insensitive(true)
+            .build()?
     } else {
         regex::Regex::new(&opts.pattern)?
     };
@@ -154,7 +158,11 @@ fn grep_search(opts: &GrepOptions) -> Result<String> {
     // Get file extensions for type filter
     let type_extensions = opts.file_type.as_deref().map(get_extensions_for_type);
 
-    let entries = collect_grep_files(root, opts.glob_pattern.as_deref(), type_extensions.as_deref())?;
+    let entries = collect_grep_files(
+        root,
+        opts.glob_pattern.as_deref(),
+        type_extensions.as_deref(),
+    )?;
 
     for file_path in entries {
         if results.len() >= opts.head_limit && opts.output_mode == "content" {
@@ -181,27 +189,46 @@ fn grep_search(opts: &GrepOptions) -> Result<String> {
                     // Add context lines before the match
                     if opts.context_lines > 0 {
                         let start_ctx = line_idx.saturating_sub(opts.context_lines);
-                        for (ctx_idx, ctx_line) in lines.iter().enumerate().skip(start_ctx).take(line_idx - start_ctx) {
+                        for (ctx_idx, ctx_line) in lines
+                            .iter()
+                            .enumerate()
+                            .skip(start_ctx)
+                            .take(line_idx - start_ctx)
+                        {
                             results.push(format_line(
-                                &file_path, ctx_idx + 1, ctx_line,
-                                opts.show_line_numbers, true
+                                &file_path,
+                                ctx_idx + 1,
+                                ctx_line,
+                                opts.show_line_numbers,
+                                true,
                             ));
                         }
                     }
 
                     // Add the matching line
                     results.push(format_line(
-                        &file_path, line_idx + 1, line,
-                        opts.show_line_numbers, false
+                        &file_path,
+                        line_idx + 1,
+                        line,
+                        opts.show_line_numbers,
+                        false,
                     ));
 
                     // Add context lines after the match
                     if opts.context_lines > 0 {
                         let end_ctx = (line_idx + opts.context_lines).min(lines.len() - 1);
-                        for (ctx_idx, ctx_line) in lines.iter().enumerate().skip(line_idx + 1).take(end_ctx - line_idx) {
+                        for (ctx_idx, ctx_line) in lines
+                            .iter()
+                            .enumerate()
+                            .skip(line_idx + 1)
+                            .take(end_ctx - line_idx)
+                        {
                             results.push(format_line(
-                                &file_path, ctx_idx + 1, ctx_line,
-                                opts.show_line_numbers, true
+                                &file_path,
+                                ctx_idx + 1,
+                                ctx_line,
+                                opts.show_line_numbers,
+                                true,
                             ));
                         }
                     }
@@ -214,7 +241,11 @@ fn grep_search(opts: &GrepOptions) -> Result<String> {
         }
 
         if opts.output_mode == "count" && file_match_count > 0 {
-            results.push(format!("{}: {} matches", file_path.display(), file_match_count));
+            results.push(format!(
+                "{}: {} matches",
+                file_path.display(),
+                file_match_count
+            ));
         }
     }
 
@@ -231,10 +262,15 @@ fn grep_search(opts: &GrepOptions) -> Result<String> {
             if results.is_empty() {
                 Ok("No matches found.".to_string())
             } else {
-                Ok(format!("Total: {} matches\n{}", match_count, results.join("\n")))
+                Ok(format!(
+                    "Total: {} matches\n{}",
+                    match_count,
+                    results.join("\n")
+                ))
             }
         }
-        _ => { // content
+        _ => {
+            // content
             if results.is_empty() {
                 Ok("No matches found.".to_string())
             } else {
@@ -254,7 +290,13 @@ fn format_line(
 ) -> String {
     let marker = if is_context { "-" } else { ":" };
     if show_line_numbers {
-        format!("{}:{}{} {}", file_path.display(), line_num, marker, line.trim())
+        format!(
+            "{}:{}{} {}",
+            file_path.display(),
+            line_num,
+            marker,
+            line.trim()
+        )
     } else {
         format!("{}{} {}", file_path.display(), marker, line.trim())
     }
@@ -318,12 +360,23 @@ fn walkdir_grep(root: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
 
     // Directories to skip
     const SKIP_DIRS: &[&str] = &[
-        ".git", ".svn", ".hg",
-        "node_modules", "vendor",
-        "target", "build", "dist", "out",
-        ".cache", ".npm", ".cargo",
-        "__pycache__", ".venv", "venv",
-        ".idea", ".vscode",
+        ".git",
+        ".svn",
+        ".hg",
+        "node_modules",
+        "vendor",
+        "target",
+        "build",
+        "dist",
+        "out",
+        ".cache",
+        ".npm",
+        ".cargo",
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".idea",
+        ".vscode",
     ];
 
     while let Some(dir) = stack.pop() {

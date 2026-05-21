@@ -6,7 +6,11 @@ fn test_all_tools_count() {
     // This test just ensures the count is stable and >= expected minimum.
     let all = tools::all_tools();
     // Current count: 22 tools (basic tools + task tools + plan_mode tools + monitor)
-    assert!(all.len() >= 22, "Expected at least 22 tools, got {}", all.len());
+    assert!(
+        all.len() >= 22,
+        "Expected at least 22 tools, got {}",
+        all.len()
+    );
 }
 
 #[test]
@@ -24,7 +28,11 @@ fn test_all_tools_have_descriptions() {
     let all = tools::all_tools();
     for tool in &all {
         let def = tool.definition();
-        assert!(!def.description.is_empty(), "tool {} has empty description", def.name);
+        assert!(
+            !def.description.is_empty(),
+            "tool {} has empty description",
+            def.name
+        );
     }
 }
 
@@ -33,8 +41,16 @@ fn test_all_tools_have_valid_parameters() {
     let all = tools::all_tools();
     for tool in &all {
         let def = tool.definition();
-        assert_eq!(def.parameters["type"], "object", "tool {} parameters should be object", def.name);
-        assert!(def.parameters["properties"].is_object(), "tool {} should have properties", def.name);
+        assert_eq!(
+            def.parameters["type"], "object",
+            "tool {} parameters should be object",
+            def.name
+        );
+        assert!(
+            def.parameters["properties"].is_object(),
+            "tool {} should have properties",
+            def.name
+        );
     }
 }
 

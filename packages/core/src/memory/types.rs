@@ -4,10 +4,13 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+use super::config::*;
+use super::retrieval::{
+    TfIdfSearch, compute_relevance, expand_semantic_keywords, extract_context_keywords,
+    extract_keywords_hybrid, has_contradiction_signal,
+};
 use crate::providers::Message;
 use crate::truncate::{find_boundary, truncate_with_suffix};
-use super::config::*;
-use super::retrieval::{TfIdfSearch, compute_relevance, expand_semantic_keywords, extract_context_keywords, has_contradiction_signal, extract_keywords_hybrid};
 
 // ============================================================================
 // Helper Functions
@@ -158,7 +161,11 @@ impl MemoryEntry {
     /// Format for display.
     pub fn format_line(&self) -> String {
         let time = self.created_at.format("%Y-%m-%d %H:%M");
-        let importance_marker = if self.importance >= IMPORTANCE_STAR_THRESHOLD { "⭐" } else { "" };
+        let importance_marker = if self.importance >= IMPORTANCE_STAR_THRESHOLD {
+            "⭐"
+        } else {
+            ""
+        };
         let manual_marker = if self.is_manual { "📝" } else { "" };
         format!(
             "{} {} {}{}{} {}",
@@ -175,7 +182,11 @@ impl MemoryEntry {
     pub fn format_for_prompt(&self) -> String {
         let category_name = self.category.display_name();
         if self.content.len() > MAX_MEMORY_CONTENT_LENGTH {
-            format!("{}: {}...", category_name, truncate(&self.content, MAX_MEMORY_CONTENT_LENGTH - 3))
+            format!(
+                "{}: {}...",
+                category_name,
+                truncate(&self.content, MAX_MEMORY_CONTENT_LENGTH - 3)
+            )
         } else {
             format!("{}: {}", category_name, self.content)
         }
@@ -223,10 +234,7 @@ struct SearchIndex {
 impl SearchIndex {
     /// Build index from entries.
     fn build(entries: &[MemoryEntry]) -> Self {
-        let content_lower: Vec<String> = entries
-            .iter()
-            .map(|e| e.content.to_lowercase())
-            .collect();
+        let content_lower: Vec<String> = entries.iter().map(|e| e.content.to_lowercase()).collect();
 
         let mut by_category: HashMap<MemoryCategory, Vec<usize>> = HashMap::new();
         for (i, entry) in entries.iter().enumerate() {
@@ -235,7 +243,9 @@ impl SearchIndex {
 
         let mut by_importance: Vec<usize> = (0..entries.len()).collect();
         by_importance.sort_by(|a, b| {
-            entries[*b].importance.partial_cmp(&entries[*a].importance)
+            entries[*b]
+                .importance
+                .partial_cmp(&entries[*a].importance)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
@@ -255,8 +265,14 @@ impl SearchIndex {
     }
 
     /// Search by query with optional limit.
-    fn search(&self, _entries: &[MemoryEntry], query_lower: &str, limit: Option<usize>) -> Vec<usize> {
-        let matches: Vec<usize> = self.by_importance
+    fn search(
+        &self,
+        _entries: &[MemoryEntry],
+        query_lower: &str,
+        limit: Option<usize>,
+    ) -> Vec<usize> {
+        let matches: Vec<usize> = self
+            .by_importance
             .iter()
             .filter(|&idx| self.content_lower[*idx].contains(query_lower))
             .copied()
@@ -282,9 +298,15 @@ impl SearchIndex {
     }
 }
 
-fn default_max_entries() -> usize { 100 }
-fn default_min_importance() -> f64 { 30.0 }
-fn default_enabled() -> bool { true }
+fn default_max_entries() -> usize {
+    100
+}
+fn default_min_importance() -> f64 {
+    30.0
+}
+fn default_enabled() -> bool {
+    true
+}
 
 impl Default for AutoMemory {
     fn default() -> Self {
@@ -365,7 +387,11 @@ impl AutoMemory {
 
         if let Some(conflict_idx) = self.find_conflict(&content, category) {
             let old_content = self.entries[conflict_idx].content.clone();
-            log::debug!("Memory conflict detected: '{}' supersedes '{}'", content, old_content);
+            log::debug!(
+                "Memory conflict detected: '{}' supersedes '{}'",
+                content,
+                old_content
+            );
             self.entries.remove(conflict_idx);
             self.invalidate_index();
         }
@@ -404,18 +430,20 @@ impl AutoMemory {
             let topic_overlap = intersection as f64 / min_len as f64;
             let jaccard = Self::calculate_similarity(&entry_lower, &new_lower);
 
-            if topic_overlap > overlap_threshold && jaccard < SIMILARITY_THRESHOLD
-                && has_contradiction_signal(&entry_lower, &new_lower) {
-                    return Some(i);
-                }
+            if topic_overlap > overlap_threshold
+                && jaccard < SIMILARITY_THRESHOLD
+                && has_contradiction_signal(&entry_lower, &new_lower)
+            {
+                return Some(i);
+            }
 
             if has_change_signal {
-                let old_key_terms: Vec<&str> = entry_words.iter()
+                let old_key_terms: Vec<&str> = entry_words
+                    .iter()
                     .filter(|w| w.len() > 2)
                     .copied()
                     .collect();
-                let referenced = old_key_terms.iter()
-                    .any(|term| new_lower.contains(term));
+                let referenced = old_key_terms.iter().any(|term| new_lower.contains(term));
                 if referenced {
                     return Some(i);
                 }
@@ -474,14 +502,14 @@ impl AutoMemory {
             return;
         }
 
-        let (manual_entries, auto_entries): (Vec<_>, Vec<_>) = self.entries
-            .iter()
-            .cloned()
-            .partition(|e| e.is_manual);
+        let (manual_entries, auto_entries): (Vec<_>, Vec<_>) =
+            self.entries.iter().cloned().partition(|e| e.is_manual);
 
         let mut sorted_auto = auto_entries;
         sorted_auto.sort_by(|a, b| {
-            let importance_cmp = b.importance.partial_cmp(&a.importance)
+            let importance_cmp = b
+                .importance
+                .partial_cmp(&a.importance)
                 .unwrap_or(std::cmp::Ordering::Equal);
             if importance_cmp == std::cmp::Ordering::Equal {
                 b.last_referenced.cmp(&a.last_referenced)
@@ -500,7 +528,9 @@ impl AutoMemory {
 
         if self.entries.len() > self.max_entries {
             self.entries.sort_by(|a, b| {
-                let importance_cmp = b.importance.partial_cmp(&a.importance)
+                let importance_cmp = b
+                    .importance
+                    .partial_cmp(&a.importance)
                     .unwrap_or(std::cmp::Ordering::Equal);
                 if importance_cmp == std::cmp::Ordering::Equal {
                     b.last_referenced.cmp(&a.last_referenced)
@@ -593,13 +623,15 @@ impl AutoMemory {
             .max_by(|a, b| {
                 let score_a = a.importance + (a.content.len() as f64 / 100.0);
                 let score_b = b.importance + (b.content.len() as f64 / 100.0);
-                score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+                score_b
+                    .partial_cmp(&score_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .expect("merge_group called with empty entries");
 
-        let all_same = entries.iter().all(|e| {
-            Self::calculate_similarity(&e.content, &best.content) >= 0.95
-        });
+        let all_same = entries
+            .iter()
+            .all(|e| Self::calculate_similarity(&e.content, &best.content) >= 0.95);
 
         if all_same {
             let mut merged: MemoryEntry = (*best).clone();
@@ -617,7 +649,8 @@ impl AutoMemory {
             if entry.id == best.id {
                 continue;
             }
-            let unique_words = entry.content
+            let unique_words = entry
+                .content
                 .split_whitespace()
                 .filter(|word| !best.content.contains(word))
                 .take(3)
@@ -626,7 +659,8 @@ impl AutoMemory {
             if !unique_words.is_empty() {
                 let additions = unique_words.join(", ");
                 if additions.len() > 10 {
-                    merged_content = format!("{} ({})", merged_content.trim_end_matches('.'), additions);
+                    merged_content =
+                        format!("{} ({})", merged_content.trim_end_matches('.'), additions);
                 }
             }
         }
@@ -655,14 +689,19 @@ impl AutoMemory {
 
     /// Get entries by category.
     pub fn by_category(&self, category: MemoryCategory) -> Vec<&MemoryEntry> {
-        self.entries.iter().filter(|e| e.category == category).collect()
+        self.entries
+            .iter()
+            .filter(|e| e.category == category)
+            .collect()
     }
 
     /// Get entries by category using index.
     pub fn by_category_fast(&mut self, category: MemoryCategory) -> Vec<&MemoryEntry> {
         self.ensure_index();
         if let Some(ref index) = self.search_index {
-            index.by_category.get(&category)
+            index
+                .by_category
+                .get(&category)
                 .map(|indices| indices.iter().map(|&i| &self.entries[i]).collect())
                 .unwrap_or_default()
         } else {
@@ -673,7 +712,11 @@ impl AutoMemory {
     /// Get top N most important entries.
     pub fn top_n(&self, n: usize) -> Vec<&MemoryEntry> {
         let mut sorted: Vec<_> = self.entries.iter().collect();
-        sorted.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| {
+            b.importance
+                .partial_cmp(&a.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         sorted.into_iter().take(n).collect()
     }
 
@@ -681,7 +724,8 @@ impl AutoMemory {
     pub fn top_n_fast(&mut self, n: usize) -> Vec<&MemoryEntry> {
         self.ensure_index();
         if let Some(ref index) = self.search_index {
-            index.by_importance
+            index
+                .by_importance
                 .iter()
                 .take(n)
                 .map(|&i| &self.entries[i])
@@ -699,15 +743,22 @@ impl AutoMemory {
     /// Search entries with result limit.
     pub fn search_with_limit(&self, query: &str, limit: Option<usize>) -> Vec<&MemoryEntry> {
         let query_lower = query.to_lowercase();
-        let mut results: Vec<_> = self.entries
+        let mut results: Vec<_> = self
+            .entries
             .iter()
             .filter(|e| {
-                e.content.to_lowercase().contains(&query_lower) ||
-                e.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
+                e.content.to_lowercase().contains(&query_lower)
+                    || e.tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&query_lower))
             })
             .collect();
 
-        results.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.importance
+                .partial_cmp(&a.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         if let Some(max) = limit {
             results.into_iter().take(max).collect()
@@ -782,7 +833,8 @@ impl AutoMemory {
             .filter_map(Self::extract_message_text_lower)
             .collect();
 
-        let entry_contents_lower: Vec<String> = self.entries
+        let entry_contents_lower: Vec<String> = self
+            .entries
             .iter()
             .map(|e| e.content.to_lowercase())
             .collect();
@@ -852,7 +904,11 @@ impl AutoMemory {
     }
 
     /// Generate context-aware summary with pre-extracted keywords.
-    pub fn generate_contextual_summary_with_keywords(&self, context_keywords: &[String], max_entries: usize) -> String {
+    pub fn generate_contextual_summary_with_keywords(
+        &self,
+        context_keywords: &[String],
+        max_entries: usize,
+    ) -> String {
         if self.entries.is_empty() {
             return String::new();
         }
@@ -871,7 +927,8 @@ impl AutoMemory {
             }
         }
 
-        let mut scored: Vec<(&MemoryEntry, f64)> = self.entries
+        let mut scored: Vec<(&MemoryEntry, f64)> = self
+            .entries
             .iter()
             .map(|entry| {
                 let relevance = compute_relevance(entry, &expanded_keywords);
@@ -889,10 +946,14 @@ impl AutoMemory {
                 return std::cmp::Ordering::Greater;
             }
 
-            let score_a = a.1 * CONTEXT_RELEVANCE_WEIGHT + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
-            let score_b = b.1 * CONTEXT_RELEVANCE_WEIGHT + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_a = a.1 * CONTEXT_RELEVANCE_WEIGHT
+                + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_b = b.1 * CONTEXT_RELEVANCE_WEIGHT
+                + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
 
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let selected: Vec<&MemoryEntry> = scored
@@ -934,14 +995,19 @@ impl AutoMemory {
     }
 
     /// Get IDs of entries for retrieval.
-    pub fn get_retrieval_ids(&self, context_keywords: &[String], max_entries: usize) -> Vec<String> {
+    pub fn get_retrieval_ids(
+        &self,
+        context_keywords: &[String],
+        max_entries: usize,
+    ) -> Vec<String> {
         if self.entries.is_empty() {
             return Vec::new();
         }
 
         let expanded_keywords = expand_semantic_keywords(context_keywords);
 
-        let mut scored: Vec<(&MemoryEntry, f64)> = self.entries
+        let mut scored: Vec<(&MemoryEntry, f64)> = self
+            .entries
             .iter()
             .map(|entry| {
                 let relevance = compute_relevance(entry, &expanded_keywords);
@@ -960,10 +1026,16 @@ impl AutoMemory {
             let score_a = a.1 + (a.0.importance / MAX_IMPORTANCE_CEILING);
             let score_b = b.1 + (b.0.importance / MAX_IMPORTANCE_CEILING);
 
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        scored.iter().take(max_entries).map(|(e, _)| e.id.clone()).collect()
+        scored
+            .iter()
+            .take(max_entries)
+            .map(|(e, _)| e.id.clone())
+            .collect()
     }
 
     /// Generate context-aware summary async with AI keyword extraction.
@@ -983,7 +1055,8 @@ impl AutoMemory {
             extract_context_keywords(context)
         };
 
-        let mut scored: Vec<(&MemoryEntry, f64)> = self.entries
+        let mut scored: Vec<(&MemoryEntry, f64)> = self
+            .entries
             .iter()
             .map(|entry| {
                 let relevance = compute_relevance(entry, &context_keywords);
@@ -999,10 +1072,14 @@ impl AutoMemory {
                 return std::cmp::Ordering::Greater;
             }
 
-            let score_a = a.1 * CONTEXT_RELEVANCE_WEIGHT + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
-            let score_b = b.1 * CONTEXT_RELEVANCE_WEIGHT + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_a = a.1 * CONTEXT_RELEVANCE_WEIGHT
+                + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_b = b.1 * CONTEXT_RELEVANCE_WEIGHT
+                + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
 
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let selected: Vec<&MemoryEntry> = scored
@@ -1042,7 +1119,11 @@ impl AutoMemory {
         let mut result = String::from("Accumulated memories:\n\n");
 
         let mut sorted: Vec<_> = self.entries.iter().collect();
-        sorted.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| {
+            b.importance
+                .partial_cmp(&a.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         for entry in sorted {
             result.push_str(&entry.format_line());
@@ -1058,9 +1139,8 @@ impl AutoMemory {
         let manual = self.entries.iter().filter(|e| e.is_manual).count();
         let auto = total - manual;
 
-        let by_category: HashMap<MemoryCategory, usize> = self.entries
-            .iter()
-            .fold(HashMap::new(), |mut acc, e| {
+        let by_category: HashMap<MemoryCategory, usize> =
+            self.entries.iter().fold(HashMap::new(), |mut acc, e| {
                 *acc.entry(e.category).or_default() += 1;
                 acc
             });
@@ -1071,16 +1151,19 @@ impl AutoMemory {
             0.0
         };
 
-        let oldest = self.entries
+        let oldest = self
+            .entries
             .iter()
             .min_by_key(|e| e.created_at)
             .map(|e| e.created_at);
-        let newest = self.entries
+        let newest = self
+            .entries
             .iter()
             .max_by_key(|e| e.created_at)
             .map(|e| e.created_at);
 
-        let highly_referenced = self.entries
+        let highly_referenced = self
+            .entries
             .iter()
             .filter(|e| e.reference_count >= 3)
             .count();
@@ -1127,9 +1210,7 @@ impl AutoMemory {
                 continue;
             }
 
-            let days_since_reference = (now - entry.last_referenced)
-                .num_days()
-                .max(0);
+            let days_since_reference = (now - entry.last_referenced).num_days().max(0);
 
             if days_since_reference > decay_start_days {
                 let decay_periods = (days_since_reference - decay_start_days) / decay_period_days;
@@ -1181,13 +1262,21 @@ impl MemoryStatistics {
 
         output.push_str("分类统计：\n");
         for (cat, count) in &self.by_category {
-            output.push_str(&format!("  {} {}: {} 条\n", cat.icon(), cat.display_name(), count));
+            output.push_str(&format!(
+                "  {} {}: {} 条\n",
+                cat.icon(),
+                cat.display_name(),
+                count
+            ));
         }
         output.push('\n');
 
         output.push_str("质量指标：\n");
         output.push_str(&format!("  平均重要性: {:.1} 分\n", self.avg_importance));
-        output.push_str(&format!("  高频引用: {} 条 (≥3次)\n", self.highly_referenced));
+        output.push_str(&format!(
+            "  高频引用: {} 条 (≥3次)\n",
+            self.highly_referenced
+        ));
 
         if let Some(oldest) = self.oldest {
             let days = (Utc::now() - oldest).num_days();

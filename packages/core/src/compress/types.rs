@@ -1,8 +1,8 @@
 //! Compression types and result structures.
 
+use crate::providers::{Message, MessageContent, Role};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::providers::{Message, MessageContent, Role};
 
 use super::config::format_tokens;
 
@@ -105,14 +105,16 @@ impl SummarizedSegment {
         let key_points_text = if self.key_points.is_empty() {
             "无".to_string()
         } else {
-            self.key_points.iter().map(|p| format!("• {}", p)).collect::<Vec<_>>().join("\n")
+            self.key_points
+                .iter()
+                .map(|p| format!("• {}", p))
+                .collect::<Vec<_>>()
+                .join("\n")
         };
 
         let content = format!(
             "[对话摘要 - 原 {} 条消息]\n\n{}\n\n关键要点：\n{}",
-            self.original_count,
-            self.summary,
-            key_points_text
+            self.original_count, self.summary, key_points_text
         );
 
         Message {

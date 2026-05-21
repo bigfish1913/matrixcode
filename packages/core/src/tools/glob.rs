@@ -15,11 +15,10 @@ impl Tool for GlobTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "glob".to_string(),
-            description:
-                "通过 glob 模式查找文件（如 '**/*.rs'、'src/*.toml'）。\
+            description: "通过 glob 模式查找文件（如 '**/*.rs'、'src/*.toml'）。\
                  返回匹配的文件路径，按修改时间排序（最新的在前）。\
                  用于按名称定位文件；若要查找文件内容请使用 'search'。"
-                    .to_string(),
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -46,8 +45,6 @@ impl Tool for GlobTool {
 
         // Show spinner while globbing - RAII guard ensures cleanup on error
         // let mut spinner = ToolSpinner::new(&format!("glob '{}' in {}", pattern, path));
-
-        
 
         // Return result directly
         tokio::task::spawn_blocking(move || find_files(&pattern, &path)).await?
@@ -112,9 +109,10 @@ fn should_skip(p: &Path) -> bool {
     for c in p.components() {
         if let std::path::Component::Normal(s) = c
             && let Some(name) = s.to_str()
-                && IGNORED.contains(&name) {
-                    return true;
-                }
+            && IGNORED.contains(&name)
+        {
+            return true;
+        }
     }
     false
 }

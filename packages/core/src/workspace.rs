@@ -47,7 +47,10 @@ impl Workspace {
             anyhow::bail!("workspace root is not a directory: {}", root.display());
         }
         Ok(Self {
-            inner: Arc::new(Inner { root, restricted: true }),
+            inner: Arc::new(Inner {
+                root,
+                restricted: true,
+            }),
         })
     }
 
@@ -58,7 +61,10 @@ impl Workspace {
     pub fn unrestricted() -> Self {
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Self {
-            inner: Arc::new(Inner { root, restricted: false }),
+            inner: Arc::new(Inner {
+                root,
+                restricted: false,
+            }),
         }
     }
 
@@ -270,10 +276,7 @@ mod tests {
     fn resolve_for_create_rejects_outside() {
         let tmp = TempDir::new().unwrap();
         let w = ws(tmp.path());
-        let err = w
-            .resolve_for_create("../evil.txt")
-            .unwrap_err()
-            .to_string();
+        let err = w.resolve_for_create("../evil.txt").unwrap_err().to_string();
         assert!(
             err.contains("escapes workspace root") || err.contains("outside workspace root"),
             "got: {err}"

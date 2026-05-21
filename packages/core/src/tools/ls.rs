@@ -11,10 +11,9 @@ impl Tool for LsTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "ls".to_string(),
-            description:
-                "列出目录的直接条目。每行一个条目，目录在前（以 / 结尾），\
+            description: "列出目录的直接条目。每行一个条目，目录在前（以 / 结尾），\
                  文件在后并显示字节大小。不递归——递归查找请使用 'glob'。"
-                    .to_string(),
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

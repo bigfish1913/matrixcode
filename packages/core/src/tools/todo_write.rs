@@ -12,11 +12,10 @@ impl Tool for TodoWriteTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "todo_write".to_string(),
-            description:
-                "维护结构化待办列表，用于规划和跟踪多步骤工作。\
+            description: "维护结构化待办列表，用于规划和跟踪多步骤工作。\
                  每次调用会替换整个列表。用于非 trivial 任务（3 步以上）以展示进度。\
                  同时只保持一个任务 'in_progress'，完成后立即标记为 'completed'。"
-                    .to_string(),
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -99,7 +98,8 @@ impl Tool for TodoWriteTool {
         }
 
         let header = format!("Todos ({}):", lines.len());
-        let mut out = String::with_capacity(header.len() + lines.iter().map(|l| l.len() + 1).sum::<usize>());
+        let mut out =
+            String::with_capacity(header.len() + lines.iter().map(|l| l.len() + 1).sum::<usize>());
         out.push_str(&header);
         for l in &lines {
             out.push('\n');
@@ -107,9 +107,9 @@ impl Tool for TodoWriteTool {
         }
 
         // spinner.finish_success(&format!(
-//     "{} pending, {} in_progress, {} done",
-//     pending_count, in_progress_count, completed_count
-// ));
+        //     "{} pending, {} in_progress, {} done",
+        //     pending_count, in_progress_count, completed_count
+        // ));
         Ok(out)
     }
 

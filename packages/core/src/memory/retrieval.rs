@@ -15,40 +15,44 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
     // Common stop words (Chinese + English)
     let stop_words: HashSet<&str> = [
         // Chinese stop words
-        "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个",
-        "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好",
-        "自己", "这", "他", "她", "它", "们", "那", "些", "什么", "怎么", "如何", "请",
-        "能", "可以", "需要", "应该", "可能", "因为", "所以", "但是", "然后", "还是",
-        "已经", "正在", "将要", "曾经", "一下", "一点", "一些", "所有", "每个", "任何",
-        // English stop words
-        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "can", "shall", "to", "of", "in", "for",
-        "on", "with", "at", "by", "from", "as", "into", "through", "during",
-        "before", "after", "above", "below", "between", "and", "but", "or",
-        "not", "no", "so", "if", "then", "than", "too", "very", "just",
-        "this", "that", "these", "those", "it", "its", "i", "me", "my",
-        "we", "our", "you", "your", "he", "his", "she", "her", "they", "their",
-        "please", "help", "need", "want", "make", "get", "let", "use",
-    ].iter().copied().collect();
+        "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也",
+        "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这", "他",
+        "她", "它", "们", "那", "些", "什么", "怎么", "如何", "请", "能", "可以", "需要", "应该",
+        "可能", "因为", "所以", "但是", "然后", "还是", "已经", "正在", "将要", "曾经", "一下",
+        "一点", "一些", "所有", "每个", "任何", // English stop words
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+        "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "shall",
+        "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
+        "during", "before", "after", "above", "below", "between", "and", "but", "or", "not", "no",
+        "so", "if", "then", "than", "too", "very", "just", "this", "that", "these", "those", "it",
+        "its", "i", "me", "my", "we", "our", "you", "your", "he", "his", "she", "her", "they",
+        "their", "please", "help", "need", "want", "make", "get", "let", "use",
+    ]
+    .iter()
+    .copied()
+    .collect();
 
     // Technical/meaningful patterns
     let tech_patterns: HashSet<&str> = [
-        "api", "cli", "gui", "tui", "web", "http", "json", "xml", "sql", "db",
-        "git", "npm", "cargo", "rust", "js", "ts", "py", "go", "java", "cpp",
-        "cpu", "gpu", "io", "fs", "os", "ui", "ux", "ai", "ml", "dl",
-        "rs", "js", "ts", "py", "go", "java", "c", "h", "cpp", "hpp",
-        "json", "yaml", "yml", "toml", "md", "txt", "html", "css", "scss",
-        "bug", "fix", "add", "new", "old", "use", "run", "build", "test",
-        "code", "data", "file", "dir", "path", "name", "type", "value",
-    ].iter().copied().collect();
+        "api", "cli", "gui", "tui", "web", "http", "json", "xml", "sql", "db", "git", "npm",
+        "cargo", "rust", "js", "ts", "py", "go", "java", "cpp", "cpu", "gpu", "io", "fs", "os",
+        "ui", "ux", "ai", "ml", "dl", "rs", "js", "ts", "py", "go", "java", "c", "h", "cpp", "hpp",
+        "json", "yaml", "yml", "toml", "md", "txt", "html", "css", "scss", "bug", "fix", "add",
+        "new", "old", "use", "run", "build", "test", "code", "data", "file", "dir", "path", "name",
+        "type", "value",
+    ]
+    .iter()
+    .copied()
+    .collect();
 
     let lower = context.to_lowercase();
     let mut keywords: HashSet<String> = HashSet::new();
 
     // 1. Extract English words
     for word in lower.split_whitespace() {
-        let cleaned = word.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+        let cleaned = word
+            .trim_matches(|c: char| !c.is_alphanumeric())
+            .to_string();
         if cleaned.len() >= 2 && !stop_words.contains(cleaned.as_str()) {
             keywords.insert(cleaned.clone());
         }
@@ -111,52 +115,85 @@ pub fn calculate_similarity(a: &str, b: &str) -> f64 {
 /// Semantic alias mappings for better keyword matching.
 pub const SEMANTIC_ALIASES: &[(&str, &str)] = &[
     // Database related
-    ("数据库", "database"), ("db", "database"),
-    ("postgresql", "postgres"), ("mysql", "mysql"),
-    ("mongodb", "mongo"), ("redis", "redis"),
-    ("sqlite", "sqlite"), ("sql", "database"),
+    ("数据库", "database"),
+    ("db", "database"),
+    ("postgresql", "postgres"),
+    ("mysql", "mysql"),
+    ("mongodb", "mongo"),
+    ("redis", "redis"),
+    ("sqlite", "sqlite"),
+    ("sql", "database"),
     // Frontend related
-    ("前端", "frontend"), ("ui", "frontend"),
-    ("界面", "frontend"), ("页面", "page"),
-    ("组件", "component"), ("react", "react"),
-    ("vue", "vue"), ("angular", "angular"),
+    ("前端", "frontend"),
+    ("ui", "frontend"),
+    ("界面", "frontend"),
+    ("页面", "page"),
+    ("组件", "component"),
+    ("react", "react"),
+    ("vue", "vue"),
+    ("angular", "angular"),
     // Backend related
-    ("后端", "backend"), ("api", "api"),
-    ("接口", "api"), ("服务", "service"),
-    ("server", "backend"), ("服务器", "backend"),
+    ("后端", "backend"),
+    ("api", "api"),
+    ("接口", "api"),
+    ("服务", "service"),
+    ("server", "backend"),
+    ("服务器", "backend"),
     // Framework/Language
-    ("rust", "rust"), ("python", "python"),
-    ("javascript", "js"), ("typescript", "ts"),
-    ("java", "java"), ("go", "golang"),
-    ("golang", "go"), ("c++", "cpp"),
-    ("cpp", "c++"), ("nodejs", "node"),
+    ("rust", "rust"),
+    ("python", "python"),
+    ("javascript", "js"),
+    ("typescript", "ts"),
+    ("java", "java"),
+    ("go", "golang"),
+    ("golang", "go"),
+    ("c++", "cpp"),
+    ("cpp", "c++"),
+    ("nodejs", "node"),
     ("node", "nodejs"),
     // Tools
-    ("编辑器", "editor"), ("ide", "editor"),
-    ("vim", "vim"), ("vscode", "vscode"),
+    ("编辑器", "editor"),
+    ("ide", "editor"),
+    ("vim", "vim"),
+    ("vscode", "vscode"),
     ("emacs", "emacs"),
     // Config
-    ("配置", "config"), ("设置", "config"),
-    ("config", "config"), ("setting", "config"),
+    ("配置", "config"),
+    ("设置", "config"),
+    ("config", "config"),
+    ("setting", "config"),
     // Structure
-    ("目录", "directory"), ("文件", "file"),
-    ("文件夹", "directory"), ("路径", "path"),
-    ("模块", "module"), ("包", "package"),
+    ("目录", "directory"),
+    ("文件", "file"),
+    ("文件夹", "directory"),
+    ("路径", "path"),
+    ("模块", "module"),
+    ("包", "package"),
     // Testing
-    ("测试", "test"), ("test", "test"),
-    ("单元测试", "unittest"), ("unittest", "test"),
+    ("测试", "test"),
+    ("test", "test"),
+    ("单元测试", "unittest"),
+    ("unittest", "test"),
     // Cache
-    ("缓存", "cache"), ("cache", "cache"),
+    ("缓存", "cache"),
+    ("cache", "cache"),
     // Auth
-    ("认证", "auth"), ("登录", "login"),
-    ("auth", "auth"), ("登录", "auth"),
+    ("认证", "auth"),
+    ("登录", "login"),
+    ("auth", "auth"),
+    ("登录", "auth"),
     // Performance
-    ("性能", "performance"), ("优化", "optimize"),
-    ("速度", "speed"), ("慢", "slow"),
+    ("性能", "performance"),
+    ("优化", "optimize"),
+    ("速度", "speed"),
+    ("慢", "slow"),
     // Common verbs
-    ("创建", "create"), ("删除", "delete"),
-    ("修改", "modify"), ("添加", "add"),
-    ("更新", "update"), ("查询", "query"),
+    ("创建", "create"),
+    ("删除", "delete"),
+    ("修改", "modify"),
+    ("添加", "add"),
+    ("更新", "update"),
+    ("查询", "query"),
 ];
 
 /// Expand keywords with semantic aliases.
@@ -201,18 +238,22 @@ pub fn compute_relevance(entry: &MemoryEntry, context_keywords: &[String]) -> f6
 
     let keyword_score = matches as f64 / expanded_keywords.len().max(context_keywords.len()) as f64;
 
-    let tag_matches = entry.tags
+    let tag_matches = entry
+        .tags
         .iter()
         .filter(|tag| {
             let tag_lower = tag.to_lowercase();
             expanded_keywords.iter().any(|kw| {
-                tag_lower.contains(&kw.to_lowercase()) ||
-                kw.to_lowercase().contains(&tag_lower)
+                tag_lower.contains(&kw.to_lowercase()) || kw.to_lowercase().contains(&tag_lower)
             })
         })
         .count();
 
-    let tag_score = if tag_matches > 0 { 0.2 + (tag_matches as f64 * 0.05).min(0.1) } else { 0.0 };
+    let tag_score = if tag_matches > 0 {
+        0.2 + (tag_matches as f64 * 0.05).min(0.1)
+    } else {
+        0.0
+    };
 
     (keyword_score + tag_score).min(1.0)
 }
@@ -220,10 +261,23 @@ pub fn compute_relevance(entry: &MemoryEntry, context_keywords: &[String]) -> f6
 /// Detect if two memory contents have contradiction signals.
 pub fn has_contradiction_signal(old: &str, new: &str) -> bool {
     let change_signals = [
-        "改用", "换成", "替换", "改为", "切换到", "迁移到",
-        "不再使用", "弃用", "放弃", "取消",
-        "switched to", "replaced", "migrated to", "changed to",
-        "no longer", "deprecated", "abandoned",
+        "改用",
+        "换成",
+        "替换",
+        "改为",
+        "切换到",
+        "迁移到",
+        "不再使用",
+        "弃用",
+        "放弃",
+        "取消",
+        "switched to",
+        "replaced",
+        "migrated to",
+        "changed to",
+        "no longer",
+        "deprecated",
+        "abandoned",
     ];
 
     for signal in &change_signals {
@@ -233,8 +287,14 @@ pub fn has_contradiction_signal(old: &str, new: &str) -> bool {
     }
 
     let action_verbs = [
-        "决定使用", "选择使用", "采用", "使用",
-        "decided to use", "chose", "using", "adopted",
+        "决定使用",
+        "选择使用",
+        "采用",
+        "使用",
+        "decided to use",
+        "chose",
+        "using",
+        "adopted",
     ];
 
     for verb in &action_verbs {
@@ -316,7 +376,8 @@ async fn extract_keywords_with_ai(
         Err(_) => return Vec::new(),
     };
 
-    let text = response.content
+    let text = response
+        .content
         .iter()
         .filter_map(|block| {
             if let crate::providers::ContentBlock::Text { text } = block {
@@ -501,14 +562,19 @@ impl TfIdfSearch {
     }
 
     /// Compute TF-IDF similarity.
-    fn compute_tfidf_similarity(&self, query_freq: &HashMap<String, f32>, doc_freq: &HashMap<String, f32>) -> f32 {
+    fn compute_tfidf_similarity(
+        &self,
+        query_freq: &HashMap<String, f32>,
+        doc_freq: &HashMap<String, f32>,
+    ) -> f32 {
         let mut similarity = 0.0;
 
         for (word, tf_query) in query_freq {
             if let Some(tf_doc) = doc_freq.get(word)
-                && let Some(idf) = self.idf_cache.get(word) {
-                    similarity += tf_query * idf * tf_doc * idf;
-                }
+                && let Some(idf) = self.idf_cache.get(word)
+            {
+                similarity += tf_query * idf * tf_doc * idf;
+            }
         }
 
         similarity

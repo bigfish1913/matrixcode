@@ -1,6 +1,6 @@
 use matrixcode_core::prompt::{
-    build_static_system_prompt, PromptContext, PromptProfile, PromptSection,
-    SystemPromptBuilder, SECTION_AVAILABLE_SKILLS,
+    PromptContext, PromptProfile, PromptSection, SECTION_AVAILABLE_SKILLS, SystemPromptBuilder,
+    build_static_system_prompt,
 };
 
 #[test]
@@ -9,8 +9,14 @@ fn prompt_profile_parses_known_values() {
         "default".parse::<PromptProfile>().unwrap(),
         PromptProfile::Default
     );
-    assert_eq!("safe".parse::<PromptProfile>().unwrap(), PromptProfile::Safe);
-    assert_eq!("fast".parse::<PromptProfile>().unwrap(), PromptProfile::Fast);
+    assert_eq!(
+        "safe".parse::<PromptProfile>().unwrap(),
+        PromptProfile::Safe
+    );
+    assert_eq!(
+        "fast".parse::<PromptProfile>().unwrap(),
+        PromptProfile::Fast
+    );
     assert_eq!(
         "review".parse::<PromptProfile>().unwrap(),
         PromptProfile::Review
@@ -93,7 +99,10 @@ fn builder_accepts_structured_context() {
     let prompt = SystemPromptBuilder::new(PromptProfile::Default)
         .with_context(context)
         .build();
-    assert!(prompt.contains(&format!("[{}]\n- demo: does stuff", SECTION_AVAILABLE_SKILLS)));
+    assert!(prompt.contains(&format!(
+        "[{}]\n- demo: does stuff",
+        SECTION_AVAILABLE_SKILLS
+    )));
 }
 
 #[test]

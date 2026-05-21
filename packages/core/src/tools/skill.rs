@@ -67,29 +67,27 @@ impl Tool for SkillTool {
         // Show spinner while loading skill - RAII guard ensures cleanup on error
         // let mut spinner = ToolSpinner::new(&format!("loading skill '{}'", name));
 
-        let skill = self
-            .skills
-            .iter()
-            .find(|s| s.name == name)
-            .ok_or_else(|| {
-                let available: Vec<&str> = self.skills.iter().map(|s| s.name.as_str()).collect();
-                // spinner.finish_error("skill not found");
-                anyhow::anyhow!(
-                    "unknown skill '{}'. Available: {}",
-                    name,
-                    if available.is_empty() {
-                        "(none loaded)".to_string()
-                    } else {
-                        available.join(", ")
-                    }
-                )
-            })?;
+        let skill = self.skills.iter().find(|s| s.name == name).ok_or_else(|| {
+            let available: Vec<&str> = self.skills.iter().map(|s| s.name.as_str()).collect();
+            // spinner.finish_error("skill not found");
+            anyhow::anyhow!(
+                "unknown skill '{}'. Available: {}",
+                name,
+                if available.is_empty() {
+                    "(none loaded)".to_string()
+                } else {
+                    available.join(", ")
+                }
+            )
+        })?;
 
         let files = list_skill_files(&skill.dir);
         let files_section = if files.is_empty() {
             String::new()
         } else {
-            let mut s = String::from("\n\n---\nFiles in this skill (read with the `read` tool, paths are relative to the skill directory):\n");
+            let mut s = String::from(
+                "\n\n---\nFiles in this skill (read with the `read` tool, paths are relative to the skill directory):\n",
+            );
             s.push_str(&format!("skill_dir: {}\n", skill.dir.display()));
             for f in files {
                 s.push_str(&format!("- {}\n", f));

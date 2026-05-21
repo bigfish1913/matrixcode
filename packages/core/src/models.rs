@@ -1,7 +1,9 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::providers::{ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role};
+use crate::providers::{
+    ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role,
+};
 
 /// Default model names for different roles.
 pub const DEFAULT_MAIN_MODEL: &str = "claude-sonnet-4-20250514";
@@ -89,9 +91,10 @@ pub fn context_window_for(model: &str) -> Option<u32> {
     // Allow user override via environment variable
     if let Ok(raw) = std::env::var("CONTEXT_SIZE")
         && let Ok(n) = raw.trim().parse::<u32>()
-            && n > 0 {
-                return Some(n);
-            }
+        && n > 0
+    {
+        return Some(n);
+    }
 
     let m = model.to_ascii_lowercase();
 
@@ -99,8 +102,12 @@ pub fn context_window_for(model: &str) -> Option<u32> {
     if m.contains("[1m]") || m.contains("opus-4-7") || m.contains("opus-4.7") {
         return Some(1_000_000);
     }
-    if m.contains("claude-3") || m.contains("claude-4") || m.contains("claude-opus")
-        || m.contains("claude-sonnet") || m.contains("claude-haiku") {
+    if m.contains("claude-3")
+        || m.contains("claude-4")
+        || m.contains("claude-opus")
+        || m.contains("claude-sonnet")
+        || m.contains("claude-haiku")
+    {
         return Some(200_000);
     }
     if m.contains("claude-2") || m.contains("claude-instant") {
@@ -310,11 +317,11 @@ impl TaskPlan {
     /// Format for display.
     pub fn format(&self) -> String {
         let mut output = String::new();
-        
+
         output.push_str(&format!("任务分析: {}\n", self.request));
         output.push_str(&format!("复杂度: {}\n", self.complexity.display()));
         output.push_str(&format!("建议方案: {}\n\n", self.approach));
-        
+
         output.push_str("执行步骤:\n");
         for (i, step) in self.steps.iter().enumerate() {
             let marker = if step.optional { "[可选]" } else { "" };
@@ -323,14 +330,14 @@ impl TaskPlan {
                 output.push_str(&format!("   工具: {}\n", step.tools.join(", ")));
             }
         }
-        
+
         if !self.considerations.is_empty() {
             output.push_str("\n注意事项:\n");
             for c in &self.considerations {
                 output.push_str(&format!("• {}\n", c));
             }
         }
-        
+
         output
     }
 
@@ -342,7 +349,11 @@ impl TaskPlan {
             .map(|(i, step)| TodoItem {
                 content: step.description.clone(),
                 active_form: format!("执行步骤 {}: {}", i + 1, step.description),
-                status: if i == 0 { "in_progress".to_string() } else { "pending".to_string() },
+                status: if i == 0 {
+                    "in_progress".to_string()
+                } else {
+                    "pending".to_string()
+                },
             })
             .collect()
     }
@@ -371,7 +382,7 @@ impl Planner {
     /// Generate a task plan for the given request.
     pub async fn plan(&self, request: &str, available_tools: &[&str]) -> Result<TaskPlan> {
         let prompt = build_plan_prompt(request, available_tools);
-        
+
         let chat_request = ChatRequest {
             messages: vec![Message {
                 role: Role::User,
@@ -387,7 +398,7 @@ impl Planner {
 
         let response = self.provider.chat(chat_request).await?;
         let text = extract_text(&response);
-        
+
         parse_plan_response(request, &text)
     }
 
@@ -413,7 +424,7 @@ impl Planner {
 
         let response = self.provider.chat(chat_request).await?;
         let text = extract_text(&response).to_lowercase();
-        
+
         if text.contains("简单") || text.contains("simple") {
             Ok(TaskComplexity::Simple)
         } else if text.contains("复杂") || text.contains("complex") {
@@ -469,22 +480,30 @@ fn build_plan_prompt(request: &str, available_tools: &[&str]) -> String {
 fn parse_plan_response(request: &str, text: &str) -> Result<TaskPlan> {
     // Try to parse as JSON
     if let Some(json_start) = text.find('{')
-        && let Some(json_end) = text.rfind('}') {
-            let json_str = &text[json_start..=json_end];
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
-                return Ok(TaskPlan {
-                    request: request.to_string(),
-                    steps: parse_steps(&parsed["steps"]),
-                    complexity: parse_complexity(&parsed["complexity"]),
-                    approach: parsed["approach"].as_str().unwrap_or("直接执行").to_string(),
-                    considerations: parsed["considerations"]
-                        .as_array()
-                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                        .unwrap_or_default(),
-                });
-            }
+        && let Some(json_end) = text.rfind('}')
+    {
+        let json_str = &text[json_start..=json_end];
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
+            return Ok(TaskPlan {
+                request: request.to_string(),
+                steps: parse_steps(&parsed["steps"]),
+                complexity: parse_complexity(&parsed["complexity"]),
+                approach: parsed["approach"]
+                    .as_str()
+                    .unwrap_or("直接执行")
+                    .to_string(),
+                considerations: parsed["considerations"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            });
         }
-    
+    }
+
     // Fallback: create simple plan from text
     Ok(TaskPlan {
         request: request.to_string(),
@@ -496,16 +515,26 @@ fn parse_plan_response(request: &str, text: &str) -> Result<TaskPlan> {
 }
 
 fn parse_steps(value: &serde_json::Value) -> Vec<PlanStep> {
-    value.as_array()
-        .map(|arr| arr.iter().filter_map(|v| {
-            Some(PlanStep {
-                description: v["description"].as_str()?.to_string(),
-                tools: v["tools"].as_array()
-                    .map(|t| t.iter().filter_map(|x| x.as_str().map(String::from)).collect())
-                    .unwrap_or_default(),
-                optional: v["optional"].as_bool().unwrap_or(false),
-            })
-        }).collect())
+    value
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| {
+                    Some(PlanStep {
+                        description: v["description"].as_str()?.to_string(),
+                        tools: v["tools"]
+                            .as_array()
+                            .map(|t| {
+                                t.iter()
+                                    .filter_map(|x| x.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        optional: v["optional"].as_bool().unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -530,7 +559,8 @@ fn parse_steps_from_text(text: &str) -> Vec<PlanStep> {
 }
 
 fn extract_text(response: &ChatResponse) -> String {
-    response.content
+    response
+        .content
         .iter()
         .filter_map(|block| {
             if let ContentBlock::Text { text } = block {
@@ -576,13 +606,13 @@ mod tests {
     fn test_multi_model_config_with_main() {
         // with_main should make all roles use the main model
         let config = MultiModelConfig::with_main("claude-sonnet-4".to_string());
-        
+
         // All roles should use the same model
         assert_eq!(config.main.name, "claude-sonnet-4");
         assert_eq!(config.plan.name, "claude-sonnet-4");
         assert_eq!(config.compress.name, "claude-sonnet-4");
         assert_eq!(config.fast.name, "claude-sonnet-4");
-        
+
         // All should have thinking enabled (inherited from main)
         assert!(config.main.think);
         assert!(config.plan.think);
@@ -593,27 +623,28 @@ mod tests {
     #[test]
     fn test_multi_model_config_override() {
         let mut config = MultiModelConfig::with_main("claude-sonnet-4".to_string());
-        
+
         // Override compress model
-        config.set(ModelRole::Compress, ModelConfig::new("claude-3-5-haiku".to_string()));
-        
+        config.set(
+            ModelRole::Compress,
+            ModelConfig::new("claude-3-5-haiku".to_string()),
+        );
+
         assert_eq!(config.main.name, "claude-sonnet-4");
         assert_eq!(config.plan.name, "claude-sonnet-4");
         assert_eq!(config.compress.name, "claude-3-5-haiku");
-        assert_eq!(config.fast.name, "claude-sonnet-4");  // Still uses main
+        assert_eq!(config.fast.name, "claude-sonnet-4"); // Still uses main
     }
 
     #[test]
     fn test_task_plan_format() {
         let plan = TaskPlan {
             request: "测试任务".to_string(),
-            steps: vec![
-                PlanStep {
-                    description: "读取文件".to_string(),
-                    tools: vec!["read".to_string()],
-                    optional: false,
-                },
-            ],
+            steps: vec![PlanStep {
+                description: "读取文件".to_string(),
+                tools: vec!["read".to_string()],
+                optional: false,
+            }],
             complexity: TaskComplexity::Simple,
             approach: "直接执行".to_string(),
             considerations: vec!["注意检查".to_string()],
@@ -637,8 +668,16 @@ mod tests {
         let plan = TaskPlan {
             request: "任务".to_string(),
             steps: vec![
-                PlanStep { description: "步骤1".to_string(), tools: vec![], optional: false },
-                PlanStep { description: "步骤2".to_string(), tools: vec![], optional: false },
+                PlanStep {
+                    description: "步骤1".to_string(),
+                    tools: vec![],
+                    optional: false,
+                },
+                PlanStep {
+                    description: "步骤2".to_string(),
+                    tools: vec![],
+                    optional: false,
+                },
             ],
             complexity: TaskComplexity::Simple,
             approach: "执行".to_string(),
@@ -655,7 +694,7 @@ mod tests {
     fn test_parse_plan_response_json() {
         let json = r#"{"complexity":"simple","approach":"直接读取","steps":[{"description":"read file","tools":["read"],"optional":false}],"considerations":[]}"#;
         let plan = parse_plan_response("test", json).unwrap();
-        
+
         assert_eq!(plan.complexity, TaskComplexity::Simple);
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].description, "read file");

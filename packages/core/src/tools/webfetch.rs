@@ -30,7 +30,9 @@ impl Tool for WebFetchTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let url = params["url"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'url'"))?;
+        let url = params["url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'url'"))?;
         let max_length = params["max_length"].as_u64().unwrap_or(10000) as usize;
 
         // Show spinner while fetching - RAII guard ensures cleanup on error
@@ -49,7 +51,11 @@ impl Tool for WebFetchTool {
         let truncated = if body.len() > max_length {
             // 找到不超过 max_length 的最后一个有效字符边界
             let end = body.floor_char_boundary(max_length);
-            format!("{}...\n\n(truncated, {} total bytes)", &body[..end], body.len())
+            format!(
+                "{}...\n\n(truncated, {} total bytes)",
+                &body[..end],
+                body.len()
+            )
         } else {
             body
         };

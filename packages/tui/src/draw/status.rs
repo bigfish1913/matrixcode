@@ -7,27 +7,34 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::types::{Activity, ApproveMode};
-use crate::utils::{truncate, fmt_tokens, progress_bar};
-use crate::app::TuiApp;
 use super::helpers::estimate_message_tokens;
+use crate::app::TuiApp;
+use crate::types::{Activity, ApproveMode};
+use crate::utils::{fmt_tokens, progress_bar, truncate};
 
 impl TuiApp {
     pub(crate) fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
         let actual_tokens = if self.tokens_in > 0 {
             self.tokens_in
         } else {
-            self.messages.iter().map(|m| {
-                estimate_message_tokens(&m.content) as u64
-            }).sum::<u64>()
+            self.messages
+                .iter()
+                .map(|m| estimate_message_tokens(&m.content) as u64)
+                .sum::<u64>()
         };
 
         let context_pct = if self.context_size > 0 {
             (actual_tokens as f64 / self.context_size as f64 * 100.0).min(100.0)
-        } else { 0.0 };
-        let ctx_color = if context_pct < 50.0 { Color::DarkGray }
-                       else if context_pct < 75.0 { Color::Yellow }
-                       else { Color::Red };
+        } else {
+            0.0
+        };
+        let ctx_color = if context_pct < 50.0 {
+            Color::DarkGray
+        } else if context_pct < 75.0 {
+            Color::Yellow
+        } else {
+            Color::Red
+        };
 
         let mode_color = match self.approve_mode {
             ApproveMode::Ask => Color::DarkGray,
@@ -35,10 +42,16 @@ impl TuiApp {
             ApproveMode::Strict => Color::Red,
         };
 
-        let is_tool_activity = matches!(self.activity,
-            Activity::Reading | Activity::Writing | Activity::Editing |
-            Activity::Searching | Activity::Running | Activity::WebSearch |
-            Activity::WebFetch | Activity::Tool(_)
+        let is_tool_activity = matches!(
+            self.activity,
+            Activity::Reading
+                | Activity::Writing
+                | Activity::Editing
+                | Activity::Searching
+                | Activity::Running
+                | Activity::WebSearch
+                | Activity::WebFetch
+                | Activity::Tool(_)
         );
 
         let status_text = if self.activity == Activity::Idle {
@@ -54,7 +67,11 @@ impl TuiApp {
         } else {
             "...".to_string()
         };
-        let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
+        let status_color = if self.activity == Activity::Idle {
+            Color::Green
+        } else {
+            Color::Yellow
+        };
 
         let width = area.width as usize;
         let mut spans: Vec<Span> = Vec::new();
@@ -65,21 +82,33 @@ impl TuiApp {
         } else {
             self.model.clone()
         };
-        spans.push(Span::styled(format!(" {} ", model_display), Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            format!(" {} ", model_display),
+            Style::default().fg(Color::DarkGray),
+        ));
 
         spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
 
         // Mode indicator
-        spans.push(Span::styled(format!(" {} ", self.approve_mode.label()), Style::default().fg(mode_color)));
+        spans.push(Span::styled(
+            format!(" {} ", self.approve_mode),
+            Style::default().fg(mode_color),
+        ));
 
         spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
 
         // Context info
         if width >= 40 {
-            let bar = if width >= 60 { progress_bar(context_pct, 6) } else { String::new() };
+            let bar = if width >= 60 {
+                progress_bar(context_pct, 6)
+            } else {
+                String::new()
+            };
             let ctx_size_display = if width >= 70 {
                 format!("/{:.0}k", self.context_size as f64 / 1_000.0)
-            } else { String::new() };
+            } else {
+                String::new()
+            };
             let ctx_full = if ctx_size_display.is_empty() {
                 fmt_tokens(actual_tokens)
             } else {
@@ -87,7 +116,7 @@ impl TuiApp {
             };
             spans.push(Span::styled(
                 format!(" {} {:.0}% {} ", bar, context_pct, ctx_full),
-                Style::default().fg(ctx_color)
+                Style::default().fg(ctx_color),
             ));
         }
 
@@ -95,15 +124,22 @@ impl TuiApp {
 
         // Output tokens
         if width >= 55 {
-            spans.push(Span::styled(format!(" out {} ", fmt_tokens(self.session_total_out)), Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                format!(" out {} ", fmt_tokens(self.session_total_out)),
+                Style::default().fg(Color::DarkGray),
+            ));
         }
 
         // Cache info
         if width >= 75 && (self.cache_read > 0 || self.cache_created > 0) {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
-                format!(" c {}k/{}k ", self.cache_read / 1000, self.cache_created / 1000),
-                Style::default().fg(Color::DarkGray)
+                format!(
+                    " c {}k/{}k ",
+                    self.cache_read / 1000,
+                    self.cache_created / 1000
+                ),
+                Style::default().fg(Color::DarkGray),
             ));
         }
 
@@ -112,13 +148,16 @@ impl TuiApp {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
                 format!(" api:{} tools:{} ", self.api_calls, self.tool_calls),
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(Color::DarkGray),
             ));
         }
 
         // Status
         spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-        spans.push(Span::styled(format!(" {} ", status_text), Style::default().fg(status_color)));
+        spans.push(Span::styled(
+            format!(" {} ", status_text),
+            Style::default().fg(status_color),
+        ));
 
         f.render_widget(Paragraph::new(Line::from(spans)), area);
     }

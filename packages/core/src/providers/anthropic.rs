@@ -87,7 +87,11 @@ impl AnthropicProvider {
     }
 
     /// Convert tools with caching control for Anthropic prompt caching.
-    fn convert_tools_with_caching(&self, tools: &[ToolDefinition], enable_caching: bool) -> Vec<Value> {
+    fn convert_tools_with_caching(
+        &self,
+        tools: &[ToolDefinition],
+        enable_caching: bool,
+    ) -> Vec<Value> {
         let mut converted: Vec<Value> = tools
             .iter()
             .map(|t| {
@@ -98,7 +102,7 @@ impl AnthropicProvider {
                 })
             })
             .collect();
-        
+
         // Add cache_control to the last tool definition for tools caching
         if enable_caching && !converted.is_empty() {
             let last_idx = converted.len() - 1;
@@ -106,7 +110,7 @@ impl AnthropicProvider {
                 obj.insert("cache_control".to_string(), json!({"type": "ephemeral"}));
             }
         }
-        
+
         converted
     }
 
@@ -135,27 +139,40 @@ impl AnthropicProvider {
         }
 
         if !request.tools.is_empty() {
-            let tools = self.convert_tools_with_caching(&request.tools, request.enable_caching && !self.is_dashscope);
+            let tools = self.convert_tools_with_caching(
+                &request.tools,
+                request.enable_caching && !self.is_dashscope,
+            );
             body["tools"] = json!(tools);
         }
 
         if !request.server_tools.is_empty() {
-            body["tools"] = json!(body["tools"]
-                .as_array()
-                .map(|t| {
-                    let mut tools = t.clone();
-                    for st in &request.server_tools {
-                        tools.push(serde_json::to_value(st).unwrap_or_default());
-                    }
-                    tools
-                })
-                .unwrap_or_else(|| request.server_tools.iter().map(|st| serde_json::to_value(st).unwrap_or_default()).collect()));
+            body["tools"] = json!(
+                body["tools"]
+                    .as_array()
+                    .map(|t| {
+                        let mut tools = t.clone();
+                        for st in &request.server_tools {
+                            tools.push(serde_json::to_value(st).unwrap_or_default());
+                        }
+                        tools
+                    })
+                    .unwrap_or_else(|| request
+                        .server_tools
+                        .iter()
+                        .map(|st| serde_json::to_value(st).unwrap_or_default())
+                        .collect())
+            );
         }
 
         // DashScope does not support Anthropic's extended thinking feature
         if request.think && !self.is_dashscope {
             let config = thinking_config(&self.model);
-            log::debug!("Adding thinking config for model {}: {:?}", self.model, config);
+            log::debug!(
+                "Adding thinking config for model {}: {:?}",
+                self.model,
+                config
+            );
             body["thinking"] = config;
         } else if !request.think {
             log::debug!("Thinking disabled by request.think=false");
@@ -174,8 +191,11 @@ impl AnthropicProvider {
 fn thinking_config(model: &str) -> Value {
     let m = model.to_lowercase();
     // New models (2025+) use adaptive thinking
-    let adaptive = m.contains("opus-4") || m.contains("sonnet-4") || m.contains("claude-4")
-        || m.contains("20250") || m.contains("2025");
+    let adaptive = m.contains("opus-4")
+        || m.contains("sonnet-4")
+        || m.contains("claude-4")
+        || m.contains("20250")
+        || m.contains("2025");
     if adaptive {
         json!({"type": "enabled", "budget_tokens": 10000})
     } else {
@@ -213,7 +233,8 @@ impl Provider for AnthropicProvider {
         if self.is_dashscope {
             req = req.header("Authorization", format!("Bearer {}", self.api_key));
         } else {
-            req = req.header("x-api-key", &self.api_key)
+            req = req
+                .header("x-api-key", &self.api_key)
                 .header("anthropic-version", "2025-04-15")
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
         }
@@ -294,7 +315,8 @@ impl Provider for AnthropicProvider {
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("X-DashScope-SSE", "enable");
         } else {
-            req = req.header("x-api-key", &self.api_key)
+            req = req
+                .header("x-api-key", &self.api_key)
                 .header("anthropic-version", "2025-04-15")
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
         }
@@ -337,14 +359,8 @@ impl Provider for AnthropicProvider {
                 buffer.push_str(&String::from_utf8_lossy(&chunk));
 
                 while let Some(frame) = take_next_sse_frame(&mut buffer) {
-                    if handle_sse_frame(
-                        &frame,
-                        &mut blocks,
-                        &mut stop_reason,
-                        &mut usage,
-                        &tx,
-                    )
-                    .await
+                    if handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx)
+                        .await
                     {
                         return;
                     }
@@ -352,14 +368,13 @@ impl Provider for AnthropicProvider {
             }
 
             if let Some(frame) = take_trailing_sse_frame(&mut buffer)
-                && handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx).await {
-                    return;
-                }
+                && handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx).await
+            {
+                return;
+            }
 
             if sent_first_byte {
-                debug!(
-                    "stream ended without explicit message_stop; finalizing best-effort"
-                );
+                debug!("stream ended without explicit message_stop; finalizing best-effort");
                 let _ = tx
                     .send(StreamEvent::Done(finalize_incomplete_stream(
                         std::mem::take(&mut blocks),
@@ -404,11 +419,7 @@ fn take_next_sse_frame(buffer: &mut String) -> Option<String> {
 fn take_trailing_sse_frame(buffer: &mut String) -> Option<String> {
     let frame = buffer.trim().trim_end_matches('\r').to_string();
     buffer.clear();
-    if frame.is_empty() {
-        None
-    } else {
-        Some(frame)
-    }
+    if frame.is_empty() { None } else { Some(frame) }
 }
 
 fn extract_sse_data_line(frame: &str) -> Option<String> {
@@ -464,11 +475,17 @@ async fn handle_sse_event(
             );
             debug!(
                 "message_start parsed: input={}, output={}, cache_read={}, cache_created={}",
-                usage.input_tokens, usage.output_tokens,
-                usage.cache_read_input_tokens, usage.cache_creation_input_tokens
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.cache_read_input_tokens,
+                usage.cache_creation_input_tokens
             );
             // Send real-time usage update
-            let _ = tx.send(StreamEvent::Usage { output_tokens: usage.output_tokens }).await;
+            let _ = tx
+                .send(StreamEvent::Usage {
+                    output_tokens: usage.output_tokens,
+                })
+                .await;
         }
         "content_block_start" => {
             let idx = evt["index"].as_u64().unwrap_or(0) as usize;
@@ -492,11 +509,24 @@ async fn handle_sse_event(
                     let name = block["name"].as_str().unwrap_or_default();
                     let is_server = kind == "server_tool_use";
                     blocks[idx] = if is_server {
-                        AssembledBlock::ServerToolUse { id: id.into(), name: name.into(), input_json: String::new() }
+                        AssembledBlock::ServerToolUse {
+                            id: id.into(),
+                            name: name.into(),
+                            input_json: String::new(),
+                        }
                     } else {
-                        AssembledBlock::ToolUse { id: id.into(), name: name.into(), input_json: String::new() }
+                        AssembledBlock::ToolUse {
+                            id: id.into(),
+                            name: name.into(),
+                            input_json: String::new(),
+                        }
                     };
-                    let _ = tx.send(StreamEvent::ToolUseStart { id: id.into(), name: name.into() }).await;
+                    let _ = tx
+                        .send(StreamEvent::ToolUseStart {
+                            id: id.into(),
+                            name: name.into(),
+                        })
+                        .await;
                 }
                 "web_search_tool_result" => {
                     let tool_use_id = block["tool_use_id"].as_str().unwrap_or("").to_string();
@@ -571,11 +601,17 @@ async fn handle_sse_event(
             *usage = merge_usage(usage.clone(), &evt["usage"]);
             debug!(
                 "message_delta: input={}, output={}, cache_read={}, cache_created={}",
-                usage.input_tokens, usage.output_tokens,
-                usage.cache_read_input_tokens, usage.cache_creation_input_tokens
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.cache_read_input_tokens,
+                usage.cache_creation_input_tokens
             );
             // Send real-time usage update
-            let _ = tx.send(StreamEvent::Usage { output_tokens: usage.output_tokens }).await;
+            let _ = tx
+                .send(StreamEvent::Usage {
+                    output_tokens: usage.output_tokens,
+                })
+                .await;
         }
         "message_stop" => {
             debug!(
@@ -820,4 +856,3 @@ mod tests {
         }
     }
 }
-

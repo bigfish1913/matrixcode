@@ -1,16 +1,16 @@
 //! Agent type definitions.
 
-use std::sync::atomic::{AtomicU8, AtomicU64};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicU64};
 use tokio::sync::mpsc;
 
-use crate::event::AgentEvent;
-use crate::providers::{Message, Provider};
-use crate::tools::Tool;
-use crate::compress::CompressionConfig;
 use crate::cancel::CancellationToken;
-use crate::skills::Skill;
+use crate::compress::CompressionConfig;
+use crate::event::AgentEvent;
 use crate::prompt::PromptProfile;
+use crate::providers::{Message, Provider};
+use crate::skills::Skill;
+use crate::tools::Tool;
 
 pub(crate) const MAX_ITERATIONS: usize = 50;
 

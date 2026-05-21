@@ -34,7 +34,9 @@ impl Tool for WebSearchTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let query = params["query"].as_str().ok_or_else(|| anyhow::anyhow!("missing 'query' parameter"))?;
+        let query = params["query"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'query' parameter"))?;
         let max_results = params["max_results"].as_u64().unwrap_or(5).min(10) as usize;
 
         // Show spinner while searching - RAII guard ensures cleanup on error
@@ -79,12 +81,12 @@ async fn search_duckduckgo(query: &str, max_results: usize) -> Result<Vec<Search
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build()?;
 
-    let url = format!("https://html.duckduckgo.com/html/?q={}", urlencoding_encode(query));
+    let url = format!(
+        "https://html.duckduckgo.com/html/?q={}",
+        urlencoding_encode(query)
+    );
 
-    let response = client
-        .get(&url)
-        .send()
-        .await?;
+    let response = client.get(&url).send().await?;
 
     if !response.status().is_success() {
         anyhow::bail!("Search request failed with status: {}", response.status());
@@ -105,9 +107,12 @@ fn parse_ddg_html(html: &str, max_results: usize) -> Vec<SearchResult> {
     // - <a class="result__a"> for the title and URL
     // - <a class="result__snippet"> for the snippet
 
-    let _result_div_regex = Regex::new(r#"<div[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</div>\s*</div>"#).ok();
-    let link_regex = Regex::new(r#"<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#).ok();
-    let snippet_regex = Regex::new(r#"<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>"#).ok();
+    let _result_div_regex =
+        Regex::new(r#"<div[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</div>\s*</div>"#).ok();
+    let link_regex =
+        Regex::new(r#"<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#).ok();
+    let snippet_regex =
+        Regex::new(r#"<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>"#).ok();
 
     // Alternative simpler parsing: look for result__a links
     if let Some(ref link_re) = link_regex {
@@ -116,8 +121,14 @@ fn parse_ddg_html(html: &str, max_results: usize) -> Vec<SearchResult> {
                 break;
             }
 
-            let url = cap.get(1).map(|m| clean_url(m.as_str())).unwrap_or_default();
-            let title = cap.get(2).map(|m| strip_html_tags(m.as_str())).unwrap_or_default();
+            let url = cap
+                .get(1)
+                .map(|m| clean_url(m.as_str()))
+                .unwrap_or_default();
+            let title = cap
+                .get(2)
+                .map(|m| strip_html_tags(m.as_str()))
+                .unwrap_or_default();
 
             // Skip ad results and empty URLs
             if url.is_empty() || title.is_empty() || url.contains("duckduckgo.com") {
@@ -126,7 +137,8 @@ fn parse_ddg_html(html: &str, max_results: usize) -> Vec<SearchResult> {
 
             // Try to find snippet near this result
             let snippet = snippet_regex.as_ref().and_then(|snip_re| {
-                snip_re.captures_iter(html)
+                snip_re
+                    .captures_iter(html)
                     .find(|c| {
                         if let Some(m) = c.get(0) {
                             // Check if snippet is after current link position in HTML
@@ -151,7 +163,9 @@ fn parse_ddg_html(html: &str, max_results: usize) -> Vec<SearchResult> {
     // If simple parsing didn't work well, try alternative approach
     if results.is_empty() {
         // Fallback: parse using a more lenient pattern
-        let alt_link_re = Regex::new(r#"<a[^>]*class="[^"]*result[^"]*"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>"#).ok();
+        let alt_link_re =
+            Regex::new(r#"<a[^>]*class="[^"]*result[^"]*"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>"#)
+                .ok();
         if let Some(re) = alt_link_re {
             for cap in re.captures_iter(html) {
                 if results.len() >= max_results {
@@ -159,7 +173,10 @@ fn parse_ddg_html(html: &str, max_results: usize) -> Vec<SearchResult> {
                 }
 
                 let url = clean_url(cap.get(1).map(|m| m.as_str()).unwrap_or_default());
-                let title = cap.get(2).map(|m| strip_html_tags(m.as_str())).unwrap_or_default();
+                let title = cap
+                    .get(2)
+                    .map(|m| strip_html_tags(m.as_str()))
+                    .unwrap_or_default();
 
                 if url.is_empty() || title.is_empty() || url.contains("duckduckgo.com") {
                     continue;
@@ -183,10 +200,11 @@ fn clean_url(url: &str) -> String {
     // https://duckduckgo.com/l/?uddg=ENCODED_URL&rut=...
     if url.contains("duckduckgo.com/l/")
         && let Some(query) = url.split("uddg=").nth(1)
-            && let Some(encoded) = query.split('&').next()
-                && let Ok(decoded) = urlencoding_decode(encoded) {
-                    return decoded;
-                }
+        && let Some(encoded) = query.split('&').next()
+        && let Ok(decoded) = urlencoding_decode(encoded)
+    {
+        return decoded;
+    }
     url.to_string()
 }
 

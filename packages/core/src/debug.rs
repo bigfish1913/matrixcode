@@ -5,8 +5,8 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::truncate::truncate_with_suffix;
@@ -38,10 +38,7 @@ impl DebugLog {
         path.push(".matrix");
         std::fs::create_dir_all(&path)?;
         path.push("debug.log");
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
+        OpenOptions::new().create(true).append(true).open(path)
     }
 
     fn timestamp() -> String {
@@ -60,7 +57,11 @@ impl DebugLog {
         let count = API_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let msg = format!(
             "[{}] API#{}: model={}, input_tokens={}, cached={}",
-            Self::timestamp(), count, model, input_tokens, cached
+            Self::timestamp(),
+            count,
+            model,
+            input_tokens,
+            cached
         );
         self.write(&msg);
     }
@@ -71,7 +72,12 @@ impl DebugLog {
         let saved = original_tokens - compressed_tokens;
         let msg = format!(
             "[{}] COMPRESSION#{}: original={}, compressed={}, saved={}, ratio={:.1}%",
-            Self::timestamp(), count, original_tokens, compressed_tokens, saved, ratio * 100.0
+            Self::timestamp(),
+            count,
+            original_tokens,
+            compressed_tokens,
+            saved,
+            ratio * 100.0
         );
         self.write(&msg);
     }
@@ -81,7 +87,10 @@ impl DebugLog {
         let count = MEMORY_SAVE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let msg = format!(
             "[{}] MEMORY#{}: entries={}, summary_len={}chars",
-            Self::timestamp(), count, entries, summary_len
+            Self::timestamp(),
+            count,
+            entries,
+            summary_len
         );
         self.write(&msg);
     }
@@ -90,8 +99,8 @@ impl DebugLog {
     pub fn keywords_extracted(&self, keywords: &[String], source: &str) {
         let msg = format!(
             "[{}] KEYWORDS: {} extracted from {}chars | keywords: {}",
-            Self::timestamp(), 
-            keywords.len(), 
+            Self::timestamp(),
+            keywords.len(),
             source.len(),
             keywords.join(", ")
         );
@@ -103,7 +112,9 @@ impl DebugLog {
         let count = TOOL_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let msg = format!(
             "[{}] TOOL#{}: {} | input: {} | result: {}",
-            Self::timestamp(), count, tool, 
+            Self::timestamp(),
+            count,
+            tool,
             truncate(input_preview, 50),
             truncate(result_preview, 50)
         );
@@ -114,7 +125,9 @@ impl DebugLog {
     pub fn session_save(&self, message_count: usize, total_tokens: u64) {
         let msg = format!(
             "[{}] SESSION: messages={}, total_tokens={}",
-            Self::timestamp(), message_count, total_tokens
+            Self::timestamp(),
+            message_count,
+            total_tokens
         );
         self.write(&msg);
     }
@@ -128,10 +141,11 @@ impl DebugLog {
     fn write(&self, msg: &str) {
         // Write to file
         if let Some(ref file) = self.file
-            && let Ok(mut f) = file.lock() {
-                let _ = f.write_all(msg.as_bytes());
-                let _ = f.write_all(b"\n");
-            }
+            && let Ok(mut f) = file.lock()
+        {
+            let _ = f.write_all(msg.as_bytes());
+            let _ = f.write_all(b"\n");
+        }
         // Print to console if verbose
         if self.verbose {
             println!("{}", msg);
@@ -175,7 +189,7 @@ impl DebugStats {
 static DEBUG_LOG: once_cell::sync::Lazy<DebugLog> = once_cell::sync::Lazy::new(|| {
     // Try to load .env file first (from current directory)
     let _ = dotenvy::dotenv();
-    
+
     // Also try project-level .matrix/.env
     if let Ok(cwd) = std::env::current_dir() {
         let matrix_env = cwd.join(".matrix").join(".env");
@@ -183,7 +197,7 @@ static DEBUG_LOG: once_cell::sync::Lazy<DebugLog> = once_cell::sync::Lazy::new(|
             let _ = dotenvy::from_path(&matrix_env);
         }
     }
-    
+
     let verbose = std::env::var("MATRIXCODE_DEBUG")
         .map(|v| v == "1" || v == "true" || v == "verbose")
         .unwrap_or(false);

@@ -1,4 +1,7 @@
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 /// A token that can be used to cancel ongoing operations.
 /// Uses an atomic bool for reliable cancellation detection.

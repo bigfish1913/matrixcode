@@ -1,19 +1,25 @@
 use matrixcode_core::{AgentEvent, EventData, EventType};
 use serde_json::Value;
 
-use crate::types::{Activity, Message, Role, SubmitMode};
-use crate::utils::{truncate, extract_tool_detail, fmt_tokens};
 use crate::app::TuiApp;
+use crate::types::{Activity, Message, Role, SubmitMode};
+use crate::utils::{extract_tool_detail, fmt_tokens, truncate};
 
 impl TuiApp {
     /// Flush partial content to messages.
     fn flush_partial_content(&mut self) {
         if !self.thinking.is_empty() {
-            self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
+            self.messages.push(Message {
+                role: Role::Thinking,
+                content: self.thinking.clone(),
+            });
             self.thinking.clear();
         }
         if !self.streaming.is_empty() {
-            self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
+            self.messages.push(Message {
+                role: Role::Assistant,
+                content: self.streaming.clone(),
+            });
             self.streaming.clear();
         }
     }
@@ -22,7 +28,10 @@ impl TuiApp {
     fn process_pending_queue(&mut self) -> bool {
         if !self.pending_messages.is_empty() {
             let next_msg = self.pending_messages.remove(0);
-            self.messages.push(Message { role: Role::User, content: next_msg.clone() });
+            self.messages.push(Message {
+                role: Role::User,
+                content: next_msg.clone(),
+            });
             self.tx.try_send(next_msg).ok();
             self.activity = Activity::Thinking;
             self.auto_scroll = true;
@@ -48,7 +57,10 @@ impl TuiApp {
             }
             EventType::ThinkingEnd => {
                 if !self.thinking.is_empty() {
-                    self.messages.push(Message { role: Role::Thinking, content: self.thinking.clone() });
+                    self.messages.push(Message {
+                        role: Role::Thinking,
+                        content: self.thinking.clone(),
+                    });
                     self.thinking.clear();
                 }
             }
@@ -65,7 +77,10 @@ impl TuiApp {
             }
             EventType::TextEnd => {
                 if !self.streaming.is_empty() {
-                    self.messages.push(Message { role: Role::Assistant, content: self.streaming.clone() });
+                    self.messages.push(Message {
+                        role: Role::Assistant,
+                        content: self.streaming.clone(),
+                    });
                     self.streaming.clear();
                 }
             }
@@ -79,10 +94,21 @@ impl TuiApp {
                 }
             }
             EventType::ToolResult => {
-                if let Some(EventData::ToolResult { content, name, detail, is_error, .. }) = e.data {
+                if let Some(EventData::ToolResult {
+                    content,
+                    name,
+                    detail,
+                    is_error,
+                    ..
+                }) = e.data
+                {
                     self.messages.push(Message {
-                        role: Role::Tool { name, detail, is_error },
-                        content  // Keep full content, draw.rs will summarize
+                        role: Role::Tool {
+                            name,
+                            detail,
+                            is_error,
+                        },
+                        content, // Keep full content, draw.rs will summarize
                     });
                     self.tool_calls += 1;
                     self.activity = Activity::Thinking;
@@ -101,7 +127,7 @@ impl TuiApp {
                     self.request_start = None;
                 }
                 self.activity_detail.clear();
-                self.cancel.reset();  // Reset cancel state for next request
+                self.cancel.reset(); // Reset cancel state for next request
             }
             EventType::Error => {
                 if let Some(EventData::Error { message, .. }) = e.data {
@@ -111,22 +137,34 @@ impl TuiApp {
                     if is_cancelled {
                         // Flush partial content before showing cancel message
                         self.flush_partial_content();
-                        self.messages.push(Message { role: Role::System, content: "\u{26a1} Interrupted".into() });
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: "\u{26a1} Interrupted".into(),
+                        });
                     } else {
-                        self.messages.push(Message { role: Role::System, content: format!("\u{274c} Error: {}", message) });
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: format!("\u{274c} Error: {}", message),
+                        });
                         self.streaming.clear();
                         self.thinking.clear();
                     }
                 }
                 self.activity_detail.clear();
                 self.request_start = None;
-                self.cancel.reset();  // Reset cancel state for next request
+                self.cancel.reset(); // Reset cancel state for next request
 
                 // Process queue after cancellation or error
                 self.process_pending_queue();
             }
             EventType::Usage => {
-                if let Some(EventData::Usage { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens }) = e.data {
+                if let Some(EventData::Usage {
+                    input_tokens,
+                    output_tokens,
+                    cache_creation_input_tokens,
+                    cache_read_input_tokens,
+                }) = e.data
+                {
                     // Only update tokens_in if it's non-zero (real-time updates may have 0)
                     if input_tokens > 0 {
                         self.tokens_in = input_tokens;
@@ -135,12 +173,12 @@ impl TuiApp {
                     }
                     self.tokens_out = output_tokens;
                     self.session_total_out += output_tokens;
-                    self.current_request_tokens = output_tokens;  // Real-time update
-                    
+                    self.current_request_tokens = output_tokens; // Real-time update
+
                     // Update cache stats (only when actually reported by API)
                     let cache_read = cache_read_input_tokens.unwrap_or(0);
                     let cache_created = cache_creation_input_tokens.unwrap_or(0);
-                    
+
                     // Only update cache if values are non-zero (final usage event)
                     if cache_read > 0 || cache_created > 0 {
                         self.cache_read += cache_read;
@@ -149,15 +187,24 @@ impl TuiApp {
                 }
             }
             EventType::CompressionCompleted => {
-                if let Some(EventData::Compression { original_tokens, compressed_tokens, ratio }) = e.data {
+                if let Some(EventData::Compression {
+                    original_tokens,
+                    compressed_tokens,
+                    ratio,
+                }) = e.data
+                {
                     self.compressions += 1;
                     // Update token display to reflect compressed state
                     self.tokens_in = compressed_tokens;
                     if self.debug_mode {
                         self.messages.push(Message {
                             role: Role::System,
-                            content: format!("📦 Compressed: {} → {}tok ({:.0}% saved)",
-                                fmt_tokens(original_tokens), fmt_tokens(compressed_tokens), (1.0 - ratio) * 100.0)
+                            content: format!(
+                                "📦 Compressed: {} → {}tok ({:.0}% saved)",
+                                fmt_tokens(original_tokens),
+                                fmt_tokens(compressed_tokens),
+                                (1.0 - ratio) * 100.0
+                            ),
                         });
                         self.auto_scroll = true;
                     }
@@ -172,31 +219,36 @@ impl TuiApp {
                 if let Some(EventData::Progress { message, .. }) = e.data {
                     self.messages.push(Message {
                         role: Role::System,
-                        content: message
+                        content: message,
                     });
                     self.auto_scroll = true;
                 }
             }
             EventType::MemoryLoaded => {
                 if let Some(EventData::Memory { entries_count, .. }) = e.data
-                    && entries_count > 0 {
+                    && entries_count > 0
+                {
                     self.memory_saves += 1;
                     if self.debug_mode {
                         self.messages.push(Message {
                             role: Role::System,
-                            content: format!("🧠 Memory: {} entries", entries_count)
+                            content: format!("🧠 Memory: {} entries", entries_count),
                         });
                         self.auto_scroll = true;
                     }
                 }
             }
             EventType::MemoryDetected => {
-                if let Some(EventData::Memory { summary, entries_count }) = e.data {
+                if let Some(EventData::Memory {
+                    summary,
+                    entries_count,
+                }) = e.data
+                {
                     self.memory_saves += 1;
                     if self.debug_mode {
                         self.messages.push(Message {
                             role: Role::System,
-                            content: format!("🧠 Detected {} memories: {}", entries_count, summary)
+                            content: format!("🧠 Detected {} memories: {}", entries_count, summary),
                         });
                         self.auto_scroll = true;
                     }
@@ -206,21 +258,37 @@ impl TuiApp {
                 // Keywords extraction for memory retrieval context
                 // Show extraction info when keywords are found (informative, not debug-only)
                 if let Some(EventData::Keywords { keywords, source }) = e.data
-                    && !keywords.is_empty() {
-                        // Always show in status area (brief), full info in debug mode
-                        let preview = truncate(&source, 30);
-                        if self.debug_mode {
-                            self.messages.push(Message {
-                                role: Role::System,
-                                content: format!("🔍 Keywords extracted: [{}] from '{}'", 
-                                    keywords.iter().take(10).cloned().collect::<Vec<_>>().join(", "), preview)
-                            });
-                            self.auto_scroll = true;
-                        }
-                        // Update activity detail to show keywords briefly
-                        self.activity_detail = format!("keywords: {}", 
-                            keywords.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
+                    && !keywords.is_empty()
+                {
+                    // Always show in status area (brief), full info in debug mode
+                    let preview = truncate(&source, 30);
+                    if self.debug_mode {
+                        self.messages.push(Message {
+                            role: Role::System,
+                            content: format!(
+                                "🔍 Keywords extracted: [{}] from '{}'",
+                                keywords
+                                    .iter()
+                                    .take(10)
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                preview
+                            ),
+                        });
+                        self.auto_scroll = true;
                     }
+                    // Update activity detail to show keywords briefly
+                    self.activity_detail = format!(
+                        "keywords: {}",
+                        keywords
+                            .iter()
+                            .take(3)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
             }
             EventType::AskQuestion => {
                 if let Some(EventData::AskQuestion { question, options }) = e.data {
@@ -255,27 +323,35 @@ impl TuiApp {
 
         // Parse options or create default y/n for approval
         if let Some(ref opts) = options {
-            let arr: Option<&Vec<Value>> = if let Some(arr) = opts.get("options").and_then(|o| o.as_array()) {
-                self.ask_multi_select = opts.get("multiSelect").and_then(|m| m.as_bool()).unwrap_or(false);
-                Some(arr)
-            } else if let Some(arr) = opts.as_array() {
-                self.ask_multi_select = false;
-                Some(arr)
-            } else {
-                None
-            };
+            let arr: Option<&Vec<Value>> =
+                if let Some(arr) = opts.get("options").and_then(|o| o.as_array()) {
+                    self.ask_multi_select = opts
+                        .get("multiSelect")
+                        .and_then(|m| m.as_bool())
+                        .unwrap_or(false);
+                    Some(arr)
+                } else if let Some(arr) = opts.as_array() {
+                    self.ask_multi_select = false;
+                    Some(arr)
+                } else {
+                    None
+                };
 
             match arr {
                 Some(arr) if !arr.is_empty() => {
-                    self.ask_options = arr.iter().map(|opt| {
-                        crate::types::AskOption {
+                    self.ask_options = arr
+                        .iter()
+                        .map(|opt| crate::types::AskOption {
                             id: opt["id"].as_str().unwrap_or("").to_string(),
                             label: opt["label"].as_str().unwrap_or("").to_string(),
                             description: opt["description"].as_str().map(|s| s.to_string()),
-                            selected: opt.get("selected").and_then(|s| s.as_bool()).unwrap_or(false),
+                            selected: opt
+                                .get("selected")
+                                .and_then(|s| s.as_bool())
+                                .unwrap_or(false),
                             is_submit: false,
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     self.ask_selected_index = 0;
 
                     if self.ask_multi_select {
@@ -298,9 +374,15 @@ impl TuiApp {
                     content.push_str("\n\n─────────────────────────────────────\n");
                     if self.ask_multi_select {
                         match self.ask_submit_mode {
-                            SubmitMode::Direct => content.push_str("选项 (↑↓导航 Space/Enter切换 Enter确认):\n"),
-                            SubmitMode::Option => content.push_str("选项 (↑↓导航 Space/Enter切换 选中提交):\n"),
-                            SubmitMode::Button => content.push_str("选项 (↑↓导航 Space/Enter切换):\n"),
+                            SubmitMode::Direct => {
+                                content.push_str("选项 (↑↓导航 Space/Enter切换 Enter确认):\n")
+                            }
+                            SubmitMode::Option => {
+                                content.push_str("选项 (↑↓导航 Space/Enter切换 选中提交):\n")
+                            }
+                            SubmitMode::Button => {
+                                content.push_str("选项 (↑↓导航 Space/Enter切换):\n")
+                            }
                         }
                     } else {
                         content.push_str("选项 (↑↓选择 Enter确认):\n");
@@ -309,14 +391,28 @@ impl TuiApp {
                         if opt.is_submit {
                             // Submit 选项也显示为复选框
                             let marker = if opt.selected { "[✓]" } else { "[ ]" };
-                            content.push_str(&format!("  {} {} - {}\n", marker, opt.label, opt.description.as_deref().unwrap_or("")));
+                            content.push_str(&format!(
+                                "  {} {} - {}\n",
+                                marker,
+                                opt.label,
+                                opt.description.as_deref().unwrap_or("")
+                            ));
                         } else {
                             let marker = if self.ask_multi_select {
-                                if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
+                                if opt.selected {
+                                    "[✓]".to_string()
+                                } else {
+                                    "[ ]".to_string()
+                                }
                             } else {
                                 format!("[{}]", (b'A' + i as u8) as char)
                             };
-                            content.push_str(&format!("  {} {}{}\n", marker, opt.label, opt.format_description()));
+                            content.push_str(&format!(
+                                "  {} {}{}\n",
+                                marker,
+                                opt.label,
+                                opt.format_description()
+                            ));
                         }
                     }
                     self.input.clear();
@@ -326,8 +422,20 @@ impl TuiApp {
                     self.ask_multi_select = false;
                     self.ask_submit_mode = SubmitMode::Direct;
                     self.ask_options = vec![
-                        crate::types::AskOption { id: "y".into(), label: "同意".into(), description: Some("允许此操作".into()), selected: false, is_submit: false },
-                        crate::types::AskOption { id: "n".into(), label: "拒绝".into(), description: Some("拒绝此操作".into()), selected: false, is_submit: false },
+                        crate::types::AskOption {
+                            id: "y".into(),
+                            label: "同意".into(),
+                            description: Some("允许此操作".into()),
+                            selected: false,
+                            is_submit: false,
+                        },
+                        crate::types::AskOption {
+                            id: "n".into(),
+                            label: "拒绝".into(),
+                            description: Some("拒绝此操作".into()),
+                            selected: false,
+                            is_submit: false,
+                        },
                     ];
                     self.ask_selected_index = 0;
                     content.push_str("\n\n─────────────────────────────────────\n");
@@ -355,7 +463,10 @@ impl TuiApp {
         self.ask_questions.clear();
         self.current_question_idx = 0;
 
-        self.messages.push(Message { role: Role::Ask, content });
+        self.messages.push(Message {
+            role: Role::Ask,
+            content,
+        });
         self.waiting_for_ask = true;
         self.activity = Activity::Asking;
         self.auto_scroll = true;
@@ -364,27 +475,45 @@ impl TuiApp {
     /// Handle multiple questions
     fn handle_multiple_questions(&mut self, _intro: &str, options: Option<Value>) {
         if let Some(ref opts) = options
-            && let Some(arr) = opts.get("questions").and_then(|q| q.as_array()).filter(|a| !a.is_empty()) {
-                // Parse each question
-                self.ask_questions = arr.iter().enumerate().map(|(idx, q)| {
+            && let Some(arr) = opts
+                .get("questions")
+                .and_then(|q| q.as_array())
+                .filter(|a| !a.is_empty())
+        {
+            // Parse each question
+            self.ask_questions = arr
+                .iter()
+                .enumerate()
+                .map(|(idx, q)| {
                     let id = q["id"].as_str().unwrap_or(&idx.to_string()).to_string();
                     let question = q["question"].as_str().unwrap_or("").to_string();
-                    let multi_select = q.get("options")
+                    let multi_select = q
+                        .get("options")
                         .and_then(|o| o.get("multiSelect").and_then(|m| m.as_bool()))
                         .unwrap_or(false);
 
-                    let opts_arr = q.get("options").and_then(|o| o.get("options")).and_then(|o| o.as_array())
+                    let opts_arr = q
+                        .get("options")
+                        .and_then(|o| o.get("options"))
+                        .and_then(|o| o.as_array())
                         .or_else(|| q.get("options").and_then(|o| o.as_array()));
 
-                    let options: Vec<crate::types::AskOption> = opts_arr.map(|arr| {
-                        arr.iter().map(|opt| crate::types::AskOption {
-                            id: opt["id"].as_str().unwrap_or("").to_string(),
-                            label: opt["label"].as_str().unwrap_or("").to_string(),
-                            description: opt["description"].as_str().map(|s| s.to_string()),
-                            selected: opt.get("selected").and_then(|s| s.as_bool()).unwrap_or(false),
-                            is_submit: false,
-                        }).collect()
-                    }).unwrap_or_default();
+                    let options: Vec<crate::types::AskOption> = opts_arr
+                        .map(|arr| {
+                            arr.iter()
+                                .map(|opt| crate::types::AskOption {
+                                    id: opt["id"].as_str().unwrap_or("").to_string(),
+                                    label: opt["label"].as_str().unwrap_or("").to_string(),
+                                    description: opt["description"].as_str().map(|s| s.to_string()),
+                                    selected: opt
+                                        .get("selected")
+                                        .and_then(|s| s.as_bool())
+                                        .unwrap_or(false),
+                                    is_submit: false,
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
 
                     let opt_count = options.len();
                     let submit_mode = SubmitMode::from_option_count(opt_count, multi_select);
@@ -397,67 +526,85 @@ impl TuiApp {
                         selected_index: 0,
                         submit_mode,
                     }
-                }).collect();
+                })
+                .collect();
 
-                self.current_question_idx = 0;
+            self.current_question_idx = 0;
 
-                // Build content for first question with navigation hint
-                let first_q = &self.ask_questions[0];
-                let mut content = String::new();
+            // Build content for first question with navigation hint
+            let first_q = &self.ask_questions[0];
+            let mut content = String::new();
 
-                content.push_str("╔══════════════════════════════════════╗\n");
-                content.push_str(&format!("║  ⚡ 问题 1 / {} (Tab切换) ⚡        ║\n", self.ask_questions.len()));
-                content.push_str("╚══════════════════════════════════════╝\n\n");
-                content.push_str(&first_q.question);
+            content.push_str("╔══════════════════════════════════════╗\n");
+            content.push_str(&format!(
+                "║  ⚡ 问题 1 / {} (Tab切换) ⚡        ║\n",
+                self.ask_questions.len()
+            ));
+            content.push_str("╚══════════════════════════════════════╝\n\n");
+            content.push_str(&first_q.question);
 
-                // Load first question state
-                self.ask_options = first_q.options.clone();
-                self.ask_selected_index = first_q.selected_index;
-                self.ask_multi_select = first_q.multi_select;
-                self.ask_submit_mode = first_q.submit_mode.clone();
+            // Load first question state
+            self.ask_options = first_q.options.clone();
+            self.ask_selected_index = first_q.selected_index;
+            self.ask_multi_select = first_q.multi_select;
+            self.ask_submit_mode = first_q.submit_mode.clone();
 
-                // Add Submit option for Option mode
-                if self.ask_multi_select && self.ask_submit_mode == SubmitMode::Option {
-                    self.ask_options.push(crate::types::AskOption {
-                        id: "__submit__".into(),
-                        label: "✓ 提交".into(),
-                        description: Some("确认选择并提交".into()),
-                        selected: false,
-                        is_submit: true,
-                    });
-                }
-
-                content.push_str("\n\n─────────────────────────────────────\n");
-                if self.ask_multi_select {
-                    match self.ask_submit_mode {
-                        SubmitMode::Direct => content.push_str("选项 (↑↓导航 Space切换 Enter下一题):\n"),
-                        SubmitMode::Option => content.push_str("选项 (↑↓导航 Space切换 Enter提交):\n"),
-                        SubmitMode::Button => content.push_str("选项 (↑↓导航 Space切换):\n"),
-                    }
-                } else {
-                    content.push_str("选项 (↑↓选择 Enter下一题):\n");
-                }
-
-                for (i, opt) in self.ask_options.iter().enumerate() {
-                    if opt.is_submit {
-                        content.push_str(&format!("  >>> {} <<<\n", opt.label));
-                    } else {
-                        let marker = if self.ask_multi_select {
-                            if opt.selected { "[✓]".to_string() } else { "[ ]".to_string() }
-                        } else {
-                            format!("[{}]", (b'A' + i as u8) as char)
-                        };
-                        content.push_str(&format!("  {} {}{}\n", marker, opt.label, opt.format_description()));
-                    }
-                }
-
-                self.input.clear();
-                self.cursor_pos = 0;
-
-                self.messages.push(Message { role: Role::Ask, content });
-                self.waiting_for_ask = true;
-                self.activity = Activity::Asking;
-                self.auto_scroll = true;
+            // Add Submit option for Option mode
+            if self.ask_multi_select && self.ask_submit_mode == SubmitMode::Option {
+                self.ask_options.push(crate::types::AskOption {
+                    id: "__submit__".into(),
+                    label: "✓ 提交".into(),
+                    description: Some("确认选择并提交".into()),
+                    selected: false,
+                    is_submit: true,
+                });
             }
+
+            content.push_str("\n\n─────────────────────────────────────\n");
+            if self.ask_multi_select {
+                match self.ask_submit_mode {
+                    SubmitMode::Direct => {
+                        content.push_str("选项 (↑↓导航 Space切换 Enter下一题):\n")
+                    }
+                    SubmitMode::Option => content.push_str("选项 (↑↓导航 Space切换 Enter提交):\n"),
+                    SubmitMode::Button => content.push_str("选项 (↑↓导航 Space切换):\n"),
+                }
+            } else {
+                content.push_str("选项 (↑↓选择 Enter下一题):\n");
+            }
+
+            for (i, opt) in self.ask_options.iter().enumerate() {
+                if opt.is_submit {
+                    content.push_str(&format!("  >>> {} <<<\n", opt.label));
+                } else {
+                    let marker = if self.ask_multi_select {
+                        if opt.selected {
+                            "[✓]".to_string()
+                        } else {
+                            "[ ]".to_string()
+                        }
+                    } else {
+                        format!("[{}]", (b'A' + i as u8) as char)
+                    };
+                    content.push_str(&format!(
+                        "  {} {}{}\n",
+                        marker,
+                        opt.label,
+                        opt.format_description()
+                    ));
+                }
+            }
+
+            self.input.clear();
+            self.cursor_pos = 0;
+
+            self.messages.push(Message {
+                role: Role::Ask,
+                content,
+            });
+            self.waiting_for_ask = true;
+            self.activity = Activity::Asking;
+            self.auto_scroll = true;
+        }
     }
 }

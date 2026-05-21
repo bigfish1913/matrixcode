@@ -1,5 +1,5 @@
-use matrixcode_core::tools::edit::EditTool;
 use matrixcode_core::tools::Tool;
+use matrixcode_core::tools::edit::EditTool;
 use serde_json::json;
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -63,10 +63,11 @@ async fn test_edit_multiple_matches_fails() {
 async fn test_edit_missing_params() {
     let tool = EditTool;
     assert!(tool.execute(json!({})).await.is_err());
-    assert!(tool
-        .execute(json!({"path": "/tmp/x", "old_string": "a"}))
-        .await
-        .is_err());
+    assert!(
+        tool.execute(json!({"path": "/tmp/x", "old_string": "a"}))
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]

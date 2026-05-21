@@ -1,65 +1,25 @@
 //! MatrixCode CLI - Full Implementation with REPL
 
+mod display;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use display::{print_response_border, print_thinking_border};
 use matrixcode_core::{
-    AgentEvent, Config, cancel::CancellationToken,
-    agent::AgentBuilder,
-    AnthropicProvider,
-    SessionManager,
-    tools::all_tools_with_skills,
-    memory::MemoryStorage,
-    providers::Provider,
+    AgentEvent, Config, SessionManager, agent::AgentBuilder,
+    cancel::CancellationToken, create_provider, infer_provider_type, memory::MemoryStorage,
+    providers::Provider, tools::all_tools_with_skills,
 };
-use matrixcode_tui::{TuiApp, setup_terminal, restore_terminal};
-use std::path::{PathBuf, Path};
+use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use termimad::MadSkin;
-use termimad::gray;
-
-/// Create a custom skin for MatrixCode terminal output
-fn create_matrixcode_skin() -> MadSkin {
-    let mut skin = MadSkin::default();
-    
-    // Headers: cyan color with bold
-    skin.headers[0].compound_style.set_fg(termimad::crossterm::style::Color::Cyan);
-    skin.headers[0].add_attr(termimad::crossterm::style::Attribute::Bold);
-    
-    skin.headers[1].compound_style.set_fg(termimad::crossterm::style::Color::DarkCyan);
-    skin.headers[1].add_attr(termimad::crossterm::style::Attribute::Bold);
-    
-    skin.headers[2].compound_style.set_fg(termimad::crossterm::style::Color::Yellow);
-    
-    // Bold text: white with bold
-    skin.bold.set_fg(termimad::crossterm::style::Color::White);
-    skin.bold.add_attr(termimad::crossterm::style::Attribute::Bold);
-    
-    // Inline code: yellow text, gray background
-    skin.inline_code.set_fg(termimad::crossterm::style::Color::Yellow);
-    skin.inline_code.set_bg(gray(20));
-    
-    // Code blocks: gray text, dark background
-    skin.code_block.set_fg(gray(15));
-    skin.code_block.set_bg(gray(5));
-    
-    // Italic: gray
-    skin.italic.set_fg(gray(12));
-    
-    skin
-}
-
-/// Print markdown text to terminal with styling
-fn print_markdown(text: &str) {
-    let skin = create_matrixcode_skin();
-    skin.print_text(text);
-}
 
 // Handle /init commands for project overview generation
 // Note: For async operations, we return a special command that will be handled in the agent task
 fn handle_init_command(cmd: &str, project_path: Option<&Path>) -> InitCommandResult {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     let subcmd = parts.get(1).copied().unwrap_or("");
-    
+
     match subcmd {
         "" => {
             // /init without subcommand - generate project overview
@@ -71,13 +31,13 @@ fn handle_init_command(cmd: &str, project_path: Option<&Path>) -> InitCommandRes
                 .map(|p| p.to_path_buf())
                 .or_else(|| std::env::current_dir().ok())
                 .unwrap_or_default();
-            
+
             let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
             let matrix_dir = path.join(matrixcode_core::overview::MATRIXCODE_DIR);
             let has_overview = overview_path.exists();
             let has_memory = matrix_dir.join("memory.json").exists();
             let has_session = matrix_dir.join("session.json").exists();
-            
+
             let overview_info = if has_overview {
                 if let Ok(content) = std::fs::read_to_string(&overview_path) {
                     let lines = content.lines().count();
@@ -88,13 +48,17 @@ fn handle_init_command(cmd: &str, project_path: Option<&Path>) -> InitCommandRes
             } else {
                 "❌ not found (use /init to generate)".into()
             };
-            
+
             InitCommandResult::Message(format!(
                 "📊 Project: {}\n  Overview: {}\n  Memory: {}\n  Session: {}",
                 path.display(),
                 overview_info,
                 if has_memory { "✓ exists" } else { "❌ none" },
-                if has_session { "✓ exists" } else { "❌ none" }
+                if has_session {
+                    "✓ exists"
+                } else {
+                    "❌ none"
+                }
             ))
         }
         "clear" | "reset" => {
@@ -103,24 +67,30 @@ fn handle_init_command(cmd: &str, project_path: Option<&Path>) -> InitCommandRes
                 .map(|p| p.to_path_buf())
                 .or_else(|| std::env::current_dir().ok())
                 .unwrap_or_default();
-            
+
             let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
             let matrix_dir = path.join(matrixcode_core::overview::MATRIXCODE_DIR);
-            
+
             let mut reset_msg = String::new();
             if overview_path.exists() {
                 match std::fs::remove_file(&overview_path) {
-                    Ok(_) => reset_msg.push_str(&format!("✓ Removed overview: {}\n", overview_path.display())),
+                    Ok(_) => reset_msg.push_str(&format!(
+                        "✓ Removed overview: {}\n",
+                        overview_path.display()
+                    )),
                     Err(e) => reset_msg.push_str(&format!("❌ Failed to remove overview: {}\n", e)),
                 }
             }
             if matrix_dir.exists() {
                 match std::fs::remove_dir_all(&matrix_dir) {
-                    Ok(_) => reset_msg.push_str(&format!("✓ Removed config dir: {}\n", matrix_dir.display())),
-                    Err(e) => reset_msg.push_str(&format!("❌ Failed to remove config dir: {}\n", e)),
+                    Ok(_) => reset_msg
+                        .push_str(&format!("✓ Removed config dir: {}\n", matrix_dir.display())),
+                    Err(e) => {
+                        reset_msg.push_str(&format!("❌ Failed to remove config dir: {}\n", e))
+                    }
                 }
             }
-            
+
             if reset_msg.is_empty() {
                 InitCommandResult::Message("⚠️ No project configuration found to reset.".into())
             } else {
@@ -128,9 +98,9 @@ fn handle_init_command(cmd: &str, project_path: Option<&Path>) -> InitCommandRes
                 InitCommandResult::Message(reset_msg)
             }
         }
-        _ => {
-            InitCommandResult::Message("Unknown init command. Use: /init, /init status, /init reset".into())
-        }
+        _ => InitCommandResult::Message(
+            "Unknown init command. Use: /init, /init status, /init reset".into(),
+        ),
     }
 }
 
@@ -244,25 +214,28 @@ fn main() -> Result<()> {
 
 /// Interactive session resume - list sessions and let user select
 fn interactive_resume() -> Result<()> {
-    use std::io::{self, Write, BufRead};
-    
+    use std::io::{self, BufRead, Write};
+
     let mgr = SessionManager::new()?;
     let sessions = mgr.list_sessions();
-    
+
     if sessions.is_empty() {
         println!("No sessions found.");
         println!("\nTip: Use 'matrixcode' to start a new session.");
         return Ok(());
     }
-    
+
     println!("📚 Sessions:\n");
     for (i, session) in sessions.iter().enumerate() {
-        let project = session.project_path.as_deref()
+        let project = session
+            .project_path
+            .as_deref()
             .map(|p| p.split('/').next_back().unwrap_or(p))
             .unwrap_or("unknown");
         let is_current = mgr.has_current() && mgr.current_id() == Some(session.id.as_str());
-        
-        println!("  {}. {} - {} ({} msgs, {} tokens) {}",
+
+        println!(
+            "  {}. {} - {} ({} msgs, {} tokens) {}",
             i + 1,
             session.short_id(),
             project,
@@ -271,54 +244,65 @@ fn interactive_resume() -> Result<()> {
             if is_current { "[current]" } else { "" }
         );
     }
-    
-    println!("\nSelect session to resume (1-{}), or 'q' to quit:", sessions.len());
+
+    println!(
+        "\nSelect session to resume (1-{}), or 'q' to quit:",
+        sessions.len()
+    );
     print!("> ");
     io::stdout().flush()?;
-    
+
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
-    
+
     if let Some(Ok(line)) = lines.next() {
         let input = line.trim();
-        
-        if input == "q" || input == "quit" || input == "exit" {
+
+        if matches!(input, "q" | "quit" | "exit") {
             println!("Cancelled.");
             return Ok(());
         }
-        
+
         // Try to parse as number
         if let Ok(num) = input.parse::<usize>()
-            && num > 0 && num <= sessions.len() {
-                let session = &sessions[num - 1];
-                println!("\n✓ Resuming session: {}", session.short_id());
-                println!("  Project: {}", session.project_path.as_deref().unwrap_or("unknown"));
-                println!("  Messages: {}", session.message_count);
-                println!("\nStarting matrixcode with resumed session...\n");
-                
-                // Run terminal mode with the selected session
-                let cli = Cli {
-                    mode: "terminal".to_string(),
-                    continue_session: false,
-                    resume: false,
-                    resume_id: Some(session.id.clone()),
-                    list_sessions: false,
-                    skills_dir: None,
-                    think: true,
-                    max_tokens: 16384,
-                    command: None,
-                };
-                return run_terminal_mode(cli);
-            }
-        
+            && num > 0
+            && num <= sessions.len()
+        {
+            let session = &sessions[num - 1];
+            println!("\n✓ Resuming session: {}", session.short_id());
+            println!(
+                "  Project: {}",
+                session.project_path.as_deref().unwrap_or("unknown")
+            );
+            println!("  Messages: {}", session.message_count);
+            println!("\nStarting matrixcode with resumed session...\n");
+
+            // Run terminal mode with the selected session
+            let cli = Cli {
+                mode: "terminal".to_string(),
+                continue_session: false,
+                resume: false,
+                resume_id: Some(session.id.clone()),
+                list_sessions: false,
+                skills_dir: None,
+                think: true,
+                max_tokens: 16384,
+                command: None,
+            };
+            return run_terminal_mode(cli);
+        }
+
         // Try to match by short_id or full id
         for session in sessions.iter() {
             if session.short_id() == input || session.id == input || session.id.starts_with(input) {
                 println!("\n✓ Resuming session: {}", session.short_id());
-                println!("  Project: {}", session.project_path.as_deref().unwrap_or("unknown"));
+                println!(
+                    "  Project: {}",
+                    session.project_path.as_deref().unwrap_or("unknown")
+                );
                 println!("  Messages: {}", session.message_count);
                 println!("\nStarting matrixcode with resumed session...\n");
-                
+
                 let cli = Cli {
                     mode: "terminal".to_string(),
                     continue_session: false,
@@ -333,10 +317,14 @@ fn interactive_resume() -> Result<()> {
                 return run_terminal_mode(cli);
             }
         }
-        
-        println!("Invalid selection: '{}'. Please enter a number 1-{} or session ID.", input, sessions.len());
+
+        println!(
+            "Invalid selection: '{}'. Please enter a number 1-{} or session ID.",
+            input,
+            sessions.len()
+        );
     }
-    
+
     Ok(())
 }
 
@@ -366,7 +354,6 @@ fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill> {
     roots.extend(extra_dirs.iter().cloned());
 
     // Discover and load skills
-    
 
     discover_skills(&roots)
 }
@@ -374,7 +361,7 @@ fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill> {
 /// List sessions
 fn list_sessions() {
     use matrixcode_core::session::SessionManager;
-    
+
     let mgr = SessionManager::new().ok();
     if let Some(mgr) = mgr {
         let sessions = mgr.list_sessions();
@@ -384,14 +371,15 @@ fn list_sessions() {
         } else {
             println!("Sessions:\n");
             for (i, session) in sessions.iter().enumerate() {
-                let status = if mgr.has_current() && mgr.current_id() == Some(session.id.as_str()) { 
-                    " [current]" 
-                } else { 
-                    "" 
+                let status = if mgr.has_current() && mgr.current_id() == Some(session.id.as_str()) {
+                    " [current]"
+                } else {
+                    ""
                 };
                 let project = session.project_path.as_deref().unwrap_or("unknown");
-                println!("  {}. {} ({}){}", 
-                    i + 1, 
+                println!(
+                    "  {}. {} ({}){}",
+                    i + 1,
                     session.short_id(),
                     project,
                     status
@@ -412,22 +400,32 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let config = Config::load();
 
     // Get API configuration
-    let api_key = config.api_key.clone()
+    let api_key = config
+        .api_key
+        .clone()
         .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
-        .ok_or_else(|| anyhow::anyhow!("No API key found. Set ANTHROPIC_AUTH_TOKEN or configure in ~/.matrix/config.json"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No API key found. Set ANTHROPIC_AUTH_TOKEN or configure in ~/.matrix/config.json"
+            )
+        })?;
 
-    let model = config.model.clone()
+    let model = config
+        .model
+        .clone()
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
         .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
 
-    let base_url = config.base_url.clone()
+    let base_url = config
+        .base_url
+        .clone()
         .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
         .unwrap_or_else(|| "https://api.anthropic.com".to_string());
 
     // Load skills
     let skills_dirs: Vec<PathBuf> = cli.skills_dir.iter().cloned().collect();
     let skills = load_skills(&skills_dirs);
-    
+
     // Handle single command without TUI
     if let Some(cmd) = cli.command {
         handle_command(cmd, &skills);
@@ -450,7 +448,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let (restored_messages, session_mgr_state) = {
         let mut mgr = SessionManager::new().ok();
         let mut messages = Vec::new();
-        
+
         if let Some(ref mut mgr) = mgr {
             if cli.continue_session || cli.resume_id.is_some() {
                 let session = if let Some(ref query) = cli.resume_id {
@@ -478,35 +476,54 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_max_tokens = cli.max_tokens;
     let agent_restored_messages = restored_messages.clone();
     let agent_project_path = project_path.clone();
-    let agent_approve_mode = config.approve_mode.as_ref()
+    let agent_approve_mode = config
+        .approve_mode
+        .as_ref()
         .map(|m| matrixcode_core::approval::ApproveMode::parse(m))
         .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
-    
+
     // Create shared approve mode atomic - accessible by both agent and TUI
-    let shared_approve_mode = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(agent_approve_mode.to_u8()));
-    
+    let shared_approve_mode =
+        std::sync::Arc::new(std::sync::atomic::AtomicU8::new(agent_approve_mode.to_u8()));
+
     // Read fast_model config for keyword extraction
-    let agent_fast_model = config.fast_model.clone()
+    let agent_fast_model = config
+        .fast_model
+        .clone()
         .or_else(|| std::env::var("ANTHROPIC_DEFAULT_HAIKU_MODEL").ok());
-    
+
     // Clone skills for agent task
     let agent_skills = skills.clone();
     let agent_shared_approve_mode = shared_approve_mode.clone();
 
     // Spawn Agent task with real Agent
     let _agent_task = rt.spawn(async move {
-        // Create provider (clone values so they can be reused for overview generation)
-        let provider = AnthropicProvider::new(agent_api_key.clone(), agent_model.clone(), agent_base_url.clone());
-        
-        // Create fast provider for keyword extraction (uses haiku/fast model if configured)
-        let fast_provider: Option<AnthropicProvider> = agent_fast_model.as_ref().map(|fast_model| AnthropicProvider::new(agent_api_key.clone(), fast_model.clone(), agent_base_url.clone()));
+        // Create provider using factory
+        let provider_type = infer_provider_type(&agent_model);
+        let provider = create_provider(
+            provider_type,
+            agent_api_key.clone(),
+            agent_model.clone(),
+            Some(agent_base_url.clone()),
+        ).expect("failed to create provider");
+
+        // Create fast provider for keyword extraction
+        let fast_provider: Option<Box<dyn Provider>> = agent_fast_model.as_ref().map(|fast_model| {
+            let fast_type = infer_provider_type(fast_model);
+            create_provider(
+                fast_type,
+                agent_api_key.clone(),
+                fast_model.clone(),
+                Some(agent_base_url.clone()),
+            ).expect("failed to create fast provider")
+        });
 
         // Load memory
         let project_path_ref = agent_project_path.as_deref();
         let mut memory_storage = matrixcode_core::memory::MemoryStorage::new(project_path_ref).ok();
         let memory = memory_storage.as_ref()
             .and_then(|ms| ms.load_combined().ok());
-        
+
         // Send MemoryLoaded event if we have entries
         if let Some(ref mem) = memory
             && !mem.entries.is_empty() {
@@ -518,7 +535,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 },
             )).await;
         }
-        
+
         // Initial memory summary (static, will be updated dynamically before each turn)
         let initial_memory_summary = memory.as_ref()
             .map(|mem| mem.generate_prompt_summary(20))
@@ -527,7 +544,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         // Load project overview (MATRIX.md)
         let project_overview = project_path_ref
             .and_then(|path| matrixcode_core::overview::ProjectOverview::load(path).ok().flatten());
-        
+
         // Log overview loading
         if let Some(ref overview) = project_overview {
             matrixcode_core::debug::debug_log().log("overview", &format!("Loaded project overview: {} chars", overview.content.len()));
@@ -542,7 +559,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         );
 
         // Build agent with external event sender
-        let mut agent = AgentBuilder::new(Box::new(provider))
+        let mut agent = AgentBuilder::new(provider)
             .system_prompt(system_prompt)
             .model_name(agent_model.clone())
             .max_tokens(agent_max_tokens)
@@ -592,7 +609,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         while let Some(msg) = task_rx.recv().await {
             // Make msg mutable for skill activation transformation
             let mut msg = msg;
-            
+
             // Check cancellation
             if agent_cancel.is_cancelled() {
                 agent_event_tx.send(AgentEvent::error(
@@ -628,7 +645,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 let _ = agent_event_tx.send(matrixcode_core::AgentEvent::session_ended()).await;
                 continue;
             }
-            
+
             // Handle /init commands
             if msg.starts_with("/init") {
                 let result = handle_init_command(&msg, agent_project_path.as_deref());
@@ -651,16 +668,17 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                 percentage: Some(10),
                             },
                         )).await;
-                        
+
                         if let Some(ref path) = agent_project_path {
                             // Create a new provider for overview generation
-                            let overview_provider = AnthropicProvider::new(
+                            let overview_provider = create_provider(
+                                infer_provider_type(&agent_model),
                                 agent_api_key.clone(),
                                 agent_model.clone(),
-                                agent_base_url.clone(),
-                            );
-                            
-                            match matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), &overview_provider).await {
+                                Some(agent_base_url.clone()),
+                            ).expect("failed to create overview provider");
+
+                            match matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), overview_provider.as_ref()).await {
                                 Ok(overview) => {
                                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
                                         matrixcode_core::EventType::Progress,
@@ -669,7 +687,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                             percentage: Some(100),
                                         },
                                     )).await;
-                                    
+
                                     // Log overview content for debug
                                     matrixcode_core::debug::debug_log().log("overview", &format!("Generated overview with {} chars", overview.content.len()));
                                 }
@@ -692,12 +710,12 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 }
                 continue;
             }
-            
+
             // Handle /skills commands
             if msg == "/skills" || msg.starts_with("/skills ") {
                 let parts: Vec<&str> = msg.split_whitespace().collect();
                 let subcmd = parts.get(1).copied().unwrap_or("");
-                
+
                 let response = if subcmd.is_empty() || subcmd == "list" {
                     // List all available skills
                     if agent_skills.is_empty() {
@@ -730,9 +748,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                         } else {
                             String::new()
                         };
-                        
-                        format!("📚 Skill: {}\n\n{}\n{}\n\nSource: {}", 
-                            skill.name, 
+
+                        format!("📚 Skill: {}\n\n{}\n{}\n\nSource: {}",
+                            skill.name,
                             skill.body,
                             files_info,
                             skill.source_file.display()
@@ -743,7 +761,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             .filter(|s| s.name.contains(skill_name) || skill_name.contains(&s.name))
                             .map(|s| s.name.as_str())
                             .collect();
-                        
+
                         if similar.is_empty() {
                             format!("❌ Skill '{}' not found.\n\nUse `/skills` to see available skills.", skill_name)
                         } else {
@@ -751,7 +769,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                         }
                     }
                 };
-                
+
                 let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
                     matrixcode_core::EventType::Progress,
                     matrixcode_core::EventData::Progress {
@@ -761,9 +779,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 )).await;
                 continue;
             }
-            
+
             // Handle /skill_name form (direct skill invocation)
-            if msg.starts_with("/") && !msg.starts_with("/skills") 
+            if msg.starts_with("/") && !msg.starts_with("/skills")
                && !msg.starts_with("/compact") && !msg.starts_with("/compress")
                && !msg.starts_with("/help") && !msg.starts_with("/init")
                && !msg.starts_with("/memory") && !msg.starts_with("/overview")
@@ -779,38 +797,38 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             {
                 // Try to match skill name
                 let skill_name = msg.trim_start_matches('/');
-                
+
                 // Debug: log skill lookup
-                matrixcode_core::debug::debug_log().log("skill", 
+                matrixcode_core::debug::debug_log().log("skill",
                     &format!("Looking for skill '{}' in {} available skills", skill_name, agent_skills.len()));
                 for sk in &agent_skills {
                     matrixcode_core::debug::debug_log().log("skill", &format!("  - available: {}", sk.name));
                 }
-                
+
                 if let Some(skill) = agent_skills.iter().find(|s| s.name == skill_name) {
                     // Build skill activation message
                     let files = matrixcode_core::skills::list_skill_files(&skill.dir);
                     let files_info = if files.len() > 1 {
-                        format!("\n\n📁 Associated files (use `read` tool to explore):\n{}", 
+                        format!("\n\n📁 Associated files (use `read` tool to explore):\n{}",
                             files.iter().map(|f| format!("  - {}", f)).collect::<Vec<_>>().join("\n"))
                     } else {
                         String::new()
                     };
-                    
+
                     // Create user message that activates the skill
                     let skill_activation = format!(
-                        "使用 skill '{}' 来处理当前任务。\n\n---\n{}\n---\n{}\n\n请按照上述 skill 指导开始执行。", 
-                        skill.name, 
+                        "使用 skill '{}' 来处理当前任务。\n\n---\n{}\n---\n{}\n\n请按照上述 skill 指导开始执行。",
+                        skill.name,
                         skill.body,
                         files_info
                     );
-                    
+
                     // Send to agent for execution (not just display)
                     msg = skill_activation;
-                    
+
                     // Log skill activation
                     matrixcode_core::debug::debug_log().log("skill", &format!("Activated skill: {}", skill.name));
-                    
+
                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
                         matrixcode_core::EventType::Progress,
                         matrixcode_core::EventData::Progress {
@@ -818,14 +836,14 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             percentage: None,
                         },
                     )).await;
-                    
+
                     // Continue to normal agent processing with modified message
                 } else {
                     // Debug: skill not found
                     matrixcode_core::debug::debug_log().log("skill", &format!("Skill '{}' not found", skill_name));
                 }
             }
-            
+
             if msg == "/compact" || msg == "/compress" {
                 // Manual compression request
                 let original_tokens = matrixcode_core::compress::estimate_total_tokens(agent.get_messages());
@@ -838,7 +856,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             percentage: None,
                         },
                     )).await;
-                    
+
                     // Perform compression
                     match matrixcode_core::compress::compress_messages(
                         agent.get_messages(),
@@ -849,7 +867,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             let compressed_tokens = matrixcode_core::compress::estimate_total_tokens(&compressed);
                             agent.set_messages(compressed);
                             let ratio = compressed_tokens as f32 / original_tokens as f32;
-                            
+
                             // Send completion event
                             let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
                                 matrixcode_core::EventType::CompressionCompleted,
@@ -859,7 +877,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                     ratio,
                                 },
                             )).await;
-                            
+
                             // Debug log
                             matrixcode_core::debug_compress!(original_tokens as u32, compressed_tokens, ratio);
                         }
@@ -889,7 +907,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 agent.set_approve_mode(new_mode);
                 continue;
             }
-            
+
             // Handle /new command - create new session
             if msg == "/new" {
                 if let Some(ref mut mgr) = session_mgr {
@@ -904,7 +922,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 }
                 continue;
             }
-            
+
             // Handle /memory command
             if msg == "/memory" || msg.starts_with("/memory ") {
                 let parts: Vec<&str> = msg.split_whitespace().collect();
@@ -1099,22 +1117,22 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 }
                 continue;
             }
-            
+
             // Handle /overview command
             if msg == "/overview" || msg.starts_with("/overview ") {
                 let parts: Vec<&str> = msg.split_whitespace().collect();
                 let subcmd = parts.get(1).copied().unwrap_or("");
-                
+
                 let cwd = std::env::current_dir().unwrap_or_default();
                 let overview_path = cwd.join(matrixcode_core::overview::OVERVIEW_FILENAME);
-                
+
                 let response = match subcmd {
                     "" | "show" => {
                         // Show current overview
                         if overview_path.exists() {
                             let content = std::fs::read_to_string(&overview_path).unwrap_or_default();
                             let lines = content.lines().count();
-                            format!("📄 Project Overview ({} lines):\n\n{}", lines, 
+                            format!("📄 Project Overview ({} lines):\n\n{}", lines,
                                 content.chars().take(2000).collect::<String>())
                         } else {
                             "❌ No overview found. Run '/init' to generate one.".to_string()
@@ -1131,30 +1149,30 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                         "Unknown overview command. Use: show, regenerate, path".to_string()
                     }
                 };
-                
+
                 let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
                     response,
                     None,
                 )).await;
                 continue;
             }
-            
+
             // Handle /save command
             if msg == "/save" || msg.starts_with("/save ") {
                 let parts: Vec<&str> = msg.split_whitespace().collect();
                 let name = parts.get(1).copied();
-                
+
                 if let Some(ref mut mgr) = session_mgr {
                     let messages = agent.get_messages();
                     mgr.set_messages(messages.to_vec());
-                    
+
                     // Save with optional name
                     if let Some(n) = name {
                         // Rename then save
                         mgr.rename_current(n).ok();
                     }
                     mgr.save_current().ok();
-                    
+
                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
                         if let Some(ref name) = name {
                             format!("✓ Session saved as '{}'", name)
@@ -1171,7 +1189,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 }
                 continue;
             }
-            
+
             // Handle /sessions command
             if msg == "/sessions" || msg == "/resume" {
                 if let Some(ref mgr) = session_mgr {
@@ -1187,7 +1205,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             let project = session.project_path.as_deref()
                                 .map(|p| p.split('/').next_back().unwrap_or(p))
                                 .unwrap_or("unknown");
-                            info.push_str(&format!("• {} - {} ({} msgs, {} out)\n", 
+                            info.push_str(&format!("• {} - {} ({} msgs, {} out)\n",
                                 session.short_id(),
                                 project,
                                 session.message_count,
@@ -1210,11 +1228,11 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 }
                 continue;
             }
-            
+
             // Handle /load command
             if msg.starts_with("/load ") {
                 let session_id = msg.strip_prefix("/load ").unwrap_or("");
-                
+
                 if let Some(ref mut mgr) = session_mgr {
                     // Use resume to load session
                     let project_path = std::env::current_dir().ok();
@@ -1222,7 +1240,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                         if let Some(msgs) = mgr.messages() {
                             let messages = msgs.to_vec();
                             agent.set_messages(messages.clone());
-                            
+
                             let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
                                 format!("✓ Session '{}' loaded ({} messages)", session_id, messages.len()),
                                 None,
@@ -1248,22 +1266,22 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             if let Some(ref mem) = memory {
                 let context_keywords = if let Some(ref fp) = fast_provider {
                     // Use AI-enhanced keyword extraction
-                    matrixcode_core::memory::extract_keywords_hybrid(&msg, Some(fp as &dyn matrixcode_core::providers::Provider)).await
+                    matrixcode_core::memory::extract_keywords_hybrid(&msg, Some(fp.as_ref())).await
                 } else {
                     // Fallback to rule-based extraction
                     matrixcode_core::memory::extract_context_keywords(&msg)
                 };
-                
+
                 // Generate context-aware summary using pre-extracted keywords (avoid double extraction)
                 let contextual_summary = mem.generate_contextual_summary_with_keywords(&context_keywords, 15);
-                
+
                 // Update agent's memory summary (will rebuild system prompt internally)
                 if !contextual_summary.is_empty() {
                     agent.update_memory_summary(Some(contextual_summary));
-                    
+
                     // Debug log: keywords extracted
                     matrixcode_core::debug::debug_log().keywords_extracted(&context_keywords, &msg);
-                    
+
                     // Send keywords event for TUI display (only in debug mode)
                     if !context_keywords.is_empty() {
                         let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
@@ -1432,7 +1450,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
         .with_config(&model, cli.think, cli.max_tokens, None);
-    
+
     // Load restored messages if any
     if !restored_messages.is_empty() {
         app.load_messages(restored_messages);
@@ -1449,7 +1467,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
     // Load config
     let config = Config::load();
-    
+
     // Get API configuration
     let api_key = config.api_key.clone()
         .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
@@ -1458,28 +1476,34 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
             std::process::exit(1);
         });
 
-    let model = config.model.clone()
+    let model = config
+        .model
+        .clone()
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
         .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
 
-    let base_url = config.base_url.clone()
+    let base_url = config
+        .base_url
+        .clone()
         .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
         .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-    
-    let approve_mode = config.approve_mode.as_ref()
+
+    let approve_mode = config
+        .approve_mode
+        .as_ref()
         .map(|m| matrixcode_core::approval::ApproveMode::parse(m))
         .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
 
     // Create tokio runtime
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    
+    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+
     rt.block_on(async {
         match cmd {
             Commands::Chat { message } => {
                 // Interactive or single-shot chat
                 if let Some(msg) = message {
                     // Single-shot chat
-                    
+
                     // Build system prompt with skills
                     let system_prompt = matrixcode_core::prompt::build_system_prompt(
                         &matrixcode_core::prompt::PromptProfile::Default,
@@ -1487,25 +1511,30 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         None,
                         None,
                     );
-                    
-                    // Create provider
-                    let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
-                    
+
+                    // Create provider using factory
+                    let provider = create_provider(
+                        infer_provider_type(&model),
+                        api_key,
+                        model.clone(),
+                        Some(base_url),
+                    ).expect("failed to create provider");
+
                     // Build agent
-                    let mut agent = AgentBuilder::new(Box::new(provider))
+                    let mut agent = AgentBuilder::new(provider)
                         .system_prompt(system_prompt)
                         .model_name(model.clone())
                         .max_tokens(4096)
                         .tools(all_tools_with_skills(Arc::new(skills.to_vec())))
                         .approve_mode(approve_mode)
                         .build();
-                    
+
                     // Run agent
                     match agent.run(msg).await {
                         Ok(_) => {
                             // Get all messages to show thinking first, then result
                             let messages = agent.get_messages();
-                            
+
                             // First, show thinking content if any
                             for msg in messages.iter() {
                                 if msg.role == matrixcode_core::providers::Role::Assistant {
@@ -1521,7 +1550,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                                             })
                                         },
                                     };
-                                    
+
                                     if is_thinking {
                                         let text = match &msg.content {
                                             matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
@@ -1533,17 +1562,11 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                                                 }).collect::<Vec<_>>().join("\n")
                                             },
                                         };
-                                        println!();
-                                        println!("💭 Thinking:");
-                                        println!("─{}", "─".repeat(40));
-                                        // Strip thinking tags for cleaner display
-                                        let clean_text = text.replace("<thinking>", "").replace("</thinking>", "");
-                                        println!("{}", clean_text.trim());
-                                        println!("─{}", "─".repeat(40));
+                                        print_thinking_border(&text);
                                     }
                                 }
                             }
-                            
+
                             // Then show the final assistant message
                             if let Some(last) = messages.last()
                                 && last.role == matrixcode_core::providers::Role::Assistant {
@@ -1556,16 +1579,9 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                                             }).collect::<Vec<_>>().join("\n")
                                         },
                                     };
-                                    // Skip if this was the thinking message we already showed
-                                    if !text.contains("<thinking>") && !text.starts_with("Let me") && !text.starts_with("I need to") {
-                                        println!();
-                                        println!("📝 Response:");
-                                        println!("─{}", "─".repeat(40));
-                                        print_markdown(&text);
-                                        println!("─{}", "─".repeat(40));
-                                    }
+                                    print_response_border("Response", &text);
                                 }
-                            
+
                             let (input, output) = agent.get_token_counts();
                             println!();
                             println!("📊 Tokens: {} in, {} out", input, output);
@@ -1585,7 +1601,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 println!("MatrixCode Status:\n");
                 println!("  Version: {}", env!("CARGO_PKG_VERSION"));
                 println!("  Mode: Ready");
-                
+
                 // Show configuration
                 if config.api_key.is_some() || std::env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some() {
                     println!("  API: ✓ configured");
@@ -1593,7 +1609,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                     println!("  API: ❌ not configured");
                     println!("       Set ANTHROPIC_AUTH_TOKEN or configure in ~/.matrix/config.json");
                 }
-                
+
                 if let Some(model) = &config.model {
                     println!("  Model: {}", model);
                 } else if let Ok(model) = std::env::var("ANTHROPIC_MODEL") {
@@ -1601,28 +1617,28 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 } else {
                     println!("  Model: claude-sonnet-4-20250514 (default)");
                 }
-                
+
                 if let Some(base_url) = &config.base_url {
                     println!("  Base URL: {}", base_url);
                 } else if let Ok(url) = std::env::var("ANTHROPIC_BASE_URL") {
                     println!("  Base URL: {} (from env)", url);
                 }
-                
+
                 // Show approve mode
                 if let Some(mode) = &config.approve_mode {
                     println!("  Approve Mode: {}", mode);
                 } else {
                     println!("  Approve Mode: ask (default)");
                 }
-                
+
                 // Show sessions
                 if let Ok(mgr) = SessionManager::new() {
-                    println!("  Sessions: {} (current: {})", 
+                    println!("  Sessions: {} (current: {})",
                         mgr.list_sessions().len(),
                         if mgr.has_current() { "yes" } else { "no" }
                     );
                 }
-                
+
                 // Show memory
                 let project_path = std::env::current_dir().ok();
                 if let Some(path) = &project_path {
@@ -1630,7 +1646,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         && let Ok(mem) = storage.load_combined() {
                             println!("  Memory: {} entries", mem.entries.len());
                         }
-                    
+
                     // Show project overview status
                     let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
                     if overview_path.exists() {
@@ -1638,7 +1654,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                             let size = metadata.len();
                             if let Ok(modified) = metadata.modified() {
                                 let modified_time: chrono::DateTime<chrono::Local> = modified.into();
-                                println!("  Overview: ✓ MATRIX.md ({}, modified: {})", 
+                                println!("  Overview: ✓ MATRIX.md ({}, modified: {})",
                                     if size > 1024 { format!("{} KB", size / 1024) } else { format!("{} bytes", size) },
                                     modified_time.format("%Y-%m-%d %H:%M")
                                 );
@@ -1662,7 +1678,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         for session in sessions {
                             let project = session.project_path.as_deref().unwrap_or("unknown");
                             let is_current = mgr.has_current() && mgr.current_id() == Some(session.id.as_str());
-                            
+
                             println!("Session: {} ({})", session.short_id(), session.id);
                             println!("  Project: {}", project);
                             println!("  Created: {}", session.created_at.format("%Y-%m-%d %H:%M"));
@@ -1681,16 +1697,16 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
             Commands::NewSession => {
                 // Create new session (sync)
                 println!("Creating new session...");
-                
+
                 if let Ok(mut mgr) = SessionManager::new() {
                     let project_path = std::env::current_dir().ok();
                     if mgr.start_new(project_path.as_deref()).is_ok() {
                         println!("✓ New session created");
-                        
+
                         if let Some(id) = mgr.current_id() {
                             println!("  Session ID: {}", id);
                         }
-                        
+
                         println!("\nStart chatting with: matrixcode");
                     } else {
                         println!("❌ Failed to create new session");
@@ -1705,7 +1721,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 if let Some(f) = &file {
                     println!("  Target: {}", f);
                 }
-                
+
                 // Build prompt based on action type
                 let prompt = match action.as_str() {
                     "explain" => {
@@ -1765,7 +1781,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         }
                     }
                 };
-                
+
                 // Build system prompt with skills for quick action
                 let system_prompt = matrixcode_core::prompt::build_system_prompt(
                     &matrixcode_core::prompt::PromptProfile::Fast, // Fast profile for quick actions
@@ -1773,25 +1789,30 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                     None,
                     None,
                 );
-                
-                // Create provider
-                let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
-                
+
+                // Create provider using factory
+                let provider = create_provider(
+                    infer_provider_type(&model),
+                    api_key,
+                    model.clone(),
+                    Some(base_url),
+                ).expect("failed to create provider");
+
                 // Build agent
-                let mut agent = AgentBuilder::new(Box::new(provider))
+                let mut agent = AgentBuilder::new(provider)
                     .system_prompt(system_prompt)
                     .model_name(model.clone())
                     .max_tokens(4096)
                     .tools(all_tools_with_skills(Arc::new(skills.to_vec())))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)  // Auto mode for quick actions
                     .build();
-                
+
                 // Run agent
                 match agent.run(prompt).await {
                     Ok(_) => {
                         // Get all messages to show thinking first, then result
                         let messages = agent.get_messages();
-                        
+
                         // First, show thinking content if any
                         for msg in messages.iter() {
                             if msg.role == matrixcode_core::providers::Role::Assistant {
@@ -1807,7 +1828,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                                         })
                                     },
                                 };
-                                
+
                                 if is_thinking {
                                     let text = match &msg.content {
                                         matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
@@ -1819,16 +1840,11 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                                             }).collect::<Vec<_>>().join("\n")
                                         },
                                     };
-                                    println!();
-                                    println!("💭 Thinking:");
-                                    println!("─{}", "─".repeat(40));
-                                    let clean_text = text.replace("<thinking>", "").replace("</thinking>", "");
-                                    println!("{}", clean_text.trim());
-                                    println!("─{}", "─".repeat(40));
+                                    print_thinking_border(&text);
                                 }
                             }
                         }
-                        
+
                         // Then show the final assistant message
                         if let Some(last) = messages.last()
                             && last.role == matrixcode_core::providers::Role::Assistant {
@@ -1842,15 +1858,9 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                                     },
                                 };
                                 // Skip if this was the thinking message we already showed
-                                if !text.contains("<thinking>") && !text.starts_with("Let me") && !text.starts_with("I need to") {
-                                    println!();
-                                    println!("📝 Result:");
-                                    println!("─{}", "─".repeat(40));
-                                    print_markdown(&text);
-                                    println!("─{}", "─".repeat(40));
-                                }
+                                print_response_border("Result", &text);
                             }
-                        
+
                         let (input, output) = agent.get_token_counts();
                         println!();
                         println!("📊 Tokens: {} in, {} out", input, output);
@@ -1869,47 +1879,58 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
 fn run_service_mode(cli: Cli) -> Result<()> {
     // Load config for all commands
     let config = Config::load();
-    
+
     match cli.command {
         Some(Commands::Chat { message }) => {
             // For chat command, we run the actual agent
-            let api_key = config.api_key.clone()
+            let api_key = config
+                .api_key
+                .clone()
                 .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
                 .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
-            
-            let model = config.model.clone()
+
+            let model = config
+                .model
+                .clone()
                 .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
                 .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-            
-            let base_url = config.base_url.clone()
+
+            let base_url = config
+                .base_url
+                .clone()
                 .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
                 .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-            
+
             // Load skills
             let skills_dirs: Vec<PathBuf> = cli.skills_dir.iter().cloned().collect();
             let skills = load_skills(&skills_dirs);
-            
+
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
                 // Output session started event
                 println!("{}", AgentEvent::session_started().to_json()?);
-                
+
                 let system_prompt = matrixcode_core::prompt::build_system_prompt(
                     &matrixcode_core::prompt::PromptProfile::Default,
                     &skills,
                     None,
                     None,
                 );
-                
-                let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
-                let mut agent = AgentBuilder::new(Box::new(provider))
+
+                let provider = create_provider(
+                    infer_provider_type(&model),
+                    api_key,
+                    model.clone(),
+                    Some(base_url),
+                ).expect("failed to create provider");
+                let mut agent = AgentBuilder::new(provider)
                     .system_prompt(system_prompt)
                     .model_name(model)
                     .max_tokens(4096)
                     .tools(all_tools_with_skills(Arc::new(skills.clone())))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                     .build();
-                
+
                 match agent.run(message.unwrap_or_default()).await {
                     Ok(_) => {
                         let messages = agent.get_messages();
@@ -1917,20 +1938,30 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                             let text = match &last.content {
                                 matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
                                 matrixcode_core::providers::MessageContent::Blocks(blocks) => {
-                                    blocks.iter().filter_map(|b| match b {
-                                        matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
-                                        _ => None,
-                                    }).collect::<Vec<_>>().join("\n")
+                                    blocks
+                                        .iter()
+                                        .filter_map(|b| match b {
+                                            matrixcode_core::ContentBlock::Text { text } => {
+                                                Some(text.as_str())
+                                            }
+                                            _ => None,
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join("\n")
                                 }
                             };
                             println!("{}", AgentEvent::text_delta(text).to_json()?);
                         }
                     }
                     Err(e) => {
-                        println!("{}", AgentEvent::error(format!("Agent error: {}", e), None, None).to_json()?);
+                        println!(
+                            "{}",
+                            AgentEvent::error(format!("Agent error: {}", e), None, None)
+                                .to_json()?
+                        );
                     }
                 }
-                
+
                 println!("{}", AgentEvent::session_ended().to_json()?);
                 Ok::<_, anyhow::Error>(())
             })?;
@@ -1938,7 +1969,7 @@ fn run_service_mode(cli: Cli) -> Result<()> {
         Some(Commands::History) => {
             // Output session history as JSON events
             println!("{}", AgentEvent::session_started().to_json()?);
-            
+
             if let Ok(mgr) = SessionManager::new() {
                 let sessions = mgr.list_sessions();
                 if sessions.is_empty() {
@@ -1947,13 +1978,17 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                         "sessions": [],
                         "message": "No sessions found"
                     });
-                    println!("{}", AgentEvent::with_data(
-                        matrixcode_core::EventType::Progress,
-                        matrixcode_core::EventData::Progress {
-                            message: serde_json::to_string(&data)?,
-                            percentage: None,
-                        },
-                    ).to_json()?);
+                    println!(
+                        "{}",
+                        AgentEvent::with_data(
+                            matrixcode_core::EventType::Progress,
+                            matrixcode_core::EventData::Progress {
+                                message: serde_json::to_string(&data)?,
+                                percentage: None,
+                            },
+                        )
+                        .to_json()?
+                    );
                 } else {
                     let sessions_json: Vec<serde_json::Value> = sessions.iter().map(|s| {
                         serde_json::json!({
@@ -1967,36 +2002,44 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                             "is_current": mgr.has_current() && mgr.current_id() == Some(s.id.as_str())
                         })
                     }).collect();
-                    
+
                     let data = serde_json::json!({
                         "type": "history",
                         "sessions": sessions_json,
                         "total": sessions.len()
                     });
-                    println!("{}", AgentEvent::with_data(
-                        matrixcode_core::EventType::Progress,
-                        matrixcode_core::EventData::Progress {
-                            message: serde_json::to_string(&data)?,
-                            percentage: None,
-                        },
-                    ).to_json()?);
+                    println!(
+                        "{}",
+                        AgentEvent::with_data(
+                            matrixcode_core::EventType::Progress,
+                            matrixcode_core::EventData::Progress {
+                                message: serde_json::to_string(&data)?,
+                                percentage: None,
+                            },
+                        )
+                        .to_json()?
+                    );
                 }
             } else {
-                println!("{}", AgentEvent::error("Session manager not available".to_string(), None, None).to_json()?);
+                println!(
+                    "{}",
+                    AgentEvent::error("Session manager not available".to_string(), None, None)
+                        .to_json()?
+                );
             }
-            
+
             println!("{}", AgentEvent::session_ended().to_json()?);
         }
         Some(Commands::Status) => {
             // Output system status as JSON events
             println!("{}", AgentEvent::session_started().to_json()?);
-            
+
             let mut status = serde_json::json!({
                 "version": env!("CARGO_PKG_VERSION"),
                 "mode": "service",
                 "api_configured": config.api_key.is_some() || std::env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some(),
             });
-            
+
             if let Some(model) = &config.model {
                 status["model"] = serde_json::json!(model);
             } else if let Ok(model) = std::env::var("ANTHROPIC_MODEL") {
@@ -2004,48 +2047,53 @@ fn run_service_mode(cli: Cli) -> Result<()> {
             } else {
                 status["model"] = serde_json::json!("claude-sonnet-4-20250514 (default)");
             }
-            
+
             if let Some(base_url) = &config.base_url {
                 status["base_url"] = serde_json::json!(base_url);
             }
-            
+
             if let Some(approve_mode) = &config.approve_mode {
                 status["approve_mode"] = serde_json::json!(approve_mode);
             }
-            
+
             // Add session info
             if let Ok(mgr) = SessionManager::new() {
                 status["sessions_count"] = serde_json::json!(mgr.list_sessions().len());
                 status["has_current_session"] = serde_json::json!(mgr.has_current());
             }
-            
+
             // Add memory info
             let project_path = std::env::current_dir().ok();
             if let Some(path) = &project_path {
                 if let Ok(storage) = MemoryStorage::new(Some(path.as_path()))
-                    && let Ok(mem) = storage.load_combined() {
-                        status["memory_entries"] = serde_json::json!(mem.entries.len());
-                    }
-                
+                    && let Ok(mem) = storage.load_combined()
+                {
+                    status["memory_entries"] = serde_json::json!(mem.entries.len());
+                }
+
                 // Add overview status
                 let overview_path = path.join(matrixcode_core::overview::OVERVIEW_FILENAME);
                 status["has_overview"] = serde_json::json!(overview_path.exists());
             }
-            
-            println!("{}", AgentEvent::with_data(
-                matrixcode_core::EventType::Progress,
-                matrixcode_core::EventData::Progress {
-                    message: serde_json::to_string(&status)?,
-                    percentage: None,
-                },
-            ).to_json()?);
-            
+
+            println!(
+                "{}",
+                AgentEvent::with_data(
+                    matrixcode_core::EventType::Progress,
+                    matrixcode_core::EventData::Progress {
+                        message: serde_json::to_string(&status)?,
+                        percentage: None,
+                    },
+                )
+                .to_json()?
+            );
+
             println!("{}", AgentEvent::session_ended().to_json()?);
         }
         Some(Commands::NewSession) => {
             // Create new session
             println!("{}", AgentEvent::session_started().to_json()?);
-            
+
             if let Ok(mut mgr) = SessionManager::new() {
                 let project_path = std::env::current_dir().ok();
                 match mgr.start_new(project_path.as_deref()) {
@@ -2055,47 +2103,72 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                             "session_id": mgr.current_id(),
                             "message": "New session created"
                         });
-                        println!("{}", AgentEvent::with_data(
-                            matrixcode_core::EventType::Progress,
-                            matrixcode_core::EventData::Progress {
-                                message: serde_json::to_string(&data)?,
-                                percentage: None,
-                            },
-                        ).to_json()?);
+                        println!(
+                            "{}",
+                            AgentEvent::with_data(
+                                matrixcode_core::EventType::Progress,
+                                matrixcode_core::EventData::Progress {
+                                    message: serde_json::to_string(&data)?,
+                                    percentage: None,
+                                },
+                            )
+                            .to_json()?
+                        );
                     }
                     Err(e) => {
-                        println!("{}", AgentEvent::error(format!("Failed to create session: {}", e), None, None).to_json()?);
+                        println!(
+                            "{}",
+                            AgentEvent::error(
+                                format!("Failed to create session: {}", e),
+                                None,
+                                None
+                            )
+                            .to_json()?
+                        );
                     }
                 }
             } else {
-                println!("{}", AgentEvent::error("Session manager not available".to_string(), None, None).to_json()?);
+                println!(
+                    "{}",
+                    AgentEvent::error("Session manager not available".to_string(), None, None)
+                        .to_json()?
+                );
             }
-            
+
             println!("{}", AgentEvent::session_ended().to_json()?);
         }
         Some(Commands::QuickAction { action, file }) => {
             // Execute quick action
-            let api_key = config.api_key.clone()
+            let api_key = config
+                .api_key
+                .clone()
                 .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
                 .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
-            
-            let model = config.model.clone()
+
+            let model = config
+                .model
+                .clone()
                 .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
                 .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-            
-            let base_url = config.base_url.clone()
+
+            let base_url = config
+                .base_url
+                .clone()
                 .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
                 .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-            
+
             // Load skills
             let skills_dirs: Vec<PathBuf> = cli.skills_dir.iter().cloned().collect();
             let skills = load_skills(&skills_dirs);
-            
+
             // Build prompt based on action type
             let prompt = match action.as_str() {
                 "explain" => {
                     if let Some(f) = &file {
-                        format!("Please explain the code in {} in detail, including its purpose, structure, and key concepts.", f)
+                        format!(
+                            "Please explain the code in {} in detail, including its purpose, structure, and key concepts.",
+                            f
+                        )
                     } else {
                         "Please explain the code in detail.".to_string()
                     }
@@ -2109,7 +2182,10 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                 }
                 "refactor" => {
                     if let Some(f) = &file {
-                        format!("Please refactor {} to improve its structure, readability, and maintainability.", f)
+                        format!(
+                            "Please refactor {} to improve its structure, readability, and maintainability.",
+                            f
+                        )
                     } else {
                         "Please refactor the code to improve its structure.".to_string()
                     }
@@ -2137,7 +2213,10 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                 }
                 "review" => {
                     if let Some(f) = &file {
-                        format!("Please review {} and provide feedback on code quality, potential issues, and improvements.", f)
+                        format!(
+                            "Please review {} and provide feedback on code quality, potential issues, and improvements.",
+                            f
+                        )
                     } else {
                         "Please review the code and provide feedback.".to_string()
                     }
@@ -2150,41 +2229,50 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                     }
                 }
             };
-            
+
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
                 println!("{}", AgentEvent::session_started().to_json()?);
-                
+
                 // Output action start event
                 let action_data = serde_json::json!({
                     "action": action,
                     "file": file,
                     "status": "started"
                 });
-                println!("{}", AgentEvent::with_data(
-                    matrixcode_core::EventType::Progress,
-                    matrixcode_core::EventData::Progress {
-                        message: serde_json::to_string(&action_data)?,
-                        percentage: Some(0),
-                    },
-                ).to_json()?);
-                
+                println!(
+                    "{}",
+                    AgentEvent::with_data(
+                        matrixcode_core::EventType::Progress,
+                        matrixcode_core::EventData::Progress {
+                            message: serde_json::to_string(&action_data)?,
+                            percentage: Some(0),
+                        },
+                    )
+                    .to_json()?
+                );
+
                 let system_prompt = matrixcode_core::prompt::build_system_prompt(
                     &matrixcode_core::prompt::PromptProfile::Fast,
                     &skills,
                     None,
                     None,
                 );
-                
-                let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
-                let mut agent = AgentBuilder::new(Box::new(provider))
+
+                let provider = create_provider(
+                    infer_provider_type(&model),
+                    api_key,
+                    model.clone(),
+                    Some(base_url),
+                ).expect("failed to create provider");
+                let mut agent = AgentBuilder::new(provider)
                     .system_prompt(system_prompt)
                     .model_name(model)
                     .max_tokens(4096)
                     .tools(all_tools_with_skills(Arc::new(skills.clone())))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                     .build();
-                
+
                 match agent.run(prompt).await {
                     Ok(_) => {
                         let messages = agent.get_messages();
@@ -2192,15 +2280,21 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                             let text = match &last.content {
                                 matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
                                 matrixcode_core::providers::MessageContent::Blocks(blocks) => {
-                                    blocks.iter().filter_map(|b| match b {
-                                        matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
-                                        _ => None,
-                                    }).collect::<Vec<_>>().join("\n")
+                                    blocks
+                                        .iter()
+                                        .filter_map(|b| match b {
+                                            matrixcode_core::ContentBlock::Text { text } => {
+                                                Some(text.as_str())
+                                            }
+                                            _ => None,
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join("\n")
                                 }
                             };
                             println!("{}", AgentEvent::text_delta(text).to_json()?);
                         }
-                        
+
                         let (input, output) = agent.get_token_counts();
                         let result_data = serde_json::json!({
                             "action": action,
@@ -2209,25 +2303,36 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                             "input_tokens": input,
                             "output_tokens": output
                         });
-                        println!("{}", AgentEvent::with_data(
-                            matrixcode_core::EventType::Progress,
-                            matrixcode_core::EventData::Progress {
-                                message: serde_json::to_string(&result_data)?,
-                                percentage: Some(100),
-                            },
-                        ).to_json()?);
+                        println!(
+                            "{}",
+                            AgentEvent::with_data(
+                                matrixcode_core::EventType::Progress,
+                                matrixcode_core::EventData::Progress {
+                                    message: serde_json::to_string(&result_data)?,
+                                    percentage: Some(100),
+                                },
+                            )
+                            .to_json()?
+                        );
                     }
                     Err(e) => {
-                        println!("{}", AgentEvent::error(format!("Quick action failed: {}", e), None, None).to_json()?);
+                        println!(
+                            "{}",
+                            AgentEvent::error(format!("Quick action failed: {}", e), None, None)
+                                .to_json()?
+                        );
                     }
                 }
-                
+
                 println!("{}", AgentEvent::session_ended().to_json()?);
                 Ok::<_, anyhow::Error>(())
             })?;
         }
         None => {
-            println!("{}", AgentEvent::error("Please specify a command".to_string(), None, None).to_json()?);
+            println!(
+                "{}",
+                AgentEvent::error("Please specify a command".to_string(), None, None).to_json()?
+            );
         }
     }
     Ok(())
@@ -2310,7 +2415,7 @@ struct DaemonRequest {
 fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
     let mut events = Vec::new();
     let config = Config::load();
-    
+
     // Load skills for daemon mode
     let skills = load_skills(&[]);
 
@@ -2320,34 +2425,45 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
         "chat" => {
             // Execute actual chat with agent
             if let Some(content) = request.content {
-                let api_key = config.api_key.clone()
+                let api_key = config
+                    .api_key
+                    .clone()
                     .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
                     .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
-                
-                let model = request.model.clone()
+
+                let model = request
+                    .model
+                    .clone()
                     .or(config.model.clone())
                     .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
                     .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-                
-                let base_url = config.base_url.clone()
+
+                let base_url = config
+                    .base_url
+                    .clone()
                     .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
                     .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-                
+
                 let max_tokens = request.max_tokens.unwrap_or(4096);
-                
+
                 let rt = tokio::runtime::Runtime::new()?;
                 let result = rt.block_on(async {
-                    let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
-                    let mut agent = AgentBuilder::new(Box::new(provider))
+                    let provider = create_provider(
+                        infer_provider_type(&model),
+                        api_key,
+                        model.clone(),
+                        Some(base_url),
+                    ).expect("failed to create provider");
+                    let mut agent = AgentBuilder::new(provider)
                         .model_name(model)
                         .max_tokens(max_tokens)
                         .tools(all_tools_with_skills(Arc::new(skills.clone())))
                         .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                         .build();
-                    
+
                     agent.run(content).await
                 });
-                
+
                 match result {
                     Ok(_) => {
                         // For daemon mode, we can't easily capture all events,
@@ -2359,48 +2475,75 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                     }
                 }
             } else {
-                events.push(AgentEvent::error("No content provided for chat", None, None));
+                events.push(AgentEvent::error(
+                    "No content provided for chat",
+                    None,
+                    None,
+                ));
             }
         }
         "quick_action" => {
             // Execute quick action
             if let Some(action) = request.action.clone() {
                 let prompt = build_quick_action_prompt(&action, request.file.as_ref());
-                
-                let api_key = config.api_key.clone()
+
+                let api_key = config
+                    .api_key
+                    .clone()
                     .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
                     .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
-                
-                let model = request.model.clone()
+
+                let model = request
+                    .model
+                    .clone()
                     .or(config.model.clone())
                     .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
                     .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-                
-                let base_url = config.base_url.clone()
+
+                let base_url = config
+                    .base_url
+                    .clone()
                     .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
                     .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-                
+
                 events.push(AgentEvent::tool_use_start("action_1", action.clone(), None));
-                
+
                 let rt = tokio::runtime::Runtime::new()?;
                 let result = rt.block_on(async {
-                    let provider = AnthropicProvider::new(api_key, model.clone(), base_url);
-                    let mut agent = AgentBuilder::new(Box::new(provider))
+                    let provider = create_provider(
+                        infer_provider_type(&model),
+                        api_key,
+                        model.clone(),
+                        Some(base_url),
+                    ).expect("failed to create provider");
+                    let mut agent = AgentBuilder::new(provider)
                         .model_name(model)
                         .max_tokens(4096)
                         .tools(all_tools_with_skills(Arc::new(skills.clone())))
                         .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                         .build();
-                    
+
                     agent.run(prompt).await
                 });
-                
+
                 match result {
                     Ok(_) => {
-                        events.push(AgentEvent::tool_result("action_1", "action", None, "Action completed", false));
+                        events.push(AgentEvent::tool_result(
+                            "action_1",
+                            "action",
+                            None,
+                            "Action completed",
+                            false,
+                        ));
                     }
                     Err(e) => {
-                        events.push(AgentEvent::tool_result("action_1", "action", None, format!("Error: {}", e), true));
+                        events.push(AgentEvent::tool_result(
+                            "action_1",
+                            "action",
+                            None,
+                            format!("Error: {}", e),
+                            true,
+                        ));
                     }
                 }
             } else {
@@ -2429,16 +2572,19 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
             // Return session history
             if let Ok(mgr) = SessionManager::new() {
                 let sessions = mgr.list_sessions();
-                let sessions_json: Vec<serde_json::Value> = sessions.iter().map(|s| {
-                    serde_json::json!({
-                        "id": s.id,
-                        "short_id": s.short_id(),
-                        "project_path": s.project_path,
-                        "created_at": s.created_at.to_rfc3339(),
-                        "message_count": s.message_count,
+                let sessions_json: Vec<serde_json::Value> = sessions
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "id": s.id,
+                            "short_id": s.short_id(),
+                            "project_path": s.project_path,
+                            "created_at": s.created_at.to_rfc3339(),
+                            "message_count": s.message_count,
+                        })
                     })
-                }).collect();
-                
+                    .collect();
+
                 let data = serde_json::json!({
                     "type": "history",
                     "sessions": sessions_json,
@@ -2452,7 +2598,11 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                     },
                 ));
             } else {
-                events.push(AgentEvent::error("Session manager not available", None, None));
+                events.push(AgentEvent::error(
+                    "Session manager not available",
+                    None,
+                    None,
+                ));
             }
         }
         "new_session" => {
@@ -2475,11 +2625,19 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                         ));
                     }
                     Err(e) => {
-                        events.push(AgentEvent::error(format!("Failed to create session: {}", e), None, None));
+                        events.push(AgentEvent::error(
+                            format!("Failed to create session: {}", e),
+                            None,
+                            None,
+                        ));
                     }
                 }
             } else {
-                events.push(AgentEvent::error("Session manager not available", None, None));
+                events.push(AgentEvent::error(
+                    "Session manager not available",
+                    None,
+                    None,
+                ));
             }
         }
         "load_session" => {
@@ -2504,14 +2662,26 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                             ));
                         }
                         Ok(None) => {
-                            events.push(AgentEvent::error(format!("Session '{}' not found", session_id), None, None));
+                            events.push(AgentEvent::error(
+                                format!("Session '{}' not found", session_id),
+                                None,
+                                None,
+                            ));
                         }
                         Err(e) => {
-                            events.push(AgentEvent::error(format!("Failed to load session: {}", e), None, None));
+                            events.push(AgentEvent::error(
+                                format!("Failed to load session: {}", e),
+                                None,
+                                None,
+                            ));
                         }
                     }
                 } else {
-                    events.push(AgentEvent::error("Session manager not available", None, None));
+                    events.push(AgentEvent::error(
+                        "Session manager not available",
+                        None,
+                        None,
+                    ));
                 }
             } else {
                 events.push(AgentEvent::error("No session_id provided", None, None));
@@ -2521,23 +2691,32 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
             // List all sessions (alias for history)
             if let Ok(mgr) = SessionManager::new() {
                 let sessions = mgr.list_sessions();
-                let sessions_json: Vec<serde_json::Value> = sessions.iter().map(|s| {
-                    serde_json::json!({
-                        "id": s.id,
-                        "short_id": s.short_id(),
-                        "project": s.project_path.as_deref().unwrap_or("unknown"),
+                let sessions_json: Vec<serde_json::Value> = sessions
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "id": s.id,
+                            "short_id": s.short_id(),
+                            "project": s.project_path.as_deref().unwrap_or("unknown"),
+                        })
                     })
-                }).collect();
-                
+                    .collect();
+
                 events.push(AgentEvent::with_data(
                     matrixcode_core::EventType::Progress,
                     matrixcode_core::EventData::Progress {
-                        message: serde_json::to_string(&serde_json::json!({ "sessions": sessions_json }))?,
+                        message: serde_json::to_string(
+                            &serde_json::json!({ "sessions": sessions_json }),
+                        )?,
                         percentage: None,
                     },
                 ));
             } else {
-                events.push(AgentEvent::error("Session manager not available", None, None));
+                events.push(AgentEvent::error(
+                    "Session manager not available",
+                    None,
+                    None,
+                ));
             }
         }
         "ping" => {
@@ -2562,7 +2741,10 @@ fn build_quick_action_prompt(action: &str, file: Option<&String>) -> String {
     match action {
         "explain" => {
             if let Some(f) = file {
-                format!("Please explain the code in {} in detail, including its purpose, structure, and key concepts.", f)
+                format!(
+                    "Please explain the code in {} in detail, including its purpose, structure, and key concepts.",
+                    f
+                )
             } else {
                 "Please explain the code in detail.".to_string()
             }
@@ -2576,7 +2758,10 @@ fn build_quick_action_prompt(action: &str, file: Option<&String>) -> String {
         }
         "refactor" => {
             if let Some(f) = file {
-                format!("Please refactor {} to improve its structure, readability, and maintainability.", f)
+                format!(
+                    "Please refactor {} to improve its structure, readability, and maintainability.",
+                    f
+                )
             } else {
                 "Please refactor the code to improve its structure.".to_string()
             }
@@ -2604,7 +2789,10 @@ fn build_quick_action_prompt(action: &str, file: Option<&String>) -> String {
         }
         "review" => {
             if let Some(f) = file {
-                format!("Please review {} and provide feedback on code quality, potential issues, and improvements.", f)
+                format!(
+                    "Please review {} and provide feedback on code quality, potential issues, and improvements.",
+                    f
+                )
             } else {
                 "Please review the code and provide feedback.".to_string()
             }
