@@ -98,7 +98,7 @@ impl TuiApp {
         };
         let status_color = if self.activity == Activity::Idle { Color::Green } else { Color::Yellow };
 
-        // New layout: model mode │ in % out │ c │ status
+        // New layout: model │ mode │ in │ out │ c │ status (all centered)
         let width = area.width as usize;
         let mut spans: Vec<Span> = Vec::new();
 
@@ -108,18 +108,18 @@ impl TuiApp {
         } else {
             self.model.clone()
         };
-        spans.push(Span::styled(model_display, Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(format!(" {} ", model_display), Style::default().fg(Color::DarkGray)));
 
-        // Separator before mode
+        // Separator
         spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
 
         // Mode indicator
-        spans.push(Span::styled(format!(" {}", self.approve_mode.label()), Style::default().fg(mode_color)));
+        spans.push(Span::styled(format!(" {} ", self.approve_mode.label()), Style::default().fg(mode_color)));
 
-        // Separator before in/ctx
+        // Separator
         spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
 
-        // in/ctx: input tokens with progress bar
+        // in/ctx: input tokens with progress bar and context size
         if width >= 40 {
             // Show progress bar when width >= 60
             let bar = if width >= 60 {
@@ -127,19 +127,36 @@ impl TuiApp {
             } else {
                 String::new()
             };
-            spans.push(Span::styled(format!(" in {} {:.0}% {}", bar, context_pct, fmt_tokens(actual_tokens)), Style::default().fg(ctx_color)));
+            // Show context size when width >= 70
+            let ctx_size_display = if width >= 70 {
+                format!("/{:.0}k", self.context_size as f64 / 1_000.0)
+            } else {
+                String::new()
+            };
+            let ctx_full = if ctx_size_display.is_empty() {
+                fmt_tokens(actual_tokens)
+            } else {
+                format!("{}{}", fmt_tokens(actual_tokens), ctx_size_display)
+            };
+            spans.push(Span::styled(
+                format!(" {} {:.0}% {} ", bar, context_pct, ctx_full),
+                Style::default().fg(ctx_color)
+            ));
         }
 
-        // out: session output tokens (space separator after in)
+        // Separator
+        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+
+        // out: session output tokens
         if width >= 55 {
-            spans.push(Span::styled(format!(" out {}", fmt_tokens(self.session_total_out)), Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(format!(" out {} ", fmt_tokens(self.session_total_out)), Style::default().fg(Color::DarkGray)));
         }
 
         // Cache info: c r/w
         if width >= 75 && (self.cache_read > 0 || self.cache_created > 0) {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
-                format!(" c {}k/{}k", self.cache_read / 1000, self.cache_created / 1000),
+                format!(" c {}k/{}k ", self.cache_read / 1000, self.cache_created / 1000),
                 Style::default().fg(Color::DarkGray)
             ));
         }
@@ -148,7 +165,7 @@ impl TuiApp {
         if width >= 100 && self.debug_mode {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
-                format!(" api:{} tools:{}", self.api_calls, self.tool_calls),
+                format!(" api:{} tools:{} ", self.api_calls, self.tool_calls),
                 Style::default().fg(Color::DarkGray)
             ));
         }
@@ -432,39 +449,11 @@ impl TuiApp {
                     }
                 }
                 Role::Ask => {
-                    // Ask/Approval requests - VERY PROMINENT display
+                    // Ask/Approval requests - prominent display
                     lines.push(Line::styled("", Style::default()));
 
-                    // Check if we have options and should highlight selection
-                    let has_options = self.waiting_for_ask && !self.ask_options.is_empty();
-
-                    for (_line_idx, line) in msg.content.lines().enumerate() {
-                        // Highlight selected option line if we have options
-                        // Match both [A], [B], [C] and [Y], [N] formats
-                        let is_option_line = has_options && line.starts_with("  [") && line.contains("]");
-                        let is_selected_line = if is_option_line && has_options {
-                            // Parse option letter from line: "  [A] label" or "  [Y] label"
-                            let letter = line.chars().nth(4).unwrap_or(' ');
-                            // Map letter to index: A->0, B->1, C->2 or Y->0, N->1
-                            let option_idx = if letter.is_ascii_uppercase() {
-                                if letter == 'Y' { 0 }
-                                else if letter == 'N' { 1 }
-                                else { (letter as u8 - b'A') as usize }
-                            } else {
-                                (letter as u8 - b'A') as usize
-                            };
-                            option_idx == self.ask_selected_index
-                        } else {
-                            false
-                        };
-
-                        let styled_line = if is_selected_line {
-                            // Selected option: bright green background
-                            Line::styled(
-                                format!("▶ {}", line),
-                                Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
-                            )
-                        } else if line.contains("AWAITING INPUT") || line.contains("⚡") {
+                    for line in msg.content.lines() {
+                        let styled_line = if line.contains("AWAITING INPUT") || line.contains("⚡") {
                             Line::styled(
                                 line.to_string(),
                                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
@@ -478,12 +467,6 @@ impl TuiApp {
                             Line::styled(
                                 line.to_string(),
                                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-                            )
-                        } else if is_option_line && has_options {
-                            // Other options: white on dark background
-                            Line::styled(
-                                format!("  {}", line),
-                                Style::default().fg(Color::White)
                             )
                         } else {
                             Line::styled(
@@ -650,52 +633,77 @@ impl TuiApp {
         let (prompt, prompt_color) = match self.activity {
             Activity::Idle => ("❯ ", Color::Yellow),
             Activity::Asking => ("⚡ ", Color::Red),
-            _ => ("⏳ ", Color::Gray),  // Show queuing indicator when busy
+            _ => ("⏳ ", Color::Gray),
         };
-        
-        // Check if multiline content
-        let is_multiline = self.input.contains('\n');
-        let max_w = (area.width as usize).saturating_sub(4);  // Safe minimum margin
-        
-        if !is_multiline {
-            // Single line mode with visible cursor
+
+        let max_w = (area.width as usize).saturating_sub(4);
+
+        // Special handling for Ask mode: show selection instead of input
+        if self.activity == Activity::Asking && self.waiting_for_ask && !self.ask_options.is_empty() {
             let mut spans: Vec<Span> = vec![
                 Span::styled(prompt, Style::default().fg(prompt_color).add_modifier(Modifier::BOLD)),
             ];
-            
-            if self.activity == Activity::Asking {
-                spans.push(Span::styled("[A/B/C?] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
+
+            // Show current selection
+            let selected = &self.ask_options[self.ask_selected_index];
+            let letter = if selected.id == "y" { 'Y' }
+                        else if selected.id == "n" { 'N' }
+                        else { (b'A' + self.ask_selected_index as u8) as char };
+
+            spans.push(Span::styled(
+                format!("[{}] {} ", letter, selected.label),
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            ));
+
+            if let Some(desc) = &selected.description {
+                spans.push(Span::styled(
+                    truncate(desc, max_w.saturating_sub(20)),
+                    Style::default().fg(Color::DarkGray)
+                ));
             }
-            
+
+            // Show navigation hint
+            spans.push(Span::styled("  ↑↓", Style::default().fg(Color::DarkGray)));
+
+            f.render_widget(Paragraph::new(Line::from(spans)), area);
+            return;
+        }
+
+        // Normal input handling
+        let is_multiline = self.input.contains('\n');
+
+        if !is_multiline {
+            let mut spans: Vec<Span> = vec![
+                Span::styled(prompt, Style::default().fg(prompt_color).add_modifier(Modifier::BOLD)),
+            ];
+
+            if self.activity == Activity::Asking {
+                spans.push(Span::styled("[Y/N?] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
+            }
+
             if self.input.is_empty() {
-                // Show placeholder with cursor
                 spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                 spans.push(Span::styled(" Ask anything...", Style::default().fg(Color::DarkGray)));
             } else {
-                // Split input at cursor position to show cursor
-                let display_width = max_w.saturating_sub(15);  // Reserve space for hints
+                let display_width = max_w.saturating_sub(15);
                 let before_cursor = &self.input[..self.cursor_pos];
                 let after_cursor = &self.input[self.cursor_pos..];
-                
-                // Calculate visual offset if input is too long
+
                 let before_vis_width: usize = before_cursor.chars().map(|c| if c > '\u{7F}' { 2 } else { 1 }).sum();
                 let after_vis_width: usize = after_cursor.chars().map(|c| if c > '\u{7F}' { 2 } else { 1 }).sum();
-                
+
                 if before_vis_width + after_vis_width <= display_width {
-                    // Fits in display
                     spans.push(Span::styled(before_cursor.to_string(), Style::default().fg(Color::White)));
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                     spans.push(Span::styled(after_cursor.to_string(), Style::default().fg(Color::White)));
                 } else if before_vis_width < display_width {
-                    // Cursor near start, truncate end
                     spans.push(Span::styled(before_cursor.to_string(), Style::default().fg(Color::White)));
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                     let remaining = display_width.saturating_sub(before_vis_width);
                     let truncated_after = truncate_visual(after_cursor, remaining);
                     spans.push(Span::styled(truncated_after, Style::default().fg(Color::White)));
                 } else {
-                    // Cursor far right, truncate start
-                    let start_width = display_width.saturating_sub(10);  // Show ~10 chars after cursor
+                    let start_width = display_width.saturating_sub(10);
                     let truncated_before = truncate_visual_end(before_cursor, start_width);
                     spans.push(Span::styled(format!("…{}", truncated_before), Style::default().fg(Color::White)));
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
@@ -704,17 +712,17 @@ impl TuiApp {
                     spans.push(Span::styled(truncated_after, Style::default().fg(Color::White)));
                 }
             }
-            
+
             f.render_widget(Paragraph::new(Line::from(spans)), area);
         } else {
-            // Multiline mode: show actual content with cursor
+            // Multiline mode
             let mut lines: Vec<Line> = Vec::new();
             let input_lines: Vec<&str> = self.input.split('\n').collect();
             let cursor_line = self.input[..self.cursor_pos].matches('\n').count();
             let cursor_col_byte = self.input[..self.cursor_pos].rfind('\n')
                 .map(|i| self.cursor_pos - i - 1)
                 .unwrap_or(self.cursor_pos);
-            
+
             let max_display_lines = (area.height as usize).saturating_sub(1);
             
             for (i, line) in input_lines.iter().enumerate().take(max_display_lines) {

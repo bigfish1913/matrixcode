@@ -231,7 +231,7 @@ impl TuiApp {
 
                     // Header line - prominent
                     content.push_str("╔══════════════════════════════════════╗\n");
-                    content.push_str("║         ⚡ AWAITING INPUT ⚡          ║\n");
+                    content.push_str("║         ⚡ AWAITING INPUT ⚡        ║\n");
                     content.push_str("╚══════════════════════════════════════╝\n\n");
 
                     // Question content
@@ -248,16 +248,9 @@ impl TuiApp {
                             }
                         }).collect();
                         self.ask_selected_index = 0;
-
-                        content.push_str("\n\n─────────────────────────────────────\n");
-                        content.push_str("Options (↑↓ to select, Enter to confirm):\n");
-                        for (idx, opt) in arr.iter().enumerate() {
-                            let letter = (b'A' + idx as u8) as char;
-                            let label = opt["label"].as_str().unwrap_or("");
-                            let desc = opt["description"].as_str().unwrap_or("");
-                            let desc_text = if desc.is_empty() { String::new() } else { format!(" - {}", desc) };
-                            content.push_str(&format!("  [{}] {}{}\n", letter, label, desc_text));
-                        }
+                        // Clear input so selection shows in input area
+                        self.input.clear();
+                        self.cursor_pos = 0;
                     } else if question.contains("(y/n)") || question.contains("Allow?") {
                         // Approval request: create y/n options
                         self.ask_options = vec![
@@ -265,25 +258,14 @@ impl TuiApp {
                             crate::types::AskOption { id: "n".into(), label: "No".into(), description: Some("Reject this action".into()) },
                         ];
                         self.ask_selected_index = 0;
-
-                        content.push_str("\n\n─────────────────────────────────────\n");
-                        content.push_str("Options (↑↓ to select, Enter to confirm):\n");
-                        content.push_str("  [Y] Yes - Allow this action\n");
-                        content.push_str("  [N] No - Reject this action\n");
+                        // Clear input so selection shows in input area
+                        self.input.clear();
+                        self.cursor_pos = 0;
                     } else {
                         // Free text input
                         self.ask_options.clear();
                         self.ask_selected_index = 0;
                     }
-
-                    // Add input hint
-                    content.push_str("\n─────────────────────────────────────\n");
-                    if self.ask_options.is_empty() {
-                        content.push_str("📌 Type your answer, then Enter\n");
-                    } else {
-                        content.push_str("📌 ↑↓ to select, Enter to confirm\n");
-                    }
-                    content.push_str("📌 ESC to abort");
 
                     self.messages.push(Message { role: Role::Ask, content });
                     self.waiting_for_ask = true;

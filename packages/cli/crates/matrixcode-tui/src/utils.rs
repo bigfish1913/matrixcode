@@ -58,13 +58,13 @@ pub fn word_wrap(text: &str, width: usize) -> Vec<String> {
 /// Format token count for display (e.g., 1.2k, 15k, 1.5m)
 pub fn fmt_tokens(n: u64) -> String {
     if n < 1_000 {
-        format!("{} ", n)
+        format!("{}", n)
     } else if n < 10_000 {
-        format!("{:.1}k ", n as f64 / 1_000.0)
+        format!("{:.1}k", n as f64 / 1_000.0)
     } else if n < 1_000_000 {
-        format!("{:.0}k ", n as f64 / 1_000.0)
+        format!("{:.0}k", n as f64 / 1_000.0)
     } else {
-        format!("{:.1}m ", n as f64 / 1_000_000.0)
+        format!("{:.1}m", n as f64 / 1_000_000.0)
     }
 }
 
