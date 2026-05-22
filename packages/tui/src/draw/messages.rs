@@ -821,78 +821,38 @@ impl TuiApp {
             }
         }
 
-        // Thinking indicator - unified display in message area
-        // Show spinner animation when thinking (with or without content)
-        if self.activity == Activity::Thinking && self.streaming.is_empty() {
-            let elapsed = self
-                .request_start
-                .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
-                .unwrap_or_default();
-            let spinner_frame = self.frame % SPINNER.len();
-
-            if !self.thinking.is_empty() {
-                // Has thinking content - show spinner + content
-                if self.thinking_collapsed && !self.debug_mode {
-                    let preview = self.thinking.lines().next().unwrap_or("");
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            format!("{} ", SPINNER[spinner_frame]),
-                            Style::default().fg(Color::LightGreen),
-                        ),
-                        Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(
-                            format!(
-                                "Thinking{} {}",
-                                elapsed,
-                                truncate(preview, max_w.saturating_sub(28))
-                            ),
-                            Style::default().fg(Color::DarkGray),
-                        ),
-                    ]));
-                } else {
-                    // Expanded - show full content
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            format!("{} ", SPINNER[spinner_frame]),
-                            Style::default().fg(Color::LightGreen),
-                        ),
-                        Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(
-                            format!("Thinking{}", elapsed),
-                            Style::default().fg(Color::DarkGray),
-                        ),
-                    ]));
-                    let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(4));
-                    for line in md_lines.iter() {
-                        let text = line
-                            .spans
-                            .iter()
-                            .map(|s| s.content.as_ref())
-                            .collect::<String>();
-                        lines.push(Line::styled(
-                            format!("    {}", text),
-                            Style::default().fg(Color::DarkGray),
-                        ));
-                    }
-                }
-            } else {
-                // No thinking content yet - show spinner + Thinking + elapsed
+        // Thinking content - show as message content (animation is in fixed bottom bar)
+        if self.activity == Activity::Thinking && !self.thinking.is_empty() {
+            if self.thinking_collapsed && !self.debug_mode {
+                let preview = self.thinking.lines().next().unwrap_or("");
                 lines.push(Line::from(vec![
+                    Span::styled("  💭 ▶ ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
-                        format!("{} ", SPINNER[spinner_frame]),
-                        Style::default().fg(Color::LightGreen),
-                    ),
-                    Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(
-                        format!("Thinking{}", elapsed),
+                        truncate(preview, max_w.saturating_sub(20)),
                         Style::default().fg(Color::DarkGray),
                     ),
                 ]));
+            } else {
+                let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(4));
+                for line in md_lines.iter() {
+                    let text = line
+                        .spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect::<String>();
+                    lines.push(Line::styled(
+                        format!("    {}", text),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
             }
         }
 
-        // Streaming text - just show the content, no indicator needed
+        // Streaming text - show content with separator if thinking was shown
         if !self.streaming.is_empty() {
+            if self.activity == Activity::Thinking && !self.thinking.is_empty() {
+                lines.push(Line::raw(""));
+            }
             let md_lines = render_markdown(&self.streaming, max_w);
             lines.extend(md_lines);
         }

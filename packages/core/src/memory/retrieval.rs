@@ -12,6 +12,7 @@ use super::types::{AutoMemory, MemoryEntry};
 
 /// Extract meaningful keywords from conversation context.
 /// Uses KeywordsConfig for stop words and tech keywords.
+/// Improved: avoids meaningless character fragments.
 pub fn extract_context_keywords(context: &str) -> Vec<String> {
     let config = KeywordsConfig::load();
     let stop_words = config.get_stop_words_set();
@@ -20,57 +21,64 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
     let lower = context.to_lowercase();
     let mut keywords: HashSet<String> = HashSet::new();
 
-    // 1. Extract English words
+    // 1. Extract English words (must be meaningful - at least 3 chars)
     for word in lower.split_whitespace() {
         let cleaned = word
             .trim_matches(|c: char| !c.is_alphanumeric())
             .to_string();
-        if cleaned.len() >= 2 && !stop_words.contains(cleaned.as_str()) {
+        // Only accept words at least 3 chars to avoid fragments like "ok", "go"
+        if cleaned.len() >= 3 && !stop_words.contains(cleaned.as_str()) {
             keywords.insert(cleaned.clone());
         }
+        // Always accept known tech patterns even if short
         if tech_patterns.contains(cleaned.as_str()) {
             keywords.insert(cleaned);
         }
     }
 
-    // 2. Extract Chinese words/phrases
-    let chinese_chars: Vec<char> = lower
-        .chars()
-        .filter(|c| *c >= '\u{4E00}' && *c <= '\u{9FFF}')
-        .collect();
+    // 2. Extract meaningful Chinese phrases using known patterns from config
+    // Instead of sliding window (which produces nonsense fragments),
+    // use the predefined patterns for decision/preference/solution/finding
+    for category_patterns in config.patterns.values() {
+        for pattern in category_patterns {
+            if lower.contains(&pattern.to_lowercase()) {
+                keywords.insert(pattern.clone());
+            }
+        }
+    }
 
-    for window_size in 2..=4 {
-        if chinese_chars.len() >= window_size {
-            for window in chinese_chars.windows(window_size) {
-                let phrase: String = window.iter().collect();
-                let has_stop = stop_words.iter().any(|sw| phrase.contains(sw));
-                if !has_stop && phrase.len() >= window_size {
-                    keywords.insert(phrase);
+    // 3. Extract known tech keywords from config
+    for kw in &config.tech_keywords {
+        if lower.contains(&kw.to_lowercase()) && !stop_words.contains(kw.as_str()) {
+            keywords.insert(kw.clone());
+        }
+    }
+
+    // 4. Extract specific tech patterns (camelCase, snake_case, file paths)
+    let tech_regexes = [
+        r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z]{1,4}",       // file extensions like .rs, .ts
+        r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*", // module.function
+        r"[A-Z][a-z]+[A-Z][a-zA-Z]*",                   // CamelCase
+        r"[a-z][a-z0-9]*_[a-z][a-z0-9_]*",              // snake_case
+        r"[0-9]+[kKmMgGtT][bB]?",                       // sizes like 4KB, 2MB
+        r"[a-zA-Z]+-[a-zA-Z]+",                         // hyphenated like react-dom
+    ];
+
+    for pattern in tech_regexes {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            for cap in re.find_iter(&lower) {
+                let match_str = cap.as_str();
+                if !stop_words.contains(match_str) {
+                    keywords.insert(match_str.to_string());
                 }
             }
         }
     }
 
-    // 3. Extract specific patterns
-    let patterns = [
-        r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z]{1,4}",
-        r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*",
-        r"[A-Z][a-z]+[A-Z][a-zA-Z]*",
-        r"[a-z][a-z0-9]*_[a-z][a-z0-9_]*",
-        r"[0-9]+[kKmMgGtT][bB]?",
-    ];
-
-    for pattern in patterns {
-        if let Ok(re) = regex::Regex::new(pattern) {
-            for cap in re.find_iter(&lower) {
-                keywords.insert(cap.as_str().to_string());
-            }
-        }
-    }
-
+    // Sort by length (longer = more specific) and limit to 10
     let mut result: Vec<String> = keywords.into_iter().collect();
     result.sort_by_key(|b| std::cmp::Reverse(b.len()));
-    result.truncate(15);
+    result.truncate(10);
 
     result
 }

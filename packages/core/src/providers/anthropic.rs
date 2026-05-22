@@ -242,6 +242,10 @@ impl Provider for AnthropicProvider {
         let body = self.build_body(&request);
 
         let url = format!("{}/v1/messages", self.base_url);
+
+        // Debug: log request
+        crate::debug::debug_log().api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
+
         let mut req = self
             .client
             .post(&url)
@@ -267,6 +271,9 @@ impl Provider for AnthropicProvider {
 
         let status = response.status();
         let response_body: Value = response.json().await?;
+
+        // Debug: log response
+        crate::debug::debug_log().api_response(status.as_u16(), &serde_json::to_string(&response_body).unwrap_or_default());
 
         if !status.is_success() {
             let err_msg = response_body["error"]["message"]

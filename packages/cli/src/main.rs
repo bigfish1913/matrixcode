@@ -705,20 +705,6 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 continue;
             }
 
-            // Extract keywords from user message for debug
-            let keywords = matrixcode_core::memory::extract_context_keywords(&msg);
-            if !keywords.is_empty() {
-                matrixcode_core::debug_keywords!(&keywords, &msg);
-                // Send KeywordsExtracted event to TUI
-                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
-                    matrixcode_core::EventType::KeywordsExtracted,
-                    matrixcode_core::EventData::Keywords {
-                        keywords: keywords.clone(),
-                        source: msg.clone(),
-                    },
-                )).await;
-            }
-
             // Handle /init commands
             if msg.starts_with("/init") {
                 let result = handle_init_command(&msg, agent_project_path.as_deref());

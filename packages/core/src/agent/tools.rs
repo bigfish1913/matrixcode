@@ -7,9 +7,13 @@ use tokio::time::{Duration, sleep};
 use crate::approval::{ApproveMode, needs_approval};
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role};
+use crate::truncate::truncate_with_suffix;
 
 use super::helpers::extract_tool_detail;
 use super::types::Agent;
+
+/// Maximum tool result size (50KB) - prevents oversized responses
+const MAX_TOOL_RESULT_SIZE: usize = 50_000;
 
 /// Wait for cancellation signal, checking periodically.
 async fn wait_for_cancel(token: &crate::cancel::CancellationToken) {
@@ -55,6 +59,20 @@ impl Agent {
                     let (content, is_error) = match result {
                         Ok(output) => (output, false),
                         Err(e) => (e.to_string(), true),
+                    };
+
+                    // Truncate oversized tool results to prevent API issues
+                    let content = if content.len() > MAX_TOOL_RESULT_SIZE {
+                        let truncated = truncate_with_suffix(&content, MAX_TOOL_RESULT_SIZE);
+                        log::warn!(
+                            "Tool '{}' result truncated: {} -> {} bytes",
+                            name,
+                            content.len(),
+                            truncated.len()
+                        );
+                        format!("{}\n\n⚠️ Output truncated ({} bytes total)", truncated, content.len())
+                    } else {
+                        content
                     };
 
                     self.emit(AgentEvent::tool_result(

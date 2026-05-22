@@ -58,6 +58,8 @@ pub struct TuiApp {
     pub(crate) new_message_while_scrolled: std::cell::Cell<bool>, // Flag for notification when scrolled up
     // Thinking display state
     pub(crate) thinking_collapsed: bool,
+    // Dirty flag for rendering optimization - only redraw when something changed
+    pub(crate) dirty: std::cell::Cell<bool>,
     // Approval mode
     pub(crate) approve_mode: ApproveMode,
     // Shared approve mode atomic - directly updates agent's mode in real-time
@@ -159,6 +161,7 @@ impl TuiApp {
             max_scroll: std::cell::Cell::new(0),
             new_message_while_scrolled: std::cell::Cell::new(false),
             thinking_collapsed: false, // Default: expanded to show thinking content
+            dirty: std::cell::Cell::new(true), // Initial render needed
             approve_mode: ApproveMode::Ask,
             shared_approve_mode: None,
             ask_tx: None,
@@ -370,26 +373,47 @@ impl TuiApp {
     pub fn run(&mut self, term: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         loop {
             // Animation frame - cycle through 10 frames for spinner
-            if self.last_anim.elapsed().as_millis() >= ANIM_MS as u128 {
+            // Always render when animation frame updates (for spinner)
+            let anim_update = self.last_anim.elapsed().as_millis() >= ANIM_MS as u128;
+            if anim_update {
                 self.frame = (self.frame + 1) % 10;
                 self.last_anim = Instant::now();
+                self.dirty.set(true);
             }
 
-            term.draw(|f| self.draw(f))?;
-
-            // Handle events
-            if event::poll(Duration::from_millis(16))? {
+            // Handle events - mark dirty on any user input
+            if event::poll(Duration::from_millis(ANIM_MS as u64))? {
                 match event::read()? {
-                    Event::Key(k) => self.on_key(k),
-                    Event::Mouse(m) => self.on_mouse(m),
-                    Event::Paste(text) => self.on_paste(&text),
+                    Event::Key(k) => {
+                        self.on_key(k);
+                        self.dirty.set(true);
+                    }
+                    Event::Mouse(m) => {
+                        self.on_mouse(m);
+                        self.dirty.set(true);
+                    }
+                    Event::Paste(text) => {
+                        self.on_paste(&text);
+                        self.dirty.set(true);
+                    }
                     _ => {}
                 }
             }
 
-            // Process agent events
+            // Process agent events - mark dirty on any event
+            let mut had_event = false;
             while let Ok(e) = self.rx.try_recv() {
                 self.on_event(e);
+                had_event = true;
+            }
+            if had_event {
+                self.dirty.set(true);
+            }
+
+            // Only render if dirty (something changed)
+            if self.dirty.get() {
+                term.draw(|f| self.draw(f))?;
+                self.dirty.set(false);
             }
 
             if self.exit {

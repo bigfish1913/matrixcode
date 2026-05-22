@@ -149,6 +149,14 @@ const SYSTEM_PROMPT_COMPLETION: &str = r#"完成要求：
   2. 已执行的验证（测试、运行、检查）；
   3. 剩余风险或后续建议（如有）。"#;
 
+const SYSTEM_PROMPT_OUTPUT_CONTROL: &str = r#"输出控制：
+- 回复简洁明了，避免冗长解释，直接给结论和关键信息。
+- 读取文件时使用 offset/limit 参数分批读取，不要一次性读取大文件。
+- 执行命令预期有大输出时，使用 head_limit 或管道限制输出量。
+- 工具结果超过 50KB 会自动截断，主动控制输出量可避免信息丢失。
+- 输出代码时只展示关键部分，用注释标注省略内容，不要粘贴完整文件。
+- 解释问题时用要点列表，每个要点不超过 2 行。"#;
+
 const SYSTEM_PROMPT_TASK_TRACKING: &str = r#"任务追踪与强制完成：
 - 收到多步骤任务时，必须先用 todo_write 工具列出所有子任务。
 - 每完成一个子任务，立即将其标记为 completed。
@@ -174,6 +182,7 @@ const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_EDITING,
     SYSTEM_PROMPT_EXECUTION,
     SYSTEM_PROMPT_LANGUAGE,
+    SYSTEM_PROMPT_OUTPUT_CONTROL,
     SYSTEM_PROMPT_COMPLETION,
     SYSTEM_PROMPT_TASK_TRACKING,
 ];
@@ -189,6 +198,7 @@ const SAFE_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_SECURITY,
     SYSTEM_PROMPT_EDITING,
     SYSTEM_PROMPT_LANGUAGE,
+    SYSTEM_PROMPT_OUTPUT_CONTROL,
     SYSTEM_PROMPT_COMPLETION,
     SYSTEM_PROMPT_TASK_TRACKING,
 ];
@@ -196,6 +206,7 @@ const SAFE_SYSTEM_PROMPT_MODULES: &[&str] = &[
 const FAST_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
     SYSTEM_PROMPT_MISSION,
+    SYSTEM_PROMPT_OUTPUT_CONTROL,
     SYSTEM_PROMPT_EXECUTION,
     SYSTEM_PROMPT_LANGUAGE,
     SYSTEM_PROMPT_COMPLETION,
@@ -212,6 +223,7 @@ const REVIEW_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_TESTING,
     SYSTEM_PROMPT_SECURITY,
     SYSTEM_PROMPT_LANGUAGE,
+    SYSTEM_PROMPT_OUTPUT_CONTROL,
     SYSTEM_PROMPT_COMPLETION,
     SYSTEM_PROMPT_TASK_TRACKING,
 ];

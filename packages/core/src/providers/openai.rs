@@ -30,9 +30,14 @@ impl OpenAIProvider {
         base_url: String,
         extra_headers: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
+        // Use longer timeout for streaming responses (like Anthropic provider)
+        // - Total timeout: 300s (for long thinking/reasoning)
+        // - Connect timeout: 10s
+        // - Read timeout per chunk: 60s (for slow responses between chunks)
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(300))
             .connect_timeout(std::time::Duration::from_secs(10))
+            .read_timeout(std::time::Duration::from_secs(60))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         let extra_headers: Vec<(String, String)> = extra_headers
@@ -189,6 +194,10 @@ impl Provider for OpenAIProvider {
         }
 
         let url = format!("{}/chat/completions", self.base_url);
+
+        // Debug: log request
+        crate::debug::debug_log().api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
+
         let mut req = self
             .client
             .post(&url)
@@ -205,6 +214,9 @@ impl Provider for OpenAIProvider {
 
         let status = response.status();
         let response_body: Value = response.json().await?;
+
+        // Debug: log response
+        crate::debug::debug_log().api_response(status.as_u16(), &serde_json::to_string(&response_body).unwrap_or_default());
 
         if !status.is_success() {
             let err_msg = response_body["error"]["message"]

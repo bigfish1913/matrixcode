@@ -138,6 +138,57 @@ impl DebugLog {
         self.write(&msg);
     }
 
+    /// Log API request body (for debug)
+    pub fn api_request(&self, url: &str, body: &str) {
+        // Truncate large bodies for readability
+        let body_preview = if body.len() > 5000 {
+            truncate_with_suffix(body, 5000)
+        } else {
+            body.to_string()
+        };
+        let msg = format!(
+            "[{}] API_REQUEST: url={}\n---REQUEST_BODY---\n{}\n---END---",
+            Self::timestamp(),
+            url,
+            body_preview
+        );
+        self.write(&msg);
+    }
+
+    /// Log API response (for debug)
+    pub fn api_response(&self, status: u16, body: &str) {
+        // Truncate large responses
+        let body_preview = if body.len() > 10000 {
+            truncate_with_suffix(body, 10000)
+        } else {
+            body.to_string()
+        };
+        let msg = format!(
+            "[{}] API_RESPONSE: status={}\n---RESPONSE_BODY---\n{}\n---END---",
+            Self::timestamp(),
+            status,
+            body_preview
+        );
+        self.write(&msg);
+    }
+
+    /// Log streaming chunk (for debug, limited)
+    pub fn stream_chunk(&self, chunk_type: &str, content: &str) {
+        // Only log small chunks to avoid flooding
+        let preview = if content.len() > 200 {
+            truncate_with_suffix(content, 200)
+        } else {
+            content.to_string()
+        };
+        let msg = format!(
+            "[{}] STREAM_CHUNK: type={} | {}",
+            Self::timestamp(),
+            chunk_type,
+            preview
+        );
+        self.write(&msg);
+    }
+
     fn write(&self, msg: &str) {
         // Write to file
         if let Some(ref file) = self.file
@@ -256,5 +307,26 @@ macro_rules! debug_session {
 macro_rules! debug_log_msg {
     ($cat:expr, $msg:expr) => {
         $crate::debug::debug_log().log($cat, $msg)
+    };
+}
+
+#[macro_export]
+macro_rules! debug_api_request {
+    ($url:expr, $body:expr) => {
+        $crate::debug::debug_log().api_request($url, $body)
+    };
+}
+
+#[macro_export]
+macro_rules! debug_api_response {
+    ($status:expr, $body:expr) => {
+        $crate::debug::debug_log().api_response($status, $body)
+    };
+}
+
+#[macro_export]
+macro_rules! debug_stream_chunk {
+    ($type:expr, $content:expr) => {
+        $crate::debug::debug_log().stream_chunk($type, $content)
     };
 }
