@@ -31,16 +31,21 @@ impl TuiApp {
         // Queue indicator: 1 line if pending messages exist
         let queue_height = if self.pending_messages.is_empty() { 0u16 } else { 1u16 };
 
+        // Gap between messages and input area (empty line for spacing)
+        let gap_height = 1u16;
+
         // Calculate positions from bottom up
         let input_y = total_height.saturating_sub(status_height + input_height);
         let hint_y = input_y.saturating_sub(hint_height);
-        let status_y = total_height.saturating_sub(status_height);
-        let queue_y = hint_y.saturating_sub(queue_height);
+        let gap_y = hint_y.saturating_sub(gap_height);
+        let queue_y = gap_y.saturating_sub(queue_height);
         let messages_height = queue_y;
+        let status_y = total_height.saturating_sub(status_height);
 
         // Create areas
         let messages_area = Rect::new(f.area().x, f.area().y, f.area().width, messages_height);
         let queue_area = Rect::new(f.area().x, queue_y, f.area().width, queue_height);
+        // Gap area is just empty space - no rendering needed
         let hint_area = Rect::new(f.area().x, hint_y, f.area().width, hint_height);
         let input_area = Rect::new(f.area().x, input_y, f.area().width, input_height);
         let status_area = Rect::new(f.area().x, status_y, f.area().width, status_height);
@@ -49,6 +54,7 @@ impl TuiApp {
         if !self.pending_messages.is_empty() {
             self.draw_queue(f, queue_area);
         }
+        // Gap is intentionally empty - provides visual spacing
         if hint_height > 0 {
             self.draw_hint(f, hint_area);
         }

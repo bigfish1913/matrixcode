@@ -851,20 +851,26 @@ impl TuiApp {
         if !self.streaming.is_empty() {
             let elapsed = self
                 .request_start
-                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
+                .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
             let md_lines = render_markdown(&self.streaming, max_w);
             lines.extend(md_lines);
-            // Blinking cursor effect (alternates between ▌ and space)
-            let cursor_char = if self.frame.is_multiple_of(2) {
-                "▌"
-            } else {
-                " "
-            };
-            lines.push(Line::styled(
-                format!("  {}{}", cursor_char, elapsed),
-                Style::default().fg(Color::Cyan),
-            ));
+            // Blinking cursor effect with elapsed time
+            let spinner_frame = self.frame % SPINNER.len();
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("{} ", SPINNER[spinner_frame]),
+                    Style::default().fg(Color::LightGreen),
+                ),
+                Span::styled(
+                    "Responding ",
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(
+                    elapsed,
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
         }
 
         // Activity indicator
@@ -886,16 +892,26 @@ impl TuiApp {
         {
             let elapsed = self
                 .request_start
-                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
+                .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
             let spinner_frame = self.frame % SPINNER.len();
             lines.push(Line::from(vec![
                 Span::styled(
-                    format!("  {} ", SPINNER[spinner_frame]),
+                    format!("{} ", SPINNER[spinner_frame]),
                     Style::default().fg(Color::LightGreen),
                 ),
                 Span::styled(
-                    format!("Thinking...{}", elapsed),
+                    "🧠 ",
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::styled(
+                    "Thinking",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" {}", elapsed),
                     Style::default().fg(Color::DarkGray),
                 ),
             ]));
