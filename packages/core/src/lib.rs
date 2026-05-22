@@ -29,7 +29,7 @@ pub use debug::{DebugLog, DebugStats, debug_log};
 pub use event::{AgentEvent, EventCollector, EventData, EventType};
 pub use providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, ProviderType, Role,
-    create_provider, infer_provider_type,
+    create_provider, create_provider_with_headers, infer_provider_type,
 };
 pub use session::{Session, SessionManager};
 pub use truncate::{find_boundary, truncate_bytes, truncate_chars, truncate_with_suffix};

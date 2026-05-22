@@ -18,26 +18,42 @@ pub struct AnthropicProvider {
     model: String,
     base_url: String,
     client: reqwest::Client,
-    /// Whether this is an Aliyun DashScope endpoint (requires special headers).
-    is_dashscope: bool,
+    /// Extra headers from config
+    extra_headers: Vec<(String, String)>,
 }
 
 impl AnthropicProvider {
     pub fn new(api_key: String, model: String, base_url: String) -> Self {
-        let is_dashscope = base_url.contains("dashscope.aliyuncs.com");
+        Self::with_headers(api_key, model, base_url, None)
+    }
+
+    pub fn with_headers(
+        api_key: String,
+        model: String,
+        base_url: String,
+        extra_headers: Option<std::collections::HashMap<String, String>>,
+    ) -> Self {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .connect_timeout(std::time::Duration::from_secs(10))
-            .danger_accept_invalid_certs(true)
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
+        let extra_headers: Vec<(String, String)> = extra_headers
+            .map(|h| h.into_iter().collect())
+            .unwrap_or_default();
         Self {
             api_key,
             model,
             base_url,
             client,
-            is_dashscope,
+            extra_headers,
         }
+    }
+
+    /// Check if this is the official Anthropic API endpoint.
+    /// Non-official endpoints typically use Bearer auth (OpenAI-compatible).
+    fn is_official_anthropic(&self) -> bool {
+        self.base_url.contains("api.anthropic.com")
     }
 
     fn convert_messages(&self, messages: &[Message]) -> Vec<Value> {
@@ -125,7 +141,7 @@ impl AnthropicProvider {
         });
 
         // Add prompt caching for system prompt (Anthropic-specific)
-        if request.enable_caching && !self.is_dashscope {
+        if request.enable_caching {
             if let Some(system) = &request.system {
                 // System prompt caching: add cache_control to enable caching
                 body["system"] = json!([
@@ -143,7 +159,7 @@ impl AnthropicProvider {
         if !request.tools.is_empty() {
             let tools = self.convert_tools_with_caching(
                 &request.tools,
-                request.enable_caching && !self.is_dashscope,
+                request.enable_caching,
             );
             body["tools"] = json!(tools);
         }
@@ -167,8 +183,8 @@ impl AnthropicProvider {
             );
         }
 
-        // DashScope does not support Anthropic's extended thinking feature
-        if request.think && !self.is_dashscope {
+        // Extended thinking (Anthropic-specific)
+        if request.think {
             let config = thinking_config(&self.model);
             log::debug!(
                 "Adding thinking config for model {}: {:?}",
@@ -176,10 +192,6 @@ impl AnthropicProvider {
                 config
             );
             body["thinking"] = config;
-        } else if !request.think {
-            log::debug!("Thinking disabled by request.think=false");
-        } else if self.is_dashscope {
-            log::debug!("Thinking disabled for DashScope");
         }
 
         body
@@ -217,7 +229,7 @@ impl Provider for AnthropicProvider {
             model: self.model.clone(),
             base_url: self.base_url.clone(),
             client: reqwest::Client::new(),
-            is_dashscope: self.is_dashscope,
+            extra_headers: self.extra_headers.clone(),
         })
     }
 
@@ -231,14 +243,19 @@ impl Provider for AnthropicProvider {
             .header("User-Agent", "curl/8.0")
             .json(&body);
 
-        // DashScope uses Bearer auth
-        if self.is_dashscope {
-            req = req.header("Authorization", format!("Bearer {}", self.api_key));
-        } else {
+        // Auth: official Anthropic API uses x-api-key, others use Bearer (OpenAI-compatible)
+        if self.is_official_anthropic() {
             req = req
                 .header("x-api-key", &self.api_key)
                 .header("anthropic-version", "2025-04-15")
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
+        } else {
+            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+
+        // Add extra headers from config (all custom headers go here)
+        for (name, value) in &self.extra_headers {
+            req = req.header(name, value);
         }
 
         let response = req.send().await?;
@@ -311,16 +328,19 @@ impl Provider for AnthropicProvider {
             .header("User-Agent", "curl/8.0")
             .json(&body);
 
-        // DashScope uses Bearer auth and requires SSE header for streaming
-        if self.is_dashscope {
-            req = req
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("X-DashScope-SSE", "enable");
-        } else {
+        // Auth: official Anthropic API uses x-api-key, others use Bearer (OpenAI-compatible)
+        if self.is_official_anthropic() {
             req = req
                 .header("x-api-key", &self.api_key)
                 .header("anthropic-version", "2025-04-15")
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
+        } else {
+            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+
+        // Add extra headers from config (all custom headers go here)
+        for (name, value) in &self.extra_headers {
+            req = req.header(name, value);
         }
 
         let response = req.send().await?;

@@ -15,20 +15,35 @@ pub struct OpenAIProvider {
     model: String,
     base_url: String,
     client: reqwest::Client,
+    /// Extra headers from config
+    extra_headers: Vec<(String, String)>,
 }
 
 impl OpenAIProvider {
     pub fn new(api_key: String, model: String, base_url: String) -> Self {
+        Self::with_headers(api_key, model, base_url, None)
+    }
+
+    pub fn with_headers(
+        api_key: String,
+        model: String,
+        base_url: String,
+        extra_headers: Option<std::collections::HashMap<String, String>>,
+    ) -> Self {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
+        let extra_headers: Vec<(String, String)> = extra_headers
+            .map(|h| h.into_iter().collect())
+            .unwrap_or_default();
         Self {
             api_key,
             model,
             base_url,
             client,
+            extra_headers,
         }
     }
 
@@ -156,6 +171,7 @@ impl Provider for OpenAIProvider {
             model: self.model.clone(),
             base_url: self.base_url.clone(),
             client: reqwest::Client::new(),
+            extra_headers: self.extra_headers.clone(),
         })
     }
 
@@ -173,14 +189,19 @@ impl Provider for OpenAIProvider {
         }
 
         let url = format!("{}/chat/completions", self.base_url);
-        let response = self
+        let mut req = self
             .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+
+        // Add extra headers from config
+        for (name, value) in &self.extra_headers {
+            req = req.header(name, value);
+        }
+
+        let response = req.send().await?;
 
         let status = response.status();
         let response_body: Value = response.json().await?;

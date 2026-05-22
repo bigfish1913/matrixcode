@@ -210,7 +210,7 @@ impl Clone for Box<dyn Provider> {
 // ============================================================================
 
 /// Provider type enumeration for factory creation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderType {
     Anthropic,
     OpenAI,
@@ -224,20 +224,33 @@ pub fn create_provider(
     model: String,
     base_url: Option<String>,
 ) -> Result<Box<dyn Provider>> {
+    create_provider_with_headers(provider_type, api_key, model, base_url, None)
+}
+
+/// Create a provider with extra headers support.
+pub fn create_provider_with_headers(
+    provider_type: ProviderType,
+    api_key: String,
+    model: String,
+    base_url: Option<String>,
+    extra_headers: Option<std::collections::HashMap<String, String>>,
+) -> Result<Box<dyn Provider>> {
     match provider_type {
         ProviderType::Anthropic => {
-            let provider = anthropic::AnthropicProvider::new(
+            let provider = anthropic::AnthropicProvider::with_headers(
                 api_key,
                 model,
                 base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string()),
+                extra_headers,
             );
             Ok(Box::new(provider))
         }
         ProviderType::OpenAI => {
-            let provider = openai::OpenAIProvider::new(
+            let provider = openai::OpenAIProvider::with_headers(
                 api_key,
                 model,
                 base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+                extra_headers,
             );
             Ok(Box::new(provider))
         }

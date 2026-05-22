@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use display::{print_response_border, print_thinking_border};
 use matrixcode_core::{
     AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
-    create_provider, infer_provider_type, memory::MemoryStorage, providers::Provider,
+    create_provider_with_headers, infer_provider_type, memory::MemoryStorage, providers::Provider,
     tools::all_tools_with_skills,
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
@@ -191,6 +191,18 @@ fn default_model() -> String {
 /// Get default base URL for anthropic provider.
 fn default_base_url() -> String {
     "https://api.anthropic.com".to_string()
+}
+
+/// Resolve provider type from config or model name.
+fn resolve_provider(config: &Config, model: &str) -> matrixcode_core::providers::ProviderType {
+    config
+        .provider
+        .as_ref()
+        .map(|p| match p.as_str() {
+            "openai" => matrixcode_core::providers::ProviderType::OpenAI,
+            _ => matrixcode_core::providers::ProviderType::Anthropic,
+        })
+        .unwrap_or_else(|| infer_provider_type(model))
 }
 
 /// Resolve model from config, env, or default.
@@ -519,6 +531,16 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         .map(|m| matrixcode_core::approval::ApproveMode::parse(m))
         .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
 
+    // Provider from config, or infer from model name
+    let agent_provider = config
+        .provider
+        .as_ref()
+        .map(|p| match p.as_str() {
+            "openai" => matrixcode_core::providers::ProviderType::OpenAI,
+            _ => matrixcode_core::providers::ProviderType::Anthropic,
+        })
+        .unwrap_or_else(|| infer_provider_type(&agent_model));
+
     // Create shared approve mode atomic - accessible by both agent and TUI
     let shared_approve_mode =
         std::sync::Arc::new(std::sync::atomic::AtomicU8::new(agent_approve_mode.to_u8()));
@@ -529,6 +551,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         .clone()
         .or_else(|| std::env::var("ANTHROPIC_DEFAULT_HAIKU_MODEL").ok());
 
+    // Extra headers from config
+    let agent_extra_headers = config.extra_headers.clone();
+
     // Clone skills for agent task
     let agent_skills = skills.clone();
     let agent_shared_approve_mode = shared_approve_mode.clone();
@@ -536,12 +561,12 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Spawn Agent task with real Agent
     let agent_task = rt.spawn(async move {
         // Create provider using factory
-        let provider_type = infer_provider_type(&agent_model);
-        let provider = match create_provider(
-            provider_type,
+        let provider = match create_provider_with_headers(
+            agent_provider,
             agent_api_key.clone(),
             agent_model.clone(),
             Some(agent_base_url.clone()),
+            agent_extra_headers.clone(),
         ) {
             Ok(p) => p,
             Err(e) => {
@@ -557,11 +582,12 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         // Create fast provider for keyword extraction
         let fast_provider: Option<Box<dyn Provider>> = agent_fast_model.as_ref().and_then(|fast_model| {
             let fast_type = infer_provider_type(fast_model);
-            create_provider(
+            create_provider_with_headers(
                 fast_type,
                 agent_api_key.clone(),
                 fast_model.clone(),
                 Some(agent_base_url.clone()),
+                agent_extra_headers.clone(),
             ).ok()
         });
 
@@ -707,11 +733,12 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
                         if let Some(ref path) = agent_project_path {
                             // Create a new provider for overview generation
-                            let overview_provider = match create_provider(
-                                infer_provider_type(&agent_model),
+                            let overview_provider = match create_provider_with_headers(
+                                agent_provider,
                                 agent_api_key.clone(),
                                 agent_model.clone(),
                                 Some(agent_base_url.clone()),
+                                agent_extra_headers.clone(),
                             ) {
                                 Ok(p) => p,
                                 Err(e) => {
@@ -1617,11 +1644,12 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                     );
 
                     // Create provider using factory
-                    let provider = match create_provider(
-                        infer_provider_type(&model),
+                    let provider = match create_provider_with_headers(
+                        resolve_provider(&config, &model),
                         api_key,
                         model.clone(),
                         Some(base_url),
+                        config.extra_headers.clone(),
                     ) {
                         Ok(p) => p,
                         Err(e) => {
@@ -1895,11 +1923,12 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 );
 
                 // Create provider using factory
-                let provider = match create_provider(
-                    infer_provider_type(&model),
+                let provider = match create_provider_with_headers(
+                    resolve_provider(&config, &model),
                     api_key,
                     model.clone(),
                     Some(base_url),
+                    config.extra_headers.clone(),
                 ) {
                     Ok(p) => p,
                     Err(e) => {
@@ -2018,11 +2047,12 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                     None,
                 );
 
-                let provider = match create_provider(
-                    infer_provider_type(&model),
+                let provider = match create_provider_with_headers(
+                    resolve_provider(&config, &model),
                     api_key,
                     model.clone(),
                     Some(base_url),
+                    config.extra_headers.clone(),
                 ) {
                     Ok(p) => p,
                     Err(e) => {
@@ -2359,11 +2389,12 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                     None,
                 );
 
-                let provider = match create_provider(
-                    infer_provider_type(&model),
+                let provider = match create_provider_with_headers(
+                    resolve_provider(&config, &model),
                     api_key,
                     model.clone(),
                     Some(base_url),
+                    config.extra_headers.clone(),
                 ) {
                     Ok(p) => p,
                     Err(e) => {
@@ -2552,11 +2583,12 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
 
                 let rt = tokio::runtime::Runtime::new()?;
                 let result = rt.block_on(async {
-                    let provider = match create_provider(
-                        infer_provider_type(&model),
+                    let provider = match create_provider_with_headers(
+                        resolve_provider(&config, &model),
                         api_key,
                         model.clone(),
                         Some(base_url),
+                        config.extra_headers.clone(),
                     ) {
                         Ok(p) => p,
                         Err(e) => return Err(e),
@@ -2607,11 +2639,12 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
 
                 let rt = tokio::runtime::Runtime::new()?;
                 let result = rt.block_on(async {
-                    let provider = match create_provider(
-                        infer_provider_type(&model),
+                    let provider = match create_provider_with_headers(
+                        resolve_provider(&config, &model),
                         api_key,
                         model.clone(),
                         Some(base_url),
+                        config.extra_headers.clone(),
                     ) {
                         Ok(p) => p,
                         Err(e) => return Err(e),

@@ -5,6 +5,9 @@ use serde_json::{Value, json};
 use super::{Tool, ToolDefinition};
 use crate::approval::RiskLevel;
 
+/// Maximum file size for safe editing (1MB)
+const MAX_EDIT_FILE_SIZE: u64 = 1_000_000;
+
 pub struct EditTool;
 
 #[async_trait]
@@ -35,9 +38,6 @@ impl Tool for EditTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        // Create spinner immediately at the start to fill the gap before actual operation
-        // let mut spinner = ToolSpinner::new("preparing edit");
-
         let path = params["path"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
@@ -48,18 +48,28 @@ impl Tool for EditTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'new_string'"))?;
 
-        // Update spinner message for the actual edit operation
-        // spinner.set_message(&format!("editing {}", path));
+        // Check file size first
+        let metadata = tokio::fs::metadata(path).await?;
+        let file_size = metadata.len();
+
+        if file_size > MAX_EDIT_FILE_SIZE {
+            return Ok(format!(
+                "⚠️ File is too large ({:.1}MB) for safe editing.\n\
+                 Large file edits may cause memory issues.\n\
+                 Consider using other methods:\n\
+                 - Use `bash` with sed/awk for large files\n\
+                 - Split the file into smaller sections first",
+                file_size as f64 / 1_000_000.0
+            ));
+        }
 
         let content = tokio::fs::read_to_string(path).await?;
 
         let count = content.matches(old_string).count();
         if count == 0 {
-            // spinner.finish_error("not found");
             anyhow::bail!("old_string not found in {}", path);
         }
         if count > 1 {
-            // spinner.finish_error("multiple matches");
             anyhow::bail!(
                 "old_string found {} times in {} — must be unique",
                 count,
@@ -80,7 +90,6 @@ impl Tool for EditTool {
         for line in &new_lines {
             diff.push_str(&format!("+ {}\n", line));
         }
-        // spinner.finish_success("edited");
         Ok(diff)
     }
 
