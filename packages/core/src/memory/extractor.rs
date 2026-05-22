@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use serde::Deserialize;
+use crate::truncate::truncate_chars;
 
 use super::config::*;
 use super::types::{AutoMemory, MemoryCategory, MemoryEntry};
@@ -52,11 +53,8 @@ impl MemoryExtractor for AiMemoryExtractor {
     async fn extract(&self, text: &str, session_id: Option<&str>) -> Result<Vec<MemoryEntry>> {
         use crate::providers::{ChatRequest, Message, MessageContent, Role};
 
-        let truncated = if text.len() > 4000 {
-            &text[..4000]
-        } else {
-            text
-        };
+        // Safely truncate to ~4000 chars respecting UTF-8 boundaries
+        let truncated = truncate_chars(text, 4000);
 
         let request = ChatRequest {
             messages: vec![Message {

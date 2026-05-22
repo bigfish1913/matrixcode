@@ -26,6 +26,8 @@ impl AnthropicProvider {
     pub fn new(api_key: String, model: String, base_url: String) -> Self {
         let is_dashscope = base_url.contains("dashscope.aliyuncs.com");
         let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(10))
             .danger_accept_invalid_certs(true)
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());

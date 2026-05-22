@@ -144,6 +144,7 @@ pub struct AskOption {
     pub description: Option<String>,
     pub selected: bool,  // For multi-select: whether this option is checked
     pub is_submit: bool, // Whether this is a submit button option
+    pub is_other: bool,  // Whether this is "Other" option that allows custom input
 }
 
 impl AskOption {
@@ -153,6 +154,18 @@ impl AskOption {
             .as_ref()
             .map(|d| format!(" - {}", d))
             .unwrap_or_default()
+    }
+
+    /// Create an "Other" option for custom input
+    pub fn other_option() -> Self {
+        Self {
+            id: "other".to_string(),
+            label: "其他 (自定义输入)".to_string(),
+            description: Some("输入自定义内容".to_string()),
+            selected: false,
+            is_submit: false,
+            is_other: true,
+        }
     }
 }
 
@@ -191,6 +204,8 @@ pub struct AskQuestion {
     pub multi_select: bool,
     pub selected_index: usize,
     pub submit_mode: SubmitMode,
+    pub allow_other: bool,        // Whether to show "Other" option for custom input
+    pub other_input: Option<String>, // Custom input when "Other" is selected
 }
 
 /// Message block

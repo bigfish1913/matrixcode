@@ -350,8 +350,11 @@ impl TuiApp {
                                 .and_then(|s| s.as_bool())
                                 .unwrap_or(false),
                             is_submit: false,
+                            is_other: false,
                         })
                         .collect();
+                    // Append "Other" option for custom input
+                    self.ask_options.push(crate::types::AskOption::other_option());
                     self.ask_selected_index = 0;
 
                     if self.ask_multi_select {
@@ -365,6 +368,7 @@ impl TuiApp {
                                 description: Some("确认并提交所有选择".into()),
                                 selected: false,
                                 is_submit: true,
+                                is_other: false,
                             });
                         }
                     } else {
@@ -428,6 +432,7 @@ impl TuiApp {
                             description: Some("允许此操作".into()),
                             selected: false,
                             is_submit: false,
+                            is_other: false,
                         },
                         crate::types::AskOption {
                             id: "n".into(),
@@ -435,7 +440,9 @@ impl TuiApp {
                             description: Some("拒绝此操作".into()),
                             selected: false,
                             is_submit: false,
+                            is_other: false,
                         },
+                        crate::types::AskOption::other_option(),
                     ];
                     self.ask_selected_index = 0;
                     content.push_str("\n\n─────────────────────────────────────\n");
@@ -510,6 +517,7 @@ impl TuiApp {
                                         .and_then(|s| s.as_bool())
                                         .unwrap_or(false),
                                     is_submit: false,
+                                    is_other: false,
                                 })
                                 .collect()
                         })
@@ -518,6 +526,10 @@ impl TuiApp {
                     let opt_count = options.len();
                     let submit_mode = SubmitMode::from_option_count(opt_count, multi_select);
 
+                    // Append "Other" option for custom input
+                    let mut options = options;
+                    options.push(crate::types::AskOption::other_option());
+
                     crate::types::AskQuestion {
                         id,
                         question,
@@ -525,6 +537,8 @@ impl TuiApp {
                         multi_select,
                         selected_index: 0,
                         submit_mode,
+                        allow_other: true,
+                        other_input: None,
                     }
                 })
                 .collect();
@@ -557,6 +571,7 @@ impl TuiApp {
                     description: Some("确认选择并提交".into()),
                     selected: false,
                     is_submit: true,
+                    is_other: false,
                 });
             }
 

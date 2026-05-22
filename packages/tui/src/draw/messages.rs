@@ -633,6 +633,34 @@ impl TuiApp {
                         }
                     }
 
+                    // "Other" input mode: show input prompt
+                    if self.waiting_for_ask && self.ask_other_input_active {
+                        lines.push(Line::styled(
+                            "─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─",
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                        lines.push(Line::styled(
+                            "  ✏️ 输入自定义内容:",
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                        // Show current input with cursor indicator
+                        let input_display = if self.input.is_empty() {
+                            "_"
+                        } else {
+                            &self.input
+                        };
+                        lines.push(Line::styled(
+                            format!("  {}", input_display),
+                            Style::default().fg(Color::White),
+                        ));
+                        lines.push(Line::styled(
+                            "  [Enter] 确认  [Esc] 返回选择",
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
+
                     lines.push(Line::styled("", Style::default()));
                 }
             }

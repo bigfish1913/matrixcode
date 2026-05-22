@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use std::sync::atomic::Ordering;
+use tokio::time::{sleep, Duration};
 
 use crate::approval::{ApproveMode, needs_approval};
 use crate::event::{AgentEvent, EventData, EventType};
@@ -9,6 +10,13 @@ use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role
 
 use super::helpers::extract_tool_detail;
 use super::types::Agent;
+
+/// Wait for cancellation signal, checking periodically.
+async fn wait_for_cancel(token: &crate::cancel::CancellationToken) {
+    while !token.is_cancelled() {
+        sleep(Duration::from_millis(50)).await;
+    }
+}
 
 impl Agent {
     /// Process response and handle tool_use
@@ -140,7 +148,19 @@ impl Agent {
                     ))?;
 
                     if let Some(rx) = &mut self.ask_rx {
-                        match rx.recv().await {
+                        // Wait for approval with cancellation check
+                        let answer = if let Some(token) = &self.cancel_token {
+                            tokio::select! {
+                                result = rx.recv() => result,
+                                _ = wait_for_cancel(token) => {
+                                    return Err(anyhow::anyhow!("Operation cancelled"));
+                                }
+                            }
+                        } else {
+                            rx.recv().await
+                        };
+
+                        match answer {
                             Some(answer) => {
                                 let answer_lower = answer.trim().to_lowercase();
                                 if matches!(
@@ -207,7 +227,19 @@ impl Agent {
                     ))?;
 
                     if let Some(rx) = &mut self.ask_rx {
-                        match rx.recv().await {
+                        // Wait for answer with cancellation check
+                        let answer = if let Some(token) = &self.cancel_token {
+                            tokio::select! {
+                                result = rx.recv() => result,
+                                _ = wait_for_cancel(token) => {
+                                    return Err(anyhow::anyhow!("Operation cancelled"));
+                                }
+                            }
+                        } else {
+                            rx.recv().await
+                        };
+
+                        match answer {
                             Some(answer) => return Ok(answer),
                             None => return Err(anyhow::anyhow!("Ask channel closed")),
                         }
@@ -222,7 +254,19 @@ impl Agent {
                     ))?;
 
                     if let Some(rx) = &mut self.ask_rx {
-                        match rx.recv().await {
+                        // Wait for answer with cancellation check
+                        let answer = if let Some(token) = &self.cancel_token {
+                            tokio::select! {
+                                result = rx.recv() => result,
+                                _ = wait_for_cancel(token) => {
+                                    return Err(anyhow::anyhow!("Operation cancelled"));
+                                }
+                            }
+                        } else {
+                            rx.recv().await
+                        };
+
+                        match answer {
                             Some(answer) => return Ok(answer),
                             None => return Err(anyhow::anyhow!("Ask channel closed")),
                         }

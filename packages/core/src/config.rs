@@ -326,6 +326,12 @@ impl MatrixConfig {
         println!("[config saved to ~/.matrix/config.json]");
         Ok(())
     }
+
+    /// Check if API is configured (either via config file or environment variable).
+    /// Uses Claude Code style: ANTHROPIC_AUTH_TOKEN
+    pub fn is_api_configured(&self) -> bool {
+        self.api_key.is_some() || env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some()
+    }
 }
 
 /// Create a default config file for new users.

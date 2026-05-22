@@ -65,6 +65,7 @@ pub struct TuiApp {
     pub(crate) ask_selected_index: usize,
     pub(crate) ask_multi_select: bool, // Whether this is a multi-select question
     pub(crate) ask_submit_mode: SubmitMode, // How to submit selection
+    pub(crate) ask_other_input_active: bool, // Whether user is typing custom input for "Other" option
     // Multi-question support
     pub(crate) ask_questions: Vec<AskQuestion>, // Queue of questions
     pub(crate) current_question_idx: usize,     // Current question index
@@ -149,6 +150,7 @@ impl TuiApp {
             ask_selected_index: 0,
             ask_multi_select: false,
             ask_submit_mode: SubmitMode::default(),
+            ask_other_input_active: false,
             ask_questions: Vec::new(),
             current_question_idx: 0,
             tx,

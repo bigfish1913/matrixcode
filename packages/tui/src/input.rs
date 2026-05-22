@@ -39,6 +39,20 @@ impl TuiApp {
 
             // Escape: interrupt or clear input
             KeyCode::Esc => {
+                // If in "Other" input mode, return to selection mode
+                if self.ask_other_input_active {
+                    self.ask_other_input_active = false;
+                    self.input.clear();
+                    self.cursor_pos = 0;
+                    // Uncheck the "Other" option if it was checked
+                    for opt in &mut self.ask_options {
+                        if opt.is_other {
+                            opt.selected = false;
+                        }
+                    }
+                    return;
+                }
+
                 if self.activity == Activity::Asking {
                     // Abort approval request
                     self.waiting_for_ask = false;
@@ -107,7 +121,7 @@ impl TuiApp {
                 }
             }
 
-            // Space: toggle selection in multi-select mode
+            // Space: toggle selection in multi-select mode or insert space
             KeyCode::Char(' ')
                 if !k.modifiers.contains(KeyModifiers::ALT)
                     && !k.modifiers.contains(KeyModifiers::CONTROL) =>
@@ -116,8 +130,9 @@ impl TuiApp {
                     && self.waiting_for_ask
                     && self.ask_multi_select
                     && !self.ask_options.is_empty()
+                    && !self.ask_other_input_active
                 {
-                    // Toggle current selection (same logic as Enter)
+                    // Toggle current selection (only when not in Other input mode)
                     self.toggle_ask_selection();
                 } else {
                     // Normal input: insert space
@@ -147,11 +162,39 @@ impl TuiApp {
 
             // Up arrow: ask selection, history navigation, or multiline cursor
             KeyCode::Up if !k.modifiers.contains(KeyModifiers::ALT) => {
-                // Priority 1: Ask selection
-                if self.activity == Activity::Asking
+                // If in "Other" input mode, allow multiline navigation
+                if self.ask_other_input_active && self.input.contains('\n') {
+                    let (current_line_num, col_chars, _) = self.get_line_info();
+                    if current_line_num > 1 {
+                        let char_pos = self.byte_pos_to_char_pos();
+                        let input_chars: Vec<char> = self.input.chars().collect();
+                        let before_cursor_str: String = input_chars
+                           [..char_pos.min(input_chars.len())]
+                            .iter()
+                            .collect();
+
+                        // Previous line is before the last '\n' in before_cursor_str
+                        let prev_lines_str =
+                            &before_cursor_str[..before_cursor_str.rfind('\n').unwrap_or(0)];
+                        let prev_line_start_char = prev_lines_str.chars().count();
+
+                        // Find previous line length
+                        let prev_line_end_char =
+                            char_pos.saturating_sub(col_chars).saturating_sub(1); // -1 for the newline
+                        let prev_line_len_chars =
+                            prev_line_end_char.saturating_sub(prev_line_start_char);
+
+                        // Move to same column (or end if shorter)
+                        let target_char_pos =
+                            prev_line_start_char + col_chars.min(prev_line_len_chars);
+                        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
+                    }
+                } else if self.activity == Activity::Asking
                     && self.waiting_for_ask
                     && !self.ask_options.is_empty()
+                    && !self.ask_other_input_active
                 {
+                    // Ask selection (only when not in Other input mode)
                     if self.ask_selected_index > 0 {
                         self.ask_selected_index -= 1;
                     }
@@ -202,11 +245,46 @@ impl TuiApp {
 
             // Down arrow: ask selection, history navigation, or multiline cursor
             KeyCode::Down if !k.modifiers.contains(KeyModifiers::ALT) => {
-                // Priority 1: Ask selection
-                if self.activity == Activity::Asking
+                // If in "Other" input mode, allow multiline navigation
+                if self.ask_other_input_active && self.input.contains('\n') {
+                    let (current_line_num, col_chars, total_lines) = self.get_line_info();
+                    if current_line_num < total_lines {
+                        let char_pos = self.byte_pos_to_char_pos();
+                        let input_chars: Vec<char> = self.input.chars().collect();
+
+                        // Boundary check: char_pos must not exceed input_chars.len()
+                        let safe_char_pos = char_pos.min(input_chars.len());
+
+                        // Find next line start
+                        let remaining_chars = &input_chars[safe_char_pos..];
+                        let next_line_start_char = remaining_chars
+                            .iter()
+                            .position(|c| *c == '\n')
+                            .map(|i| safe_char_pos + i + 1)
+                            .unwrap_or_else(|| input_chars.len());
+
+                        // Find next line end
+                        let next_line_chars = &input_chars[next_line_start_char..];
+                        let next_line_end_char = next_line_chars
+                            .iter()
+                            .position(|c| *c == '\n')
+                            .map(|i| next_line_start_char + i)
+                            .unwrap_or_else(|| input_chars.len());
+
+                        let next_line_len_chars =
+                            next_line_end_char.saturating_sub(next_line_start_char);
+
+                        // Move to same column (or end if shorter)
+                        let target_char_pos =
+                            next_line_start_char + col_chars.min(next_line_len_chars);
+                        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
+                    }
+                } else if self.activity == Activity::Asking
                     && self.waiting_for_ask
                     && !self.ask_options.is_empty()
+                    && !self.ask_other_input_active
                 {
+                    // Ask selection (only when not in Other input mode)
                     if self.ask_selected_index < self.ask_options.len() - 1 {
                         self.ask_selected_index += 1;
                     }
@@ -494,6 +572,24 @@ impl TuiApp {
 
     /// Handle Enter key in Ask mode - toggle selection in multi-select or confirm
     fn handle_ask_enter(&mut self) {
+        // If in "Other" input mode, send the custom text
+        if self.ask_other_input_active {
+            self.confirm_ask_selection();
+            return;
+        }
+
+        // Check if current selection is "Other" option (single-select)
+        if !self.ask_multi_select && !self.ask_options.is_empty() {
+            let current_idx = self.ask_selected_index;
+            if current_idx < self.ask_options.len() && self.ask_options[current_idx].is_other {
+                // Enter "Other" input mode - user will type custom content
+                self.ask_other_input_active = true;
+                self.input.clear();
+                self.cursor_pos = 0;
+                return;
+            }
+        }
+
         if self.ask_multi_select && !self.ask_options.is_empty() {
             // Multi-select: toggle current selection
             self.toggle_ask_selection();
@@ -512,8 +608,25 @@ impl TuiApp {
         let current_idx = self.ask_selected_index;
         if current_idx < self.ask_options.len() {
             let is_submit = self.ask_options[current_idx].is_submit;
+            let is_other = self.ask_options[current_idx].is_other;
             // Toggle the selection
             self.ask_options[current_idx].selected = !self.ask_options[current_idx].selected;
+
+            // If "Other" was just checked, enter text input mode
+            if is_other && self.ask_options[current_idx].selected {
+                self.ask_other_input_active = true;
+                self.input.clear();
+                self.cursor_pos = 0;
+                return;
+            }
+
+            // If "Other" was just unchecked, exit text input mode
+            if is_other && !self.ask_options[current_idx].selected {
+                self.ask_other_input_active = false;
+                self.input.clear();
+                self.cursor_pos = 0;
+                return;
+            }
 
             // If Submit was just checked, confirm immediately in Option mode
             if is_submit
@@ -571,6 +684,7 @@ impl TuiApp {
                 description: Some("确认选择并提交".into()),
                 selected: false,
                 is_submit: true,
+                is_other: false,
             });
         }
 
@@ -652,6 +766,10 @@ impl TuiApp {
                 .min(q.options.len().saturating_sub(1));
             q.multi_select = self.ask_multi_select;
             q.submit_mode = self.ask_submit_mode.clone();
+            // Save "Other" input state
+            if self.ask_other_input_active && !self.input.trim().is_empty() {
+                q.other_input = Some(self.input.clone());
+            }
         }
     }
 
@@ -664,6 +782,17 @@ impl TuiApp {
             self.ask_multi_select = q.multi_select;
             self.ask_submit_mode = q.submit_mode.clone();
 
+            // Restore "Other" input state
+            if q.other_input.is_some() {
+                self.ask_other_input_active = true;
+                self.input = q.other_input.clone().unwrap_or_default();
+                self.cursor_pos = self.input.len();
+            } else {
+                self.ask_other_input_active = false;
+                self.input.clear();
+                self.cursor_pos = 0;
+            }
+
             // Add Submit option for Option mode if needed
             if self.ask_multi_select && self.ask_submit_mode == SubmitMode::Option {
                 self.ask_options.push(AskOption {
@@ -672,6 +801,7 @@ impl TuiApp {
                     description: Some("确认并提交所有选择".into()),
                     selected: false,
                     is_submit: true,
+                    is_other: false,
                 });
             }
         }
@@ -681,6 +811,85 @@ impl TuiApp {
     pub(crate) fn confirm_ask_selection(&mut self) {
         if !self.waiting_for_ask {
             return;
+        }
+
+        // Handle "Other" input mode - send custom text
+        if self.ask_other_input_active {
+            if self.input.trim().is_empty() {
+                // Empty input in Other mode - don't submit, stay in input mode
+                return;
+            }
+            let custom_text = self.input.trim().to_string();
+            // Find the "Other" option and get its id
+            let other_id = self
+                .ask_options
+                .iter()
+                .find(|opt| opt.is_other)
+                .map(|opt| opt.id.clone())
+                .unwrap_or("other".to_string());
+
+            // In multi-select, include other_id with custom text
+            if self.ask_multi_select {
+                let mut selected_ids: Vec<String> = self
+                    .ask_options
+                    .iter()
+                    .filter(|opt| opt.selected && !opt.is_submit && !opt.is_other)
+                    .map(|opt| opt.id.clone())
+                    .collect();
+                selected_ids.push(other_id);
+
+                let response = serde_json::to_string(&selected_ids).unwrap_or_else(|_| "[]".to_string());
+                let mut display_labels: Vec<&str> = self
+                    .ask_options
+                    .iter()
+                    .filter(|opt| opt.selected && !opt.is_submit && !opt.is_other)
+                    .map(|opt| opt.label.as_str())
+                    .collect();
+                display_labels.push(&custom_text);
+                let display_response = display_labels.join(", ");
+
+                self.waiting_for_ask = false;
+                self.activity = Activity::Thinking;
+                self.auto_scroll = true;
+                self.input.clear();
+                self.cursor_pos = 0;
+                self.ask_options.clear();
+                self.ask_selected_index = 0;
+                self.ask_multi_select = false;
+                self.ask_submit_mode = SubmitMode::default();
+                self.ask_other_input_active = false;
+
+                self.messages.push(Message {
+                    role: Role::User,
+                    content: display_response,
+                });
+                if let Some(ask_tx) = &self.ask_tx {
+                    ask_tx.try_send(response).ok();
+                }
+                return;
+            } else {
+                // Single-select with "Other" - send custom text directly
+                self.waiting_for_ask = false;
+                self.activity = Activity::Thinking;
+                self.auto_scroll = true;
+
+                self.messages.push(Message {
+                    role: Role::User,
+                    content: custom_text.clone(),
+                });
+                if let Some(ask_tx) = &self.ask_tx {
+                    ask_tx.try_send(custom_text).ok();
+                }
+
+                self.input.clear();
+                self.cursor_pos = 0;
+                self.ask_options.clear();
+                self.ask_selected_index = 0;
+                self.ask_multi_select = false;
+                self.ask_submit_mode = SubmitMode::default();
+                self.ask_other_input_active = false;
+                return;
+            }
         }
 
         // In Option submit mode, only submit when Submit option is selected (checked)
@@ -753,6 +962,7 @@ impl TuiApp {
             self.ask_selected_index = 0;
             self.ask_multi_select = false;
             self.ask_submit_mode = SubmitMode::default();
+            self.ask_other_input_active = false;
             self.ask_questions.clear();
             self.current_question_idx = 0;
 
@@ -828,6 +1038,7 @@ impl TuiApp {
         self.ask_selected_index = 0;
         self.ask_multi_select = false;
         self.ask_submit_mode = SubmitMode::default();
+        self.ask_other_input_active = false;
 
         // Send response
         self.messages.push(Message {

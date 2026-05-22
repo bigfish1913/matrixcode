@@ -67,15 +67,13 @@ impl MemoryFileLock {
         }
 
         // First check if the lock owner process is still running
-        if let Ok(content) = fs::read_to_string(&self.lock_path) {
-            if let Some(pid_str) = content.split(':').next() {
-                if let Ok(pid) = pid_str.parse::<u32>() {
-                    if !self.is_process_running(pid) {
-                        // Process is dead, lock is stale
-                        return Ok(true);
-                    }
-                }
-            }
+        if let Ok(content) = fs::read_to_string(&self.lock_path)
+            && let Some(pid_str) = content.split(':').next()
+            && let Ok(pid) = pid_str.parse::<u32>()
+            && !self.is_process_running(pid)
+        {
+            // Process is dead, lock is stale
+            return Ok(true);
         }
 
         // Then check lock age as fallback
@@ -102,12 +100,24 @@ impl MemoryFileLock {
         }
         #[cfg(windows)]
         {
-            // On Windows, we could use OpenProcess but that requires winapi
-            // For simplicity, check if we can open the process
-            // Note: This is a simplified check - a full implementation would use
-            // winapi::um::processthreadsapi::OpenProcess
-            let _ = pid; // Suppress unused warning on Windows
-            true
+            // On Windows, use tasklist command to check if process exists
+            use std::process::Command;
+            let output = Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+                .output();
+
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    // tasklist returns "INFO: No tasks are running..." if process not found
+                    // or returns a line with the PID if running
+                    stdout.contains(&pid.to_string()) && !stdout.contains("No tasks")
+                }
+                Err(_) => {
+                    // If tasklist fails, assume process might be running (safer)
+                    true
+                }
+            }
         }
         #[cfg(not(any(unix, windows)))]
         {

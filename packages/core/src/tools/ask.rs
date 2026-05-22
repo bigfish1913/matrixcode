@@ -293,7 +293,7 @@ fn read_user_answer() -> String {
     let stdin = io::stdin();
     let mut line = String::new();
     if stdin.lock().read_line(&mut line).is_err() {
-        return "无法读取回答".to_string();
+        return "stdin_read_error".to_string();
     }
     line.trim().to_string()
 }

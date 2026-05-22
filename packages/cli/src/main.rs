@@ -252,13 +252,15 @@ fn interactive_resume() -> Result<()> {
     print!("> ");
     io::stdout().flush()?;
 
-    let stdin = io::stdin();
-    let mut lines = stdin.lock().lines();
+    // Read input in a separate scope to release stdin lock before TUI starts
+    let selection = {
+        let stdin = io::stdin();
+        let mut lines = stdin.lock().lines();
+        lines.next().transpose()?.map(|l| l.trim().to_string())
+    };
 
-    if let Some(Ok(line)) = lines.next() {
-        let input = line.trim();
-
-        if matches!(input, "q" | "quit" | "exit") {
+    if let Some(input) = selection {
+        if matches!(input.as_str(), "q" | "quit" | "exit") {
             println!("Cancelled.");
             return Ok(());
         }
@@ -294,7 +296,7 @@ fn interactive_resume() -> Result<()> {
 
         // Try to match by short_id or full id
         for session in sessions.iter() {
-            if session.short_id() == input || session.id == input || session.id.starts_with(input) {
+            if session.short_id() == input || session.id == input || session.id.starts_with(&input) {
                 println!("\n✓ Resuming session: {}", session.short_id());
                 println!(
                     "  Project: {}",
@@ -318,11 +320,7 @@ fn interactive_resume() -> Result<()> {
             }
         }
 
-        println!(
-            "Invalid selection: '{}'. Please enter a number 1-{} or session ID.",
-            input,
-            sessions.len()
-        );
+        println!("Unknown session: {}", input);
     }
 
     Ok(())
@@ -1370,24 +1368,26 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
                             if !detected.is_empty() {
                                 let detected_count = detected.len();
-                                if let Ok(mut mem) = ms.load_combined() {
-                                    for entry in detected {
-                                        mem.add(entry);
-                                    }
-                                    ms.save_global(&mem).ok();
 
-                                    // Debug log: memory save
-                                    matrixcode_core::debug_memory!(detected_count, text.len());
-
-                                    // Send event to TUI
-                                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
-                                        matrixcode_core::EventType::MemoryDetected,
-                                        matrixcode_core::EventData::Memory {
-                                            summary: format!("检测到 {} 条记忆", detected_count),
-                                            entries_count: detected_count,
-                                        },
-                                    )).await;
+                                // Save each entry to appropriate storage
+                                for entry in detected {
+                                    // Determine if project-specific based on tags or context
+                                    let is_project = entry.tags.contains(&"project".to_string())
+                                        || agent_project_path.is_some();
+                                    ms.add_entry(entry, is_project).ok();
                                 }
+
+                                // Debug log: memory save
+                                matrixcode_core::debug_memory!(detected_count, text.len());
+
+                                // Send event to TUI
+                                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                                    matrixcode_core::EventType::MemoryDetected,
+                                    matrixcode_core::EventData::Memory {
+                                        summary: format!("检测到 {} 条记忆", detected_count),
+                                        entries_count: detected_count,
+                                    },
+                                )).await;
                             }
 
                             // 3. Infer preferences from behavior (every 5 turns)
@@ -1603,7 +1603,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 println!("  Mode: Ready");
 
                 // Show configuration
-                if config.api_key.is_some() || std::env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some() {
+                if config.is_api_configured() {
                     println!("  API: ✓ configured");
                 } else {
                     println!("  API: ❌ not configured");
@@ -2037,7 +2037,7 @@ fn run_service_mode(cli: Cli) -> Result<()> {
             let mut status = serde_json::json!({
                 "version": env!("CARGO_PKG_VERSION"),
                 "mode": "service",
-                "api_configured": config.api_key.is_some() || std::env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some(),
+                "api_configured": config.is_api_configured(),
             });
 
             if let Some(model) = &config.model {
@@ -2555,7 +2555,7 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
             let status = serde_json::json!({
                 "version": env!("CARGO_PKG_VERSION"),
                 "mode": "daemon",
-                "api_configured": config.api_key.is_some() || std::env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some(),
+                "api_configured": config.is_api_configured(),
                 "model": config.model.clone()
                     .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
                     .unwrap_or_else(|| "claude-sonnet-4-20250514 (default)".to_string()),
