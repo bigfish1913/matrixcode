@@ -47,6 +47,13 @@ impl TuiApp {
 
         let max_w = (area.width as usize).saturating_sub(4);
 
+        // History mode indicator
+        let history_indicator = if self.history_index.is_some() {
+            "📜 "
+        } else {
+            ""
+        };
+
         // Ask mode handling
         if self.activity == Activity::Asking && self.waiting_for_ask {
             let mut spans: Vec<Span> = vec![Span::styled(
@@ -103,12 +110,32 @@ impl TuiApp {
                     .add_modifier(Modifier::BOLD),
             )];
 
-            if self.input.is_empty() {
-                spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
+            // History mode indicator
+            if self.history_index.is_some() {
                 spans.push(Span::styled(
-                    " Ask anything...",
+                    history_indicator,
                     Style::default().fg(Color::DarkGray),
                 ));
+            }
+
+            if self.input.is_empty() {
+                spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
+                // Show helpful shortcuts hints
+                if self.history_index.is_some() {
+                    spans.push(Span::styled(
+                        "↑↓ navigate  Enter use  Esc back",
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                } else {
+                    spans.push(Span::styled(
+                        " Ask anything... ",
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                    spans.push(Span::styled(
+                        "(Ctrl+V paste │ ↑↓ history │ Shift+Enter newline)",
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
             } else {
                 let display_width = max_w.saturating_sub(15);
                 let before_cursor = &self.input[..self.cursor_pos];
@@ -173,6 +200,7 @@ impl TuiApp {
                 .map(|i| self.cursor_pos - i - 1)
                 .unwrap_or(self.cursor_pos);
 
+            let total_lines_count = input_lines.len();
             let max_display_lines = (area.height as usize).saturating_sub(1);
 
             for (i, line) in input_lines.iter().enumerate().take(max_display_lines) {
@@ -181,6 +209,13 @@ impl TuiApp {
                     prompt_color
                 } else {
                     Color::DarkGray
+                };
+
+                // Add line number indicator for multiline
+                let line_num_hint = if i == cursor_line && total_lines_count > 1 {
+                    format!("({}/{}) ", i + 1, total_lines_count)
+                } else {
+                    String::new()
                 };
 
                 if i == cursor_line {
@@ -193,6 +228,7 @@ impl TuiApp {
                                 .fg(line_prompt_color)
                                 .add_modifier(Modifier::BOLD),
                         ),
+                        Span::styled(line_num_hint, Style::default().fg(Color::DarkGray)),
                         Span::styled(before.to_string(), Style::default().fg(Color::White)),
                         Span::styled("▌", Style::default().fg(Color::Cyan)),
                         Span::styled(after.to_string(), Style::default().fg(Color::White)),

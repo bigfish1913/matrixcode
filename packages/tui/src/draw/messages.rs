@@ -18,63 +18,85 @@ impl TuiApp {
         let mut lines: Vec<Line> = Vec::new();
         let max_w = area.width.saturating_sub(4) as usize;
 
-        // Welcome (responsive) - MATRIX in solid █ (banner font) - Blue-purple gradient (tech style)
+        // Welcome (responsive) - adapt to screen height
         if self.show_welcome && self.messages.is_empty() {
-            // MATRIX (blue-purple gradient: deep blue → blue → cyan → purple)
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(
-                    "█     █    █    ███████ ██████  ███ █     █ ",
-                    Style::default().fg(Color::Rgb(0, 51, 204)),
-                ), // deep blue
-            ]));
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(
-                    "██   ██   █ █      █    █     █  █   █   █  ",
-                    Style::default().fg(Color::Rgb(0, 102, 255)),
-                ), // blue
-            ]));
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(
-                    "█ █ █ █  █   █     █    █     █  █    █ █   ",
-                    Style::default().fg(Color::Rgb(0, 153, 255)),
-                ), // bright blue
-            ]));
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(
-                    "█  █  █ █     █    █    ██████   █     █    ",
-                    Style::default().fg(Color::Rgb(0, 204, 255)),
-                ), // cyan-blue
-            ]));
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(
-                    "█     █ ███████    █    █   █    █    █ █   ",
-                    Style::default().fg(Color::Cyan),
-                ), // cyan
-            ]));
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(
-                    "█     █ █     █    █    █    █   █   █   █  ",
-                    Style::default().fg(Color::Rgb(153, 102, 255)),
-                ), // bright purple
-            ]));
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(
-                    "█     █ █     █    █    █     █ ███ █     █ ",
-                    Style::default().fg(Color::Rgb(102, 51, 255)),
-                ), // purple
-            ]));
-            // Subtitle below
-            lines.push(Line::styled(
-                "    AI coding assistant | /help for commands",
-                Style::default().fg(Color::Gray),
-            ));
+            // Full ASCII art needs ~20 lines to leave room for input/status
+            if area.height >= 20 {
+                // MATRIX (blue-purple gradient: deep blue → blue → cyan → purple)
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(
+                        "█     █    █    ███████ ██████  ███ █     █ ",
+                        Style::default().fg(Color::Rgb(0, 51, 204)),
+                    ), // deep blue
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(
+                        "██   ██   █ █      █    █     █  █   █   █  ",
+                        Style::default().fg(Color::Rgb(0, 102, 255)),
+                    ), // blue
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(
+                        "█ █ █ █  █   █     █    █     █  █    █ █   ",
+                        Style::default().fg(Color::Rgb(0, 153, 255)),
+                    ), // bright blue
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(
+                        "█  █  █ █     █    █    ██████   █     █    ",
+                        Style::default().fg(Color::Rgb(0, 204, 255)),
+                    ), // cyan-blue
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(
+                        "█     █ ███████    █    █   █    █    █ █   ",
+                        Style::default().fg(Color::Cyan),
+                    ), // cyan
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(
+                        "█     █ █     █    █    █    █   █   █   █  ",
+                        Style::default().fg(Color::Rgb(153, 102, 255)),
+                    ), // bright purple
+                ]));
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(
+                        "█     █ █     █    █    █     █ ███ █     █ ",
+                        Style::default().fg(Color::Rgb(102, 51, 255)),
+                    ), // purple
+                ]));
+                // Subtitle below
+                lines.push(Line::styled(
+                    "    AI coding assistant | /help for commands",
+                    Style::default().fg(Color::Gray),
+                ));
+            } else {
+                // Compact mode for small screens: just version and hint
+                let version = env!("CARGO_PKG_VERSION");
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("  MatrixCode v{}", version),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "  AI coding assistant",
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]));
+                lines.push(Line::styled(
+                    "  /help for commands | Ctrl+V paste | ↑↓ history",
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
             lines.push(Line::raw(""));
         }
 
@@ -490,12 +512,22 @@ impl TuiApp {
                             let is_submit_option = option_idx < self.ask_options.len()
                                 && self.ask_options[option_idx].is_submit;
 
+                            // Check if this is an "Other" option (custom input)
+                            let is_other_option = option_idx < self.ask_options.len()
+                                && self.ask_options[option_idx].is_other;
+
                             // Rebuild line with actual checkbox state
                             let display_line = if is_checkbox && option_idx < self.ask_options.len()
                             {
                                 let opt = &self.ask_options[option_idx];
                                 let marker = if actually_checked { "[✓]" } else { "[ ]" };
-                                format!("  {} {}{}", marker, opt.label, opt.format_description())
+                                // Add hint for Other option when selected but not checked
+                                let hint = if is_other_option && option_idx == self.ask_selected_index && !actually_checked {
+                                    " ✏️ Enter自定义"
+                                } else {
+                                    ""
+                                };
+                                format!("  {} {}{}{}", marker, opt.label, opt.format_description(), hint)
                             } else {
                                 line.to_string()
                             };
@@ -819,13 +851,18 @@ impl TuiApp {
         // Render with scroll indicator
         if !self.auto_scroll && max_scroll > 0 {
             let pct = (scroll_offset as f64 / max_scroll as f64 * 100.0) as u16;
-            let indicator = Line::styled(
-                format!(
-                    "  ↑ {}/{} ({:.0}%) — End to bottom",
-                    scroll_offset, max_scroll, pct
-                ),
-                Style::default().fg(Color::DarkGray),
-            );
+            // Show notification if new message arrived while scrolled
+            let notification = if self.new_message_while_scrolled.get() {
+                " 📥 新消息! (按End跳转)".to_string()
+            } else {
+                format!(" ↑ {}/{} ({:.0}%) — End to bottom", scroll_offset, max_scroll, pct)
+            };
+            let notification_color = if self.new_message_while_scrolled.get() {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            };
+            let indicator = Line::styled(notification, Style::default().fg(notification_color));
             let indicator_area = Rect::new(area.x, area.y, area.width, 1);
             f.render_widget(Paragraph::new(indicator), indicator_area);
             let msg_area = Rect::new(
@@ -836,6 +873,8 @@ impl TuiApp {
             );
             f.render_widget(Paragraph::new(lines).scroll((scroll_offset, 0)), msg_area);
         } else {
+            // Clear notification when auto_scroll is restored
+            self.new_message_while_scrolled.set(false);
             f.render_widget(Paragraph::new(lines).scroll((scroll_offset, 0)), area);
         }
     }

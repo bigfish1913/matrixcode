@@ -6,17 +6,26 @@ use crate::types::{Activity, Message, Role, SubmitMode};
 use crate::utils::{extract_tool_detail, fmt_tokens, truncate};
 
 impl TuiApp {
+    /// Push a message and set notification flag if user is scrolled up.
+    pub(crate) fn push_message(&mut self, msg: Message) {
+        // If user has scrolled up, mark that new message arrived
+        if !self.auto_scroll {
+            self.new_message_while_scrolled.set(true);
+        }
+        self.messages.push(msg);
+    }
+
     /// Flush partial content to messages.
     fn flush_partial_content(&mut self) {
         if !self.thinking.is_empty() {
-            self.messages.push(Message {
+            self.push_message(Message {
                 role: Role::Thinking,
                 content: self.thinking.clone(),
             });
             self.thinking.clear();
         }
         if !self.streaming.is_empty() {
-            self.messages.push(Message {
+            self.push_message(Message {
                 role: Role::Assistant,
                 content: self.streaming.clone(),
             });
@@ -28,7 +37,7 @@ impl TuiApp {
     fn process_pending_queue(&mut self) -> bool {
         if !self.pending_messages.is_empty() {
             let next_msg = self.pending_messages.remove(0);
-            self.messages.push(Message {
+            self.push_message(Message {
                 role: Role::User,
                 content: next_msg.clone(),
             });
@@ -57,7 +66,7 @@ impl TuiApp {
             }
             EventType::ThinkingEnd => {
                 if !self.thinking.is_empty() {
-                    self.messages.push(Message {
+                    self.push_message(Message {
                         role: Role::Thinking,
                         content: self.thinking.clone(),
                     });
@@ -77,7 +86,7 @@ impl TuiApp {
             }
             EventType::TextEnd => {
                 if !self.streaming.is_empty() {
-                    self.messages.push(Message {
+                    self.push_message(Message {
                         role: Role::Assistant,
                         content: self.streaming.clone(),
                     });
@@ -102,7 +111,7 @@ impl TuiApp {
                     ..
                 }) = e.data
                 {
-                    self.messages.push(Message {
+                    self.push_message(Message {
                         role: Role::Tool {
                             name,
                             detail,
@@ -137,12 +146,12 @@ impl TuiApp {
                     if is_cancelled {
                         // Flush partial content before showing cancel message
                         self.flush_partial_content();
-                        self.messages.push(Message {
+                        self.push_message(Message {
                             role: Role::System,
                             content: "\u{26a1} Interrupted".into(),
                         });
                     } else {
-                        self.messages.push(Message {
+                        self.push_message(Message {
                             role: Role::System,
                             content: format!("\u{274c} Error: {}", message),
                         });
@@ -197,7 +206,7 @@ impl TuiApp {
                     // Update token display to reflect compressed state
                     self.tokens_in = compressed_tokens;
                     if self.debug_mode {
-                        self.messages.push(Message {
+                        self.push_message(Message {
                             role: Role::System,
                             content: format!(
                                 "📦 Compressed: {} → {}tok ({:.0}% saved)",
@@ -217,7 +226,7 @@ impl TuiApp {
             }
             EventType::Progress => {
                 if let Some(EventData::Progress { message, .. }) = e.data {
-                    self.messages.push(Message {
+                    self.push_message(Message {
                         role: Role::System,
                         content: message,
                     });
@@ -230,7 +239,7 @@ impl TuiApp {
                 {
                     self.memory_saves += 1;
                     if self.debug_mode {
-                        self.messages.push(Message {
+                        self.push_message(Message {
                             role: Role::System,
                             content: format!("🧠 Memory: {} entries", entries_count),
                         });
@@ -246,7 +255,7 @@ impl TuiApp {
                 {
                     self.memory_saves += 1;
                     if self.debug_mode {
-                        self.messages.push(Message {
+                        self.push_message(Message {
                             role: Role::System,
                             content: format!("🧠 Detected {} memories: {}", entries_count, summary),
                         });
@@ -263,7 +272,7 @@ impl TuiApp {
                     // Always show in status area (brief), full info in debug mode
                     let preview = truncate(&source, 30);
                     if self.debug_mode {
-                        self.messages.push(Message {
+                        self.push_message(Message {
                             role: Role::System,
                             content: format!(
                                 "🔍 Keywords extracted: [{}] from '{}'",
@@ -470,7 +479,7 @@ impl TuiApp {
         self.ask_questions.clear();
         self.current_question_idx = 0;
 
-        self.messages.push(Message {
+        self.push_message(Message {
             role: Role::Ask,
             content,
         });
@@ -612,7 +621,7 @@ impl TuiApp {
             self.input.clear();
             self.cursor_pos = 0;
 
-            self.messages.push(Message {
+            self.push_message(Message {
                 role: Role::Ask,
                 content,
             });

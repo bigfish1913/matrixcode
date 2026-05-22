@@ -57,7 +57,7 @@ impl TuiApp {
                     // Abort approval request
                     self.waiting_for_ask = false;
                     self.activity = Activity::Idle;
-                    self.messages.push(Message {
+                    self.push_message(Message {
                         role: Role::System,
                         content: "⚠️ 已取消".into(),
                     });
@@ -68,7 +68,7 @@ impl TuiApp {
                     // Signal cancellation - backend will respond with Error event
                     // The events.rs handler will then process queue
                     self.cancel.cancel();
-                    self.messages.push(Message {
+                    self.push_message(Message {
                         role: Role::System,
                         content: "⚡ 正在中断...".into(),
                     });
@@ -82,7 +82,7 @@ impl TuiApp {
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.activity != Activity::Idle {
                     self.cancel.cancel();
-                    self.messages.push(Message {
+                    self.push_message(Message {
                         role: Role::System,
                         content: "⚡ 正在中断...".into(),
                     });
@@ -433,6 +433,7 @@ impl TuiApp {
                 } else {
                     self.auto_scroll = true;
                     self.scroll_offset = 0;
+                    self.new_message_while_scrolled.set(false); // Clear notification
                 }
             }
 
@@ -542,7 +543,7 @@ impl TuiApp {
         if self.waiting_for_ask {
             // Respond to approval/ask question
             self.waiting_for_ask = false;
-            self.messages.push(Message {
+            self.push_message(Message {
                 role: Role::User,
                 content: input.clone(),
             });
@@ -556,7 +557,7 @@ impl TuiApp {
             self.handle_command(&input);
         } else if self.activity == Activity::Idle {
             // Send immediately
-            self.messages.push(Message {
+            self.push_message(Message {
                 role: Role::User,
                 content: input.clone(),
             });
@@ -859,7 +860,7 @@ impl TuiApp {
                 self.ask_submit_mode = SubmitMode::default();
                 self.ask_other_input_active = false;
 
-                self.messages.push(Message {
+                self.push_message(Message {
                     role: Role::User,
                     content: display_response,
                 });
@@ -873,7 +874,7 @@ impl TuiApp {
                 self.activity = Activity::Thinking;
                 self.auto_scroll = true;
 
-                self.messages.push(Message {
+                self.push_message(Message {
                     role: Role::User,
                     content: custom_text.clone(),
                 });
@@ -967,7 +968,7 @@ impl TuiApp {
             self.current_question_idx = 0;
 
             // Send response
-            self.messages.push(Message {
+            self.push_message(Message {
                 role: Role::User,
                 content: display_response,
             });
@@ -1041,7 +1042,7 @@ impl TuiApp {
         self.ask_other_input_active = false;
 
         // Send response
-        self.messages.push(Message {
+        self.push_message(Message {
             role: Role::User,
             content: display_response,
         });

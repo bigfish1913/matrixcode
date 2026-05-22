@@ -52,6 +52,7 @@ pub struct TuiApp {
     pub(crate) scroll_offset: u16,
     pub(crate) auto_scroll: bool,
     pub(crate) max_scroll: std::cell::Cell<u16>,
+    pub(crate) new_message_while_scrolled: std::cell::Cell<bool>, // Flag for notification when scrolled up
     // Thinking display state
     pub(crate) thinking_collapsed: bool,
     // Approval mode
@@ -141,6 +142,7 @@ impl TuiApp {
             scroll_offset: 0,
             auto_scroll: true,
             max_scroll: std::cell::Cell::new(0),
+            new_message_while_scrolled: std::cell::Cell::new(false),
             thinking_collapsed: false, // Default: expanded
             approve_mode: ApproveMode::Ask,
             shared_approve_mode: None,
