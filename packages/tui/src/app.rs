@@ -201,6 +201,12 @@ impl TuiApp {
         self
     }
 
+    /// Set debug mode from environment or config
+    pub fn with_debug_mode(mut self, debug_mode: bool) -> Self {
+        self.debug_mode = debug_mode;
+        self
+    }
+
     pub fn load_messages(&mut self, core_messages: Vec<matrixcode_core::Message>) {
         // Build mapping from tool_use_id to tool name
         let mut tool_names: HashMap<String, String> = HashMap::new();

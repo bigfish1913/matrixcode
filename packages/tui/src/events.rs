@@ -537,7 +537,6 @@ impl TuiApp {
                         multi_select,
                         selected_index: 0,
                         submit_mode,
-                        allow_other: true,
                         other_input: None,
                     }
                 })

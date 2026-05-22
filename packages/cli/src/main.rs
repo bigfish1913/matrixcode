@@ -183,6 +183,53 @@ enum Commands {
     Status,
 }
 
+/// Get default model name for anthropic provider.
+fn default_model() -> String {
+    "claude-sonnet-4-20250514".to_string()
+}
+
+/// Get default base URL for anthropic provider.
+fn default_base_url() -> String {
+    "https://api.anthropic.com".to_string()
+}
+
+/// Resolve model from config, env, or default.
+fn resolve_model(config: &Config) -> String {
+    config
+        .model
+        .clone()
+        .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+        .unwrap_or_else(default_model)
+}
+
+/// Resolve base URL from config, env, or default.
+fn resolve_base_url(config: &Config) -> String {
+    config
+        .base_url
+        .clone()
+        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+        .unwrap_or_else(default_base_url)
+}
+
+/// Resolve model with optional override, then config, env, or default.
+fn resolve_model_with_override(override_model: Option<String>, config: &Config) -> String {
+    override_model
+        .or(config.model.clone())
+        .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+        .unwrap_or_else(default_model)
+}
+
+/// Get model name with source annotation for status display.
+fn model_with_source(config: &Config) -> String {
+    if let Some(model) = &config.model {
+        format!("{} (config)", model)
+    } else if let Ok(model) = std::env::var("ANTHROPIC_MODEL") {
+        format!("{} (env)", model)
+    } else {
+        format!("{} (default)", default_model())
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -408,17 +455,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             )
         })?;
 
-    let model = config
-        .model
-        .clone()
-        .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
-        .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-
-    let base_url = config
-        .base_url
-        .clone()
-        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
-        .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+    let model = resolve_model(&config);
+    let base_url = resolve_base_url(&config);
 
     // Load skills
     let skills_dirs: Vec<PathBuf> = cli.skills_dir.iter().cloned().collect();
@@ -495,25 +533,35 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_shared_approve_mode = shared_approve_mode.clone();
 
     // Spawn Agent task with real Agent
-    let _agent_task = rt.spawn(async move {
+    let agent_task = rt.spawn(async move {
         // Create provider using factory
         let provider_type = infer_provider_type(&agent_model);
-        let provider = create_provider(
+        let provider = match create_provider(
             provider_type,
             agent_api_key.clone(),
             agent_model.clone(),
             Some(agent_base_url.clone()),
-        ).expect("failed to create provider");
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
+                    format!("Failed to create provider: {}", e),
+                    Some("provider_error".to_string()),
+                    None,
+                )).await;
+                return;
+            }
+        };
 
         // Create fast provider for keyword extraction
-        let fast_provider: Option<Box<dyn Provider>> = agent_fast_model.as_ref().map(|fast_model| {
+        let fast_provider: Option<Box<dyn Provider>> = agent_fast_model.as_ref().and_then(|fast_model| {
             let fast_type = infer_provider_type(fast_model);
             create_provider(
                 fast_type,
                 agent_api_key.clone(),
                 fast_model.clone(),
                 Some(agent_base_url.clone()),
-            ).expect("failed to create fast provider")
+            ).ok()
         });
 
         // Load memory
@@ -633,17 +681,6 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 )).await;
             }
 
-            // Handle special commands from TUI
-            if msg == "/new" {
-                agent.clear_history();
-                if let Some(ref mut mgr) = session_mgr {
-                    let _ = mgr.start_new(agent_project_path.as_deref());
-                }
-                // Send session ended event
-                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::session_ended()).await;
-                continue;
-            }
-
             // Handle /init commands
             if msg.starts_with("/init") {
                 let result = handle_init_command(&msg, agent_project_path.as_deref());
@@ -669,12 +706,22 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
                         if let Some(ref path) = agent_project_path {
                             // Create a new provider for overview generation
-                            let overview_provider = create_provider(
+                            let overview_provider = match create_provider(
                                 infer_provider_type(&agent_model),
                                 agent_api_key.clone(),
                                 agent_model.clone(),
                                 Some(agent_base_url.clone()),
-                            ).expect("failed to create overview provider");
+                            ) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
+                                        format!("Failed to create provider for overview: {}", e),
+                                        Some("provider_error".to_string()),
+                                        None,
+                                    )).await;
+                                    continue;
+                                }
+                            };
 
                             match matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), overview_provider.as_ref()).await {
                                 Ok(overview) => {
@@ -1036,7 +1083,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                     // Save to appropriate storage
                                     if ms.save_global(&mem).is_err() {
                                         // Try project storage if global failed
-                                        ms.save_project(&mem).ok();
+                                        if let Err(e) = ms.save_project(&mem) {
+                                            log::warn!("Failed to save project memory: {}", e);
+                                        }
                                     }
                                     format!("✓ Removed memory: {}", content.chars().take(50).collect::<String>())
                                 } else {
@@ -1067,7 +1116,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             if let Ok(mut mem) = ms.load_combined() {
                                 let count = mem.smart_merge();
                                 if count > 0 {
-                                    ms.save_global(&mem).ok();
+                                    if let Err(e) = ms.save_global(&mem) {
+                                        log::warn!("Failed to save merged memories: {}", e);
+                                    }
                                     format!("✓ Merged {} similar memories", count)
                                 } else {
                                     "No similar memories found to merge".to_string()
@@ -1081,7 +1132,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             if let Ok(mut mem) = ms.load_global() {
                                 let count = mem.entries.len();
                                 mem.entries.clear();
-                                ms.save_global(&mem).ok();
+                                if let Err(e) = ms.save_global(&mem) {
+                                    log::warn!("Failed to clear memories: {}", e);
+                                }
                                 format!("✓ Cleared {} memories", count)
                             } else {
                                 "❌ Failed to clear memories".to_string()
@@ -1167,18 +1220,30 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     // Save with optional name
                     if let Some(n) = name {
                         // Rename then save
-                        mgr.rename_current(n).ok();
+                        if let Err(e) = mgr.rename_current(n) {
+                            let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
+                                format!("Failed to rename session: {}", e),
+                                None,
+                                None,
+                            )).await;
+                        }
                     }
-                    mgr.save_current().ok();
-
-                    let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
-                        if let Some(ref name) = name {
-                            format!("✓ Session saved as '{}'", name)
-                        } else {
-                            "✓ Session saved".to_string()
-                        },
-                        None,
-                    )).await;
+                    if let Err(e) = mgr.save_current() {
+                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
+                            format!("Failed to save session: {}", e),
+                            None,
+                            None,
+                        )).await;
+                    } else {
+                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                            if let Some(ref name) = name {
+                                format!("✓ Session saved as '{}'", name)
+                            } else {
+                                "✓ Session saved".to_string()
+                            },
+                            None,
+                        )).await;
+                    }
                 } else {
                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
                         "❌ Session manager not available",
@@ -1305,7 +1370,13 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                         let messages = agent.get_messages();
                         mgr.set_messages(messages.to_vec());
                         mgr.update_stats(input_tokens as u32, output_tokens);
-                        let _ = mgr.save_current();
+                        if let Err(e) = mgr.save_current() {
+                            let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
+                                format!("Session save failed: {}", e),
+                                None,
+                                None,
+                            )).await;
+                        }
 
                         // Debug log: session save
                         matrixcode_core::debug::debug_log().session_save(messages.len(), output_tokens);
@@ -1325,9 +1396,13 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                 }
                                 // Save to appropriate storage
                                 if mem.entries.iter().any(|e| e.tags.contains(&"project".to_string())) {
-                                    ms.save_project(&mem).ok();
+                                    if let Err(e) = ms.save_project(&mem) {
+                                        log::warn!("Failed to save project memory: {}", e);
+                                    }
                                 } else {
-                                    ms.save_global(&mem).ok();
+                                    if let Err(e) = ms.save_global(&mem) {
+                                        log::warn!("Failed to save global memory: {}", e);
+                                    }
                                 }
 
                                 // Send feedback event
@@ -1374,7 +1449,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                     // Determine if project-specific based on tags or context
                                     let is_project = entry.tags.contains(&"project".to_string())
                                         || agent_project_path.is_some();
-                                    ms.add_entry(entry, is_project).ok();
+                                    if let Err(e) = ms.add_entry(entry, is_project) {
+                                        log::warn!("Failed to add memory entry: {}", e);
+                                    }
                                 }
 
                                 // Debug log: memory save
@@ -1398,7 +1475,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                         messages, &mut mem, Some(&config)
                                     );
                                     if inferred > 0 {
-                                        ms.save_global(&mem).ok();
+                                        if let Err(e) = ms.save_global(&mem) {
+                                            log::warn!("Failed to save inferred preferences: {}", e);
+                                        }
                                         let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
                                             format!("🧠 推断出 {} 个使用偏好", inferred),
                                             None,
@@ -1417,7 +1496,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                 // Prune low importance
                                 mem.prune();
                                 // Save
-                                ms.save_global(&mem).ok();
+                                if let Err(e) = ms.save_global(&mem) {
+                                    log::warn!("Failed to save memory after maintenance: {}", e);
+                                }
 
                                 if merged > 0 {
                                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
@@ -1442,14 +1523,20 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Enter runtime context so tokio channels work in sync code
     let _guard = rt.enter();
 
+    // Check if debug mode should be enabled from environment
+    let debug_mode = std::env::var("MATRIXCODE_DEBUG")
+        .map(|v| v == "1" || v == "true" || v == "verbose")
+        .unwrap_or(false);
+
     // Setup terminal for TUI
     let mut terminal = setup_terminal()?;
 
     // Create App and run it (TUI runs in sync context, but tokio channels are usable)
-    let mut app = TuiApp::new(task_tx, event_rx, cancel_token)
+    let mut app = TuiApp::new(task_tx, event_rx, cancel_token.clone())
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
-        .with_config(&model, cli.think, cli.max_tokens, None);
+        .with_config(&model, cli.think, cli.max_tokens, None)
+        .with_debug_mode(debug_mode);
 
     // Load restored messages if any
     if !restored_messages.is_empty() {
@@ -1457,8 +1544,26 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     }
     let result = app.run(&mut terminal);
 
-    // Restore terminal
+    // Restore terminal first (so user sees prompt immediately)
     restore_terminal()?;
+
+    // Cleanup: cancel agent task and wait for completion
+    cancel_token.cancel();
+    // Give agent task a short grace period to finish
+    let cleanup_result = rt.block_on(async {
+        tokio::time::timeout(tokio::time::Duration::from_millis(500), async {
+            // Just wait - the task will see cancel_token.cancelled() and exit
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }).await
+    });
+
+    if cleanup_result.is_err() {
+        // Timeout - abort the task
+        agent_task.abort();
+    } else {
+        // Task should have finished gracefully, drop the handle
+        std::mem::drop(agent_task);
+    }
 
     result
 }
@@ -1476,17 +1581,8 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
             std::process::exit(1);
         });
 
-    let model = config
-        .model
-        .clone()
-        .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
-        .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-
-    let base_url = config
-        .base_url
-        .clone()
-        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
-        .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+    let model = resolve_model(&config);
+    let base_url = resolve_base_url(&config);
 
     let approve_mode = config
         .approve_mode
@@ -1495,7 +1591,13 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
         .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
 
     // Create tokio runtime
-    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("Failed to create tokio runtime: {}", e);
+            return;
+        }
+    };
 
     rt.block_on(async {
         match cmd {
@@ -1513,12 +1615,18 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                     );
 
                     // Create provider using factory
-                    let provider = create_provider(
+                    let provider = match create_provider(
                         infer_provider_type(&model),
                         api_key,
                         model.clone(),
                         Some(base_url),
-                    ).expect("failed to create provider");
+                    ) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!("Failed to create provider: {}", e);
+                            return;
+                        }
+                    };
 
                     // Build agent
                     let mut agent = AgentBuilder::new(provider)
@@ -1610,13 +1718,7 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                     println!("       Set ANTHROPIC_AUTH_TOKEN or configure in ~/.matrix/config.json");
                 }
 
-                if let Some(model) = &config.model {
-                    println!("  Model: {}", model);
-                } else if let Ok(model) = std::env::var("ANTHROPIC_MODEL") {
-                    println!("  Model: {} (from env)", model);
-                } else {
-                    println!("  Model: claude-sonnet-4-20250514 (default)");
-                }
+                println!("  Model: {}", model_with_source(&config));
 
                 if let Some(base_url) = &config.base_url {
                     println!("  Base URL: {}", base_url);
@@ -1791,12 +1893,18 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 );
 
                 // Create provider using factory
-                let provider = create_provider(
+                let provider = match create_provider(
                     infer_provider_type(&model),
                     api_key,
                     model.clone(),
                     Some(base_url),
-                ).expect("failed to create provider");
+                ) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("Failed to create provider: {}", e);
+                        return;
+                    }
+                };
 
                 // Build agent
                 let mut agent = AgentBuilder::new(provider)
@@ -1889,17 +1997,8 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                 .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
                 .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
 
-            let model = config
-                .model
-                .clone()
-                .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
-                .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-
-            let base_url = config
-                .base_url
-                .clone()
-                .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
-                .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+            let model = resolve_model(&config);
+            let base_url = resolve_base_url(&config);
 
             // Load skills
             let skills_dirs: Vec<PathBuf> = cli.skills_dir.iter().cloned().collect();
@@ -1917,12 +2016,22 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                     None,
                 );
 
-                let provider = create_provider(
+                let provider = match create_provider(
                     infer_provider_type(&model),
                     api_key,
                     model.clone(),
                     Some(base_url),
-                ).expect("failed to create provider");
+                ) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        println!("{}", AgentEvent::error(
+                            format!("Failed to create provider: {}", e),
+                            None,
+                            None,
+                        ).to_json()?);
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                };
                 let mut agent = AgentBuilder::new(provider)
                     .system_prompt(system_prompt)
                     .model_name(model)
@@ -2040,13 +2149,7 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                 "api_configured": config.is_api_configured(),
             });
 
-            if let Some(model) = &config.model {
-                status["model"] = serde_json::json!(model);
-            } else if let Ok(model) = std::env::var("ANTHROPIC_MODEL") {
-                status["model"] = serde_json::json!(format!("{} (env)", model));
-            } else {
-                status["model"] = serde_json::json!("claude-sonnet-4-20250514 (default)");
-            }
+            status["model"] = serde_json::json!(model_with_source(&config));
 
             if let Some(base_url) = &config.base_url {
                 status["base_url"] = serde_json::json!(base_url);
@@ -2145,17 +2248,8 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                 .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
                 .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
 
-            let model = config
-                .model
-                .clone()
-                .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
-                .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-
-            let base_url = config
-                .base_url
-                .clone()
-                .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
-                .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+            let model = resolve_model(&config);
+            let base_url = resolve_base_url(&config);
 
             // Load skills
             let skills_dirs: Vec<PathBuf> = cli.skills_dir.iter().cloned().collect();
@@ -2259,12 +2353,22 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                     None,
                 );
 
-                let provider = create_provider(
+                let provider = match create_provider(
                     infer_provider_type(&model),
                     api_key,
                     model.clone(),
                     Some(base_url),
-                ).expect("failed to create provider");
+                ) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        println!("{}", AgentEvent::error(
+                            format!("Failed to create provider: {}", e),
+                            None,
+                            None,
+                        ).to_json()?);
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                };
                 let mut agent = AgentBuilder::new(provider)
                     .system_prompt(system_prompt)
                     .model_name(model)
@@ -2431,29 +2535,22 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                     .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
                     .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
 
-                let model = request
-                    .model
-                    .clone()
-                    .or(config.model.clone())
-                    .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
-                    .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-
-                let base_url = config
-                    .base_url
-                    .clone()
-                    .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
-                    .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+                let model = resolve_model_with_override(request.model.clone(), &config);
+                let base_url = resolve_base_url(&config);
 
                 let max_tokens = request.max_tokens.unwrap_or(4096);
 
                 let rt = tokio::runtime::Runtime::new()?;
                 let result = rt.block_on(async {
-                    let provider = create_provider(
+                    let provider = match create_provider(
                         infer_provider_type(&model),
                         api_key,
                         model.clone(),
                         Some(base_url),
-                    ).expect("failed to create provider");
+                    ) {
+                        Ok(p) => p,
+                        Err(e) => return Err(e),
+                    };
                     let mut agent = AgentBuilder::new(provider)
                         .model_name(model)
                         .max_tokens(max_tokens)
@@ -2493,29 +2590,22 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                     .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok())
                     .ok_or_else(|| anyhow::anyhow!("No API key found"))?;
 
-                let model = request
-                    .model
-                    .clone()
-                    .or(config.model.clone())
-                    .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
-                    .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-
-                let base_url = config
-                    .base_url
-                    .clone()
-                    .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
-                    .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+                let model = resolve_model_with_override(request.model.clone(), &config);
+                let base_url = resolve_base_url(&config);
 
                 events.push(AgentEvent::tool_use_start("action_1", action.clone(), None));
 
                 let rt = tokio::runtime::Runtime::new()?;
                 let result = rt.block_on(async {
-                    let provider = create_provider(
+                    let provider = match create_provider(
                         infer_provider_type(&model),
                         api_key,
                         model.clone(),
                         Some(base_url),
-                    ).expect("failed to create provider");
+                    ) {
+                        Ok(p) => p,
+                        Err(e) => return Err(e),
+                    };
                     let mut agent = AgentBuilder::new(provider)
                         .model_name(model)
                         .max_tokens(4096)
@@ -2556,9 +2646,7 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                 "version": env!("CARGO_PKG_VERSION"),
                 "mode": "daemon",
                 "api_configured": config.is_api_configured(),
-                "model": config.model.clone()
-                    .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
-                    .unwrap_or_else(|| "claude-sonnet-4-20250514 (default)".to_string()),
+                "model": model_with_source(&config),
             });
             events.push(AgentEvent::with_data(
                 matrixcode_core::EventType::Progress,

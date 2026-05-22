@@ -331,7 +331,8 @@ impl SessionManager {
         let session = Session::new(project_path);
         self.current_session = Some(session);
         self.save_current()?;
-        Ok(self.current_session.as_ref().expect("session just set"))
+        // SAFETY: current_session was just set and save_current succeeded
+        Ok(self.current_session.as_ref().unwrap())
     }
 
     /// Continue the last session (for --continue).
@@ -393,6 +394,11 @@ impl SessionManager {
     /// Save the current session to disk.
     pub fn save_current(&mut self) -> Result<()> {
         if let Some(ref session) = self.current_session {
+            // Update index first (if index save fails, session file won't be updated)
+            self.index.upsert(session.metadata.clone());
+            self.save_index()?;
+
+            // Now save session file
             let path = self.session_path(&session.metadata.id);
             let json = serde_json::to_string(session).context("serializing session")?;
             let tmp = path.with_extension("json.tmp");
@@ -400,10 +406,6 @@ impl SessionManager {
                 .with_context(|| format!("writing session tmp file {}", tmp.display()))?;
             std::fs::rename(&tmp, &path)
                 .with_context(|| format!("renaming session tmp file to {}", path.display()))?;
-
-            // Update index
-            self.index.upsert(session.metadata.clone());
-            self.save_index()?;
         }
         Ok(())
     }

@@ -1,11 +1,19 @@
 //! Agent streaming implementation.
 
 use anyhow::Result;
+use tokio::time::{sleep, Duration};
 
 use crate::event::AgentEvent;
 use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, StreamEvent, Usage};
 
 use super::types::Agent;
+
+/// Wait for cancellation signal, checking periodically.
+async fn wait_for_cancel_stream(token: &crate::cancel::CancellationToken) {
+    while !token.is_cancelled() {
+        sleep(Duration::from_millis(100)).await;
+    }
+}
 
 impl Agent {
     /// Call provider with streaming and emit events in real-time
@@ -40,17 +48,17 @@ impl Agent {
                     let mut should_retry = false;
 
                     loop {
-                        if let Some(token) = &self.cancel_token
-                            && token.is_cancelled()
-                        {
-                            return Err(anyhow::anyhow!("Operation cancelled"));
-                        }
-
-                        let event = tokio::select! {
-                            event = rx.recv() => event,
-                            _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
-                                continue;
+                        // Use select! with cancellation check integrated
+                        // No need for busy-loop timeout - cancellation is checked directly
+                        let event = if let Some(token) = &self.cancel_token {
+                            tokio::select! {
+                                event = rx.recv() => event,
+                                _ = wait_for_cancel_stream(token) => {
+                                    return Err(anyhow::anyhow!("Operation cancelled"));
+                                }
                             }
+                        } else {
+                            rx.recv().await
                         };
 
                         match event {

@@ -147,10 +147,21 @@ impl MatrixConfig {
             return None;
         }
 
-        let content = std::fs::read_to_string(&path).ok()?;
-        let config: Self = serde_json::from_str(&content).ok()?;
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("Failed to read ~/.matrix/config.json: {}", e);
+                return None;
+            }
+        };
+        let config: Self = match serde_json::from_str(&content) {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("Failed to parse ~/.matrix/config.json: {}", e);
+                return None;
+            }
+        };
 
-        // Don't print here - we'll print after merge
         Some(config)
     }
 
@@ -161,8 +172,20 @@ impl MatrixConfig {
             return None;
         }
 
-        let content = std::fs::read_to_string(&path).ok()?;
-        let settings: ClaudeSettings = serde_json::from_str(&content).ok()?;
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("Failed to read ~/.claude/settings.json: {}", e);
+                return None;
+            }
+        };
+        let settings: ClaudeSettings = match serde_json::from_str(&content) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("Failed to parse ~/.claude/settings.json: {}", e);
+                return None;
+            }
+        };
 
         let env = settings.env?;
 

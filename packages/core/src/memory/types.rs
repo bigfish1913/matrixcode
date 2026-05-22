@@ -617,7 +617,7 @@ impl AutoMemory {
 
     /// Merge a group of similar entries into one.
     fn merge_group(&self, entries: &[&MemoryEntry]) -> MemoryEntry {
-        // entries is guaranteed non-empty by caller (similar_group.len() >= 2)
+        // SAFETY: entries is guaranteed non-empty by caller (similar_group.len() >= 2)
         let best = entries
             .iter()
             .max_by(|a, b| {

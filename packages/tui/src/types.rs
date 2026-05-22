@@ -204,7 +204,6 @@ pub struct AskQuestion {
     pub multi_select: bool,
     pub selected_index: usize,
     pub submit_mode: SubmitMode,
-    pub allow_other: bool,        // Whether to show "Other" option for custom input
     pub other_input: Option<String>, // Custom input when "Other" is selected
 }
 
