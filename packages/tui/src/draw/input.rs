@@ -102,6 +102,21 @@ impl TuiApp {
 
         let is_multiline = self.input.contains('\n');
 
+        // Show queue indicator when AI is processing and user is typing
+        let queue_hint = if self.activity != Activity::Idle
+            && self.activity != Activity::Asking
+            && !self.input.is_empty()
+        {
+            let queue_count = self.pending_messages.len();
+            if queue_count > 0 {
+                format!(" [queue: {}]", queue_count + 1)
+            } else {
+                " [will queue]".to_string()
+            }
+        } else {
+            String::new()
+        };
+
         if !is_multiline {
             let mut spans: Vec<Span> = vec![Span::styled(
                 prompt,
@@ -160,6 +175,9 @@ impl TuiApp {
                         after_cursor.to_string(),
                         Style::default().fg(Color::White),
                     ));
+                    if !queue_hint.is_empty() {
+                        spans.push(Span::styled(queue_hint, Style::default().fg(Color::Yellow)));
+                    }
                 } else if before_vis_width < display_width {
                     spans.push(Span::styled(
                         before_cursor.to_string(),
@@ -250,6 +268,15 @@ impl TuiApp {
             if total_lines > max_display_lines {
                 lines.push(Line::styled(
                     format!("  … ({}/{} lines)", max_display_lines, total_lines),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+
+            // Show character count at the bottom for multiline input
+            let char_count = self.input.chars().count();
+            if char_count > 50 || total_lines_count > 1 {
+                lines.push(Line::styled(
+                    format!("  {} chars, {} lines", char_count, total_lines_count),
                     Style::default().fg(Color::DarkGray),
                 ));
             }

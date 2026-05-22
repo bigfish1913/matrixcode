@@ -8,20 +8,28 @@ pub fn create_matrixcode_skin() -> MadSkin {
     let mut skin = MadSkin::default();
 
     // Headers: cyan color with bold
-    skin.headers[0].compound_style.set_fg(termimad::crossterm::style::Color::Cyan);
+    skin.headers[0]
+        .compound_style
+        .set_fg(termimad::crossterm::style::Color::Cyan);
     skin.headers[0].add_attr(termimad::crossterm::style::Attribute::Bold);
 
-    skin.headers[1].compound_style.set_fg(termimad::crossterm::style::Color::DarkCyan);
+    skin.headers[1]
+        .compound_style
+        .set_fg(termimad::crossterm::style::Color::DarkCyan);
     skin.headers[1].add_attr(termimad::crossterm::style::Attribute::Bold);
 
-    skin.headers[2].compound_style.set_fg(termimad::crossterm::style::Color::Yellow);
+    skin.headers[2]
+        .compound_style
+        .set_fg(termimad::crossterm::style::Color::Yellow);
 
     // Bold text: white with bold
     skin.bold.set_fg(termimad::crossterm::style::Color::White);
-    skin.bold.add_attr(termimad::crossterm::style::Attribute::Bold);
+    skin.bold
+        .add_attr(termimad::crossterm::style::Attribute::Bold);
 
     // Inline code: yellow text, gray background
-    skin.inline_code.set_fg(termimad::crossterm::style::Color::Yellow);
+    skin.inline_code
+        .set_fg(termimad::crossterm::style::Color::Yellow);
     skin.inline_code.set_bg(gray(20));
 
     // Code blocks: gray text, dark background
@@ -43,7 +51,8 @@ pub fn print_markdown(text: &str) {
 /// Print response/result text with border, skipping thinking prefixes
 pub fn print_response_border(title: &str, text: &str) {
     // Skip if this was the thinking message we already showed
-    if !text.contains("<thinking>") && !text.starts_with("Let me") && !text.starts_with("I need to") {
+    if !text.contains("<thinking>") && !text.starts_with("Let me") && !text.starts_with("I need to")
+    {
         println!();
         println!("📝 {}:", title);
         print_separator();

@@ -7,6 +7,15 @@ use crate::types::{Activity, ApproveMode, AskOption, Message, Role, SubmitMode};
 
 impl TuiApp {
     pub(crate) fn on_key(&mut self, k: KeyEvent) {
+        // On macOS, KeyEventKind may not always be reported correctly by some terminals
+        // (e.g., iTerm2, Terminal.app). We only filter out Release events to allow
+        // Press and Repeat events to be processed.
+        #[cfg(target_os = "macos")]
+        if k.kind == KeyEventKind::Release {
+            return;
+        }
+
+        #[cfg(not(target_os = "macos"))]
         if k.kind != KeyEventKind::Press {
             return;
         }
@@ -169,7 +178,7 @@ impl TuiApp {
                         let char_pos = self.byte_pos_to_char_pos();
                         let input_chars: Vec<char> = self.input.chars().collect();
                         let before_cursor_str: String = input_chars
-                           [..char_pos.min(input_chars.len())]
+                            [..char_pos.min(input_chars.len())]
                             .iter()
                             .collect();
 
@@ -839,7 +848,8 @@ impl TuiApp {
                     .collect();
                 selected_ids.push(other_id);
 
-                let response = serde_json::to_string(&selected_ids).unwrap_or_else(|_| "[]".to_string());
+                let response =
+                    serde_json::to_string(&selected_ids).unwrap_or_else(|_| "[]".to_string());
                 let mut display_labels: Vec<&str> = self
                     .ask_options
                     .iter()

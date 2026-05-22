@@ -6,9 +6,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use display::{print_response_border, print_thinking_border};
 use matrixcode_core::{
-    AgentEvent, Config, SessionManager, agent::AgentBuilder,
-    cancel::CancellationToken, create_provider, infer_provider_type, memory::MemoryStorage,
-    providers::Provider, tools::all_tools_with_skills,
+    AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
+    create_provider, infer_provider_type, memory::MemoryStorage, providers::Provider,
+    tools::all_tools_with_skills,
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
 use std::path::{Path, PathBuf};
@@ -343,7 +343,8 @@ fn interactive_resume() -> Result<()> {
 
         // Try to match by short_id or full id
         for session in sessions.iter() {
-            if session.short_id() == input || session.id == input || session.id.starts_with(&input) {
+            if session.short_id() == input || session.id == input || session.id.starts_with(&input)
+            {
                 println!("\n✓ Resuming session: {}", session.short_id());
                 println!(
                     "  Project: {}",
@@ -1554,7 +1555,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         tokio::time::timeout(tokio::time::Duration::from_millis(500), async {
             // Just wait - the task will see cancel_token.cancelled() and exit
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        }).await
+        })
+        .await
     });
 
     if cleanup_result.is_err() {
@@ -2024,11 +2026,15 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                 ) {
                     Ok(p) => p,
                     Err(e) => {
-                        println!("{}", AgentEvent::error(
-                            format!("Failed to create provider: {}", e),
-                            None,
-                            None,
-                        ).to_json()?);
+                        println!(
+                            "{}",
+                            AgentEvent::error(
+                                format!("Failed to create provider: {}", e),
+                                None,
+                                None,
+                            )
+                            .to_json()?
+                        );
                         return Ok::<_, anyhow::Error>(());
                     }
                 };
@@ -2361,11 +2367,15 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                 ) {
                     Ok(p) => p,
                     Err(e) => {
-                        println!("{}", AgentEvent::error(
-                            format!("Failed to create provider: {}", e),
-                            None,
-                            None,
-                        ).to_json()?);
+                        println!(
+                            "{}",
+                            AgentEvent::error(
+                                format!("Failed to create provider: {}", e),
+                                None,
+                                None,
+                            )
+                            .to_json()?
+                        );
                         return Ok::<_, anyhow::Error>(());
                     }
                 };

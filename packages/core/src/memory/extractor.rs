@@ -1,8 +1,8 @@
 //! Memory extraction: AI-based and rule-based detection.
 
+use crate::truncate::truncate_chars;
 use anyhow::Result;
 use serde::Deserialize;
-use crate::truncate::truncate_chars;
 
 use super::config::*;
 use super::types::{AutoMemory, MemoryCategory, MemoryEntry};

@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use std::sync::atomic::Ordering;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use crate::approval::{ApproveMode, needs_approval};
 use crate::event::{AgentEvent, EventData, EventType};

@@ -248,9 +248,17 @@ pub fn create_provider(
 /// Returns Anthropic for Claude models, OpenAI for GPT models.
 pub fn infer_provider_type(model: &str) -> ProviderType {
     let lower = model.to_lowercase();
-    if lower.contains("claude") || lower.contains("opus") || lower.contains("sonnet") || lower.contains("haiku") {
+    if lower.contains("claude")
+        || lower.contains("opus")
+        || lower.contains("sonnet")
+        || lower.contains("haiku")
+    {
         ProviderType::Anthropic
-    } else if lower.contains("gpt") || lower.contains("o1") || lower.contains("o3") || lower.contains("o4") {
+    } else if lower.contains("gpt")
+        || lower.contains("o1")
+        || lower.contains("o3")
+        || lower.contains("o4")
+    {
         ProviderType::OpenAI
     } else {
         // Default to Anthropic for unknown models

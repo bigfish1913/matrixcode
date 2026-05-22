@@ -150,7 +150,7 @@ impl TuiApp {
                 Role::Thinking => {
                     let line_count = msg.content.lines().count();
                     if self.thinking_collapsed && !self.debug_mode {
-                        // Normal mode: collapsed
+                        // Collapsed mode: show preview with expand hint
                         let preview = msg.content.lines().next().unwrap_or("");
                         lines.push(Line::from(vec![
                             Span::styled(
@@ -161,13 +161,14 @@ impl TuiApp {
                                 format!(
                                     "({} lines) {}",
                                     line_count,
-                                    truncate(preview, max_w.saturating_sub(20))
+                                    truncate(preview, max_w.saturating_sub(35))
                                 ),
                                 Style::default().fg(Color::DarkGray),
                             ),
+                            Span::styled(" [Alt+T展开]", Style::default().fg(Color::DarkGray)),
                         ]));
                     } else {
-                        // Expanded (debug mode or user toggled) - show full content
+                        // Expanded mode: show full content with collapse hint
                         lines.push(Line::from(vec![
                             Span::styled(
                                 "  \u{1f4ad} \u{25bc} ",
@@ -177,6 +178,7 @@ impl TuiApp {
                                 format!("Thinking ({} lines)", line_count),
                                 Style::default().fg(Color::DarkGray),
                             ),
+                            Span::styled(" [Alt+T折叠]", Style::default().fg(Color::DarkGray)),
                         ]));
                         let md_lines = render_markdown(&msg.content, max_w.saturating_sub(4));
                         // Show all lines without limit
@@ -314,6 +316,30 @@ impl TuiApp {
                                 Style::default().fg(line_color),
                             ));
                         }
+                    } else if *is_error {
+                        // Error: show with red border for prominence
+                        lines.push(Line::styled(
+                            "  ╔═ ERROR ═══════════════════════════╗",
+                            Style::default().fg(Color::Red),
+                        ));
+                        for line in msg.content.lines().take(preview_count) {
+                            let truncated = truncate(line, max_w.saturating_sub(8));
+                            lines.push(Line::styled(
+                                format!("  ║ {}", truncated),
+                                Style::default().fg(Color::Red),
+                            ));
+                        }
+                        let total_lines = msg.content.lines().count();
+                        if total_lines > preview_count {
+                            lines.push(Line::styled(
+                                format!("  ║ ... ({} more lines)", total_lines - preview_count),
+                                Style::default().fg(Color::DarkGray),
+                            ));
+                        }
+                        lines.push(Line::styled(
+                            "  ╚══════════════════════════════════╝",
+                            Style::default().fg(Color::Red),
+                        ));
                     } else if preview_count > 0 {
                         // Different handling for read vs other tools
                         if name == "read" {
@@ -522,12 +548,21 @@ impl TuiApp {
                                 let opt = &self.ask_options[option_idx];
                                 let marker = if actually_checked { "[✓]" } else { "[ ]" };
                                 // Add hint for Other option when selected but not checked
-                                let hint = if is_other_option && option_idx == self.ask_selected_index && !actually_checked {
+                                let hint = if is_other_option
+                                    && option_idx == self.ask_selected_index
+                                    && !actually_checked
+                                {
                                     " ✏️ Enter自定义"
                                 } else {
                                     ""
                                 };
-                                format!("  {} {}{}{}", marker, opt.label, opt.format_description(), hint)
+                                format!(
+                                    "  {} {}{}{}",
+                                    marker,
+                                    opt.label,
+                                    opt.format_description(),
+                                    hint
+                                )
                             } else {
                                 line.to_string()
                             };
@@ -700,17 +735,25 @@ impl TuiApp {
 
         // Current thinking (streaming)
         if !self.thinking.is_empty() {
+            let elapsed = self
+                .request_start
+                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
+                .unwrap_or_default();
+            let spinner_frame = self.frame % SPINNER.len();
+
             if self.thinking_collapsed && !self.debug_mode {
                 let preview = self.thinking.lines().next().unwrap_or("");
                 lines.push(Line::from(vec![
                     Span::styled(
-                        "  \u{1f4ad} \u{25b6} ",
-                        Style::default().fg(Color::DarkGray),
+                        format!("  {} ", SPINNER[spinner_frame]),
+                        Style::default().fg(Color::LightGreen),
                     ),
+                    Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
                         format!(
-                            "Thinking... {}",
-                            truncate(preview, max_w.saturating_sub(20))
+                            "Thinking{} {}",
+                            elapsed,
+                            truncate(preview, max_w.saturating_sub(25))
                         ),
                         Style::default().fg(Color::DarkGray),
                     ),
@@ -719,10 +762,11 @@ impl TuiApp {
                 // Expanded - show full content during streaming
                 lines.push(Line::from(vec![
                     Span::styled(
-                        "  \u{1f4ad} \u{25bc} ",
-                        Style::default().fg(Color::DarkGray),
+                        format!("  {} ", SPINNER[spinner_frame]),
+                        Style::default().fg(Color::LightGreen),
                     ),
-                    Span::styled("Thinking...", Style::default().fg(Color::DarkGray)),
+                    Span::styled("💭 Thinking", Style::default().fg(Color::DarkGray)),
+                    Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
                 ]));
                 let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(4));
                 // Show all lines without limit
@@ -742,9 +786,22 @@ impl TuiApp {
 
         // Streaming text
         if !self.streaming.is_empty() {
+            let elapsed = self
+                .request_start
+                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
+                .unwrap_or_default();
             let md_lines = render_markdown(&self.streaming, max_w);
             lines.extend(md_lines);
-            lines.push(Line::styled("  \u{258c}", Style::default().fg(Color::Cyan)));
+            // Blinking cursor effect (alternates between ▌ and space)
+            let cursor_char = if self.frame.is_multiple_of(2) {
+                "▌"
+            } else {
+                " "
+            };
+            lines.push(Line::styled(
+                format!("  {}{}", cursor_char, elapsed),
+                Style::default().fg(Color::Cyan),
+            ));
         }
 
         // Activity indicator
@@ -827,6 +884,7 @@ impl TuiApp {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
+                Span::styled(" [Esc取消]", Style::default().fg(Color::DarkGray)),
             ]));
         }
 
@@ -855,7 +913,10 @@ impl TuiApp {
             let notification = if self.new_message_while_scrolled.get() {
                 " 📥 新消息! (按End跳转)".to_string()
             } else {
-                format!(" ↑ {}/{} ({:.0}%) — End to bottom", scroll_offset, max_scroll, pct)
+                format!(
+                    " ↑ {}/{} ({:.0}%) — End to bottom",
+                    scroll_offset, max_scroll, pct
+                )
             };
             let notification_color = if self.new_message_while_scrolled.get() {
                 Color::Yellow

@@ -143,7 +143,7 @@ impl TuiApp {
             auto_scroll: true,
             max_scroll: std::cell::Cell::new(0),
             new_message_while_scrolled: std::cell::Cell::new(false),
-            thinking_collapsed: false, // Default: expanded
+            thinking_collapsed: true, // Default: collapsed to save screen space
             approve_mode: ApproveMode::Ask,
             shared_approve_mode: None,
             ask_tx: None,

@@ -63,7 +63,7 @@ impl TuiApp {
                 self.activity.label().to_string()
             }
         } else if self.current_request_tokens > 0 {
-            fmt_tokens(self.current_request_tokens)
+            format!("{} tok", fmt_tokens(self.current_request_tokens))
         } else {
             "...".to_string()
         };
@@ -130,8 +130,17 @@ impl TuiApp {
             ));
         }
 
+        // Message count
+        if width >= 65 {
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                format!(" msg:{} ", self.messages.len()),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+
         // Cache info
-        if width >= 75 && (self.cache_read > 0 || self.cache_created > 0) {
+        if width >= 80 && (self.cache_read > 0 || self.cache_created > 0) {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
                 format!(
@@ -143,8 +152,17 @@ impl TuiApp {
             ));
         }
 
+        // Version (at the end)
+        if width >= 90 {
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                format!(" v{} ", env!("CARGO_PKG_VERSION")),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+
         // Debug stats
-        if width >= 100 && self.debug_mode {
+        if width >= 110 && self.debug_mode {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
                 format!(" api:{} tools:{} ", self.api_calls, self.tool_calls),

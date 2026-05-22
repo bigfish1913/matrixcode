@@ -1,7 +1,7 @@
 //! Agent streaming implementation.
 
 use anyhow::Result;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use crate::event::AgentEvent;
 use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, StreamEvent, Usage};

@@ -98,8 +98,8 @@ pub fn context_window_for(model: &str) -> Option<u32> {
 
     let m = model.to_ascii_lowercase();
 
-    // Anthropic models
-    if m.contains("[1m]") || m.contains("opus-4-7") || m.contains("opus-4.7") {
+    // Anthropic models - 1M context window
+    if m.contains("1m") || m.contains("opus-4-7") || m.contains("opus-4.7") {
         return Some(1_000_000);
     }
     if m.contains("claude-3")
@@ -593,6 +593,9 @@ mod tests {
         assert_eq!(infer_context_size("claude-sonnet-4"), Some(200_000));
         assert_eq!(infer_context_size("gpt-4o"), Some(128_000));
         assert_eq!(infer_context_size("claude-3-5-haiku"), Some(200_000));
+        // 1M context models
+        assert_eq!(infer_context_size("claude-sonnet-4-1m"), Some(1_000_000));
+        assert_eq!(infer_context_size("claude-opus-4-7"), Some(1_000_000));
     }
 
     #[test]

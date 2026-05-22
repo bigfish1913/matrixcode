@@ -1,15 +1,18 @@
 version: 3
 
 vars:
-  VERSION: 0.3.3
+  VERSION: 0.4.3
+  ROOT_DIR: .
   CLI_DIR: packages/cli
+  CORE_DIR: packages/core
+  TUI_DIR: packages/tui
   VSCODE_DIR: packages/vscode
 
 tasks:
   status:
     desc: Show version and status
     cmds:
-      - 'grep "^version" {{.CLI_DIR}}/Cargo.toml'
+      - 'grep "^version" Cargo.toml'
       - 'git status --short'
 
   login-cargo:
@@ -18,43 +21,43 @@ tasks:
       - cmd: 'node -e "const os=require(\"os\");const fs=require(\"fs\");const lines=fs.readFileSync(\".env\",\"utf8\").split(/\\r?\\n/);const line=lines.find(l=>l.startsWith(\"CARGO_TOKEN=\"));if(line){const t=line.split(\"=\")[1];fs.writeFileSync(os.homedir()+\"/.cargo/credentials.toml\",\"[registry]\\ntoken = \\\"\"+t+\"\\\"\")}"'
 
   bump:
-    desc: Bump all versions (task bump -- 0.3.3)
+    desc: Bump all versions (task bump -- 0.4.3)
     cmds:
-      - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\").replace(/^version = .*/m,\"version = \\\"\"+v+\"\\\"\");fs.writeFileSync(\"{{.CLI_DIR}}/Cargo.toml\",c)"'
+      - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const root=fs.readFileSync(\"Cargo.toml\",\"utf8\").replace(/^version = .*/m,\"version = \\\"\"+v+\"\\\"\");fs.writeFileSync(\"Cargo.toml\",root)"'
       - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const p=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));p.version=v;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(p,null,2))"'
-      - cmd: 'cd {{.CLI_DIR}} && cargo update -w'  # 更新 Cargo.lock
+      - cmd: 'cargo update -w'  # 更新 Cargo.lock
       - cmd: 'echo "Bumped to {{.CLI_ARGS}}"'
 
   bump-auto:
-    desc: Auto bump patch version (0.3.2 -> 0.3.3)
+    desc: Auto bump patch version (0.4.2 -> 0.4.3)
     cmds:
-      - cmd: 'node -e "const fs=require(\"fs\");const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const p=m[1].split(\".\");p[2]=parseInt(p[2])+1;const nv=p.join(\".\");fs.writeFileSync(\"{{.CLI_DIR}}/Cargo.toml\",c.replace(/^version = .*/m,\"version = \\\"\"+nv+\"\\\"\"));const vsc=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));vsc.version=nv;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(vsc,null,2));console.log(\"Bumped to: \"+nv)}"'
-      - cmd: 'cd {{.CLI_DIR}} && cargo update -w'
+      - cmd: 'node -e "const fs=require(\"fs\");const root=fs.readFileSync(\"Cargo.toml\",\"utf8\");const m=root.match(/^version = \"([^\"]+)\"/m);if(m){const p=m[1].split(\".\");p[2]=parseInt(p[2])+1;const nv=p.join(\".\");fs.writeFileSync(\"Cargo.toml\",root.replace(/^version = .*/m,\"version = \\\"\"+nv+\"\\\"\"));const vsc=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));vsc.version=nv;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(vsc,null,2));console.log(\"Bumped to: \"+nv)}"'
+      - cmd: 'cargo update -w'
 
   tag:
-    desc: Create git tag (task tag -- 0.3.3)
+    desc: Create git tag (task tag -- 0.4.3)
     cmds:
-      - 'git add {{.CLI_DIR}}/Cargo.toml {{.CLI_DIR}}/Cargo.lock {{.VSCODE_DIR}}/package.json'
+      - 'git add Cargo.toml Cargo.lock {{.VSCODE_DIR}}/package.json'
       - 'git commit -m "chore: bump to {{.CLI_ARGS}}"'
       - 'git tag {{.CLI_ARGS}}'
       - 'git push origin dev'
       - 'git push origin {{.CLI_ARGS}}'
 
   publish-cargo:
-    desc: Publish all crates to cargo (core -> matrixcode -> cli)
+    desc: Publish all crates to cargo (core -> tui -> cli)
     cmds:
       - task: login-cargo
       # 清理残留配置（如果有）
-      - cmd: 'rm -rf {{.CLI_DIR}}/.cargo {{.CLI_DIR}}/crates/*/.cargo'
+      - cmd: 'rm -rf {{.CORE_DIR}}/.cargo {{.TUI_DIR}}/.cargo {{.CLI_DIR}}/.cargo'
       # 临时修改全局配置（删除镜像配置，使用 crates.io 直接源）
       - cmd: 'node -e "const fs=require(\"fs\");const os=require(\"os\");const p=os.homedir()+\"/.cargo/config.toml\";fs.copyFileSync(p,p+\".bak\");fs.writeFileSync(p,\"[net]\\ngit-fetch-with-cli = true\\n\\n[build]\\ntarget-dir = \\\"C:/Users/bigfish/.cargo/target\\\"\\n\")"'
-      - cmd: 'cd {{.CLI_DIR}}/crates/matrixcode-core && cargo publish --registry crates-io --allow-dirty'
+      - cmd: 'cd {{.CORE_DIR}} && cargo publish --registry crates-io --allow-dirty'
         ignore_error: true
       - cmd: 'node -e "setTimeout(()=>{},20000)"'
-      - cmd: 'cd {{.CLI_DIR}}/crates/matrixcode-tui && cargo publish --registry crates-io --allow-dirty'
+      - cmd: 'cd {{.TUI_DIR}} && cargo publish --registry crates-io --allow-dirty'
         ignore_error: true
       - cmd: 'node -e "setTimeout(()=>{},20000)"'
-      - cmd: 'cd {{.CLI_DIR}}/crates/matrixcode-cli && cargo publish --registry crates-io --allow-dirty'
+      - cmd: 'cd {{.CLI_DIR}} && cargo publish --registry crates-io --allow-dirty'
         ignore_error: true
       # 恢复全局配置
       - cmd: 'node -e "const fs=require(\"fs\");const os=require(\"os\");const p=os.homedir()+\"/.cargo/config.toml\";if(fs.existsSync(p+\".bak\")){fs.copyFileSync(p+\".bak\",p);fs.unlinkSync(p+\".bak\")}"'
@@ -69,12 +72,12 @@ tasks:
     desc: Auto bump version and publish all (cargo + vscode)
     cmds:
       - task: bump-auto
-      - cmd: 'node -e "const fs=require(\"fs\");const execSync=require(\"child_process\").execSync;const c=fs.readFileSync(\"{{.CLI_DIR}}/Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const v=m[1];execSync(\"git add {{.CLI_DIR}}/Cargo.toml {{.CLI_DIR}}/Cargo.lock {{.VSCODE_DIR}}/package.json\");execSync(\"git commit -m \\\"chore: bump to \"+v+\"\\\"\");execSync(\"git tag \"+v);execSync(\"git push origin dev\");execSync(\"git push origin \"+v)}"'
+      - cmd: 'node -e "const fs=require(\"fs\");const execSync=require(\"child_process\").execSync;const c=fs.readFileSync(\"Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const v=m[1];execSync(\"git add Cargo.toml Cargo.lock {{.VSCODE_DIR}}/package.json\");execSync(\"git commit -m \\\"chore: bump to \"+v+\"\\\"\");execSync(\"git tag \"+v);execSync(\"git push origin dev\");execSync(\"git push origin \"+v)}"'
       - task: publish-cargo
       - task: publish-vscode
 
   release:
-    desc: Full release workflow (task release -- 0.3.3)
+    desc: Full release workflow (task release -- 0.4.3)
     cmds:
       - task: login-cargo
       - task: bump
@@ -87,47 +90,40 @@ tasks:
 
   build:
     desc: Build CLI release
-    dir: '{{.CLI_DIR}}'
     cmds:
       - 'cargo build --release'
 
   dev:
     desc: Build CLI debug
-    dir: '{{.CLI_DIR}}'
     cmds:
       - 'cargo build'
 
   run:
     desc: Run CLI
-    dir: '{{.CLI_DIR}}'
     cmds:
       - 'cargo run --release'
 
   daemon:
     desc: Test daemon mode
-    dir: '{{.CLI_DIR}}'
     cmds:
       - cmd: 'echo {"type":"chat","content":"test"} | cargo run --release -- --mode daemon'
         silent: true
 
   check:
     desc: Run clippy and format check
-    dir: '{{.CLI_DIR}}'
     cmds:
       - 'cargo clippy --all -- -D warnings'
       - 'cargo fmt --all -- --check'
 
   fmt:
     desc: Format code
-    dir: '{{.CLI_DIR}}'
     cmds:
       - 'cargo fmt --all'
 
   install:
     desc: Install CLI locally
-    dir: '{{.CLI_DIR}}'
     cmds:
-      - 'cargo install --path crates/matrixcode-cli'
+      - 'cargo install --path {{.CLI_DIR}}'
 
   build-vscode:
     desc: Build VSCode extension
@@ -138,19 +134,16 @@ tasks:
 
   test:
     desc: Run all CLI tests
-    dir: '{{.CLI_DIR}}'
     cmds:
       - 'cargo test --all'
 
   test-core:
     desc: Run core module tests
-    dir: '{{.CLI_DIR}}'
     cmds:
       - 'cargo test -p matrixcode-core'
 
   test-tui:
     desc: Run TUI module tests
-    dir: '{{.CLI_DIR}}'
     cmds:
       - 'cargo test -p matrixcode-tui'
 
@@ -163,7 +156,7 @@ tasks:
   clean:
     desc: Clean build artifacts
     cmds:
-      - 'rm -rf {{.CLI_DIR}}/target'
+      - 'cargo clean'
       - 'rm -rf {{.VSCODE_DIR}}/dist'
       - 'rm -rf {{.VSCODE_DIR}}/node_modules'
 

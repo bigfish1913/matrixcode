@@ -363,7 +363,8 @@ impl TuiApp {
                         })
                         .collect();
                     // Append "Other" option for custom input
-                    self.ask_options.push(crate::types::AskOption::other_option());
+                    self.ask_options
+                        .push(crate::types::AskOption::other_option());
                     self.ask_selected_index = 0;
 
                     if self.ask_multi_select {
