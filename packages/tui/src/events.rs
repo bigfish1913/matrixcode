@@ -98,6 +98,8 @@ impl TuiApp {
                     self.activity = Activity::from_tool(&name);
                     self.activity_detail = extract_tool_detail(&name, input.as_ref());
                     self.activity_input = input; // Save full input for display
+                    // Reset tool_start for each new tool execution
+                    self.tool_start = Some(std::time::Instant::now());
                     if self.request_start.is_none() {
                         self.request_start = Some(std::time::Instant::now());
                     }

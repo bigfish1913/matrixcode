@@ -34,31 +34,36 @@ impl TuiApp {
         // Gap between messages and input area (empty line for spacing)
         let gap_height = 1u16;
 
-        // Calculate positions from bottom up
-        let input_y = total_height.saturating_sub(status_height + input_height);
+        // Calculate reserved space from bottom
+        let reserved_height = status_height + input_height + hint_height + gap_height + queue_height;
+
+        // Messages area gets remaining space, minimum 3 lines
+        let messages_height = total_height.saturating_sub(reserved_height).max(3);
+
+        // Calculate Y positions
+        let status_y = total_height.saturating_sub(status_height);
+        let input_y = status_y.saturating_sub(input_height);
         let hint_y = input_y.saturating_sub(hint_height);
         let gap_y = hint_y.saturating_sub(gap_height);
         let queue_y = gap_y.saturating_sub(queue_height);
-        let messages_height = queue_y;
-        let status_y = total_height.saturating_sub(status_height);
 
-        // Create areas
+        // Create areas with proper bounds
         let messages_area = Rect::new(f.area().x, f.area().y, f.area().width, messages_height);
         let queue_area = Rect::new(f.area().x, queue_y, f.area().width, queue_height);
-        // Gap area is just empty space - no rendering needed
         let hint_area = Rect::new(f.area().x, hint_y, f.area().width, hint_height);
         let input_area = Rect::new(f.area().x, input_y, f.area().width, input_height);
         let status_area = Rect::new(f.area().x, status_y, f.area().width, status_height);
 
-        self.draw_messages(f, messages_area);
-        if !self.pending_messages.is_empty() {
-            self.draw_queue(f, queue_area);
-        }
-        // Gap is intentionally empty - provides visual spacing
+        // Render components in order (bottom to top ensures proper layering)
+        self.draw_status(f, status_area);
+        self.draw_input(f, input_area);
         if hint_height > 0 {
             self.draw_hint(f, hint_area);
         }
-        self.draw_input(f, input_area);
-        self.draw_status(f, status_area);
+        if !self.pending_messages.is_empty() && queue_height > 0 {
+            self.draw_queue(f, queue_area);
+        }
+        // Messages area last - largest area
+        self.draw_messages(f, messages_area);
     }
 }

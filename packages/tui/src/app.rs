@@ -39,6 +39,7 @@ pub struct TuiApp {
     pub(crate) tool_calls: u64,
     // Timing
     pub(crate) request_start: Option<Instant>,
+    pub(crate) tool_start: Option<Instant>, // When current tool execution started
     // UI state
     pub(crate) frame: usize,
     pub(crate) last_anim: Instant,
@@ -134,6 +135,7 @@ impl TuiApp {
             memory_saves: 0,
             tool_calls: 0,
             request_start: None,
+            tool_start: None,
             frame: 0,
             last_anim: Instant::now(),
             show_welcome: true,
@@ -146,7 +148,7 @@ impl TuiApp {
             auto_scroll: true,
             max_scroll: std::cell::Cell::new(0),
             new_message_while_scrolled: std::cell::Cell::new(false),
-            thinking_collapsed: true, // Default: collapsed to save screen space
+            thinking_collapsed: false, // Default: expanded to show thinking content
             approve_mode: ApproveMode::Ask,
             shared_approve_mode: None,
             ask_tx: None,

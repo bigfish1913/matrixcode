@@ -561,6 +561,7 @@ impl TuiApp {
                 ask_tx.try_send(input).ok();
             }
             self.activity = Activity::Thinking;
+            self.tool_start = Some(Instant::now()); // Reset tool timing after Ask response
             self.auto_scroll = true;
         } else if input.starts_with('/') {
             // Command
@@ -967,6 +968,7 @@ impl TuiApp {
             // Clear state
             self.waiting_for_ask = false;
             self.activity = Activity::Thinking;
+            self.tool_start = Some(Instant::now()); // Reset tool timing after Ask response
             self.auto_scroll = true;
             self.input.clear();
             self.cursor_pos = 0;

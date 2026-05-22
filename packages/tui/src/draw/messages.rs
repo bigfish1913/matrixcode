@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::SPINNER;
 use crate::app::TuiApp;
+use crate::draw::helpers::estimate_message_tokens;
 use crate::markdown::render_markdown;
 use crate::types::{Activity, Role, SubmitMode};
 use crate::utils::{fmt_tokens, truncate, word_wrap};
@@ -231,17 +232,28 @@ impl TuiApp {
                             Span::styled(" [Alt+T展开]", Style::default().fg(Color::DarkGray)),
                         ]));
                     } else {
-                        // Expanded mode: show full content with collapse hint
+                        // Expanded mode: show full content
+                        // In debug mode, show extra info like token count
+                        let debug_info = if self.debug_mode {
+                            let tok = estimate_message_tokens(&msg.content) as u64;
+                            format!(" ({} lines, ~{}tok)", line_count, fmt_tokens(tok))
+                        } else {
+                            format!(" ({} lines)", line_count)
+                        };
                         lines.push(Line::from(vec![
                             Span::styled(
                                 "  \u{1f4ad} \u{25bc} ",
                                 Style::default().fg(Color::DarkGray),
                             ),
                             Span::styled(
-                                format!("Thinking ({} lines)", line_count),
+                                format!("Thinking{}", debug_info),
                                 Style::default().fg(Color::DarkGray),
                             ),
-                            Span::styled(" [Alt+T折叠]", Style::default().fg(Color::DarkGray)),
+                            if !self.debug_mode {
+                                Span::styled(" [Alt+T折叠]", Style::default().fg(Color::DarkGray))
+                            } else {
+                                Span::raw("")
+                            },
                         ]));
                         let md_lines = render_markdown(&msg.content, max_w.saturating_sub(4));
                         // Show all lines without limit
@@ -416,13 +428,12 @@ impl TuiApp {
                             let total_lines = msg.content.lines().count();
                             if total_lines > preview_count {
                                 lines.push(Line::styled(
-                                    format!("    \u{2026} ({} more)", total_lines - preview_count),
+                                    format!("    … ({} more)", total_lines - preview_count),
                                     Style::default().fg(Color::DarkGray),
                                 ));
                             }
-                        } else {
-                            // Other tools: skip first line (summary header)
-                            // Diff display: use bright colors and clear markers for edit changes
+                        } else if (name == "edit" || name == "multi_edit") && has_diff {
+                            // Diff display: use bright colors only for edit tools with actual diff
                             for line in msg.content.lines().skip(1).take(preview_count) {
                                 let (marker, line_style) = if line.starts_with("+ ") {
                                     // Added line: bright green with ✓ marker
@@ -443,10 +454,23 @@ impl TuiApp {
                             let total_lines = msg.content.lines().skip(1).count();
                             if total_lines > preview_count {
                                 lines.push(Line::styled(
-                                    format!(
-                                        "    \u{2026} ({} more lines)",
-                                        total_lines - preview_count
-                                    ),
+                                    format!("    … ({} more lines)", total_lines - preview_count),
+                                    Style::default().fg(Color::DarkGray),
+                                ));
+                            }
+                        } else {
+                            // Other tools: skip first line (summary header), normal styling
+                            for line in msg.content.lines().skip(1).take(preview_count) {
+                                let truncated = truncate(line, max_w.saturating_sub(4));
+                                lines.push(Line::styled(
+                                    format!("    {}", truncated),
+                                    Style::default().fg(Color::DarkGray),
+                                ));
+                            }
+                            let total_lines = msg.content.lines().skip(1).count();
+                            if total_lines > preview_count {
+                                lines.push(Line::styled(
+                                    format!("    … ({} more lines)", total_lines - preview_count),
                                     Style::default().fg(Color::DarkGray),
                                 ));
                             }
@@ -605,7 +629,7 @@ impl TuiApp {
                             let is_other_option = option_idx < self.ask_options.len()
                                 && self.ask_options[option_idx].is_other;
 
-                            // Rebuild line with actual checkbox state
+                            // Rebuild line with actual checkbox state (truncate to fit display)
                             let display_line = if is_checkbox && option_idx < self.ask_options.len()
                             {
                                 let opt = &self.ask_options[option_idx];
@@ -619,15 +643,16 @@ impl TuiApp {
                                 } else {
                                     ""
                                 };
-                                format!(
+                                let raw = format!(
                                     "  {} {}{}{}",
                                     marker,
                                     opt.label,
                                     opt.format_description(),
                                     hint
-                                )
+                                );
+                                truncate(&raw, max_w.saturating_sub(2))
                             } else {
-                                line.to_string()
+                                truncate(line, max_w.saturating_sub(2))
                             };
 
                             // Check if this line matches current selection index
@@ -837,30 +862,10 @@ impl TuiApp {
             }
         }
 
-        // Streaming text
+        // Streaming text - just show the content, no indicator needed
         if !self.streaming.is_empty() {
-            let elapsed = self
-                .request_start
-                .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
-                .unwrap_or_default();
             let md_lines = render_markdown(&self.streaming, max_w);
             lines.extend(md_lines);
-            // Blinking cursor effect with elapsed time
-            let spinner_frame = self.frame % SPINNER.len();
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("{} ", SPINNER[spinner_frame]),
-                    Style::default().fg(Color::LightGreen),
-                ),
-                Span::styled(
-                    "Responding ",
-                    Style::default().fg(Color::Cyan),
-                ),
-                Span::styled(
-                    elapsed,
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]));
         }
 
         // Activity indicator
@@ -924,7 +929,7 @@ impl TuiApp {
             };
 
             let elapsed = self
-                .request_start
+                .tool_start
                 .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
             let spinner_frame = self.frame % SPINNER.len();
