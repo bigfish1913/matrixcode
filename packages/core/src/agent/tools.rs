@@ -18,6 +18,53 @@ async fn wait_for_cancel(token: &crate::cancel::CancellationToken) {
     }
 }
 
+/// Analyze tool error and generate recovery guidance
+fn analyze_tool_error(tool_name: &str, error_msg: &str) -> String {
+    let guidance = match tool_name {
+        "read" => {
+            if error_msg.contains("not found") || error_msg.contains("does not exist") {
+                "文件不存在。建议：\n1. 检查路径是否正确\n2. 使用 glob 或 ls 查找类似文件\n3. 确认文件是否已被删除或移动"
+            } else if error_msg.contains("permission") {
+                "权限不足。建议：\n1. 检查文件权限\n2. 尝试其他路径\n3. 询问用户是否有权限问题"
+            } else {
+                "读取失败。建议检查路径和文件状态，或尝试其他方法获取信息。"
+            }
+        }
+        "write" | "edit" | "multi_edit" => {
+            if error_msg.contains("not found") {
+                "文件不存在。建议：\n1. 先确认文件路径\n2. 如需创建新文件，明确告知用户\n3. 使用 read 检查目录结构"
+            } else if error_msg.contains("permission") {
+                "写入权限不足。建议：\n1. 检查文件权限\n2. 询问用户是否需要权限调整\n3. 考虑其他写入位置"
+            } else if error_msg.contains("unique") || error_msg.contains("not match") {
+                "编辑匹配失败。建议：\n1. 先读取文件确认内容\n2. 检查 old_string 是否精确匹配\n3. 调整匹配内容或使用其他编辑方式"
+            } else {
+                "写入失败。建议检查路径、权限和内容，或询问用户如何处理。"
+            }
+        }
+        "bash" => {
+            if error_msg.contains("timeout") {
+                "命令执行超时。建议：\n1. 检查命令是否需要更长时间\n2. 考虑分步执行\n3. 询问用户是否继续等待或调整方案"
+            } else if error_msg.contains("permission") {
+                "执行权限不足。建议：\n1. 检查命令权限要求\n2. 询问用户是否有 sudo 权限\n3. 考虑替代方案"
+            } else if error_msg.contains("not found") {
+                "命令或程序不存在。建议：\n1. 检查命令是否正确\n2. 确认程序是否已安装\n3. 考虑替代工具"
+            } else {
+                "命令执行失败。建议检查命令语法、环境和依赖，或询问用户如何处理。"
+            }
+        }
+        "search" | "grep" | "glob" => {
+            if error_msg.contains("not found") || error_msg.contains("no matches") {
+                "未找到匹配结果。建议：\n1. 调整搜索模式\n2. 扩大搜索范围\n3. 检查搜索路径是否正确"
+            } else {
+                "搜索失败。建议调整搜索参数或尝试其他方法。"
+            }
+        }
+        _ => "操作失败。建议分析错误原因，调整方案，或询问用户如何处理。"
+    };
+
+    format!("\n\n【错误分析】{}\n【错误详情】{}", guidance, error_msg)
+}
+
 impl Agent {
     /// Process response and handle tool_use
     pub(crate) async fn process_response(&mut self, response: &ChatResponse) -> Result<bool> {
@@ -54,7 +101,11 @@ impl Agent {
 
                     let (content, is_error) = match result {
                         Ok(output) => (output, false),
-                        Err(e) => (e.to_string(), true),
+                        Err(e) => {
+                            // Add intelligent error guidance
+                            let enhanced_error = analyze_tool_error(name, &e.to_string());
+                            (enhanced_error, true)
+                        }
                     };
 
                     self.emit(AgentEvent::tool_result(

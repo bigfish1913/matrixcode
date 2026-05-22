@@ -73,6 +73,8 @@ pub struct TuiApp {
     // Multi-question support
     pub(crate) ask_questions: Vec<AskQuestion>, // Queue of questions
     pub(crate) current_question_idx: usize,     // Current question index
+    // Todo tracking for progress display
+    pub(crate) todo_items: Vec<TodoItem>,
     // Channels
     pub(crate) tx: tokio::sync::mpsc::Sender<String>,
     pub(crate) rx: tokio::sync::mpsc::Receiver<AgentEvent>,
@@ -85,6 +87,13 @@ pub struct TuiApp {
     pub(crate) cron_tasks: Vec<CronTask>,
     // Debug mode
     pub(crate) debug_mode: bool,
+}
+
+/// Todo item for progress tracking
+#[derive(Clone)]
+pub struct TodoItem {
+    pub content: String,
+    pub status: String, // "pending", "in_progress", "completed"
 }
 
 /// Loop task - repeatedly send message
@@ -160,6 +169,7 @@ impl TuiApp {
             ask_other_input_active: false,
             ask_questions: Vec::new(),
             current_question_idx: 0,
+            todo_items: Vec::new(),
             tx,
             rx,
             cancel,

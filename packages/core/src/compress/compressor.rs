@@ -47,8 +47,16 @@ const SUMMARY_SYSTEM_PROMPT: &str = r#"你是一个对话历史压缩助手。�
 - 简洁：摘要控制在 200 字以内
 - 关键：只保留重要操作和决策
 - 敏感：必须保留用户的敏感指令
+- 任务：必须保留未完成的待办事项
+- 决策：必须保留关键方案选择和理由
 
-请直接输出摘要内容。"#;
+输出格式：
+【摘要】一句话概括主要工作
+【已完成】列出已完成的操作
+【未完成】列出待办任务（如有）
+【关键决策】重要选择及理由（如有）
+
+请直接输出内容。"#;
 
 #[async_trait]
 impl Compressor for AiCompressor {
@@ -210,11 +218,16 @@ pub fn compress_with_bias(
 
 fn calculate_preservation_score(
     message: &Message,
-    _index: usize,
-    _total: usize,
+    index: usize,
+    total: usize,
     bias: &CompressionBias,
 ) -> f64 {
     let mut score: f64 = 10.0;
+
+    // First message (user's original request) gets highest priority
+    if index == 0 {
+        score += 100.0;
+    }
 
     match message.role {
         Role::User => {
@@ -256,12 +269,28 @@ fn calculate_preservation_score(
                         if name == "write" || name == "edit" || name == "bash" {
                             score += 10.0;
                         }
+                        // todo_write gets high priority - preserve task tracking
+                        if name == "todo_write" {
+                            score += 60.0;
+                        }
+                        // ask tool contains key decisions
+                        if name == "ask" {
+                            score += 50.0;
+                        }
                     }
                     ContentBlock::ToolResult { content, .. } => {
                         if bias.preserve_tools {
                             score += 20.0;
                         }
                         if contains_sensitive_instructions(content) {
+                            score += 30.0;
+                        }
+                        // Preserve todo_write results (task status)
+                        if content.contains("TodoWrite") || content.contains("todo") {
+                            score += 40.0;
+                        }
+                        // Preserve ask responses (user decisions)
+                        if content.contains("AskUserQuestion") || content.contains("answer") {
                             score += 30.0;
                         }
                     }

@@ -1,7 +1,7 @@
 use matrixcode_core::{AgentEvent, EventData, EventType};
 use serde_json::Value;
 
-use crate::app::TuiApp;
+use crate::app::{TuiApp, TodoItem};
 use crate::types::{Activity, Message, Role, SubmitMode};
 use crate::utils::{extract_tool_detail, fmt_tokens, truncate};
 
@@ -13,6 +13,34 @@ impl TuiApp {
             self.new_message_while_scrolled.set(true);
         }
         self.messages.push(msg);
+    }
+
+    /// Update todo items from todo_write tool input
+    pub(crate) fn update_todo_items(&mut self, input: &Value) {
+        if let Some(todos) = input.get("todos").and_then(|t| t.as_array()) {
+            self.todo_items = todos
+                .iter()
+                .map(|todo| TodoItem {
+                    content: todo.get("content")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    status: todo.get("status")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("pending")
+                        .to_string(),
+                })
+                .collect();
+        }
+    }
+
+    /// Get todo progress summary (completed/total)
+    pub(crate) fn todo_progress(&self) -> (usize, usize) {
+        let total = self.todo_items.len();
+        let completed = self.todo_items.iter()
+            .filter(|t| t.status == "completed")
+            .count();
+        (completed, total)
     }
 
     /// Flush partial content to messages.
@@ -97,11 +125,16 @@ impl TuiApp {
                 if let Some(EventData::ToolUse { name, input, .. }) = e.data {
                     self.activity = Activity::from_tool(&name);
                     self.activity_detail = extract_tool_detail(&name, input.as_ref());
-                    self.activity_input = input; // Save full input for display
+                    self.activity_input = input.clone(); // Save full input for display
                     // Reset tool_start for each new tool execution
                     self.tool_start = Some(std::time::Instant::now());
                     if self.request_start.is_none() {
                         self.request_start = Some(std::time::Instant::now());
+                    }
+
+                    // Track todo_write for progress display
+                    if name == "todo_write" && input.is_some() {
+                        self.update_todo_items(input.as_ref().unwrap());
                     }
                 }
             }

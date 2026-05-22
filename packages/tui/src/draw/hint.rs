@@ -1,4 +1,4 @@
-//! Hint bar rendering - shows command hints, tool status, etc.
+//! Hint bar rendering - shows command hints, tool status, todo progress, etc.
 
 use ratatui::{
     layout::Rect,
@@ -18,6 +18,7 @@ impl TuiApp {
         // 1. Input starts with '/' (command mode)
         // 2. Tool is executing (show tool details)
         // 3. Activity is Asking (show prompt)
+        // 4. Has todo items (show progress)
         // Note: Thinking animation is handled in messages.rs, not here
         self.input.starts_with('/')
             || matches!(
@@ -25,16 +26,36 @@ impl TuiApp {
                 Activity::Reading | Activity::Writing | Activity::Editing
                     | Activity::Searching | Activity::Running
                     | Activity::WebSearch | Activity::WebFetch
-                    | Activity::Tool(_)
+                    | Activity::Tool(_) | Activity::Thinking
             )
             || self.activity == Activity::Asking
+            || !self.todo_items.is_empty()
     }
 
     pub(crate) fn draw_hint(&self, f: &mut ratatui::Frame, area: Rect) {
         let mut spans: Vec<Span> = Vec::new();
 
+        // Show todo progress first if we have todos and are working
+        let (completed, total) = self.todo_progress();
+        if total > 0 && matches!(self.activity, Activity::Thinking | Activity::Reading | Activity::Writing | Activity::Editing | Activity::Searching | Activity::Running | Activity::Tool(_)) {
+            let progress_color = if completed == total {
+                Color::Green
+            } else if completed > 0 {
+                Color::Yellow
+            } else {
+                Color::Gray
+            };
+            spans.push(Span::styled(
+                format!("📋 {}/{} ", completed, total),
+                Style::default().fg(progress_color),
+            ));
+        }
+
         // Command hints when input starts with '/'
         if self.input.starts_with('/') {
+            if !spans.is_empty() {
+                spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            }
             spans.push(Span::styled("💡 ", Style::default().fg(Color::Cyan)));
             spans.push(Span::styled(
                 "Commands: ",
@@ -100,6 +121,9 @@ impl TuiApp {
 
                 let detail = extract_hint_detail(tool_name, input, area.width as usize);
                 if !detail.is_empty() {
+                    if !spans.is_empty() {
+                        spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+                    }
                     spans.push(Span::styled(
                         detail,
                         Style::default().fg(Color::Gray),
@@ -107,6 +131,9 @@ impl TuiApp {
                 }
             }
         } else if self.activity == Activity::Asking {
+            if !spans.is_empty() {
+                spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            }
             spans.push(Span::styled("⚡ ", Style::default().fg(Color::Red)));
             spans.push(Span::styled(
                 "Awaiting response...",

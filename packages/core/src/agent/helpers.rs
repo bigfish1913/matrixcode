@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 
 use crate::event::AgentEvent;
-use crate::providers::Usage;
+use crate::providers::{ContentBlock, MessageContent, Usage};
 use crate::truncate::truncate_chars;
 
 use super::types::Agent;
@@ -48,6 +48,32 @@ impl Agent {
                 Err(anyhow::anyhow!("Event channel closed"))
             }
         }
+    }
+
+    /// Check if there are pending (uncompleted) todos in recent messages
+    pub(crate) fn has_pending_todos(&self) -> bool {
+        // Look for todo_write tool_use in recent messages (last 10)
+        for msg in self.messages.iter().rev().take(10) {
+            if let MessageContent::Blocks(blocks) = &msg.content {
+                for block in blocks {
+                    if let ContentBlock::ToolUse { name, input, .. } = block {
+                        if name == "todo_write" {
+                            // Check if there are non-completed todos
+                            if let Some(todos) = input.get("todos").and_then(|t| t.as_array()) {
+                                for todo in todos {
+                                    if let Some(status) = todo.get("status").and_then(|s| s.as_str()) {
+                                        if status != "completed" {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 }
 

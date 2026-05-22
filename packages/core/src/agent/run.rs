@@ -101,6 +101,7 @@ impl Agent {
 
         let mut iterations = 0;
         let mut should_continue = true;
+        const ITERATION_WARNING_THRESHOLD: usize = MAX_ITERATIONS - 10;
 
         while should_continue && iterations < MAX_ITERATIONS {
             iterations += 1;
@@ -114,6 +115,20 @@ impl Agent {
                     None,
                 ))?;
                 break;
+            }
+
+            // Warn when approaching iteration limit
+            if iterations == ITERATION_WARNING_THRESHOLD {
+                self.messages.push(Message {
+                    role: Role::User,
+                    content: MessageContent::Text(
+                        "⚠️ 接近最大迭代次数限制（当前 {iterations}/{MAX_ITERATIONS}）。\
+                         请检查任务进度：\n\
+                         1. 如果有未完成的子任务，优先完成最关键的项\n\
+                         2. 使用 todo_write 查看和更新任务状态\n\
+                         3. 确保在限制内完成或在最后输出剩余任务摘要".replace("{iterations}", &iterations.to_string()).replace("{MAX_ITERATIONS}", &MAX_ITERATIONS.to_string())
+                    ),
+                });
             }
 
             let tool_defs: Vec<ToolDefinition> =
@@ -139,6 +154,20 @@ impl Agent {
             );
 
             should_continue = self.process_response(&response).await?;
+
+            // If model wants to stop (no tool calls), check for pending todos
+            if !should_continue && iterations < MAX_ITERATIONS - 1 {
+                if self.has_pending_todos() {
+                    self.messages.push(Message {
+                        role: Role::User,
+                        content: MessageContent::Text(
+                            "📋 检测到未完成的待办任务。请继续执行剩余任务，或在 todo_write 中将已完成的任务标记为 completed。\n\
+                             注意：只有所有任务都完成后才能结束。如果遇到阻塞，请说明原因。".to_string()
+                        ),
+                    });
+                    should_continue = true;
+                }
+            }
 
             let context_size = self.provider.context_size();
             let api_tokens = self.last_input_tokens.load(Ordering::Relaxed) as u32;
