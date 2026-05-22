@@ -5,6 +5,7 @@ use anyhow::Result;
 use serde::Deserialize;
 
 use super::config::*;
+use super::keywords_config::KeywordsConfig;
 use super::types::{AutoMemory, MemoryCategory, MemoryEntry};
 
 // ============================================================================
@@ -34,19 +35,39 @@ impl AiMemoryExtractor {
     }
 }
 
-const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是一个记忆提取助手。你的任务是从对话中识别并提取值得长期记忆的关键信息。
+const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是一个记忆提取助手。从对话中提取值得长期记忆的关键信息。
 
 记忆类型：
-1. Decision（决策）: 项目或技术选型的决定
-2. Preference（偏好）: 用户习惯或偏好
-3. Solution（解决方案）: 解决问题的具体方法
-4. Finding（发现）: 重要发现或信息
-5. Technical（技术）: 技术栈或框架信息
-6. Structure（结构）: 项目结构信息
+- decision: 项目或技术选型的决定
+- preference: 用户习惯或偏好
+- solution: 解决问题的具体方法
+- finding: 重要发现或信息
+- technical: 技术栈或框架信息
+- structure: 项目结构信息
 
 输出格式（严格 JSON）：
-{"memories": [{"category": "decision", "content": "...", "importance": 90}]}
-"#;
+{
+  "memories": [
+    {
+      "category": "decision",
+      "content": "采用 PostgreSQL 作为主数据库",
+      "importance": 85,
+      "keywords": ["PostgreSQL", "数据库", "database"],
+      "tags": ["backend", "storage"]
+    }
+  ]
+}
+
+关键词提取要求：
+- 提取 3-5 个核心关键词（技术名词、项目名、关键概念）
+- 中英文关键词都提取
+- 用于后续记忆检索匹配
+
+标签提取要求：
+- 提取 1-3 个分类标签（如 backend、frontend、config、auth 等）
+- 用于记忆分类筛选
+
+只返回 JSON，不要其他解释。"#;
 
 #[async_trait::async_trait]
 impl MemoryExtractor for AiMemoryExtractor {
@@ -114,6 +135,10 @@ fn parse_memory_response(json_text: &str, session_id: Option<&str>) -> Result<Ve
         content: String,
         #[serde(default)]
         importance: f64,
+        #[serde(default)]
+        keywords: Vec<String>,
+        #[serde(default)]
+        tags: Vec<String>,
     }
 
     let parsed: MemoryResponse = serde_json::from_str(cleaned)?;
@@ -141,6 +166,14 @@ fn parse_memory_response(json_text: &str, session_id: Option<&str>) -> Result<Ve
             if item.importance > 0.0 {
                 entry.importance = item.importance.clamp(0.0, 100.0);
             }
+            // Add AI-extracted keywords and tags
+            if !item.keywords.is_empty() {
+                entry.tags.extend(item.keywords);
+            }
+            if !item.tags.is_empty() {
+                entry.tags.extend(item.tags);
+            }
+            entry.tags.dedup();
 
             Some(entry)
         })
@@ -169,103 +202,32 @@ fn deduplicate_entries(entries: Vec<MemoryEntry>) -> Vec<MemoryEntry> {
 }
 
 // ============================================================================
-// Rule-based Detection
+// Rule-based Detection (uses KeywordsConfig)
 // ============================================================================
 
-/// Detect memories from text using rule-based patterns.
+/// Detect memories from text using configurable patterns.
 pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<MemoryEntry> {
+    let config = KeywordsConfig::load();
     let mut entries = Vec::new();
     let text_lower = text.to_lowercase();
 
-    let patterns: Vec<(MemoryCategory, Vec<&str>)> = vec![
-        (
-            MemoryCategory::Decision,
-            vec![
-                "最终决定",
-                "决定采用",
-                "我们决定",
-                "选择使用",
-                "采用方案",
-                "定下来",
-                "就定这个",
-                "敲定",
-                "拍板",
-                "we decided",
-                "final decision",
-            ],
-        ),
-        (
-            MemoryCategory::Preference,
-            vec![
-                "我喜欢",
-                "我偏好",
-                "我习惯",
-                "最常用",
-                "一直用",
-                "推荐",
-                "建议使用",
-                "首选",
-                "i like",
-                "i prefer",
-            ],
-        ),
-        (
-            MemoryCategory::Solution,
-            vec![
-                "通过修改",
-                "解决方案是",
-                "搞定",
-                "解决了",
-                "修复成功",
-                "改成",
-                "优化了",
-                "fixed by",
-                "solved by",
-            ],
-        ),
-        (
-            MemoryCategory::Finding,
-            vec![
-                "发现",
-                "注意到",
-                "原来",
-                "找到问题",
-                "定位到",
-                "排查发现",
-                "原因是",
-                "found that",
-                "discovered",
-            ],
-        ),
-        (
-            MemoryCategory::Technical,
-            vec![
-                "技术栈是",
-                "框架使用",
-                "用的是",
-                "基于",
-                "tech stack",
-                "using framework",
-                "built with",
-            ],
-        ),
-        (
-            MemoryCategory::Structure,
-            vec![
-                "入口文件是",
-                "主文件位于",
-                "项目结构是",
-                "入口是",
-                "目录是",
-                "entry point",
-                "main file",
-            ],
-        ),
+    let categories = [
+        (MemoryCategory::Decision, "decision"),
+        (MemoryCategory::Preference, "preference"),
+        (MemoryCategory::Solution, "solution"),
+        (MemoryCategory::Finding, "finding"),
+        (MemoryCategory::Technical, "technical"),
+        (MemoryCategory::Structure, "structure"),
     ];
 
-    for (category, keywords) in patterns {
-        for keyword in keywords {
-            if text_lower.contains(keyword) {
+    for (category, key) in categories {
+        let patterns = config
+            .patterns
+            .get(key)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        for keyword in patterns {
+            if text_lower.contains(&keyword.to_lowercase()) {
                 let content = extract_memory_content(text, keyword);
                 if !content.is_empty() && content.len() >= MIN_MEMORY_CONTENT_LENGTH {
                     entries.push(MemoryEntry::new(
@@ -286,28 +248,33 @@ pub fn detect_memories_from_text(text: &str, session_id: Option<&str>) -> Vec<Me
     detect_memories_fallback(text, session_id)
 }
 
-/// Smart detection: rule-based + AI fallback.
+/// Smart detection: AI-first with rule-based fallback.
+///
+/// Priority order:
+/// 1. AI extraction (if text > 200 chars and extractor available)
+/// 2. Rule-based fallback (if AI fails or text too short)
 pub async fn detect_memories_smart(
     text: &str,
     session_id: Option<&str>,
     extractor: Option<&AiMemoryExtractor>,
 ) -> Vec<MemoryEntry> {
-    // First try rule-based
-    let rule_entries = detect_memories_fallback(text, session_id);
-
-    // Check if we need AI fallback
     let mode = AiDetectionMode::from_env();
-    if mode.should_use_ai_for_text(text.len())
-        && extractor.is_some()
-        && let Some(ex) = extractor
-        && let Ok(ai_entries) = ex.extract(text, session_id).await
-    {
-        // Combine and deduplicate
-        let combined = rule_entries.into_iter().chain(ai_entries).collect();
-        return deduplicate_entries(combined);
+    let text_len = text.len();
+
+    // Determine if we should try AI first
+    let should_try_ai = mode != AiDetectionMode::Never && extractor.is_some() && text_len > 200; // Minimum text length for AI (avoid API overhead for short texts)
+
+    if should_try_ai && let Some(ex) = extractor {
+        if let Ok(ai_entries) = ex.extract(text, session_id).await {
+            // AI succeeded - use AI results entirely (skip hardcoded rules)
+            return deduplicate_entries(ai_entries);
+        }
+        // AI failed - log and fall back to rules
+        log::warn!("AI memory extraction failed, falling back to rule-based");
     }
 
-    rule_entries
+    // Fallback: rule-based detection using KeywordsConfig
+    detect_memories_fallback(text, session_id)
 }
 
 fn extract_memory_content(text: &str, keyword: &str) -> String {

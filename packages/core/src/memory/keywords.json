@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "description": "Memory detection keywords configuration. Edit this file to add custom patterns.",
+  "patterns": {
+    "decision": [
+      "最终决定",
+      "决定采用",
+      "我们决定",
+      "选择使用",
+      "采用方案",
+      "定下来",
+      "就定这个",
+      "敲定",
+      "拍板",
+      "we decided",
+      "final decision",
+      "decided to",
+      "chose to"
+    ],
+    "preference": [
+      "我喜欢",
+      "我偏好",
+      "我习惯",
+      "最常用",
+      "一直用",
+      "推荐",
+      "建议使用",
+      "首选",
+      "prefer",
+      "i like",
+      "i prefer",
+      "my favorite"
+    ],
+    "solution": [
+      "通过修改",
+      "解决方案是",
+      "搞定",
+      "解决了",
+      "修复成功",
+      "改成",
+      "优化了",
+      "fixed by",
+      "solved by",
+      "resolved"
+    ],
+    "finding": [
+      "发现",
+      "注意到",
+      "原来",
+      "找到问题",
+      "定位到",
+      "排查发现",
+      "原因是",
+      "found that",
+      "discovered",
+      "the reason is"
+    ],
+    "technical": [
+      "技术栈是",
+      "框架使用",
+      "用的是",
+      "基于",
+      "tech stack",
+      "using framework",
+      "built with",
+      "powered by"
+    ],
+    "structure": [
+      "入口文件是",
+      "主文件位于",
+      "项目结构是",
+      "入口是",
+      "目录是",
+      "entry point",
+      "main file",
+      "located at"
+    ]
+  },
+  "stop_words": {
+    "chinese": [
+      "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个",
+      "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好",
+      "自己", "这", "他", "她", "它", "们", "那", "些", "什么", "怎么", "如何", "请",
+      "能", "可以", "需要", "应该", "可能", "因为", "所以", "但是", "然后", "还是",
+      "已经", "正在", "将要", "曾经", "一下", "一点", "一些", "所有", "每个", "任何"
+    ],
+    "english": [
+      "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+      "have", "has", "had", "do", "does", "did", "will", "would", "could",
+      "should", "may", "might", "can", "shall", "to", "of", "in", "for",
+      "on", "with", "at", "by", "from", "as", "into", "through", "during",
+      "before", "after", "above", "below", "between", "and", "but", "or",
+      "not", "no", "so", "if", "then", "than", "too", "very", "just",
+      "this", "that", "these", "those", "it", "its", "i", "me", "my",
+      "we", "our", "you", "your", "he", "his", "she", "her", "they",
+      "their", "please", "help", "need", "want", "make", "get", "let", "use"
+    ]
+  },
+  "semantic_aliases": [
+    ["数据库", "database"],
+    ["db", "database"],
+    ["前端", "frontend"],
+    ["ui", "frontend"],
+    ["界面", "frontend"],
+    ["后端", "backend"],
+    ["api", "api"],
+    ["接口", "api"],
+    ["服务", "service"],
+    ["服务器", "server"],
+    ["配置", "config"],
+    ["设置", "setting"],
+    ["目录", "directory"],
+    ["文件", "file"],
+    ["路径", "path"],
+    ["测试", "test"],
+    ["缓存", "cache"],
+    ["认证", "auth"],
+    ["登录", "login"],
+    ["性能", "performance"],
+    ["优化", "optimize"],
+    ["创建", "create"],
+    ["删除", "delete"],
+    ["修改", "modify"],
+    ["添加", "add"],
+    ["更新", "update"],
+    ["查询", "query"]
+  ],
+  "contradiction_signals": [
+    "改用",
+    "换成",
+    "替换",
+    "改为",
+    "切换到",
+    "迁移到",
+    "不再使用",
+    "弃用",
+    "放弃",
+    "取消",
+    "switched to",
+    "replaced",
+    "migrated to",
+    "changed to",
+    "no longer",
+    "deprecated",
+    "abandoned"
+  ],
+  "tech_keywords": [
+    "api", "cli", "gui", "tui", "web", "http", "json", "xml", "sql", "db",
+    "git", "npm", "cargo", "rust", "js", "ts", "py", "go", "java", "cpp",
+    "cpu", "gpu", "io", "fs", "os", "ux", "ai", "ml", "dl", "yaml", "yml",
+    "toml", "md", "txt", "html", "css", "scss", "bug", "fix", "code", "data"
+  ]
+}

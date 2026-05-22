@@ -65,6 +65,12 @@ impl Agent {
                             None => break,
                             Some(StreamEvent::FirstByte) => {}
                             Some(StreamEvent::ThinkingDelta(delta)) => {
+                                // Check cancellation before emitting
+                                if let Some(token) = &self.cancel_token
+                                    && token.is_cancelled()
+                                {
+                                    return Err(anyhow::anyhow!("Operation cancelled"));
+                                }
                                 if current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_start())?;
                                 }
@@ -72,6 +78,12 @@ impl Agent {
                                 self.emit(AgentEvent::thinking_delta(delta, None))?;
                             }
                             Some(StreamEvent::TextDelta(delta)) => {
+                                // Check cancellation before emitting
+                                if let Some(token) = &self.cancel_token
+                                    && token.is_cancelled()
+                                {
+                                    return Err(anyhow::anyhow!("Operation cancelled"));
+                                }
                                 if current_text.is_empty() {
                                     self.emit(AgentEvent::text_start())?;
                                 }
@@ -107,6 +119,13 @@ impl Agent {
                                 usage.output_tokens = output_tokens;
                             }
                             Some(StreamEvent::Done(resp)) => {
+                                // Check cancellation before processing final response
+                                if let Some(token) = &self.cancel_token
+                                    && token.is_cancelled()
+                                {
+                                    return Err(anyhow::anyhow!("Operation cancelled"));
+                                }
+
                                 if !current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_end())?;
                                     response_content.push(ContentBlock::Thinking {

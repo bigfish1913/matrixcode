@@ -3,47 +3,19 @@
 use std::collections::{HashMap, HashSet};
 
 use super::config::*;
+use super::keywords_config::KeywordsConfig;
 use super::types::{AutoMemory, MemoryEntry};
 
 // ============================================================================
-// Keyword Extraction
+// Keyword Extraction (uses KeywordsConfig)
 // ============================================================================
 
 /// Extract meaningful keywords from conversation context.
-/// Filters out common stop words and short tokens.
+/// Uses KeywordsConfig for stop words and tech keywords.
 pub fn extract_context_keywords(context: &str) -> Vec<String> {
-    // Common stop words (Chinese + English)
-    let stop_words: HashSet<&str> = [
-        // Chinese stop words
-        "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也",
-        "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这", "他",
-        "她", "它", "们", "那", "些", "什么", "怎么", "如何", "请", "能", "可以", "需要", "应该",
-        "可能", "因为", "所以", "但是", "然后", "还是", "已经", "正在", "将要", "曾经", "一下",
-        "一点", "一些", "所有", "每个", "任何", // English stop words
-        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
-        "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "shall",
-        "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
-        "during", "before", "after", "above", "below", "between", "and", "but", "or", "not", "no",
-        "so", "if", "then", "than", "too", "very", "just", "this", "that", "these", "those", "it",
-        "its", "i", "me", "my", "we", "our", "you", "your", "he", "his", "she", "her", "they",
-        "their", "please", "help", "need", "want", "make", "get", "let", "use",
-    ]
-    .iter()
-    .copied()
-    .collect();
-
-    // Technical/meaningful patterns
-    let tech_patterns: HashSet<&str> = [
-        "api", "cli", "gui", "tui", "web", "http", "json", "xml", "sql", "db", "git", "npm",
-        "cargo", "rust", "js", "ts", "py", "go", "java", "cpp", "cpu", "gpu", "io", "fs", "os",
-        "ui", "ux", "ai", "ml", "dl", "rs", "js", "ts", "py", "go", "java", "c", "h", "cpp", "hpp",
-        "json", "yaml", "yml", "toml", "md", "txt", "html", "css", "scss", "bug", "fix", "add",
-        "new", "old", "use", "run", "build", "test", "code", "data", "file", "dir", "path", "name",
-        "type", "value",
-    ]
-    .iter()
-    .copied()
-    .collect();
+    let config = KeywordsConfig::load();
+    let stop_words = config.get_stop_words_set();
+    let tech_patterns = config.get_tech_keywords_set();
 
     let lower = context.to_lowercase();
     let mut keywords: HashSet<String> = HashSet::new();
@@ -109,11 +81,18 @@ pub fn calculate_similarity(a: &str, b: &str) -> f64 {
 }
 
 // ============================================================================
-// Semantic Aliases
+// Semantic Aliases (uses KeywordsConfig)
 // ============================================================================
 
-/// Semantic alias mappings for better keyword matching.
-pub const SEMANTIC_ALIASES: &[(&str, &str)] = &[
+/// Get semantic aliases from KeywordsConfig.
+pub fn get_semantic_aliases() -> Vec<(&'static str, &'static str)> {
+    // Note: This returns static references for compatibility
+    // For dynamic config, use KeywordsConfig::load().get_aliases()
+    SEMANTIC_ALIASES_DEFAULT.to_vec()
+}
+
+/// Default semantic aliases (embedded for fallback).
+pub const SEMANTIC_ALIASES_DEFAULT: &[(&str, &str)] = &[
     // Database related
     ("数据库", "database"),
     ("db", "database"),
@@ -196,13 +175,14 @@ pub const SEMANTIC_ALIASES: &[(&str, &str)] = &[
     ("查询", "query"),
 ];
 
-/// Expand keywords with semantic aliases.
+/// Expand keywords with semantic aliases from KeywordsConfig.
 pub fn expand_semantic_keywords(keywords: &[String]) -> Vec<String> {
+    let config = KeywordsConfig::load();
     let mut expanded: Vec<String> = keywords.to_vec();
 
     for keyword in keywords {
         let kw_lower = keyword.to_lowercase();
-        for (alias, target) in SEMANTIC_ALIASES {
+        for (alias, target) in config.get_aliases() {
             if kw_lower.contains(alias) {
                 expanded.push(target.to_string());
             }
@@ -218,7 +198,7 @@ pub fn expand_semantic_keywords(keywords: &[String]) -> Vec<String> {
 }
 
 // ============================================================================
-// Relevance & Contradiction Detection
+// Relevance & Contradiction Detection (uses KeywordsConfig)
 // ============================================================================
 
 /// Compute relevance score of a memory entry to context keywords.
@@ -259,33 +239,18 @@ pub fn compute_relevance(entry: &MemoryEntry, context_keywords: &[String]) -> f6
 }
 
 /// Detect if two memory contents have contradiction signals.
+/// Uses KeywordsConfig for contradiction signals.
 pub fn has_contradiction_signal(old: &str, new: &str) -> bool {
-    let change_signals = [
-        "改用",
-        "换成",
-        "替换",
-        "改为",
-        "切换到",
-        "迁移到",
-        "不再使用",
-        "弃用",
-        "放弃",
-        "取消",
-        "switched to",
-        "replaced",
-        "migrated to",
-        "changed to",
-        "no longer",
-        "deprecated",
-        "abandoned",
-    ];
+    let config = KeywordsConfig::load();
 
-    for signal in &change_signals {
+    // Check contradiction signals from config
+    for signal in &config.contradiction_signals {
         if new.contains(signal) {
             return true;
         }
     }
 
+    // Check action verbs that indicate change
     let action_verbs = [
         "决定使用",
         "选择使用",
@@ -303,6 +268,7 @@ pub fn has_contradiction_signal(old: &str, new: &str) -> bool {
         }
     }
 
+    // Check preference verbs
     let pref_verbs = ["偏好", "喜欢", "prefer", "like"];
     for verb in &pref_verbs {
         if old.contains(verb) && new.contains(verb) {
