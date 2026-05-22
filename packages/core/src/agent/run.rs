@@ -205,7 +205,29 @@ impl Agent {
                 }
             }
         }
-
+        
+        // Check if we stopped due to reaching MAX_ITERATIONS
+        if iterations >= MAX_ITERATIONS && should_continue {
+            self.emit(AgentEvent::error(
+                format!(
+                    "⚠️ Reached maximum iterations limit ({} iterations).\n\n\
+                    **Task status**: The task may not be fully complete.\n\n\
+                    **What happened**: Agent stopped after {} iterations to prevent infinite loops.\n\n\
+                    **Next steps**:\n\
+                    1. Check if the task is complete\n\
+                    2. If incomplete, you can:\n\
+                       - Continue with more specific instructions\n\
+                       - Break down the task into smaller subtasks\n\
+                       - Use '/resume' to continue from current state\n\n\
+                    **Why this limit exists**: Prevents runaway operations and resource exhaustion.\n\
+                    **Adjustable**: Future versions will allow custom iteration limits.",
+                    MAX_ITERATIONS, iterations
+                ),
+                Some("MAX_ITERATIONS_REACHED".to_string()),
+                Some("agent/run.rs".to_string()),
+            ))?;
+        }
+        
         self.emit(AgentEvent::usage_with_cache(
             self.total_input_tokens.load(Ordering::Relaxed),
             self.total_output_tokens.load(Ordering::Relaxed),

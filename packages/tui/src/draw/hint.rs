@@ -2,7 +2,7 @@
 
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -17,7 +17,8 @@ impl TuiApp {
         // Show hint when:
         // 1. Input starts with '/' (command mode)
         // 2. Tool is executing (show tool details)
-        // 3. Activity is not Idle (show status hint)
+        // 3. Activity is Asking (show prompt)
+        // Note: Thinking animation is handled in messages.rs, not here
         self.input.starts_with('/')
             || matches!(
                 self.activity,
@@ -83,33 +84,7 @@ impl TuiApp {
                 | Activity::WebSearch | Activity::WebFetch
                 | Activity::Tool(_)
         ) {
-            // Show tool execution details
-            let tool_icon = match self.activity {
-                Activity::Reading => "📖",
-                Activity::Writing => "📝",
-                Activity::Editing => "✏️",
-                Activity::Searching => "🔍",
-                Activity::Running => "⚡",
-                Activity::WebSearch => "🌐",
-                Activity::WebFetch => "🔗",
-                Activity::Tool(ref name) => match name.as_str() {
-                    "task" => "🚀",
-                    "plan" => "📋",
-                    _ => "🔧",
-                },
-                _ => "⚙️",
-            };
-
-            spans.push(Span::styled(
-                format!("{} ", tool_icon),
-                Style::default().fg(self.activity.color()),
-            ));
-            spans.push(Span::styled(
-                self.activity.label(),
-                Style::default().fg(self.activity.color()).add_modifier(Modifier::BOLD),
-            ));
-
-            // Show full tool input details
+            // Show tool execution details only (no label)
             if let Some(ref input) = self.activity_input {
                 let tool_name = match self.activity {
                     Activity::Running => "bash",
@@ -125,8 +100,10 @@ impl TuiApp {
 
                 let detail = extract_hint_detail(tool_name, input, area.width as usize);
                 if !detail.is_empty() {
-                    spans.push(Span::styled(" ", Style::default()));
-                    spans.push(Span::styled(detail, Style::default().fg(Color::Gray)));
+                    spans.push(Span::styled(
+                        detail,
+                        Style::default().fg(Color::Gray),
+                    ));
                 }
             }
         } else if self.activity == Activity::Asking {

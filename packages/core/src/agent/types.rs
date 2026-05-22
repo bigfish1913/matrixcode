@@ -14,6 +14,31 @@ use crate::tools::Tool;
 
 pub(crate) const MAX_ITERATIONS: usize = 50;
 
+/// **MAX_ITERATIONS Documentation**:
+/// 
+/// **Why 50 iterations?**
+/// - Sufficient for most common tasks (file edits, code review, simple builds)
+/// - Prevents infinite loops and runaway operations
+/// - Balances task completion with resource efficiency
+/// 
+/// **What happens when limit is reached?**
+/// - Agent stops execution gracefully
+/// - User receives detailed warning message explaining:
+///   - Task status (may not be complete)
+///   - Reason for stopping (iteration limit)
+///   - Next steps (continue, break down task, or resume)
+/// 
+/// **Future improvements**:
+/// - Dynamic adjustment based on task complexity
+/// - User-configurable limits in config file
+/// - Auto-resume with state preservation
+/// - Progress indicators showing iteration count
+/// 
+/// **Examples**:
+/// - Simple task (edit file): ~5-10 iterations
+/// - Medium task (refactor module): ~15-30 iterations
+/// - Complex task (build system): ~40-50 iterations (may hit limit)
+
 /// Full Agent with event output
 #[allow(dead_code)]
 pub struct Agent {

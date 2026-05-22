@@ -252,7 +252,9 @@ impl TuiApp {
                 .unwrap_or(self.cursor_pos);
 
             let total_lines_count = input_lines.len();
-            let max_display_lines = (area.height as usize).saturating_sub(1);
+            // Use area height minus 1 for char count line if needed
+            let show_char_count = self.input.chars().count() > 50 || total_lines_count > 1;
+            let max_display_lines = (area.height as usize).saturating_sub(if show_char_count { 1 } else { 0 });
 
             for (i, line) in input_lines.iter().enumerate().take(max_display_lines) {
                 let line_prompt = if i == 0 { prompt } else { "  " };
@@ -306,10 +308,9 @@ impl TuiApp {
             }
 
             // Show character count at the bottom for multiline input
-            let char_count = self.input.chars().count();
-            if char_count > 50 || total_lines_count > 1 {
+            if show_char_count {
                 lines.push(Line::styled(
-                    format!("  {} chars, {} lines", char_count, total_lines_count),
+                    format!("  {} chars, {} lines", self.input.chars().count(), total_lines_count),
                     Style::default().fg(Color::DarkGray),
                 ));
             }

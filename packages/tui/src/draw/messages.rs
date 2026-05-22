@@ -827,16 +827,21 @@ impl TuiApp {
                 .request_start
                 .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
+            let spinner_frame = self.frame % SPINNER.len();
 
             if self.thinking_collapsed && !self.debug_mode {
                 let preview = self.thinking.lines().next().unwrap_or("");
                 lines.push(Line::from(vec![
-                    Span::styled("  💭 ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{} ", SPINNER[spinner_frame]),
+                        Style::default().fg(Color::LightGreen),
+                    ),
+                    Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
                         format!(
                             "Thinking{} {}",
                             elapsed,
-                            truncate(preview, max_w.saturating_sub(25))
+                            truncate(preview, max_w.saturating_sub(28))
                         ),
                         Style::default().fg(Color::DarkGray),
                     ),
@@ -844,7 +849,11 @@ impl TuiApp {
             } else {
                 // Expanded - show full content during streaming
                 lines.push(Line::from(vec![
-                    Span::styled("  💭 Thinking", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{} ", SPINNER[spinner_frame]),
+                        Style::default().fg(Color::LightGreen),
+                    ),
+                    Span::styled("💭 Thinking", Style::default().fg(Color::DarkGray)),
                     Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
                 ]));
                 let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(4));

@@ -11,59 +11,75 @@ use ratatui::layout::Rect;
 
 impl TuiApp {
     pub(crate) fn draw(&self, f: &mut ratatui::Frame) {
-        // Calculate heights for each component
         let total_height = f.area().height;
+        let width = f.area().width;
 
-        // Hint bar: 1 line above input (shows command hints, tool status, etc.)
-        let hint_height = if self.should_show_hint() { 1u16 } else { 0u16 };
+        // Fixed heights for bottom components
+        let status_height: u16 = 1;
+        let hint_height: u16 = if self.should_show_hint() { 1 } else { 0 };
+        let gap_height: u16 = 1;
+        let queue_height: u16 = if self.pending_messages.is_empty() { 0 } else { 1 };
 
-        // Input: minimum 2 lines, expand for multiline content
-        let input_lines = self.input.lines().count().max(1);
-        let input_height = if input_lines <= 2 {
-            2u16  // Default 2 lines
-        } else {
-            input_lines.min(5) as u16 + 1
-        };
+        // Dynamic input height based on content
+        let input_height: u16 = self.calculate_input_height();
 
-        // Status bar: 1 line at bottom
-        let status_height = 1u16;
+        // Calculate reserved height from bottom
+        let reserved = status_height + input_height + hint_height + gap_height + queue_height;
 
-        // Queue indicator: 1 line if pending messages exist
-        let queue_height = if self.pending_messages.is_empty() { 0u16 } else { 1u16 };
+        // Messages height: what's left, minimum 5 lines
+        let messages_height = total_height.saturating_sub(reserved).max(5);
 
-        // Gap between messages and input area (empty line for spacing)
-        let gap_height = 1u16;
+        // Ensure messages_height doesn't exceed available space
+        let messages_height = messages_height.min(total_height.saturating_sub(reserved));
 
-        // Calculate reserved space from bottom
-        let reserved_height = status_height + input_height + hint_height + gap_height + queue_height;
+        // Calculate Y positions from bottom up
+        let status_y = total_height - status_height;
+        let input_y = status_y - input_height;
+        let hint_y = input_y - hint_height;
+        let gap_y = hint_y - gap_height;
+        let queue_y = gap_y - queue_height;
 
-        // Messages area gets remaining space, minimum 3 lines
-        let messages_height = total_height.saturating_sub(reserved_height).max(3);
+        // Create areas - messages area starts from top (y=0)
+        let messages_area = Rect::new(0, 0, width, messages_height);
+        let queue_area = Rect::new(0, queue_y, width, queue_height);
+        let hint_area = Rect::new(0, hint_y, width, hint_height);
+        let input_area = Rect::new(0, input_y, width, input_height);
+        let status_area = Rect::new(0, status_y, width, status_height);
 
-        // Calculate Y positions
-        let status_y = total_height.saturating_sub(status_height);
-        let input_y = status_y.saturating_sub(input_height);
-        let hint_y = input_y.saturating_sub(hint_height);
-        let gap_y = hint_y.saturating_sub(gap_height);
-        let queue_y = gap_y.saturating_sub(queue_height);
-
-        // Create areas with proper bounds
-        let messages_area = Rect::new(f.area().x, f.area().y, f.area().width, messages_height);
-        let queue_area = Rect::new(f.area().x, queue_y, f.area().width, queue_height);
-        let hint_area = Rect::new(f.area().x, hint_y, f.area().width, hint_height);
-        let input_area = Rect::new(f.area().x, input_y, f.area().width, input_height);
-        let status_area = Rect::new(f.area().x, status_y, f.area().width, status_height);
-
-        // Render components in order (bottom to top ensures proper layering)
-        self.draw_status(f, status_area);
-        self.draw_input(f, input_area);
+        // Render in order: messages first (top), then bottom components
+        self.draw_messages(f, messages_area);
+        if queue_height > 0 {
+            self.draw_queue(f, queue_area);
+        }
         if hint_height > 0 {
             self.draw_hint(f, hint_area);
         }
-        if !self.pending_messages.is_empty() && queue_height > 0 {
-            self.draw_queue(f, queue_area);
+        self.draw_input(f, input_area);
+        self.draw_status(f, status_area);
+    }
+
+    /// Calculate required input area height based on current state
+    pub(crate) fn calculate_input_height(&self) -> u16 {
+        let base_height: u16 = 2; // Default for single line input
+
+        // Ask mode with options needs 2 lines (prompt + options)
+        if self.activity == crate::types::Activity::Asking && self.waiting_for_ask && !self.ask_options.is_empty() {
+            return 2;
         }
-        // Messages area last - largest area
-        self.draw_messages(f, messages_area);
+
+        // Multiline input: calculate based on line count
+        if self.input.contains('\n') {
+            let line_count = self.input.lines().count() as u16;
+            // Add 1 for char count line if needed
+            let extra = if self.input.chars().count() > 50 || line_count > 1 {
+                1
+            } else {
+                0
+            };
+            // Cap at reasonable max (leave room for messages)
+            return (line_count + extra).min(6).max(base_height);
+        }
+
+        base_height
     }
 }

@@ -519,6 +519,7 @@ mod tests {
             compress_model: None,
             fast_model: None,
             approve_mode: None,
+            extra_headers: None,
         };
         assert!(config.api_key.is_none());
         assert!(config.model.is_none());
@@ -570,6 +571,7 @@ mod tests {
         let config = MatrixConfig {
             api_key: Some("key".to_string()),
             model: Some("model".to_string()),
+            extra_headers: None,
             ..Default::default()
         };
 

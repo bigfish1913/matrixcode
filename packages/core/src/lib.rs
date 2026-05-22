@@ -13,6 +13,7 @@ pub mod event;
 pub mod memory;
 pub mod models;
 pub mod overview;
+pub mod path_validator;
 pub mod prompt;
 pub mod providers;
 pub mod session;

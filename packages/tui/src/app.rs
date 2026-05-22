@@ -382,6 +382,11 @@ impl TuiApp {
         Ok(())
     }
     fn on_mouse(&mut self, m: MouseEvent) {
+        // If Shift is held, let terminal handle mouse for text selection
+        if m.modifiers.contains(event::KeyModifiers::SHIFT) {
+            return;
+        }
+
         match m.kind {
             MouseEventKind::ScrollUp => {
                 if self.auto_scroll {
