@@ -821,16 +821,62 @@ impl TuiApp {
             }
         }
 
-        // Current thinking (streaming)
-        if !self.thinking.is_empty() {
+        // Thinking indicator - unified display in message area
+        // Show spinner animation when thinking (with or without content)
+        if self.activity == Activity::Thinking && self.streaming.is_empty() {
             let elapsed = self
                 .request_start
-                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
+                .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
             let spinner_frame = self.frame % SPINNER.len();
 
-            if self.thinking_collapsed && !self.debug_mode {
-                let preview = self.thinking.lines().next().unwrap_or("");
+            if !self.thinking.is_empty() {
+                // Has thinking content - show spinner + content
+                if self.thinking_collapsed && !self.debug_mode {
+                    let preview = self.thinking.lines().next().unwrap_or("");
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("{} ", SPINNER[spinner_frame]),
+                            Style::default().fg(Color::LightGreen),
+                        ),
+                        Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!(
+                                "Thinking{} {}",
+                                elapsed,
+                                truncate(preview, max_w.saturating_sub(28))
+                            ),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                } else {
+                    // Expanded - show full content
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("{} ", SPINNER[spinner_frame]),
+                            Style::default().fg(Color::LightGreen),
+                        ),
+                        Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!("Thinking{}", elapsed),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                    let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(4));
+                    for line in md_lines.iter() {
+                        let text = line
+                            .spans
+                            .iter()
+                            .map(|s| s.content.as_ref())
+                            .collect::<String>();
+                        lines.push(Line::styled(
+                            format!("    {}", text),
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
+                }
+            } else {
+                // No thinking content yet - show spinner + Thinking + elapsed
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!("{} ", SPINNER[spinner_frame]),
@@ -838,36 +884,10 @@ impl TuiApp {
                     ),
                     Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
-                        format!(
-                            "Thinking{} {}",
-                            elapsed,
-                            truncate(preview, max_w.saturating_sub(28))
-                        ),
+                        format!("Thinking{}", elapsed),
                         Style::default().fg(Color::DarkGray),
                     ),
                 ]));
-            } else {
-                // Expanded - show full content during streaming
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("{} ", SPINNER[spinner_frame]),
-                        Style::default().fg(Color::LightGreen),
-                    ),
-                    Span::styled("💭 Thinking", Style::default().fg(Color::DarkGray)),
-                    Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
-                ]));
-                let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(4));
-                for line in md_lines.iter() {
-                    let text = line
-                        .spans
-                        .iter()
-                        .map(|s| s.content.as_ref())
-                        .collect::<String>();
-                    lines.push(Line::styled(
-                        format!("    {}", text),
-                        Style::default().fg(Color::DarkGray),
-                    ));
-                }
             }
         }
 
@@ -889,33 +909,6 @@ impl TuiApp {
                 | Activity::WebFetch
                 | Activity::Tool(_)
         );
-
-        if self.activity == Activity::Thinking
-            && self.streaming.is_empty()
-            && self.thinking.is_empty()
-        {
-            let elapsed = self
-                .request_start
-                .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
-                .unwrap_or_default();
-            let spinner_frame = self.frame % SPINNER.len();
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("{} ", SPINNER[spinner_frame]),
-                    Style::default().fg(Color::LightGreen),
-                ),
-                Span::styled(
-                    "Thinking",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!(" {}", elapsed),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]));
-        }
 
         if is_tool_activity && self.streaming.is_empty() && self.thinking.is_empty() {
             // Tool icon for visual identification

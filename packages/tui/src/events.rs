@@ -176,6 +176,17 @@ impl TuiApp {
                 self.activity_input = None;
                 self.cancel.reset(); // Reset cancel state for next request
             }
+            EventType::SessionRestored => {
+                if let Some(EventData::SessionRestore {
+                    input_tokens,
+                    total_output_tokens,
+                    message_count: _,
+                }) = e.data
+                {
+                    self.tokens_in = input_tokens;
+                    self.session_total_out = total_output_tokens;
+                }
+            }
             EventType::Error => {
                 if let Some(EventData::Error { message, .. }) = e.data {
                     // Check if this is a cancellation error

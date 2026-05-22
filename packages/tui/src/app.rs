@@ -360,6 +360,12 @@ impl TuiApp {
         }
     }
 
+    /// Set token stats from restored session metadata.
+    pub fn set_token_stats(&mut self, input_tokens: u64, total_output_tokens: u64, _message_count: usize) {
+        self.tokens_in = input_tokens;
+        self.session_total_out = total_output_tokens;
+    }
+
     pub fn run(&mut self, term: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         loop {
             // Animation frame - cycle through 10 frames for spinner

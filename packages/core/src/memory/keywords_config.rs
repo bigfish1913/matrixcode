@@ -336,6 +336,11 @@ impl KeywordsConfig {
             MemoryCategory::Finding => "finding",
             MemoryCategory::Technical => "technical",
             MemoryCategory::Structure => "structure",
+            // New categories - use same patterns as parent categories
+            MemoryCategory::KeyDecision => "decision",
+            MemoryCategory::FailedApproach => "solution",
+            MemoryCategory::UserIntentPattern => "preference",
+            MemoryCategory::TaskPattern => "solution",
         };
         self.patterns.get(key).map(|v| v.as_slice()).unwrap_or(&[])
     }

@@ -28,6 +28,7 @@ pub enum EventType {
     ToolResult,
     SessionStarted,
     SessionEnded,
+    SessionRestored, // Session loaded from file with token stats
     NewSession,
     CompressionTriggered,
     CompressionCompleted,
@@ -77,6 +78,11 @@ pub enum EventData {
         output_tokens: u64,
         cache_creation_input_tokens: Option<u64>,
         cache_read_input_tokens: Option<u64>,
+    },
+    SessionRestore {
+        input_tokens: u64,
+        total_output_tokens: u64,
+        message_count: usize,
     },
     Progress {
         message: String,
@@ -144,6 +150,20 @@ impl AgentEvent {
     }
     pub fn session_ended() -> Self {
         Self::new(EventType::SessionEnded)
+    }
+    pub fn session_restored(
+        input_tokens: u64,
+        total_output_tokens: u64,
+        message_count: usize,
+    ) -> Self {
+        Self::with_data(
+            EventType::SessionRestored,
+            EventData::SessionRestore {
+                input_tokens,
+                total_output_tokens,
+                message_count,
+            },
+        )
     }
 
     pub fn thinking_delta(delta: impl Into<String>, signature: Option<String>) -> Self {

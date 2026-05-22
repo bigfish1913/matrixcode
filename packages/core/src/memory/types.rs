@@ -51,6 +51,14 @@ pub enum MemoryCategory {
     Technical,
     /// Project structure (e.g., "src/index.ts is entry point")
     Structure,
+    /// Key decisions made during task execution (e.g., "Chose React over Vue for this project")
+    KeyDecision,
+    /// Failed approaches to avoid repeating (e.g., "Direct file read failed, need to use glob first")
+    FailedApproach,
+    /// User intent patterns learned from interactions (e.g., "User prefers detailed explanations")
+    UserIntentPattern,
+    /// Task completion patterns (e.g., "User confirms completion by saying '好的'")
+    TaskPattern,
 }
 
 impl MemoryCategory {
@@ -63,6 +71,10 @@ impl MemoryCategory {
             MemoryCategory::Solution => "解决方案",
             MemoryCategory::Technical => "技术",
             MemoryCategory::Structure => "结构",
+            MemoryCategory::KeyDecision => "关键决策",
+            MemoryCategory::FailedApproach => "失败方案",
+            MemoryCategory::UserIntentPattern => "意图模式",
+            MemoryCategory::TaskPattern => "任务模式",
         }
     }
 
@@ -75,6 +87,10 @@ impl MemoryCategory {
             MemoryCategory::Solution => "🔧",
             MemoryCategory::Technical => "📚",
             MemoryCategory::Structure => "🏗️",
+            MemoryCategory::KeyDecision => "⚡",
+            MemoryCategory::FailedApproach => "❌",
+            MemoryCategory::UserIntentPattern => "🧠",
+            MemoryCategory::TaskPattern => "📋",
         }
     }
 
@@ -87,6 +103,10 @@ impl MemoryCategory {
             MemoryCategory::Finding => DEFAULT_IMPORTANCE_FINDING,
             MemoryCategory::Technical => DEFAULT_IMPORTANCE_TECH,
             MemoryCategory::Structure => DEFAULT_IMPORTANCE_STRUCTURE,
+            MemoryCategory::KeyDecision => 85.0,
+            MemoryCategory::FailedApproach => 70.0,
+            MemoryCategory::UserIntentPattern => 80.0,
+            MemoryCategory::TaskPattern => 75.0,
         }
     }
 }

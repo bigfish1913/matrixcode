@@ -503,9 +503,10 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
     // Load session BEFORE spawning agent task so TUI can also display restored messages
     let project_path = std::env::current_dir().ok();
-    let (restored_messages, session_mgr_state) = {
+    let (restored_messages, session_mgr_state, session_metadata) = {
         let mut mgr = SessionManager::new().ok();
         let mut messages = Vec::new();
+        let mut metadata = None;
 
         if let Some(ref mut mgr) = mgr {
             if cli.continue_session || cli.resume_id.is_some() {
@@ -516,12 +517,13 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 };
                 if let Some(s) = session {
                     messages = s.messages.clone();
+                    metadata = Some(s.metadata.clone());
                 }
             } else {
                 let _ = mgr.start_new(project_path.as_deref());
             }
         }
-        (messages, mgr)
+        (messages, mgr, metadata)
     };
 
     // Clone things needed in the agent task
@@ -1578,6 +1580,14 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Load restored messages if any
     if !restored_messages.is_empty() {
         app.load_messages(restored_messages);
+        // Restore token stats from session metadata
+        if let Some(ref meta) = session_metadata {
+            app.set_token_stats(
+                meta.last_input_tokens,
+                meta.total_output_tokens,
+                meta.message_count,
+            );
+        }
     }
     let result = app.run(&mut terminal);
 

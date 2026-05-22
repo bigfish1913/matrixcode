@@ -1,4 +1,7 @@
 //! Feedback learning and behavior inference.
+//!
+//! This module provides high-level learning mechanisms that let the model
+//! understand patterns from interactions, rather than hardcoded rules.
 
 use std::collections::HashMap;
 
@@ -30,54 +33,17 @@ pub struct FeedbackResult {
     pub original_text: String,
 }
 
-/// Detect user feedback patterns.
+/// Detect user feedback patterns - generic detection, not exhaustive.
+/// The model should use its understanding to detect nuances.
 pub fn detect_feedback_patterns(text: &str) -> Vec<FeedbackResult> {
     let mut results = Vec::new();
     let text_lower = text.to_lowercase();
 
-    let correction_patterns = [
-        "不对，应该是",
-        "错了，实际上",
-        "不是，是",
-        "应该是",
-        "no, it should be",
-        "wrong, actually",
-        "should be",
-    ];
-
-    let delete_patterns = [
-        "不要那个",
-        "不需要那个",
-        "删掉那个",
-        "不再用",
-        "don't need that",
-        "no longer need",
-        "remove that",
-    ];
-
-    let add_patterns = [
-        "记一下",
-        "记住",
-        "记录一下",
-        "要记住",
-        "remember this",
-        "note this",
-        "keep this",
-    ];
-
-    let negative_patterns = [
-        "不喜欢",
-        "不偏好",
-        "讨厌",
-        "不想用",
-        "i don't like",
-        "i dislike",
-        "i hate",
-    ];
-
-    for pattern in correction_patterns {
-        if text_lower.contains(pattern) {
-            let content = extract_feedback_content(text, pattern);
+    // Generic correction signals
+    let correction_signals = ["不对", "错了", "不是", "no", "wrong", "should be"];
+    for signal in correction_signals {
+        if text_lower.contains(signal) {
+            let content = extract_feedback_content(text, signal);
             if content.len() >= MIN_MEMORY_CONTENT_LENGTH {
                 results.push(FeedbackResult {
                     action: FeedbackAction::Correct,
@@ -86,30 +52,36 @@ pub fn detect_feedback_patterns(text: &str) -> Vec<FeedbackResult> {
                     search_keywords: extract_context_keywords(&content),
                     original_text: text.to_string(),
                 });
+                break; // Only one correction per message
             }
         }
     }
 
-    for pattern in delete_patterns {
-        if text_lower.contains(pattern) {
-            let content = extract_feedback_content(text, pattern);
+    // Generic delete signals
+    let delete_signals = ["不要", "删掉", "remove", "delete", "don't need"];
+    for signal in delete_signals {
+        if text_lower.contains(signal) {
+            let content = extract_feedback_content(text, signal);
             results.push(FeedbackResult {
                 action: FeedbackAction::Delete,
                 category: None,
                 new_content: None,
                 search_keywords: if content.is_empty() {
-                    vec![pattern.to_string()]
+                    vec![signal.to_string()]
                 } else {
                     extract_context_keywords(&content)
                 },
                 original_text: text.to_string(),
             });
+            break;
         }
     }
 
-    for pattern in add_patterns {
-        if text_lower.contains(pattern) {
-            let content = extract_feedback_content(text, pattern);
+    // Generic add signals
+    let add_signals = ["记住", "记一下", "remember", "note"];
+    for signal in add_signals {
+        if text_lower.contains(signal) {
+            let content = extract_feedback_content(text, signal);
             if content.len() >= MIN_MEMORY_CONTENT_LENGTH {
                 results.push(FeedbackResult {
                     action: FeedbackAction::Add,
@@ -118,13 +90,16 @@ pub fn detect_feedback_patterns(text: &str) -> Vec<FeedbackResult> {
                     search_keywords: vec![],
                     original_text: text.to_string(),
                 });
+                break;
             }
         }
     }
 
-    for pattern in negative_patterns {
-        if text_lower.contains(pattern) {
-            let content = extract_feedback_content(text, pattern);
+    // Generic negative preference signals
+    let negative_signals = ["不喜欢", "讨厌", "dislike", "hate", "don't like"];
+    for signal in negative_signals {
+        if text_lower.contains(signal) {
+            let content = extract_feedback_content(text, signal);
             if content.len() >= MIN_MEMORY_CONTENT_LENGTH {
                 results.push(FeedbackResult {
                     action: FeedbackAction::NegativePreference,
@@ -133,6 +108,7 @@ pub fn detect_feedback_patterns(text: &str) -> Vec<FeedbackResult> {
                     search_keywords: extract_context_keywords(&content),
                     original_text: text.to_string(),
                 });
+                break;
             }
         }
     }
@@ -166,7 +142,6 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
     match feedback.action {
         FeedbackAction::Correct => {
             if let Some(ref content) = feedback.new_content {
-                // Find matching entries and update
                 for entry in &mut memory.entries {
                     if feedback
                         .search_keywords
@@ -179,7 +154,6 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
                     }
                 }
                 if changes == 0 {
-                    // No matching entry, add new
                     let category = feedback.category.unwrap_or(MemoryCategory::Finding);
                     memory.add_memory(category, content.clone(), None);
                     changes += 1;
@@ -228,7 +202,7 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
 }
 
 // ============================================================================
-// Behavior Inference
+// Behavior Inference - Generic Pattern Detection
 // ============================================================================
 
 /// Configuration for behavior inference.
@@ -258,13 +232,12 @@ pub struct BehaviorInference {
     pub keywords: Vec<String>,
 }
 
-/// Infer preferences from conversation patterns.
+/// Infer patterns from behavior - generic word frequency analysis.
+/// Let the model decide what's meaningful, not hardcoded tech patterns.
 pub fn infer_preferences_from_behavior(
     messages: &[crate::providers::Message],
     config: &BehaviorInferenceConfig,
 ) -> Vec<BehaviorInference> {
-    let mut inferences: Vec<BehaviorInference> = Vec::new();
-
     let user_texts: Vec<String> = messages
         .iter()
         .filter_map(|msg| {
@@ -292,47 +265,36 @@ pub fn infer_preferences_from_behavior(
         .collect();
 
     if user_texts.len() < config.min_occurrences {
-        return inferences;
+        return Vec::new();
     }
 
-    let all_text = user_texts.join(" ");
-    let all_text_lower = all_text.to_lowercase();
-
-    let tech_patterns: Vec<(&str, &str)> = vec![
-        ("rust", "Rust"),
-        ("python", "Python"),
-        ("react", "React"),
-        ("vue", "Vue"),
-        ("typescript", "TypeScript"),
-        ("go", "Go"),
-        ("docker", "Docker"),
-        ("postgres", "PostgreSQL"),
-        ("vim", "Vim"),
-    ];
-
-    let mut tech_counts: HashMap<&str, usize> = HashMap::new();
-    for (pattern, _) in &tech_patterns {
-        let count = all_text_lower.matches(pattern).count();
-        if count >= config.min_occurrences {
-            tech_counts.insert(pattern, count);
-        }
-    }
-
-    for (pattern, name) in tech_patterns {
-        if let Some(&count) = tech_counts.get(pattern) {
-            let confidence = (count as f64 / user_texts.len() as f64).min(1.0);
-            if confidence >= config.min_confidence {
-                inferences.push(BehaviorInference {
-                    content: format!("用户频繁提及 {}", name),
-                    confidence,
-                    occurrences: count,
-                    keywords: vec![name.to_string()],
-                });
+    // Generic word frequency analysis
+    let mut word_freq: HashMap<String, usize> = HashMap::new();
+    for text in &user_texts {
+        for word in text.to_lowercase().split_whitespace() {
+            if word.len() > 3 { // Skip short words
+                *word_freq.entry(word.to_string()).or_default() += 1;
             }
         }
     }
 
-    inferences.truncate(config.max_inferences);
+    // Extract high-frequency words as potential preferences
+    let inferences: Vec<BehaviorInference> = word_freq
+        .iter()
+        .filter(|(_, count)| **count >= config.min_occurrences)
+        .map(|(word, count)| {
+            let confidence = (*count as f64 / user_texts.len() as f64).min(1.0);
+            BehaviorInference {
+                content: format!("用户多次提及 '{}'", word),
+                confidence,
+                occurrences: *count,
+                keywords: vec![word.clone()],
+            }
+        })
+        .filter(|inf| inf.confidence >= config.min_confidence)
+        .take(config.max_inferences)
+        .collect();
+
     inferences
 }
 
@@ -345,7 +307,6 @@ pub fn inference_to_memory_entry(inference: &BehaviorInference) -> MemoryEntry {
 }
 
 /// Apply behavior inferences to memory.
-/// Returns the number of new entries added.
 pub fn apply_behavior_inferences_to_memory(
     messages: &[crate::providers::Message],
     memory: &mut AutoMemory,
@@ -357,7 +318,6 @@ pub fn apply_behavior_inferences_to_memory(
     let mut added = 0;
     for inference in inferences {
         let entry = inference_to_memory_entry(&inference);
-        // Check if similar entry already exists
         if !memory.entries.iter().any(|e| e.content == entry.content) {
             memory.entries.push(entry);
             added += 1;
@@ -365,4 +325,18 @@ pub fn apply_behavior_inferences_to_memory(
     }
 
     added
+}
+
+/// Generic tool learning - let model decide what to remember.
+/// This is a placeholder for future AI-driven learning.
+pub fn apply_tool_learning_to_memory(
+    _tool_name: &str,
+    _tool_input: &serde_json::Value,
+    _tool_result: &str,
+    _is_error: bool,
+    _memory: &mut AutoMemory,
+) -> usize {
+    // Future: Use AI to analyze tool execution and extract learnings
+    // Current: Let the model handle this through its own analysis
+    0
 }
