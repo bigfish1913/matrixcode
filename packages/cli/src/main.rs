@@ -193,12 +193,17 @@ fn default_base_url() -> String {
     "https://api.anthropic.com".to_string()
 }
 
-/// Resolve provider type from config or model name.
+/// Resolve provider type from config, env, or model name.
 fn resolve_provider(config: &Config, model: &str) -> matrixcode_core::providers::ProviderType {
-    config
+    // Try config first, then env var, then infer from model
+    let provider_str = config
         .provider
         .as_ref()
-        .map(|p| match p.as_str() {
+        .cloned()
+        .or_else(|| std::env::var("PROVIDER").ok());
+
+    provider_str
+        .map(|p| match p.to_lowercase().as_str() {
             "openai" => matrixcode_core::providers::ProviderType::OpenAI,
             _ => matrixcode_core::providers::ProviderType::Anthropic,
         })
@@ -243,6 +248,10 @@ fn model_with_source(config: &Config) -> String {
 }
 
 fn main() -> Result<()> {
+    // Load .env file for development (silently ignore if not found)
+    let _ = dotenvy::from_path(".env");
+    let _ = dotenvy::from_path("packages/cli/.env");
+
     let cli = Cli::parse();
 
     // Handle list sessions
@@ -2040,6 +2049,9 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                 // Output session started event
                 println!("{}", AgentEvent::session_started().to_json()?);
 
+                // Create event channel for agent
+                let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+
                 let system_prompt = matrixcode_core::prompt::build_system_prompt(
                     &matrixcode_core::prompt::PromptProfile::Default,
                     &skills,
@@ -2074,9 +2086,31 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                     .max_tokens(4096)
                     .tools(all_tools_with_skills(Arc::new(skills.clone())))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
+                    .event_tx(event_tx)
                     .build();
 
-                match agent.run(message.unwrap_or_default()).await {
+                // Run agent and collect events
+                let run_result = agent.run(message.unwrap_or_default()).await;
+
+                // Process events
+                while let Some(event) = event_rx.recv().await {
+                    match event.event_type {
+                        matrixcode_core::EventType::TextDelta => {
+                            if let Some(_data) = &event.data {
+                                println!("{}", event.to_json()?);
+                            }
+                        }
+                        matrixcode_core::EventType::Error => {
+                            println!("{}", event.to_json()?);
+                        }
+                        matrixcode_core::EventType::SessionEnded => {
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+
+                match run_result {
                     Ok(_) => {
                         let messages = agent.get_messages();
                         if let Some(last) = messages.last() {

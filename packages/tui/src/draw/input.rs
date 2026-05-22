@@ -56,6 +56,9 @@ impl TuiApp {
 
         // Ask mode handling
         if self.activity == Activity::Asking && self.waiting_for_ask {
+            let mut lines: Vec<Line> = Vec::new();
+
+            // First line: prompt and instructions
             let mut spans: Vec<Span> = vec![Span::styled(
                 prompt,
                 Style::default()
@@ -64,17 +67,46 @@ impl TuiApp {
             )];
 
             if !self.ask_options.is_empty() {
-                if self.ask_multi_select {
-                    spans.push(Span::styled(
-                        "↑↓ navigate  Space toggle  Enter confirm  ESC abort",
-                        Style::default().fg(Color::DarkGray),
+                spans.push(Span::styled(
+                    if self.ask_multi_select {
+                        "↑↓ navigate  Space toggle  Enter confirm"
+                    } else {
+                        "↑↓ select  Enter confirm"
+                    },
+                    Style::default().fg(Color::DarkGray),
+                ));
+                lines.push(Line::from(spans));
+
+                // Second line: show options with selection indicator
+                let mut option_spans: Vec<Span> = Vec::new();
+                option_spans.push(Span::styled("  ", Style::default()));
+
+                for (i, opt) in self.ask_options.iter().enumerate() {
+                    let is_selected = self.ask_selected_index == i;
+
+                    let marker = if is_selected { "▸" } else { " " };
+                    let color = if is_selected { Color::Cyan } else { Color::Gray };
+
+                    if i > 0 {
+                        option_spans.push(Span::styled("  ", Style::default()));
+                    }
+                    option_spans.push(Span::styled(
+                        format!("{} ", marker),
+                        Style::default().fg(color),
                     ));
-                } else {
-                    spans.push(Span::styled(
-                        "↑↓ select  Enter confirm  ESC abort",
-                        Style::default().fg(Color::DarkGray),
+
+                    // Show option label with description if available
+                    let label_text = if let Some(desc) = &opt.description {
+                        format!("{} - {}", opt.label, truncate(desc, 30))
+                    } else {
+                        opt.label.clone()
+                    };
+                    option_spans.push(Span::styled(
+                        label_text,
+                        Style::default().fg(if is_selected { Color::White } else { Color::Gray }),
                     ));
                 }
+                lines.push(Line::from(option_spans));
             } else {
                 // Free text input mode - show user input with cursor
                 if self.input.is_empty() {
@@ -94,9 +126,10 @@ impl TuiApp {
                         Style::default().fg(Color::DarkGray),
                     ));
                 }
+                lines.push(Line::from(spans));
             }
 
-            f.render_widget(Paragraph::new(Line::from(spans)), area);
+            f.render_widget(Paragraph::new(lines), area);
             return;
         }
 

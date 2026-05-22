@@ -17,6 +17,8 @@ use crate::types::{Activity, ApproveMode, AskQuestion, Message, Role, SubmitMode
 pub struct TuiApp {
     pub(crate) activity: Activity,
     pub(crate) activity_detail: String,
+    /// Full tool input for display (not truncated)
+    pub(crate) activity_input: Option<serde_json::Value>,
     pub(crate) messages: Vec<Message>,
     pub(crate) thinking: String,
     pub(crate) streaming: String,
@@ -114,6 +116,7 @@ impl TuiApp {
         Self {
             activity: Activity::Idle,
             activity_detail: String::new(),
+            activity_input: None,
             messages: Vec::new(),
             thinking: String::new(),
             streaming: String::new(),

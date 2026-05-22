@@ -6,12 +6,75 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
+use serde_json::Value;
 
 use crate::SPINNER;
 use crate::app::TuiApp;
 use crate::markdown::render_markdown;
 use crate::types::{Activity, Role, SubmitMode};
 use crate::utils::{fmt_tokens, truncate, word_wrap};
+
+/// Extract full detail lines from tool input for display
+fn extract_full_detail(tool_name: &str, input: &Value) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    match tool_name {
+        "bash" => {
+            if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
+                // Show full command, wrap if too long
+                for line in cmd.lines() {
+                    lines.push(format!("$ {}", line));
+                }
+            }
+        }
+        "read" => {
+            if let Some(path) = input.get("file_path").and_then(|v| v.as_str()) {
+                lines.push(format!("file: {}", path));
+            }
+            if let Some(offset) = input.get("offset").and_then(|v| v.as_u64()) {
+                lines.push(format!("offset: {}", offset));
+            }
+            if let Some(limit) = input.get("limit").and_then(|v| v.as_u64()) {
+                lines.push(format!("limit: {}", limit));
+            }
+        }
+        "write" | "edit" | "multi_edit" => {
+            if let Some(path) = input.get("file_path").and_then(|v| v.as_str()) {
+                lines.push(format!("file: {}", path));
+            }
+        }
+        "search" | "grep" | "glob" => {
+            if let Some(pattern) = input.get("pattern").and_then(|v| v.as_str()) {
+                lines.push(format!("pattern: {}", pattern));
+            }
+            if let Some(path) = input.get("path").and_then(|v| v.as_str()) {
+                lines.push(format!("path: {}", path));
+            }
+        }
+        "websearch" => {
+            if let Some(query) = input.get("query").and_then(|v| v.as_str()) {
+                lines.push(format!("query: {}", query));
+            }
+        }
+        "webfetch" => {
+            if let Some(url) = input.get("url").and_then(|v| v.as_str()) {
+                lines.push(format!("url: {}", url));
+            }
+        }
+        _ => {
+            // Generic: show key fields
+            if let Some(obj) = input.as_object() {
+                for (key, value) in obj.iter().take(3) {
+                    if let Some(val_str) = value.as_str() {
+                        lines.push(format!("{}: {}", key, truncate(val_str, 80)));
+                    }
+                }
+            }
+        }
+    }
+
+    lines
+}
 
 impl TuiApp {
     pub(crate) fn draw_messages(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -821,70 +884,47 @@ impl TuiApp {
             && self.streaming.is_empty()
             && self.thinking.is_empty()
         {
+            // Minimal thinking indicator
             let elapsed = self
                 .request_start
-                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
+                .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
             let spinner_frame = self.frame % SPINNER.len();
             lines.push(Line::from(vec![
                 Span::styled(
-                    format!("  {} ", SPINNER[spinner_frame]),
+                    format!("{} ", SPINNER[spinner_frame]),
                     Style::default().fg(Color::LightGreen),
                 ),
                 Span::styled(
-                    format!("Thinking...{}", elapsed),
+                    format!("Waiting {} ", elapsed),
                     Style::default().fg(Color::DarkGray),
                 ),
             ]));
         }
 
         if is_tool_activity && self.streaming.is_empty() && self.thinking.is_empty() {
-            // Tool icon for visual identification
-            let tool_icon = match self.activity {
-                Activity::Reading => "📖",
-                Activity::Writing => "📝",
-                Activity::Editing => "✏️",
-                Activity::Searching => "🔍",
-                Activity::Running => "⚡",
-                Activity::WebSearch => "🌐",
-                Activity::WebFetch => "🔗",
-                Activity::Tool(ref name) => match name.as_str() {
-                    "task" => "🚀",
-                    "plan" => "📋",
-                    "monitor" => "👀",
-                    "skill" => "⚡",
-                    _ => "🔧",
-                },
-                _ => "⚙️",
-            };
-
-            let tool_label = if !self.activity_detail.is_empty() {
-                format!("{} {}", self.activity.label(), self.activity_detail)
-            } else {
-                self.activity.label()
-            };
+            // Simple animation - just spinner and elapsed time in status area
+            // Details are shown in the hint bar (above input)
             let elapsed = self
                 .request_start
-                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
+                .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
+
+            // Minimal inline indicator
             let spinner_frame = self.frame % SPINNER.len();
             lines.push(Line::from(vec![
                 Span::styled(
-                    format!("  {} ", SPINNER[spinner_frame]),
+                    format!("{} ", SPINNER[spinner_frame]),
                     Style::default().fg(Color::LightGreen),
                 ),
                 Span::styled(
-                    format!("{} ", tool_icon),
+                    format!("{} ", self.activity.label()),
                     Style::default().fg(self.activity.color()),
                 ),
                 Span::styled(
-                    tool_label,
-                    Style::default()
-                        .fg(self.activity.color())
-                        .add_modifier(Modifier::BOLD),
+                    elapsed,
+                    Style::default().fg(Color::DarkGray),
                 ),
-                Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
-                Span::styled(" [Esc取消]", Style::default().fg(Color::DarkGray)),
             ]));
         }
 

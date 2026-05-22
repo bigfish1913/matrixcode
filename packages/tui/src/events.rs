@@ -97,6 +97,7 @@ impl TuiApp {
                 if let Some(EventData::ToolUse { name, input, .. }) = e.data {
                     self.activity = Activity::from_tool(&name);
                     self.activity_detail = extract_tool_detail(&name, input.as_ref());
+                    self.activity_input = input; // Save full input for display
                     if self.request_start.is_none() {
                         self.request_start = Some(std::time::Instant::now());
                     }
@@ -122,6 +123,7 @@ impl TuiApp {
                     self.tool_calls += 1;
                     self.activity = Activity::Thinking;
                     self.activity_detail.clear();
+                    self.activity_input = None;
                 }
             }
             EventType::SessionEnded => {
@@ -136,6 +138,7 @@ impl TuiApp {
                     self.request_start = None;
                 }
                 self.activity_detail.clear();
+                self.activity_input = None;
                 self.cancel.reset(); // Reset cancel state for next request
             }
             EventType::Error => {
@@ -160,6 +163,7 @@ impl TuiApp {
                     }
                 }
                 self.activity_detail.clear();
+                self.activity_input = None;
                 self.request_start = None;
                 self.cancel.reset(); // Reset cancel state for next request
 

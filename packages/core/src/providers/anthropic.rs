@@ -33,9 +33,14 @@ impl AnthropicProvider {
         base_url: String,
         extra_headers: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
+        // Create client with better timeout handling for streaming
+        // - No total timeout (streaming responses can take a long time)
+        // - Connect timeout: 10 seconds
+        // - Read timeout per chunk: 60 seconds (for slow responses between chunks)
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
             .connect_timeout(std::time::Duration::from_secs(10))
+            .read_timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(300)) // Total timeout for non-streaming
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         let extra_headers: Vec<(String, String)> = extra_headers
@@ -366,9 +371,30 @@ impl Provider for AnthropicProvider {
                 let chunk = match chunk {
                     Ok(c) => c,
                     Err(e) => {
-                        let _ = tx
-                            .send(StreamEvent::Error(format!("stream read error: {}", e)))
-                            .await;
+                        // Log detailed error for debugging
+                        let error_msg = e.to_string();
+                        let is_timeout = error_msg.contains("timeout") || error_msg.contains("timed out");
+                        let is_decode = error_msg.contains("decode") || error_msg.contains("decoding");
+
+                        let msg = if is_timeout {
+                            format!("Stream timeout - the API took too long to respond: {}", error_msg)
+                        } else if is_decode {
+                            format!("Stream decode error - possibly interrupted or corrupted response: {}", error_msg)
+                        } else {
+                            format!("Stream read error: {}", error_msg)
+                        };
+
+                        // Try to finalize any partial content we have
+                        if sent_first_byte && !blocks.is_empty() {
+                            debug!("finalizing partial stream due to error");
+                            let _ = tx.send(StreamEvent::Done(finalize_incomplete_stream(
+                                std::mem::take(&mut blocks),
+                                stop_reason,
+                                usage,
+                            ))).await;
+                        } else {
+                            let _ = tx.send(StreamEvent::Error(msg)).await;
+                        }
                         return;
                     }
                 };

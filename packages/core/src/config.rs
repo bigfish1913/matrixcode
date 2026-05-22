@@ -12,10 +12,10 @@
 //! - ANTHROPIC_BASE_URL (alias for base_url)
 //! - ANTHROPIC_MODEL (alias for model)
 //!
-//! Priority:
-//! 1. CLI arguments (highest priority)
+//! Priority (highest to lowest):
+//! 1. Environment variables (API_KEY, BASE_URL, MODEL, etc.)
 //! 2. ~/.matrix/config.json (matrixcode's own config)
-//! 3. Environment variables
+//! 3. ~/.claude/settings.json (Claude Code fallback)
 //! 4. Defaults
 
 use serde::{Deserialize, Serialize};
@@ -205,54 +205,139 @@ impl MatrixConfig {
         })
     }
 
+    /// Load configuration from environment variables.
+    /// Universal env vars: API_KEY, BASE_URL, MODEL
+    /// Also supports legacy: ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, ANTHROPIC_MODEL
+    fn load_from_env() -> Self {
+        // Parse EXTRA_HEADERS from env if available (JSON format)
+        let extra_headers = env::var("EXTRA_HEADERS").ok()
+            .and_then(|json_str| serde_json::from_str::<HashMap<String, String>>(&json_str).ok());
+
+        Self {
+            provider: env::var("PROVIDER").ok(),
+            api_key: env::var("API_KEY").ok()
+                .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
+                .or_else(|| env::var("ANTHROPIC_API_KEY").ok()),
+            base_url: env::var("BASE_URL").ok()
+                .or_else(|| env::var("ANTHROPIC_BASE_URL").ok()),
+            model: env::var("MODEL").ok()
+                .or_else(|| env::var("ANTHROPIC_MODEL").ok())
+                .or_else(|| env::var("MODEL_NAME").ok()),
+            think: env::var("THINK").ok()
+                .map(|v| v != "false")
+                .unwrap_or(true),
+            markdown: env::var("MARKDOWN").ok()
+                .map(|v| v != "false")
+                .unwrap_or(true),
+            max_tokens: env::var("MAX_TOKENS").ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(16384),
+            context_size: env::var("CONTEXT_SIZE").ok()
+                .and_then(|v| v.parse().ok()),
+            multi_model: env::var("MULTI_MODEL").ok()
+                .map(|v| v == "true"),
+            plan_model: env::var("ANTHROPIC_REASONING_MODEL").ok(),
+            compress_model: env::var("ANTHROPIC_DEFAULT_HAIKU_MODEL").ok(),
+            fast_model: None,
+            approve_mode: env::var("APPROVE_MODE").ok()
+                .or(Some("ask".to_string())),
+            extra_headers,
+        }
+    }
+
     /// Load configuration with fallback chain.
-    /// Priority: ~/.matrix/config.json > ~/.claude/settings.json > env vars > defaults
+    /// Priority: env vars > ~/.matrix/config.json > ~/.claude/settings.json > defaults
     pub fn load() -> Self {
+        // Load all sources
+        let env_config = Self::load_from_env();
         let matrix_config = Self::load_matrix_config();
         let claude_config = Self::load_claude_settings();
 
-        match (matrix_config, claude_config) {
-            (Some(mx), Some(cc)) => {
-                // Merge: matrix config takes precedence, fill missing from Claude
-                let needs_fallback = mx.api_key.is_none() || mx.model.is_none() || mx.base_url.is_none();
-                if needs_fallback {
-                    println!("[config: ~/.matrix/config.json + fallback from ~/.claude/settings.json]");
-                } else {
-                    println!("[config: ~/.matrix/config.json]");
-                }
-                Self {
-                    provider: mx.provider.or(cc.provider),
-                    api_key: mx.api_key.or(cc.api_key),
-                    base_url: mx.base_url.or(cc.base_url),
-                    model: mx.model.or(cc.model),
-                    think: mx.think,
-                    markdown: mx.markdown,
-                    max_tokens: mx.max_tokens,
-                    context_size: mx.context_size.or(cc.context_size),
-                    multi_model: mx.multi_model.or(cc.multi_model),
-                    plan_model: mx.plan_model.or(cc.plan_model),
-                    compress_model: mx.compress_model.or(cc.compress_model),
-                    fast_model: mx.fast_model.or(cc.fast_model),
-                    approve_mode: mx.approve_mode.or(Some("ask".to_string())),
-                    extra_headers: mx.extra_headers.or(cc.extra_headers),
-                }
-            }
-            (Some(mx), None) => {
-                println!("[config: ~/.matrix/config.json]");
-                Self {
-                    approve_mode: mx.approve_mode.or(Some("ask".to_string())),
-                    ..mx
-                }
-            }
-            (None, Some(cc)) => {
-                println!("[config: ~/.claude/settings.json (Claude Code fallback)]");
-                cc
-            }
-            (None, None) => {
-                println!("[config: using environment variables and defaults]");
-                Self::default()
-            }
+        // Auto-create example config if neither config file exists
+        if matrix_config.is_none() && claude_config.is_none() && env_config.api_key.is_none() {
+            let _ = create_example_config();
+            println!("[config: No config found. Example created at ~/.matrix/config.example.json]");
+            println!("\nTo configure, create ~/.matrix/config.json with:");
+            println!("  {{");
+            println!("    \"provider\": \"anthropic\",");
+            println!("    \"api_key\": \"your-api-key\",");
+            println!("    \"model\": \"claude-sonnet-4-20250514\"");
+            println!("  }}\n");
         }
+
+        // Determine which sources are active
+        let has_env = env_config.api_key.is_some() || env_config.model.is_some();
+        let has_matrix = matrix_config.is_some();
+        let has_claude = claude_config.is_some();
+
+        // Build source description
+        let sources: Vec<&str> = [
+            has_env.then_some("env"),
+            has_matrix.then_some("~/.matrix/config.json"),
+            has_claude.then_some("~/.claude/settings.json"),
+        ].iter().flatten().copied().collect();
+        println!("[config: {}]", sources.join(" + "));
+
+        // Merge with correct priority: env > matrix > claude > defaults
+        // Start with defaults, then layer on configs in reverse priority order
+        let mut merged = Self::default();
+
+        // Claude config (lowest priority, fills in missing fields)
+        if let Some(cc) = claude_config {
+            merged.provider = merged.provider.or(cc.provider);
+            merged.api_key = merged.api_key.or(cc.api_key);
+            merged.base_url = merged.base_url.or(cc.base_url);
+            merged.model = merged.model.or(cc.model);
+            merged.think = cc.think; // Default from claude
+            merged.markdown = cc.markdown;
+            merged.max_tokens = cc.max_tokens;
+            merged.context_size = merged.context_size.or(cc.context_size);
+            merged.multi_model = merged.multi_model.or(cc.multi_model);
+            merged.plan_model = merged.plan_model.or(cc.plan_model);
+            merged.compress_model = merged.compress_model.or(cc.compress_model);
+            merged.fast_model = merged.fast_model.or(cc.fast_model);
+            merged.approve_mode = merged.approve_mode.or(cc.approve_mode);
+            merged.extra_headers = merged.extra_headers.or(cc.extra_headers);
+        }
+
+        // Matrix config (medium priority, overrides claude)
+        if let Some(mx) = matrix_config {
+            merged.provider = merged.provider.or(mx.provider);
+            merged.api_key = merged.api_key.or(mx.api_key);
+            merged.base_url = merged.base_url.or(mx.base_url);
+            merged.model = merged.model.or(mx.model);
+            merged.think = mx.think;
+            merged.markdown = mx.markdown;
+            merged.max_tokens = mx.max_tokens;
+            merged.context_size = merged.context_size.or(mx.context_size);
+            merged.multi_model = merged.multi_model.or(mx.multi_model);
+            merged.plan_model = merged.plan_model.or(mx.plan_model);
+            merged.compress_model = merged.compress_model.or(mx.compress_model);
+            merged.fast_model = merged.fast_model.or(mx.fast_model);
+            merged.approve_mode = merged.approve_mode.or(mx.approve_mode);
+            merged.extra_headers = merged.extra_headers.or(mx.extra_headers);
+        }
+
+        // Env config (highest priority, overrides everything)
+        merged.provider = env_config.provider.or(merged.provider);
+        merged.api_key = env_config.api_key.or(merged.api_key);
+        merged.base_url = env_config.base_url.or(merged.base_url);
+        merged.model = env_config.model.or(merged.model);
+        merged.think = env_config.think;
+        merged.markdown = env_config.markdown;
+        merged.max_tokens = env_config.max_tokens;
+        merged.context_size = env_config.context_size.or(merged.context_size);
+        merged.multi_model = env_config.multi_model.or(merged.multi_model);
+        merged.plan_model = env_config.plan_model.or(merged.plan_model);
+        merged.compress_model = env_config.compress_model.or(merged.compress_model);
+        merged.fast_model = env_config.fast_model.or(merged.fast_model);
+        merged.approve_mode = env_config.approve_mode.or(merged.approve_mode);
+        merged.extra_headers = env_config.extra_headers.or(merged.extra_headers);
+
+        // Ensure approve_mode has a default
+        merged.approve_mode = merged.approve_mode.or(Some("ask".to_string()));
+
+        merged
     }
 
     /// Get API key, with fallback to environment variable.
@@ -343,18 +428,74 @@ pub fn create_default_config() -> anyhow::Result<()> {
     };
 
     config.save()?;
+
+    // Also create example config with documentation
+    create_example_config()?;
+
     println!("\nConfig file created at ~/.matrix/config.json");
-    println!("Universal field names:");
-    println!("  api_key        - API key");
-    println!("  base_url       - API endpoint");
-    println!("  model          - Main model");
-    println!("  plan_model     - Planning model");
-    println!("  compress_model - Compression model");
-    println!("  extra_headers  - Custom HTTP headers");
-    println!("\nEnvironment variables:");
-    println!("  API_KEY, BASE_URL, MODEL");
-    println!("\nLegacy aliases (still supported):");
-    println!("  ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, ANTHROPIC_MODEL");
+    println!("Example config with documentation: ~/.matrix/config.example.json");
+    println!("\nRequired fields to fill:");
+    println!("  api_key  - Your API key");
+    println!("  model    - Model name (e.g. claude-sonnet-4-20250514, gpt-4o, glm-5)");
+    println!("\nOptional fields:");
+    println!("  provider   - 'anthropic' or 'openai' (auto-detected from model if not set)");
+    println!("  base_url   - API endpoint (uses default if not set)");
+    println!("  extra_headers - Custom HTTP headers for API requests");
+    Ok(())
+}
+
+/// Create example config file with field documentation.
+pub fn create_example_config() -> anyhow::Result<()> {
+    let home = MatrixConfig::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+    let path = home.join(".matrix").join("config.example.json");
+
+    let example = r#"{
+  "_comment": "MatrixCode Configuration Example - Copy this to config.json and fill in your values",
+
+  "provider": "anthropic",
+  "_provider_comment": "API provider: 'anthropic' or 'openai'. Auto-detected from model name if not set.",
+
+  "api_key": "your-api-key-here",
+  "_api_key_comment": "Your API key. Also supports env vars: API_KEY, ANTHROPIC_AUTH_TOKEN, OPENAI_API_KEY",
+
+  "model": "claude-sonnet-4-20250514",
+  "_model_comment": "Model name. Examples: claude-sonnet-4, claude-opus-4, gpt-4o, glm-5",
+
+  "base_url": null,
+  "_base_url_comment": "API endpoint. Defaults: anthropic=https://api.anthropic.com, openai=https://api.openai.com/v1",
+  "_base_url_examples": ["https://dashscope.aliyuncs.com/compatible-mode/v1 for DashScope"],
+
+  "think": true,
+  "_think_comment": "Enable extended thinking (Anthropic only). Set false for non-Anthropic endpoints.",
+
+  "markdown": true,
+  "_markdown_comment": "Enable markdown rendering in TUI",
+
+  "max_tokens": 16384,
+  "_max_tokens_comment": "Maximum output tokens per request",
+
+  "approve_mode": "ask",
+  "_approve_mode_comment": "Tool approval: 'ask'=prompt each, 'auto'=approve safe, 'strict'=reject dangerous",
+
+  "multi_model": false,
+  "_multi_model_comment": "Enable multi-model configuration",
+
+  "plan_model": null,
+  "_plan_model_comment": "Planning/reasoning model for complex tasks",
+
+  "compress_model": null,
+  "_compress_model_comment": "Fast model for context compression",
+
+  "fast_model": null,
+  "_fast_model_comment": "Fast model for quick operations",
+
+  "extra_headers": {},
+  "_extra_headers_comment": "Custom HTTP headers for API requests (useful for proxy services)",
+  "_extra_headers_example": {"X-DashScope-SSE": "enable"}
+}"#;
+
+    std::fs::write(&path, example)?;
     Ok(())
 }
 

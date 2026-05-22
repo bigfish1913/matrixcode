@@ -125,44 +125,44 @@ pub fn extract_tool_detail(tool_name: &str, input: Option<&Value>) -> String {
             .get("file_path")
             .and_then(|v| v.as_str())
             .or_else(|| input.get("path").and_then(|v| v.as_str()))
-            .map(|s| truncate(s, 40))
+            .map(|s| truncate(s, 50))
             .unwrap_or_default(),
         "write" => input
             .get("file_path")
             .and_then(|v| v.as_str())
             .or_else(|| input.get("path").and_then(|v| v.as_str()))
-            .map(|s| truncate(s, 40))
+            .map(|s| truncate(s, 50))
             .unwrap_or_default(),
         "edit" | "multi_edit" => input
             .get("file_path")
             .and_then(|v| v.as_str())
             .or_else(|| input.get("path").and_then(|v| v.as_str()))
-            .map(|s| truncate(s, 40))
+            .map(|s| truncate(s, 50))
             .unwrap_or_default(),
         "search" | "grep" | "glob" => input
             .get("pattern")
             .and_then(|v| v.as_str())
-            .map(|s| truncate(s, 30))
+            .map(|s| truncate(s, 40))
             .unwrap_or_default(),
         "ls" => input
             .get("path")
             .and_then(|v| v.as_str())
-            .map(|s| truncate(s, 40))
+            .map(|s| truncate(s, 50))
             .unwrap_or_default(),
         "bash" => input
             .get("command")
             .and_then(|v| v.as_str())
-            .map(|s| truncate(s, 40))
+            .map(|s| truncate(s, 60))
             .unwrap_or_default(),
         "websearch" => input
             .get("query")
             .and_then(|v| v.as_str())
-            .map(|s| truncate(s, 30))
+            .map(|s| truncate(s, 40))
             .unwrap_or_default(),
         "webfetch" => input
             .get("url")
             .and_then(|v| v.as_str())
-            .map(|s| truncate(s, 40))
+            .map(|s| truncate(s, 50))
             .unwrap_or_default(),
         // New tools
         "task" => input

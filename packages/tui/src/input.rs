@@ -103,8 +103,9 @@ impl TuiApp {
                 self.exit = true;
             }
 
-            // Ctrl+V: paste from clipboard
-            KeyCode::Char('v') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Ctrl+V or Super+V (Mac Cmd+V): paste from clipboard
+            KeyCode::Char('v') if k.modifiers.contains(KeyModifiers::CONTROL)
+                || k.modifiers.contains(KeyModifiers::SUPER) => {
                 // Try to get text from clipboard
                 if let Ok(mut clipboard) = arboard::Clipboard::new()
                     && let Ok(text) = clipboard.get_text()
