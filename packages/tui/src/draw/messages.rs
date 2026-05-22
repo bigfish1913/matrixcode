@@ -884,48 +884,90 @@ impl TuiApp {
             && self.streaming.is_empty()
             && self.thinking.is_empty()
         {
-            // Minimal thinking indicator
             let elapsed = self
                 .request_start
-                .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
+                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
             let spinner_frame = self.frame % SPINNER.len();
             lines.push(Line::from(vec![
                 Span::styled(
-                    format!("{} ", SPINNER[spinner_frame]),
+                    format!("  {} ", SPINNER[spinner_frame]),
                     Style::default().fg(Color::LightGreen),
                 ),
                 Span::styled(
-                    format!("Waiting {} ", elapsed),
+                    format!("Thinking...{}", elapsed),
                     Style::default().fg(Color::DarkGray),
                 ),
             ]));
         }
 
         if is_tool_activity && self.streaming.is_empty() && self.thinking.is_empty() {
-            // Simple animation - just spinner and elapsed time in status area
-            // Details are shown in the hint bar (above input)
+            // Tool icon for visual identification
+            let tool_icon = match self.activity {
+                Activity::Reading => "📖",
+                Activity::Writing => "📝",
+                Activity::Editing => "✏️",
+                Activity::Searching => "🔍",
+                Activity::Running => "⚡",
+                Activity::WebSearch => "🌐",
+                Activity::WebFetch => "🔗",
+                Activity::Tool(ref name) => match name.as_str() {
+                    "task" => "🚀",
+                    "plan" => "📋",
+                    "monitor" => "👀",
+                    "skill" => "⚡",
+                    _ => "🔧",
+                },
+                _ => "⚙️",
+            };
+
             let elapsed = self
                 .request_start
-                .map(|s| format!("{:.1}s", s.elapsed().as_secs_f64()))
+                .map(|s| format!(" ({:.1}s)", s.elapsed().as_secs_f64()))
                 .unwrap_or_default();
-
-            // Minimal inline indicator
             let spinner_frame = self.frame % SPINNER.len();
+
+            // Main status line
             lines.push(Line::from(vec![
                 Span::styled(
-                    format!("{} ", SPINNER[spinner_frame]),
+                    format!("  {} ", SPINNER[spinner_frame]),
                     Style::default().fg(Color::LightGreen),
                 ),
                 Span::styled(
-                    format!("{} ", self.activity.label()),
+                    format!("{} ", tool_icon),
                     Style::default().fg(self.activity.color()),
                 ),
                 Span::styled(
-                    elapsed,
-                    Style::default().fg(Color::DarkGray),
+                    self.activity.label(),
+                    Style::default()
+                        .fg(self.activity.color())
+                        .add_modifier(Modifier::BOLD),
                 ),
+                Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
+                Span::styled(" [Esc取消]", Style::default().fg(Color::DarkGray)),
             ]));
+
+            // Show full command/input details on separate lines
+            if let Some(ref input) = self.activity_input {
+                let tool_name = match self.activity {
+                    Activity::Running => "bash",
+                    Activity::Reading | Activity::Writing | Activity::Editing => "file",
+                    Activity::Searching => "pattern",
+                    Activity::WebSearch => "query",
+                    Activity::WebFetch => "url",
+                    Activity::Tool(ref name) => name.as_str(),
+                    _ => "",
+                };
+
+                // Extract and display relevant fields
+                let detail_lines = extract_full_detail(tool_name, input);
+                for detail in detail_lines {
+                    lines.push(Line::from(vec![
+                        Span::styled("    ", Style::default()),
+                        Span::styled(detail, Style::default().fg(Color::Gray)),
+                    ]));
+                }
+            }
         }
 
         // Scroll
