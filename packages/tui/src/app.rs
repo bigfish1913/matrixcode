@@ -91,6 +91,7 @@ pub struct TuiApp {
 
 /// Todo item for progress tracking
 #[derive(Clone)]
+#[allow(dead_code)]  // Fields used in serialization, not directly read
 pub struct TodoItem {
     pub content: String,
     pub status: String, // "pending", "in_progress", "completed"

@@ -219,7 +219,7 @@ pub fn compress_with_bias(
 fn calculate_preservation_score(
     message: &Message,
     index: usize,
-    total: usize,
+    _total: usize,  // Reserved for future use (total message count)
     bias: &CompressionBias,
 ) -> f64 {
     let mut score: f64 = 10.0;
