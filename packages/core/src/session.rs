@@ -454,16 +454,12 @@ impl SessionManager {
     }
 
     /// Continue the last session (for --continue).
-    pub fn continue_last(&mut self, project_path: Option<&Path>) -> Result<Option<&Session>> {
+    /// Returns the session without modifying its project_path.
+    /// The caller should use session.metadata.project_path as the effective path.
+    pub fn continue_last(&mut self) -> Result<Option<&Session>> {
         let last_id = self.index.last_session().map(|m| m.id.clone());
         if let Some(id) = last_id {
             self.load_session(&id)?;
-            // Update project path if provided and different
-            if let Some(path) = project_path
-                && let Some(ref mut session) = self.current_session
-            {
-                session.metadata.project_path = Some(path.to_string_lossy().to_string());
-            }
             Ok(self.current_session.as_ref())
         } else {
             Ok(None)
@@ -471,16 +467,12 @@ impl SessionManager {
     }
 
     /// Resume a specific session by ID or name (for --resume).
-    pub fn resume(&mut self, query: &str, project_path: Option<&Path>) -> Result<Option<&Session>> {
+    /// Returns the session without modifying its project_path.
+    /// The caller should use session.metadata.project_path as the effective path.
+    pub fn resume(&mut self, query: &str) -> Result<Option<&Session>> {
         let session_id = self.index.find(query).map(|m| m.id.clone());
         if let Some(id) = session_id {
             self.load_session(&id)?;
-            // Update project path if provided
-            if let Some(path) = project_path
-                && let Some(ref mut session) = self.current_session
-            {
-                session.metadata.project_path = Some(path.to_string_lossy().to_string());
-            }
             Ok(self.current_session.as_ref())
         } else {
             Ok(None)

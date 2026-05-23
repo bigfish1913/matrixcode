@@ -71,9 +71,14 @@ impl OpenAIProvider {
                 (Role::Assistant, MessageContent::Blocks(blocks)) => {
                     let mut tool_calls = Vec::new();
                     let mut text_parts = Vec::new();
+                    let mut reasoning_parts = Vec::new();
 
                     for block in blocks {
                         match block {
+                            ContentBlock::Thinking { thinking, .. } => {
+                                // DeepSeek requires reasoning_content before content
+                                reasoning_parts.push(thinking.clone());
+                            }
                             ContentBlock::Text { text } => text_parts.push(text.clone()),
                             ContentBlock::ToolUse { id, name, input } => {
                                 tool_calls.push(json!({
@@ -85,12 +90,15 @@ impl OpenAIProvider {
                                     }
                                 }));
                             }
-                            ContentBlock::Thinking { .. } => {}
                             _ => {}
                         }
                     }
 
                     let mut msg_obj = json!({"role": "assistant"});
+                    // DeepSeek: reasoning_content must be before content
+                    if !reasoning_parts.is_empty() {
+                        msg_obj["reasoning_content"] = json!(reasoning_parts.join("\n"));
+                    }
                     if !text_parts.is_empty() {
                         msg_obj["content"] = json!(text_parts.join("\n"));
                     }
@@ -170,6 +178,10 @@ impl Provider for OpenAIProvider {
         context_window_for(&self.model)
     }
 
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
     fn clone_box(&self) -> Box<dyn Provider> {
         Box::new(Self {
             api_key: self.api_key.clone(),
@@ -246,6 +258,16 @@ impl Provider for OpenAIProvider {
                 .as_u64()
                 .unwrap_or(0) as u32,
         };
+
+        // DeepSeek thinking mode: reasoning_content must come before content
+        if let Some(reasoning) = message["reasoning_content"].as_str()
+            && !reasoning.is_empty()
+        {
+            content.push(ContentBlock::Thinking {
+                thinking: reasoning.to_string(),
+                signature: None,
+            });
+        }
 
         if let Some(text) = message["content"].as_str()
             && !text.is_empty()

@@ -141,9 +141,9 @@ struct Cli {
     #[arg(long)]
     skills_dir: Option<PathBuf>,
 
-    /// Think mode
-    #[arg(long, default_value = "true")]
-    think: bool,
+    /// Think mode (optional, uses config default if not specified)
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    think: Option<bool>,
 
     /// Max tokens
     #[arg(long, default_value = "16384")]
@@ -249,26 +249,50 @@ fn model_with_source(config: &Config) -> String {
 
 fn main() -> Result<()> {
     // Load .env file with multiple paths (silently ignore if not found)
-    // Priority: current_dir/.env > project_root/.env > packages/cli/.env
+    // Priority: current_dir/.env > parent dirs/.env (up to 4 levels)
     let current_dir = std::env::current_dir().unwrap_or_default();
 
-    // Try multiple locations for .env
-    let mut env_paths: Vec<std::path::PathBuf> = vec![
-        current_dir.join(".env"),
-        current_dir.join("packages/cli/.env"),
-    ];
-
-    // Also try parent directory for monorepo
-    if let Some(parent) = current_dir.parent() {
-        env_paths.push(parent.join(".env"));
+    // Build search paths - go up multiple levels for nested project structures
+    let mut env_paths: Vec<std::path::PathBuf> = vec![current_dir.join(".env")];
+    let mut dir = current_dir.clone();
+    // Search up to 4 parent levels (handles packages/cli -> packages -> matrixcode)
+    for _ in 0..4 {
+        if let Some(parent) = dir.parent() {
+            env_paths.push(parent.join(".env"));
+            dir = parent.to_path_buf();
+        } else {
+            break;
+        }
     }
 
+    let mut loaded_env = false;
     for path in &env_paths {
         if path.exists() {
-            let _ = dotenvy::from_path(path);
-            log::info!("Loaded .env from: {}", path.display());
-            break; // Load first found
+            if dotenvy::from_path(path).is_ok() {
+                println!("[env: loaded from {}]", path.display());
+                loaded_env = true;
+                break;
+            }
         }
+    }
+
+    if !loaded_env {
+        println!("[env: no .env file found, searched: {}]",
+            env_paths.iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", "));
+    }
+
+    // Debug: show key env vars after loading
+    if let Ok(key) = std::env::var("API_KEY") {
+        println!("[env: API_KEY={}...{}]", &key[..4.min(key.len())], &key[key.len()-4.min(key.len())..]);
+    }
+    if let Ok(model) = std::env::var("MODEL") {
+        println!("[env: MODEL={}]", model);
+    }
+    if let Ok(provider) = std::env::var("PROVIDER") {
+        println!("[env: PROVIDER={}]", provider);
     }
 
     let cli = Cli::parse();
@@ -364,7 +388,7 @@ fn interactive_resume() -> Result<()> {
             resume_id: Some(session.id.clone()),
             list_sessions: false,
             skills_dir: None,
-            think: true,
+            think: Some(true),
             max_tokens: 16384,
             command: None,
         };
@@ -390,7 +414,7 @@ fn interactive_resume() -> Result<()> {
                 resume_id: Some(session.id.clone()),
                 list_sessions: false,
                 skills_dir: None,
-                think: true,
+                think: Some(true),
                 max_tokens: 16384,
                 command: None,
             };
@@ -510,19 +534,21 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let cancel_token = CancellationToken::new();
 
     // Load session BEFORE spawning agent task so TUI can also display restored messages
-    let project_path = std::env::current_dir().ok();
-    let (full_messages, api_messages, session_mgr_state, session_metadata) = {
+    // Get current directory as fallback for new sessions
+    let current_dir = std::env::current_dir().ok();
+    let (full_messages, api_messages, session_mgr_state, session_metadata, effective_project_path) = {
         let mut mgr = SessionManager::new().ok();
         let mut full = Vec::new();
         let mut api = Vec::new();
         let mut metadata = None;
+        let mut effective_path = current_dir.clone();
 
         if let Some(ref mut mgr) = mgr {
             if cli.continue_session || cli.resume_id.is_some() {
                 let session = if let Some(ref query) = cli.resume_id {
-                    mgr.resume(query, project_path.as_deref()).ok().flatten()
+                    mgr.resume(query).ok().flatten()
                 } else {
-                    mgr.continue_last(project_path.as_deref()).ok().flatten()
+                    mgr.continue_last().ok().flatten()
                 };
                 if let Some(s) = session {
                     // Log session restore details
@@ -539,13 +565,27 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     api = s.api_messages().to_vec();
                     metadata = Some(s.metadata.clone());
 
+                    // Use session's project_path as effective path (fallback to current_dir if not exists)
+                    if let Some(ref session_path) = s.metadata.project_path {
+                        let path = std::path::PathBuf::from(session_path);
+                        if path.exists() {
+                            effective_path = Some(path);
+                            log::info!("Using session project_path: {}", session_path);
+                        } else {
+                            log::warn!(
+                                "Session project_path '{}' no longer exists, falling back to current_dir",
+                                session_path
+                            );
+                        }
+                    }
+
                     log::info!("After clone: full={}, api={}", full.len(), api.len());
                 }
             } else {
-                let _ = mgr.start_new(project_path.as_deref());
+                let _ = mgr.start_new(current_dir.as_deref());
             }
         }
-        (full, api, mgr, metadata)
+        (full, api, mgr, metadata, effective_path)
     };
 
     // Clone things needed in the agent task
@@ -554,25 +594,19 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_api_key = api_key.clone();
     let agent_model = model.clone();
     let agent_base_url = base_url.clone();
-    let agent_think = cli.think;
+    let agent_think = cli.think.unwrap_or(config.think);  // Use config default if CLI not specified
     let agent_max_tokens = cli.max_tokens;
     let agent_restored_messages = api_messages.clone();  // Agent uses compressed messages
-    let agent_project_path = project_path.clone();
+    // Use effective project path (session's saved path if available, otherwise current_dir)
+    let agent_project_path = effective_project_path.clone();
     let agent_approve_mode = config
         .approve_mode
         .as_ref()
         .map(|m| matrixcode_core::approval::ApproveMode::parse(m))
         .unwrap_or(matrixcode_core::approval::ApproveMode::Ask);
 
-    // Provider from config, or infer from model name
-    let agent_provider = config
-        .provider
-        .as_ref()
-        .map(|p| match p.as_str() {
-            "openai" => matrixcode_core::providers::ProviderType::OpenAI,
-            _ => matrixcode_core::providers::ProviderType::Anthropic,
-        })
-        .unwrap_or_else(|| infer_provider_type(&agent_model));
+    // Provider from config, env, or infer from model name
+    let agent_provider = resolve_provider(&config, &agent_model);
 
     // Create shared approve mode atomic - accessible by both agent and TUI
     let shared_approve_mode =
@@ -1355,9 +1389,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 let session_id = msg.strip_prefix("/load ").unwrap_or("");
 
                 if let Some(ref mut mgr) = session_mgr {
-                    // Use resume to load session
-                    let project_path = std::env::current_dir().ok();
-                    if mgr.resume(session_id, project_path.as_deref()).is_ok() {
+                    // Use resume to load session (no need to pass project_path - session keeps its own)
+                    if mgr.resume(session_id).is_ok() {
                         if let Some(msgs) = mgr.messages() {
                             let messages = msgs.to_vec();
                             agent.set_messages(messages.clone());
@@ -1653,9 +1686,10 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let _guard = rt.enter();
 
     // Check if debug mode should be enabled from environment
+    // Default: true for debug builds, false for release builds
     let debug_mode = std::env::var("MATRIXCODE_DEBUG")
         .map(|v| v == "1" || v == "true" || v == "verbose")
-        .unwrap_or(false);
+        .unwrap_or(cfg!(debug_assertions)); // Default to true in debug builds
 
     // Setup terminal for TUI
     let mut terminal = setup_terminal()?;
@@ -1664,7 +1698,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token.clone())
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
-        .with_config(&model, cli.think, cli.max_tokens, None)
+        .with_config(&model, cli.think.unwrap_or(config.think), cli.max_tokens, None)
         .with_debug_mode(debug_mode);
 
     // Load restored messages if any (full messages for TUI display)
@@ -2931,11 +2965,10 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
             }
         }
         "load_session" => {
-            // Load/resume a session
+            // Load/resume a session (no need to pass project_path - session keeps its own)
             if let Some(session_id) = request.session_id.clone() {
                 if let Ok(mut mgr) = SessionManager::new() {
-                    let project_path = std::env::current_dir().ok();
-                    match mgr.resume(&session_id, project_path.as_deref()) {
+                    match mgr.resume(&session_id) {
                         Ok(Some(session)) => {
                             let data = serde_json::json!({
                                 "success": true,

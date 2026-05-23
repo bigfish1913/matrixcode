@@ -183,6 +183,11 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Get the model name for this provider.
+    fn model_name(&self) -> &str {
+        "unknown"
+    }
+
     /// Stream a chat turn. Default impl wraps `chat` and emits one `Done` event,
     /// so providers without native streaming still work (no incremental thinking).
     async fn chat_stream(&self, request: ChatRequest) -> Result<mpsc::Receiver<StreamEvent>> {

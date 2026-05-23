@@ -279,6 +279,10 @@ impl Provider for AnthropicProvider {
         context_window_for(&self.model)
     }
 
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
     fn clone_box(&self) -> Box<dyn Provider> {
         Box::new(Self {
             api_key: self.api_key.clone(),
