@@ -2,7 +2,7 @@
   "name": "matrixcode",
   "displayName": "MatrixCode - AI Code Agent",
   "description": "Intelligent code agent with multi-model support, context compression, and cross-session memory",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "publisher": "bigfish1913",
   "license": "MIT",
   "icon": "resources/icon.png",
