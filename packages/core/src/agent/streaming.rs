@@ -94,20 +94,15 @@ impl Agent {
                                 self.emit(AgentEvent::text_delta(delta))?;
                             }
                             Some(StreamEvent::ToolUseStart { id, name }) => {
+                                // Emit events for UI but don't push content blocks
+                                // Content will be added from Done event's resp.content
                                 if !current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_end())?;
-                                    response_content.push(ContentBlock::Thinking {
-                                        thinking: current_thinking.clone(),
-                                        signature: None,
-                                    });
-                                    current_thinking.clear();
+                                    // Don't push - will be added from resp.content
                                 }
                                 if !current_text.is_empty() {
                                     self.emit(AgentEvent::text_end())?;
-                                    response_content.push(ContentBlock::Text {
-                                        text: current_text.clone(),
-                                    });
-                                    current_text.clear();
+                                    // Don't push - will be added from resp.content
                                 }
                                 self.emit(AgentEvent::tool_use_start(&id, &name, None))?;
                             }
@@ -129,21 +124,44 @@ impl Agent {
                                     return Err(anyhow::anyhow!("Operation cancelled"));
                                 }
 
+                                // Don't add current_thinking/current_text here - use resp.content directly
+                                // This avoids duplicates since resp.content contains everything
+                                // Just emit events for UI updates if we have pending content
                                 if !current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_end())?;
-                                    response_content.push(ContentBlock::Thinking {
-                                        thinking: current_thinking.clone(),
-                                        signature: None,
-                                    });
+                                    // Don't push to response_content - will be added from resp.content
                                 }
                                 if !current_text.is_empty() {
                                     self.emit(AgentEvent::text_end())?;
-                                    response_content.push(ContentBlock::Text {
-                                        text: current_text.clone(),
-                                    });
+                                    // Don't push to response_content - will be added from resp.content
                                 }
+
+                                // Add all blocks from final response with smart deduplication
                                 for block in &resp.content {
-                                    if !response_content.iter().any(|b| b == block) {
+                                    // Smart deduplication: compare content, not entire block
+                                    let is_duplicate = response_content.iter().any(|b| {
+                                        match (b, block) {
+                                            // For Thinking blocks, compare thinking content only (signature may differ)
+                                            (ContentBlock::Thinking { thinking: t1, .. }, ContentBlock::Thinking { thinking: t2, .. }) => {
+                                                t1 == t2
+                                            }
+                                            // For Text blocks, compare text content
+                                            (ContentBlock::Text { text: t1 }, ContentBlock::Text { text: t2 }) => {
+                                                t1 == t2
+                                            }
+                                            // For ToolUse, compare id
+                                            (ContentBlock::ToolUse { id: id1, .. }, ContentBlock::ToolUse { id: id2, .. }) => {
+                                                id1 == id2
+                                            }
+                                            // For ToolResult, compare tool_use_id
+                                            (ContentBlock::ToolResult { tool_use_id: id1, .. }, ContentBlock::ToolResult { tool_use_id: id2, .. }) => {
+                                                id1 == id2
+                                            }
+                                            // Default: exact comparison
+                                            _ => b == block
+                                        }
+                                    });
+                                    if !is_duplicate {
                                         response_content.push(block.clone());
                                     }
                                 }

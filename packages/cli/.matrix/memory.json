@@ -91,6 +91,30 @@
       "importance": 55.0,
       "tags": [],
       "is_manual": false
+    },
+    {
+      "id": "6c611032-1323-41d0-a27b-a21f6d4f16b8",
+      "created_at": "2026-05-23T07:56:39.838669500Z",
+      "last_referenced": "2026-05-23T07:56:39.838670100Z",
+      "category": "technical",
+      "content": "- 终端用户界面（基于 ratatui）",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "3c4502e5-0587-46f6-86d7-f69f64fddebb",
+      "created_at": "2026-05-23T08:16:27.501213Z",
+      "last_referenced": "2026-05-23T08:16:27.501213500Z",
+      "category": "preference",
+      "content": "- **绿色**：选项 ID 和推荐方案",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 65.0,
+      "tags": [],
+      "is_manual": false
     }
   ],
   "config": {
