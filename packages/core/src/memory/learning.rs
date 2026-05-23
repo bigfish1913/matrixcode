@@ -117,22 +117,34 @@ pub fn detect_feedback_patterns(text: &str) -> Vec<FeedbackResult> {
 }
 
 fn extract_feedback_content(text: &str, pattern: &str) -> String {
-    let pos = match text.to_lowercase().find(&pattern.to_lowercase()) {
+    // Use case-insensitive search but track position in original text
+    // to avoid Unicode byte length mismatches from lowercase conversion
+    let text_lower = text.to_lowercase();
+    let pattern_lower = pattern.to_lowercase();
+
+    let pos = match text_lower.find(&pattern_lower) {
         Some(p) => p,
         None => return String::new(),
     };
 
-    let start = pos + pattern.len();
-    if start >= text.len() {
+    // Find the actual position in original text by counting chars
+    // (lowercase conversion can change byte lengths for some Unicode chars)
+    let char_pos = text_lower[..pos].chars().count();
+    let start_char_idx = char_pos + pattern.chars().count();
+
+    // Get remaining text by char indices
+    let remaining: String = text.chars().skip(start_char_idx).collect();
+    if remaining.is_empty() {
         return String::new();
     }
 
-    let remaining = &text[start..];
-    let end = remaining
+    // Find end delimiter (first ., 。, or \n, or up to 100 chars)
+    let end_char_count = remaining
         .find(['.', '。', '\n'])
-        .unwrap_or(remaining.len().min(100));
+        .map(|i| remaining[..i].chars().count())
+        .unwrap_or(remaining.chars().count().min(100));
 
-    remaining[..end].trim().to_string()
+    remaining.chars().take(end_char_count).collect::<String>().trim().to_string()
 }
 
 /// Apply feedback to memory.

@@ -74,12 +74,18 @@ impl TuiApp {
                         ask_tx.try_send("abort".to_string()).ok();
                     }
                 } else if self.activity != Activity::Idle {
+                    // Immediately stop animation by resetting state
+                    self.activity = Activity::Idle;
+                    self.streaming.clear();
+                    self.thinking.clear();
+                    self.activity_input = None;
+                    self.activity_detail.clear();
+
                     // Signal cancellation - backend will respond with Error event
-                    // The events.rs handler will then process queue
                     self.cancel.cancel();
                     self.push_message(Message {
                         role: Role::System,
-                        content: "⚡ 正在中断...".into(),
+                        content: "⚡ 已中断".into(),
                     });
                 } else {
                     self.input.clear();
@@ -90,10 +96,17 @@ impl TuiApp {
             // Ctrl+C: interrupt
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.activity != Activity::Idle {
+                    // Immediately stop animation by resetting state
+                    self.activity = Activity::Idle;
+                    self.streaming.clear();
+                    self.thinking.clear();
+                    self.activity_input = None;
+                    self.activity_detail.clear();
+
                     self.cancel.cancel();
                     self.push_message(Message {
                         role: Role::System,
-                        content: "⚡ 正在中断...".into(),
+                        content: "⚡ 已中断".into(),
                     });
                 }
             }
@@ -568,11 +581,13 @@ impl TuiApp {
             self.handle_command(&input);
         } else if self.activity == Activity::Idle {
             // Send immediately
+            log::info!("TUI send_input: sending message '{}' (len={})", input.chars().take(50).collect::<String>(), input.len());
             self.push_message(Message {
                 role: Role::User,
                 content: input.clone(),
             });
-            self.tx.try_send(input).ok();
+            let send_result = self.tx.try_send(input);
+            log::info!("TUI send_input: try_send result = {:?}", send_result.is_ok());
             self.activity = Activity::Thinking;
             self.request_start = Some(Instant::now());
             self.auto_scroll = true;

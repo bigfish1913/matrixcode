@@ -403,10 +403,12 @@ impl TuiApp {
             // Process agent events - mark dirty on any event
             let mut had_event = false;
             while let Ok(e) = self.rx.try_recv() {
+                log::debug!("TUI received event: type={:?}", e.event_type);
                 self.on_event(e);
                 had_event = true;
             }
             if had_event {
+                log::debug!("TUI: had events, marking dirty");
                 self.dirty.set(true);
             }
 

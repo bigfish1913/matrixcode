@@ -689,7 +689,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 }
             }
 
+        log::info!("Agent task: entering receive loop");
         while let Some(msg) = task_rx.recv().await {
+            log::info!("Agent task: received message (len={})", msg.len());
             // Make msg mutable for skill activation transformation
             let mut msg = msg;
 
@@ -1662,17 +1664,38 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         }
                     };
 
-                    // Build agent
+                    // Build agent with event channel
+                    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
                     let mut agent = AgentBuilder::new(provider)
                         .system_prompt(system_prompt)
                         .model_name(model.clone())
                         .max_tokens(4096)
                         .tools(all_tools_with_skills(Arc::new(skills.to_vec())))
                         .approve_mode(approve_mode)
+                        .event_tx(event_tx)
                         .build();
 
                     // Run agent
-                    match agent.run(msg).await {
+                    let run_future = agent.run(msg);
+
+                    // Process events while running
+                    let result = tokio::select! {
+                        r = run_future => r,
+                        _ = async {
+                            while let Some(event) = event_rx.recv().await {
+                                // Log events for debug
+                                if event.event_type == matrixcode_core::EventType::Error {
+                                    if let Some(data) = &event.data {
+                                        eprintln!("⚠️ Error event: {:?}", data);
+                                    }
+                                }
+                            }
+                        } => {
+                            Err(anyhow::anyhow!("Event channel closed"))
+                        }
+                    };
+
+                    match result {
                         Ok(_) => {
                             // Get all messages to show thinking first, then result
                             let messages = agent.get_messages();

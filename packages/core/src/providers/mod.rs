@@ -1,6 +1,9 @@
 pub mod anthropic;
 pub mod openai;
 
+#[cfg(test)]
+mod tests;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

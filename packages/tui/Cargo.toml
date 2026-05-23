@@ -22,6 +22,7 @@ arboard = { workspace = true }
 pulldown-cmark = { workspace = true }
 syntect = { workspace = true }
 unicode-width = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

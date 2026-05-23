@@ -110,7 +110,7 @@ impl Agent {
                 && token.is_cancelled()
             {
                 self.emit(AgentEvent::error(
-                    "Operation cancelled".to_string(),
+                    prompt::MSG_OPERATION_CANCELLED.to_string(),
                     None,
                     None,
                 ))?;
@@ -122,11 +122,9 @@ impl Agent {
                 self.messages.push(Message {
                     role: Role::User,
                     content: MessageContent::Text(
-                        "⚠️ 接近最大迭代次数限制（当前 {iterations}/{MAX_ITERATIONS}）。\
-                         请检查任务进度：\n\
-                         1. 如果有未完成的子任务，优先完成最关键的项\n\
-                         2. 使用 todo_write 查看和更新任务状态\n\
-                         3. 确保在限制内完成或在最后输出剩余任务摘要".replace("{iterations}", &iterations.to_string()).replace("{MAX_ITERATIONS}", &MAX_ITERATIONS.to_string())
+                        prompt::MSG_ITERATION_WARNING
+                            .replace("{iterations}", &iterations.to_string())
+                            .replace("{max_iterations}", &MAX_ITERATIONS.to_string()),
                     ),
                 });
             }
@@ -160,10 +158,7 @@ impl Agent {
                 if self.has_pending_todos() {
                     self.messages.push(Message {
                         role: Role::User,
-                        content: MessageContent::Text(
-                            "📋 检测到未完成的待办任务。请继续执行剩余任务，或在 todo_write 中将已完成的任务标记为 completed。\n\
-                             注意：只有所有任务都完成后才能结束。如果遇到阻塞，请说明原因。".to_string()
-                        ),
+                        content: MessageContent::Text(prompt::MSG_PENDING_TODOS.to_string()),
                     });
                     should_continue = true;
                 }
@@ -192,7 +187,7 @@ impl Agent {
             );
 
             if should_compress(current_tokens, context_size, &self.compression_config) {
-                self.emit(AgentEvent::progress("Compressing context...", None))?;
+                self.emit(AgentEvent::progress(prompt::MSG_COMPRESSING_CONTEXT, None))?;
 
                 let original_tokens = current_tokens;
 
@@ -227,7 +222,7 @@ impl Agent {
                     }
                     Err(e) => {
                         self.emit(AgentEvent::progress(
-                            format!("Compression failed: {}", e),
+                            format!("{}{}", prompt::MSG_COMPRESSION_FAILED, e),
                             None,
                         ))?;
                     }
@@ -238,20 +233,9 @@ impl Agent {
         // Check if we stopped due to reaching MAX_ITERATIONS
         if iterations >= MAX_ITERATIONS && should_continue {
             self.emit(AgentEvent::error(
-                format!(
-                    "⚠️ Reached maximum iterations limit ({} iterations).\n\n\
-                    **Task status**: The task may not be fully complete.\n\n\
-                    **What happened**: Agent stopped after {} iterations to prevent infinite loops.\n\n\
-                    **Next steps**:\n\
-                    1. Check if the task is complete\n\
-                    2. If incomplete, you can:\n\
-                       - Continue with more specific instructions\n\
-                       - Break down the task into smaller subtasks\n\
-                       - Use '/resume' to continue from current state\n\n\
-                    **Why this limit exists**: Prevents runaway operations and resource exhaustion.\n\
-                    **Adjustable**: Future versions will allow custom iteration limits.",
-                    MAX_ITERATIONS, iterations
-                ),
+                prompt::MSG_MAX_ITERATIONS_REACHED
+                    .replace("{max_iterations}", &MAX_ITERATIONS.to_string())
+                    .replace("{iterations}", &iterations.to_string()),
                 Some("MAX_ITERATIONS_REACHED".to_string()),
                 Some("agent/run.rs".to_string()),
             ))?;

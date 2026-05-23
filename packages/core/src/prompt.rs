@@ -532,3 +532,40 @@ pub fn build_system_prompt(
 
     result
 }
+
+// =============================================================================
+// Runtime User Message Prompt Constants
+// =============================================================================
+
+/// Warning message when approaching iteration limit.
+pub const MSG_ITERATION_WARNING: &str = "⚠️ 接近最大迭代次数限制（当前 {iterations}/{max_iterations}）。\n\
+    请检查任务进度：\n\
+    1. 如果有未完成的子任务，优先完成最关键的项\n\
+    2. 使用 todo_write 查看和更新任务状态\n\
+    3. 确保在限制内完成或在最后输出剩余任务摘要";
+
+/// Message when pending todos detected.
+pub const MSG_PENDING_TODOS: &str = "📋 检测到未完成的待办任务。请继续执行剩余任务，或在 todo_write 中将已完成的任务标记为 completed。\n\
+    注意：只有所有任务都完成后才能结束。如果遇到阻塞，请说明原因。";
+
+/// Error message when operation is cancelled.
+pub const MSG_OPERATION_CANCELLED: &str = "操作已取消";
+
+/// Progress message during context compression.
+pub const MSG_COMPRESSING_CONTEXT: &str = "正在压缩上下文...";
+
+/// Error message prefix when compression fails.
+pub const MSG_COMPRESSION_FAILED: &str = "压缩失败：";
+
+/// Error message when maximum iterations reached.
+pub const MSG_MAX_ITERATIONS_REACHED: &str = "⚠️ 已达到最大迭代次数限制（{max_iterations} 次）。\n\n\
+    **任务状态**：任务可能未完全完成。\n\n\
+    **发生了什么**：代理在执行 {iterations} 次迭代后停止，以防止无限循环。\n\n\
+    **下一步操作**：\n\
+    1. 检查任务是否已完成\n\
+    2. 如未完成，您可以：\n\
+       - 提供更具体的指令继续执行\n\
+       - 将任务拆分为更小的子任务\n\
+       - 使用 '/resume' 从当前状态继续\n\n\
+    **限制原因**：防止失控操作和资源耗尽。\n\
+    **可调整**：未来版本将支持自定义迭代次数限制。";

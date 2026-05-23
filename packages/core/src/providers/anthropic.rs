@@ -62,6 +62,27 @@ impl AnthropicProvider {
     }
 
     fn convert_messages(&self, messages: &[Message]) -> Vec<Value> {
+        // For non-official APIs (like glm-5/DashScope), filter out thinking blocks
+        // to prevent API from entering extended thinking mode and hanging
+        // This is necessary because some APIs don't properly support thinking blocks
+        let filter_thinking = !self.is_official_anthropic();
+        log::debug!("convert_messages: filter_thinking={}, base_url={}", filter_thinking, self.base_url);
+
+        // Count thinking blocks in original messages
+        let mut thinking_count = 0;
+        for m in messages {
+            if let MessageContent::Blocks(blocks) = &m.content {
+                for b in blocks {
+                    if matches!(b, ContentBlock::Thinking { .. }) {
+                        thinking_count += 1;
+                    }
+                }
+            }
+        }
+        if thinking_count > 0 {
+            log::debug!("convert_messages: Found {} thinking blocks in {} messages, filter_thinking={}", thinking_count, messages.len(), filter_thinking);
+        }
+
         messages
             .iter()
             .filter(|m| m.role != Role::System)
@@ -77,6 +98,13 @@ impl AnthropicProvider {
                     MessageContent::Blocks(blocks) => {
                         let converted: Vec<Value> = blocks
                             .iter()
+                            .filter(|b| {
+                                // Skip thinking blocks for non-official APIs
+                                if filter_thinking && matches!(b, ContentBlock::Thinking { .. }) {
+                                    return false;
+                                }
+                                true
+                            })
                             .map(|b| match b {
                                 ContentBlock::Text { text } => json!({"type": "text", "text": text}),
                                 ContentBlock::ToolUse { id, name, input } => {
@@ -87,8 +115,11 @@ impl AnthropicProvider {
                                 }
                                 ContentBlock::Thinking { thinking, signature } => {
                                     let mut obj = json!({"type": "thinking", "thinking": thinking});
+                                    // Only send non-empty signature
                                     if let Some(sig) = signature {
-                                        obj["signature"] = json!(sig);
+                                        if !sig.is_empty() {
+                                            obj["signature"] = json!(sig);
+                                        }
                                     }
                                     obj
                                 }
@@ -100,12 +131,23 @@ impl AnthropicProvider {
                                 }
                             })
                             .collect();
-                        json!(converted)
+
+                        if converted.is_empty() {
+                            json!([])
+                        } else {
+                            json!(converted)
+                        }
                     }
                 };
 
+                // Skip messages with empty content
+                if content.is_array() && content.as_array().map(|a| a.is_empty()).unwrap_or(false) {
+                    return json!(null);
+                }
+
                 json!({"role": role, "content": content})
             })
+            .filter(|v| !v.is_null())
             .collect()
     }
 
@@ -189,7 +231,9 @@ impl AnthropicProvider {
         }
 
         // Extended thinking (Anthropic-specific)
-        if request.think {
+        // Only enable thinking for official Anthropic API - third-party APIs like DashScope
+        // forcibly enable thinking mode which causes hanging issues
+        if request.think && self.is_official_anthropic() {
             let config = thinking_config(&self.model);
             log::debug!(
                 "Adding thinking config for model {}: {:?}",
@@ -197,6 +241,12 @@ impl AnthropicProvider {
                 config
             );
             body["thinking"] = config;
+        } else if request.think {
+            log::debug!(
+                "Skipping thinking config for non-official API (model: {}, base_url: {})",
+                self.model,
+                self.base_url
+            );
         }
 
         body
@@ -218,9 +268,8 @@ fn thinking_config(model: &str) -> Value {
     if adaptive {
         json!({"type": "enabled", "budget_tokens": 10000})
     } else {
-        // Use smaller budget for non-Claude models (like glm-5)
-        // to prevent hanging on long histories
-        json!({"type": "enabled", "budget_tokens": 1500})
+         // to prevent hanging on long histories
+        json!({"type": "enabled", "budget_tokens": 5000})
     }
 }
 
@@ -261,7 +310,12 @@ impl Provider for AnthropicProvider {
                 .header("anthropic-version", "2025-04-15")
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
         } else {
-            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+            req = req
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                // Add anthropic-version for third-party APIs to ensure correct protocol behavior
+                .header("anthropic-version", "2023-06-01")
+                // Try enabling prompt caching for third-party APIs (DashScope may support this)
+                .header("anthropic-beta", "prompt-caching-2024-07-31");
         }
 
         // Add extra headers from config (all custom headers go here)
@@ -353,7 +407,12 @@ impl Provider for AnthropicProvider {
                 .header("anthropic-version", "2025-04-15")
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
         } else {
-            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+            req = req
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                // Add anthropic-version for third-party APIs to ensure correct protocol behavior
+                .header("anthropic-version", "2023-06-01")
+                // Try enabling prompt caching for third-party APIs (DashScope may support this)
+                .header("anthropic-beta", "prompt-caching-2024-07-31");
         }
 
         // Add extra headers from config (all custom headers go here)
@@ -382,7 +441,7 @@ impl Provider for AnthropicProvider {
 
             // Timeout detection: track last meaningful event (non-ping)
             let mut last_content_time = std::time::Instant::now();
-            const CONTENT_TIMEOUT_SECS: u64 = 30; // 30 seconds without content = timeout
+            const CONTENT_TIMEOUT_SECS: u64 = 120; // 120 seconds without content = timeout (increased for slow APIs like DashScope/glm-5)
 
             while let Some(chunk) = stream.next().await {
                 let chunk = match chunk {
@@ -544,8 +603,22 @@ async fn handle_sse_event(
 ) -> bool {
     let evt_type = evt["type"].as_str().unwrap_or("");
 
-    // Debug: log all SSE events for diagnosis
-    crate::debug::debug_log().stream_chunk(evt_type, &serde_json::to_string(&evt).unwrap_or_default());
+    // Debug: log all SSE events for diagnosis (with full content for debugging)
+    let evt_json = serde_json::to_string(&evt).unwrap_or_default();
+    crate::debug::debug_log().stream_chunk(evt_type, &evt_json);
+
+    // Log event handling for thinking_delta specifically
+    if evt_type == "content_block_delta" {
+        let delta_type = evt["delta"]["type"].as_str().unwrap_or("");
+        let idx = evt["index"].as_u64().unwrap_or(0) as usize;
+        log::debug!(
+            "content_block_delta: type={}, idx={}, blocks_len={}, has_block={}",
+            delta_type,
+            idx,
+            blocks.len(),
+            idx < blocks.len()
+        );
+    }
 
     // Update last_content_time for non-ping events
     if evt_type != "ping" {

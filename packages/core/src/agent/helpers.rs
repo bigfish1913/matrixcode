@@ -41,10 +41,18 @@ impl Agent {
 
     /// Emit event (non-blocking)
     pub(crate) fn emit(&self, event: AgentEvent) -> Result<()> {
+        log::debug!("Agent emit: event_type={:?}", event.event_type);
         match self.event_tx.try_send(event) {
-            Ok(_) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
+            Ok(_) => {
+                log::debug!("Agent emit: sent successfully");
+                Ok(())
+            },
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                log::warn!("Agent emit: channel full, skipping event");
+                Ok(())
+            },
             Err(mpsc::error::TrySendError::Closed(_)) => {
+                log::error!("Agent emit: channel closed");
                 Err(anyhow::anyhow!("Event channel closed"))
             }
         }
