@@ -301,11 +301,29 @@ pub async fn extract_keywords_hybrid(
 
     // Check if we need AI fallback
     let mode = AiKeywordMode::from_env();
-    if mode.should_use_ai(rule_keywords.len()) && fast_provider.is_some() {
+    let should_use_ai = mode.should_use_ai(rule_keywords.len()) && fast_provider.is_some();
+
+    // Debug log: show method and model
+    let model_name = fast_provider.map(|p| p.model_name()).unwrap_or("none");
+    crate::debug::debug_log().memory_ai_keywords(
+        model_name,
+        rule_keywords.len(),
+        context.len(),
+        should_use_ai,
+    );
+
+    if should_use_ai {
         // Use AI for keyword extraction
         if let Some(provider) = fast_provider {
             let ai_keywords = extract_keywords_with_ai(context, provider).await;
             if !ai_keywords.is_empty() {
+                // Debug log: AI result
+                crate::debug::debug_log().memory_ai_keywords(
+                    provider.model_name(),
+                    ai_keywords.len(),
+                    context.len(),
+                    true,
+                );
                 return ai_keywords;
             }
         }

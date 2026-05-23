@@ -189,6 +189,34 @@ impl DebugLog {
         self.write(&msg);
     }
 
+    /// Log AI memory extraction (keyword extraction with fast model)
+    pub fn memory_ai_keywords(&self, model: &str, keywords_count: usize, source_len: usize, used_ai: bool) {
+        let method = if used_ai { "AI" } else { "rule" };
+        let msg = format!(
+            "[{}] MEMORY_AI_KEYWORDS: model={}, method={}, keywords={}, source_len={}chars",
+            Self::timestamp(),
+            model,
+            method,
+            keywords_count,
+            source_len
+        );
+        self.write(&msg);
+    }
+
+    /// Log AI memory detection (memory extraction from response)
+    pub fn memory_ai_detection(&self, model: &str, entries_count: usize, text_len: usize, used_ai: bool) {
+        let method = if used_ai { "AI" } else { "rule" };
+        let msg = format!(
+            "[{}] MEMORY_AI_DETECT: model={}, method={}, entries={}, text_len={}chars",
+            Self::timestamp(),
+            model,
+            method,
+            entries_count,
+            text_len
+        );
+        self.write(&msg);
+    }
+
     fn write(&self, msg: &str) {
         // Write to file
         if let Some(ref file) = self.file
@@ -328,5 +356,19 @@ macro_rules! debug_api_response {
 macro_rules! debug_stream_chunk {
     ($type:expr, $content:expr) => {
         $crate::debug::debug_log().stream_chunk($type, $content)
+    };
+}
+
+#[macro_export]
+macro_rules! debug_memory_ai_keywords {
+    ($model:expr, $count:expr, $len:expr, $ai:expr) => {
+        $crate::debug::debug_log().memory_ai_keywords($model, $count, $len, $ai)
+    };
+}
+
+#[macro_export]
+macro_rules! debug_memory_ai_detect {
+    ($model:expr, $count:expr, $len:expr, $ai:expr) => {
+        $crate::debug::debug_log().memory_ai_detection($model, $count, $len, $ai)
     };
 }

@@ -264,9 +264,25 @@ pub async fn detect_memories_smart(
     // Determine if we should try AI first
     let should_try_ai = mode != AiDetectionMode::Never && extractor.is_some() && text_len > 200; // Minimum text length for AI (avoid API overhead for short texts)
 
+    // Debug log: show method and model
+    let model_name = extractor.map(|e| e.model_name()).unwrap_or("none");
+    crate::debug::debug_log().memory_ai_detection(
+        model_name,
+        0, // Will update after detection
+        text_len,
+        should_try_ai,
+    );
+
     if should_try_ai && let Some(ex) = extractor {
         if let Ok(ai_entries) = ex.extract(text, session_id).await {
             // AI succeeded - use AI results entirely (skip hardcoded rules)
+            // Debug log: AI result
+            crate::debug::debug_log().memory_ai_detection(
+                ex.model_name(),
+                ai_entries.len(),
+                text_len,
+                true,
+            );
             return deduplicate_entries(ai_entries);
         }
         // AI failed - log and fall back to rules
@@ -274,7 +290,14 @@ pub async fn detect_memories_smart(
     }
 
     // Fallback: rule-based detection using KeywordsConfig
-    detect_memories_fallback(text, session_id)
+    let entries = detect_memories_fallback(text, session_id);
+    crate::debug::debug_log().memory_ai_detection(
+        "rule",
+        entries.len(),
+        text_len,
+        false,
+    );
+    entries
 }
 
 fn extract_memory_content(text: &str, keyword: &str) -> String {

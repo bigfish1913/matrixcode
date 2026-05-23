@@ -388,7 +388,26 @@ impl AutoMemory {
     }
 
     /// Add a new memory entry.
+    /// Add entry with duplicate check.
     pub fn add(&mut self, entry: MemoryEntry) {
+        // Check for similar content before adding
+        if self.has_similar(&entry.content) {
+            log::debug!("Skipping duplicate memory: {}", entry.content);
+            return;
+        }
+
+        // Check for conflicting memories (e.g., "使用 X" vs "使用 Y")
+        if let Some(conflict_idx) = self.find_conflict(&entry.content, entry.category) {
+            let old_content = self.entries[conflict_idx].content.clone();
+            log::info!(
+                "Memory conflict: '{}' supersedes '{}'",
+                entry.content,
+                old_content
+            );
+            self.entries.remove(conflict_idx);
+            self.invalidate_index();
+        }
+
         self.entries.push(entry);
         self.invalidate_index();
         self.prune();
@@ -481,20 +500,36 @@ impl AutoMemory {
             return false;
         }
 
-        self.entries.iter().any(|e| {
+        for e in &self.entries {
             let entry_lower = e.content.to_lowercase();
 
             if entry_lower == content_lower {
+                log::debug!("Exact duplicate found: {}", content);
                 return true;
             }
 
             if entry_lower.len() < MIN_SIMILARITY_LENGTH {
-                return false;
+                continue;
             }
 
             let similarity = Self::calculate_similarity(&entry_lower, &content_lower);
-            similarity >= SIMILARITY_THRESHOLD
-        })
+            if similarity >= SIMILARITY_THRESHOLD {
+                log::debug!(
+                    "Similar memory found (similarity={:.2}): '{}' vs '{}'",
+                    similarity,
+                    e.content,
+                    content
+                );
+                crate::debug::debug_log().log("MEMORY_DUPLICATE",
+                    &format!("similarity={:.2}, existing='{}', new='{}'",
+                        similarity,
+                        truncate(&e.content, 50),
+                        truncate(content, 50)));
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Calculate word-based similarity between two strings.
