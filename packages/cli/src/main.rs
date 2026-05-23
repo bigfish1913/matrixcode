@@ -1403,7 +1403,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     if let Some(ref mut mgr) = session_mgr {
                         let (input_tokens, output_tokens) = agent.get_token_counts();
                         let messages = agent.get_messages();
-                        // Save compressed messages for API, full messages are already stored
+                        // Update full messages first (for display/TUI restore)
+                        mgr.set_messages(messages.to_vec());
+                        // Then update compressed messages (for API efficiency)
                         mgr.set_compressed_messages(messages.to_vec());
                         mgr.update_stats(input_tokens as u32, output_tokens);
                         if let Err(e) = mgr.save_current() {
