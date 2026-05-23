@@ -373,9 +373,9 @@ impl TuiApp {
         let mut content = String::new();
 
         // Header line - prominent
-        content.push_str("╔══════════════════════════════════════╗\n");
-        content.push_str("║         ⚡ 等待输入 ⚡              ║\n");
-        content.push_str("╚══════════════════════════════════════╝\n\n");
+        content.push_str("┌──────────────────────────────────────┐\n");
+        content.push_str("│            ⚡ 等待输入 ⚡            │\n");
+        content.push_str("└──────────────────────────────────────┘\n\n");
 
         // Question content
         content.push_str(question);
@@ -536,6 +536,7 @@ impl TuiApp {
         });
         self.waiting_for_ask = true;
         self.activity = Activity::Asking;
+        self.request_start = None; // Pause elapsed time during ask wait
         self.auto_scroll = true;
     }
 
@@ -608,12 +609,12 @@ impl TuiApp {
             let first_q = &self.ask_questions[0];
             let mut content = String::new();
 
-            content.push_str("╔══════════════════════════════════════╗\n");
+            content.push_str("┌──────────────────────────────────────┐\n");
             content.push_str(&format!(
-                "║  ⚡ 问题 1 / {} (Tab切换) ⚡        ║\n",
+                "│  ⚡ 问题 1 / {} (Tab切换) ⚡          │\n",
                 self.ask_questions.len()
             ));
-            content.push_str("╚══════════════════════════════════════╝\n\n");
+            content.push_str("└──────────────────────────────────────┘\n\n");
             content.push_str(&first_q.question);
 
             // Load first question state
@@ -678,6 +679,7 @@ impl TuiApp {
             });
             self.waiting_for_ask = true;
             self.activity = Activity::Asking;
+            self.request_start = None; // Pause elapsed time during ask wait
             self.auto_scroll = true;
         }
     }

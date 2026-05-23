@@ -248,9 +248,28 @@ fn model_with_source(config: &Config) -> String {
 }
 
 fn main() -> Result<()> {
-    // Load .env file for development (silently ignore if not found)
-    let _ = dotenvy::from_path(".env");
-    let _ = dotenvy::from_path("packages/cli/.env");
+    // Load .env file with multiple paths (silently ignore if not found)
+    // Priority: current_dir/.env > project_root/.env > packages/cli/.env
+    let current_dir = std::env::current_dir().unwrap_or_default();
+
+    // Try multiple locations for .env
+    let mut env_paths: Vec<std::path::PathBuf> = vec![
+        current_dir.join(".env"),
+        current_dir.join("packages/cli/.env"),
+    ];
+
+    // Also try parent directory for monorepo
+    if let Some(parent) = current_dir.parent() {
+        env_paths.push(parent.join(".env"));
+    }
+
+    for path in &env_paths {
+        if path.exists() {
+            let _ = dotenvy::from_path(path);
+            log::info!("Loaded .env from: {}", path.display());
+            break; // Load first found
+        }
+    }
 
     let cli = Cli::parse();
 
@@ -568,6 +587,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Extra headers from config
     let agent_extra_headers = config.extra_headers.clone();
 
+    // Clone full config for /config command display
+    let agent_config = config.clone();
+
     // Clone skills for agent task
     let agent_skills = skills.clone();
     let agent_shared_approve_mode = shared_approve_mode.clone();
@@ -873,6 +895,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                && !msg.starts_with("/load") && !msg.starts_with("/mode")
                && !msg.starts_with("/model") && !msg.starts_with("/retry")
                && !msg.starts_with("/history") && !msg.starts_with("/cron")
+               && !msg.starts_with("/config")
                && msg != "/"
             {
                 // Try to match skill name
@@ -1359,6 +1382,74 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 continue;
             }
 
+            // Handle /config command - display current configuration
+            if msg == "/config" {
+                let mut info = "⚙️ Current Configuration:\n\n".to_string();
+
+                // Provider
+                info.push_str(&format!("Provider: {}\n",
+                    agent_config.provider.as_deref().unwrap_or("auto-detected")));
+
+                // API Key (masked)
+                let key_masked = agent_config.api_key.as_ref()
+                    .map(|k| if k.len() > 8 {
+                        format!("{}...{}",
+                            &k[..4],
+                            &k[k.len()-4..])
+                    } else {
+                        "***".to_string()
+                    })
+                    .unwrap_or_else(|| "not set".to_string());
+                info.push_str(&format!("API Key: {}\n", key_masked));
+
+                // Base URL
+                info.push_str(&format!("Base URL: {}\n",
+                    agent_config.base_url.as_deref().unwrap_or("default")));
+
+                // Models
+                info.push_str(&format!("Model: {}\n", agent_model));
+                if let Some(ref pm) = agent_config.plan_model {
+                    info.push_str(&format!("Plan Model: {}\n", pm));
+                }
+                if let Some(ref cm) = agent_config.compress_model {
+                    info.push_str(&format!("Compress Model: {}\n", cm));
+                }
+                if let Some(ref fm) = agent_config.fast_model {
+                    info.push_str(&format!("Fast Model: {}\n", fm));
+                }
+
+                // Other settings
+                info.push_str(&format!("Think: {}\n", agent_config.think));
+                info.push_str(&format!("Markdown: {}\n", agent_config.markdown));
+                info.push_str(&format!("Max Tokens: {}\n", agent_config.max_tokens));
+                if let Some(cs) = agent_config.context_size {
+                    info.push_str(&format!("Context Size: {}\n", cs));
+                }
+                info.push_str(&format!("Approve Mode: {}\n",
+                    agent_config.approve_mode.as_deref().unwrap_or("ask")));
+
+                // Extra headers
+                if let Some(ref headers) = agent_config.extra_headers {
+                    if !headers.is_empty() {
+                        info.push_str(&format!("Extra Headers: {} header(s)\n", headers.len()));
+                        for (k, v) in headers.iter().take(3) {
+                            info.push_str(&format!("  {}: {}\n", k, v));
+                        }
+                    }
+                }
+
+                info.push_str("\n📝 Config sources (priority order):\n");
+                info.push_str("  1. Environment variables (highest)\n");
+                info.push_str("  2. ~/.matrix/config.json\n");
+                info.push_str("  3. ~/.claude/settings.json (fallback)\n");
+
+                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                    info,
+                    None,
+                )).await;
+                continue;
+            }
+
             // Dynamic memory retrieval: update memory summary based on current context
             // This uses AI keyword extraction with fast_provider if available
             if let Some(ref mem) = memory {
@@ -1690,22 +1781,26 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                     // Run agent
                     let run_future = agent.run(msg);
 
-                    // Process events while running
-                    let result = tokio::select! {
-                        r = run_future => r,
-                        _ = async {
-                            while let Some(event) = event_rx.recv().await {
-                                // Log events for debug
-                                if event.event_type == matrixcode_core::EventType::Error {
-                                    if let Some(data) = &event.data {
-                                        eprintln!("⚠️ Error event: {:?}", data);
-                                    }
+                    // Process events while running - use spawn to avoid race condition
+                    let event_task = tokio::spawn(async move {
+                        while let Some(event) = event_rx.recv().await {
+                            // Log events for debug
+                            if event.event_type == matrixcode_core::EventType::Error {
+                                if let Some(data) = &event.data {
+                                    eprintln!("⚠️ Error event: {:?}", data);
                                 }
                             }
-                        } => {
-                            Err(anyhow::anyhow!("Event channel closed"))
                         }
-                    };
+                    });
+
+                    // Wait for agent to complete
+                    let result = run_future.await;
+
+                    // Wait for event processing to complete (with timeout)
+                    let _ = tokio::time::timeout(
+                        tokio::time::Duration::from_millis(100),
+                        event_task
+                    ).await;
 
                     match result {
                         Ok(_) => {

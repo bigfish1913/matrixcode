@@ -441,7 +441,7 @@ impl Provider for AnthropicProvider {
 
             // Timeout detection: track last meaningful event (non-ping)
             let mut last_content_time = std::time::Instant::now();
-            const CONTENT_TIMEOUT_SECS: u64 = 120; // 120 seconds without content = timeout (increased for slow APIs like DashScope/glm-5)
+            const CONTENT_TIMEOUT_SECS: u64 = 300; // 5 minutes without content = timeout (for slow APIs like DashScope/glm-5)
 
             while let Some(chunk) = stream.next().await {
                 let chunk = match chunk {

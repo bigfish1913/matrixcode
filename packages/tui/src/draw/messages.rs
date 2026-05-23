@@ -569,7 +569,7 @@ impl TuiApp {
                                     .fg(Color::Yellow)
                                     .add_modifier(Modifier::BOLD),
                             )
-                        } else if ['╔', '║', '╚', '─'].contains(&line.chars().next().unwrap_or(' '))
+                        } else if ['┌', '│', '└', '─'].contains(&line.chars().next().unwrap_or(' '))
                         {
                             Line::styled(line.to_string(), Style::default().fg(Color::Cyan))
                         } else if line.starts_with("📌") || line.starts_with("▸") {
@@ -629,25 +629,29 @@ impl TuiApp {
                             let is_other_option = option_idx < self.ask_options.len()
                                 && self.ask_options[option_idx].is_other;
 
-                            // Rebuild line with actual checkbox state (truncate to fit display)
+                            // Rebuild line with cleaner checkbox symbols
                             let display_line = if is_checkbox && option_idx < self.ask_options.len()
                             {
                                 let opt = &self.ask_options[option_idx];
-                                let marker = if actually_checked { "[✓]" } else { "[ ]" };
+                                // Use ◆/◇ for multi-select
+                                let marker = if actually_checked { "◆" } else { "◇" };
                                 // Add hint for Other option when selected but not checked
                                 let hint = if is_other_option
                                     && option_idx == self.ask_selected_index
                                     && !actually_checked
                                 {
-                                    " ✏️ Enter自定义"
+                                    " ✏️Enter自定义"
                                 } else {
                                     ""
                                 };
+                                let desc_text = opt.description.as_ref()
+                                    .map(|d| format!(" {}", truncate(d, 25)))
+                                    .unwrap_or_default();
                                 let raw = format!(
                                     "  {} {}{}{}",
                                     marker,
                                     opt.label,
-                                    opt.format_description(),
+                                    desc_text,
                                     hint
                                 );
                                 truncate(&raw, max_w.saturating_sub(2))
@@ -660,23 +664,13 @@ impl TuiApp {
                                 // Current navigation position: bright highlight
                                 if is_submit_option {
                                     // Submit option - yellow highlight
-                                    if actually_checked {
-                                        Line::styled(
-                                            format!("▶ {}", display_line.trim()),
-                                            Style::default()
-                                                .fg(Color::Black)
-                                                .bg(Color::Yellow)
-                                                .add_modifier(Modifier::BOLD),
-                                        )
-                                    } else {
-                                        Line::styled(
-                                            format!("▶ {}", display_line.trim()),
-                                            Style::default()
-                                                .fg(Color::Black)
-                                                .bg(Color::Cyan)
-                                                .add_modifier(Modifier::BOLD),
-                                        )
-                                    }
+                                    Line::styled(
+                                        format!("▶ {}", display_line.trim()),
+                                        Style::default()
+                                            .fg(Color::Black)
+                                            .bg(if actually_checked { Color::Yellow } else { Color::Cyan })
+                                            .add_modifier(Modifier::BOLD),
+                                    )
                                 } else if actually_checked {
                                     // Checked and selected: bright green
                                     Line::styled(
@@ -712,7 +706,7 @@ impl TuiApp {
                                     )
                                 }
                             } else if actually_checked {
-                                // Checked but not current navigation: green text
+                                // Checked but not current navigation: green text with ◆
                                 Line::styled(
                                     format!("  {}", display_line.trim()),
                                     Style::default()
@@ -720,10 +714,10 @@ impl TuiApp {
                                         .add_modifier(Modifier::BOLD),
                                 )
                             } else {
-                                // Regular option
+                                // Regular option - gray with ◇
                                 Line::styled(
                                     format!("  {}", display_line.trim()),
-                                    Style::default().fg(Color::White),
+                                    Style::default().fg(Color::Gray),
                                 )
                             }
                         } else if has_active_selection && line.starts_with("  >>>") {
@@ -768,21 +762,25 @@ impl TuiApp {
                         && self.ask_multi_select
                     {
                         lines.push(Line::styled(
-                            "─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─",
+                            "─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─",
                             Style::default().fg(Color::DarkGray),
                         ));
                         let selected_count =
                             self.ask_options.iter().filter(|opt| opt.selected).count();
                         if selected_count > 0 {
                             lines.push(Line::styled(
-                                format!("  [Enter] 提交 {} 个选中项", selected_count),
+                                format!("  ◆ 已选 {} 项", selected_count),
                                 Style::default()
                                     .fg(Color::Green)
                                     .add_modifier(Modifier::BOLD),
                             ));
+                            lines.push(Line::styled(
+                                "  [Enter] 提交",
+                                Style::default().fg(Color::Yellow),
+                            ));
                         } else {
                             lines.push(Line::styled(
-                                "  [Enter] 提交 (无选中项)",
+                                "  ◇ 无选中项",
                                 Style::default().fg(Color::DarkGray),
                             ));
                         }
@@ -791,7 +789,7 @@ impl TuiApp {
                     // "Other" input mode: show input prompt
                     if self.waiting_for_ask && self.ask_other_input_active {
                         lines.push(Line::styled(
-                            "─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─",
+                            "─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─",
                             Style::default().fg(Color::DarkGray),
                         ));
                         lines.push(Line::styled(
@@ -801,17 +799,22 @@ impl TuiApp {
                                 .add_modifier(Modifier::BOLD),
                         ));
                         // Show current input with cursor indicator
-                        let input_display = if self.input.is_empty() {
-                            "_"
+                        let input_line = if self.input.is_empty() {
+                            Line::from(vec![
+                                Span::styled("    ", Style::default()),
+                                Span::styled("▌", Style::default().fg(Color::Cyan)),
+                                Span::styled(" ...", Style::default().fg(Color::DarkGray)),
+                            ])
                         } else {
-                            &self.input
+                            Line::from(vec![
+                                Span::styled("    ", Style::default()),
+                                Span::styled(&self.input, Style::default().fg(Color::White)),
+                                Span::styled("▌", Style::default().fg(Color::Cyan)),
+                            ])
                         };
+                        lines.push(input_line);
                         lines.push(Line::styled(
-                            format!("  {}", input_display),
-                            Style::default().fg(Color::White),
-                        ));
-                        lines.push(Line::styled(
-                            "  [Enter] 确认  [Esc] 返回选择",
+                            "  [Enter] 确认  [Esc] 取消",
                             Style::default().fg(Color::DarkGray),
                         ));
                     }

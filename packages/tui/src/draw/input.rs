@@ -67,46 +67,85 @@ impl TuiApp {
             )];
 
             if !self.ask_options.is_empty() {
+                // Show compact instruction
                 spans.push(Span::styled(
                     if self.ask_multi_select {
-                        "↑↓ navigate  Space toggle  Enter confirm"
+                        "↑↓选择  Space切换  Enter确认"
                     } else {
-                        "↑↓ select  Enter confirm"
+                        "↑↓选择  Enter确认"
                     },
                     Style::default().fg(Color::DarkGray),
                 ));
                 lines.push(Line::from(spans));
 
-                // Second line: show options with selection indicator
-                let mut option_spans: Vec<Span> = Vec::new();
-                option_spans.push(Span::styled("  ", Style::default()));
-
+                // Options display - use structured layout
                 for (i, opt) in self.ask_options.iter().enumerate() {
                     let is_selected = self.ask_selected_index == i;
+                    let is_checked = opt.selected;
+                    let is_submit = opt.is_submit;
+                    let is_other = opt.is_other;
 
-                    let marker = if is_selected { "▸" } else { " " };
-                    let color = if is_selected { Color::Cyan } else { Color::Gray };
+                    // Build option line with visual indicators
+                    let mut opt_spans: Vec<Span> = Vec::new();
 
-                    if i > 0 {
-                        option_spans.push(Span::styled("  ", Style::default()));
-                    }
-                    option_spans.push(Span::styled(
-                        format!("{} ", marker),
-                        Style::default().fg(color),
+                    // Selection arrow
+                    opt_spans.push(Span::styled(
+                        if is_selected { "▶ " } else { "  " },
+                        Style::default().fg(if is_selected { Color::Cyan } else { Color::DarkGray }),
                     ));
 
-                    // Show option label with description if available
-                    let label_text = if let Some(desc) = &opt.description {
-                        format!("{} - {}", opt.label, truncate(desc, 30))
+                    // Checkbox/radio indicator
+                    if self.ask_multi_select {
+                        let box_char = if is_checked { "◆" } else { "◇" };
+                        let box_color = if is_checked { Color::Green } else { Color::Gray };
+                        opt_spans.push(Span::styled(
+                            format!("{} ", box_char),
+                            Style::default().fg(box_color),
+                        ));
                     } else {
-                        opt.label.clone()
+                        // Single select: use radio-style
+                        let radio_char = if is_checked { "●" } else { "○" };
+                        let radio_color = if is_checked { Color::Cyan } else { Color::Gray };
+                        opt_spans.push(Span::styled(
+                            format!("{} ", radio_char),
+                            Style::default().fg(radio_color),
+                        ));
+                    }
+
+                    // Option label
+                    let label_style = if is_submit {
+                        Style::default()
+                            .fg(if is_checked { Color::Yellow } else { Color::White })
+                            .add_modifier(Modifier::BOLD)
+                    } else if is_checked {
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD)
+                    } else if is_selected {
+                        Style::default().fg(Color::White)
+                    } else {
+                        Style::default().fg(Color::Gray)
                     };
-                    option_spans.push(Span::styled(
-                        label_text,
-                        Style::default().fg(if is_selected { Color::White } else { Color::Gray }),
-                    ));
+                    opt_spans.push(Span::styled(opt.label.clone(), label_style));
+
+                    // Description (if available)
+                    if let Some(desc) = &opt.description {
+                        opt_spans.push(Span::styled(
+                            format!(" {}", truncate(desc, 25)),
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
+
+                    // Other option hint
+                    if is_other && is_selected && !is_checked {
+                        opt_spans.push(Span::styled(
+                            " ✏️自定义",
+                            Style::default().fg(Color::Yellow),
+                        ));
+                    }
+
+                    lines.push(Line::from(opt_spans));
                 }
-                lines.push(Line::from(option_spans));
             } else {
                 // Free text input mode - show user input with cursor
                 if self.input.is_empty() {
@@ -127,6 +166,32 @@ impl TuiApp {
                     ));
                 }
                 lines.push(Line::from(spans));
+            }
+
+            // "Other" input mode: show input field
+            if self.ask_other_input_active {
+                lines.push(Line::styled(
+                    "─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─",
+                    Style::default().fg(Color::DarkGray),
+                ));
+                let input_line = if self.input.is_empty() {
+                    Line::from(vec![
+                        Span::styled("  ✏️ ", Style::default().fg(Color::Yellow)),
+                        Span::styled("▌", Style::default().fg(Color::Cyan)),
+                        Span::styled(" 输入自定义内容", Style::default().fg(Color::DarkGray)),
+                    ])
+                } else {
+                    Line::from(vec![
+                        Span::styled("  ✏️ ", Style::default().fg(Color::Yellow)),
+                        Span::styled(&self.input, Style::default().fg(Color::White)),
+                        Span::styled("▌", Style::default().fg(Color::Cyan)),
+                    ])
+                };
+                lines.push(input_line);
+                lines.push(Line::styled(
+                    "  [Enter确认  Esc取消]",
+                    Style::default().fg(Color::DarkGray),
+                ));
             }
 
             f.render_widget(Paragraph::new(lines), area);

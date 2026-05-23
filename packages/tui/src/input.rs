@@ -693,13 +693,13 @@ impl TuiApp {
         let q = &self.ask_questions[self.current_question_idx];
         let mut content = String::new();
 
-        content.push_str("╔══════════════════════════════════════╗\n");
+        content.push_str("┌──────────────────────────────────────┐\n");
         content.push_str(&format!(
-            "║  ⚡ 问题 {} / {} (Tab切换) ⚡        ║\n",
+            "│  ⚡ 问题 {} / {} (Tab切换) ⚡          │\n",
             self.current_question_idx + 1,
             self.ask_questions.len()
         ));
-        content.push_str("╚══════════════════════════════════════╝\n\n");
+        content.push_str("└──────────────────────────────────────┘\n\n");
         content.push_str(&q.question);
 
         // Add Submit option for Option mode if needed
@@ -840,10 +840,18 @@ impl TuiApp {
             return;
         }
 
-        // Handle "Other" input mode - send custom text
+        // Handle "Other" input mode - send custom text or cancel if empty
         if self.ask_other_input_active {
             if self.input.trim().is_empty() {
-                // Empty input in Other mode - don't submit, stay in input mode
+                // Empty input in Other mode - cancel the "Other" selection and return to selection mode
+                for opt in &mut self.ask_options {
+                    if opt.is_other {
+                        opt.selected = false;
+                    }
+                }
+                self.ask_other_input_active = false;
+                self.input.clear();
+                self.cursor_pos = 0;
                 return;
             }
             let custom_text = self.input.trim().to_string();

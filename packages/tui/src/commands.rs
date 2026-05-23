@@ -170,6 +170,7 @@ impl TuiApp {
                         "  /history  - Show session history\n",
                         "  /mode     - Change approve mode (ask/auto/strict)\n",
                         "  /model    - Show/change model\n",
+                        "  /config   - Show current configuration\n",
                         "  /compact  - Compress context\n",
                         "  /retry    - Retry last queued message\n",
                         "  /new      - Start new session\n",
@@ -206,6 +207,11 @@ impl TuiApp {
             "/overview" => {
                 // Send to backend for processing
                 self.tx.try_send("/overview".to_string()).ok();
+                self.auto_scroll = true;
+            }
+            "/config" => {
+                // Send to backend for processing
+                self.tx.try_send("/config".to_string()).ok();
                 self.auto_scroll = true;
             }
             "/save" => {
