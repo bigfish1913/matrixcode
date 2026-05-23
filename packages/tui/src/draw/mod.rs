@@ -21,7 +21,9 @@ impl TuiApp {
         let gap_height: u16 = 1;
         let queue_height: u16 = if self.pending_messages.is_empty() { 0 } else { 1 };
 
-        // Activity indicator height: 1 line when thinking/running, 0 otherwise
+        // Activity indicator height: 1 line when thinking or tool activity
+        // Tool activities show animation in message area when auto_scroll is on,
+        // and in fixed bottom area when user scrolls up (auto_scroll off)
         let activity_height: u16 = if matches!(self.activity, Activity::Thinking)
             || (self.is_tool_activity() && self.streaming.is_empty() && self.thinking.is_empty()) {
             1
@@ -101,6 +103,13 @@ impl TuiApp {
             .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
             .unwrap_or_default();
         let spinner_frame = self.frame % SPINNER.len();
+
+        // For tool activities: only show in fixed area when user has scrolled up
+        // (auto_scroll is false). When auto_scroll is on, the animation is visible
+        // in the message area, so we skip rendering here to avoid duplication.
+        if self.is_tool_activity() && self.auto_scroll {
+            return;
+        }
 
         let line = if self.activity == Activity::Thinking {
             Line::from(vec![

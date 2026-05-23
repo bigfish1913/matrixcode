@@ -282,7 +282,7 @@ fn main() -> Result<()> {
 
 /// Interactive session resume - list sessions and let user select
 fn interactive_resume() -> Result<()> {
-    use std::io::{self, BufRead, Write};
+    use std::io::{self, Write};
 
     let mgr = SessionManager::new()?;
     let sessions = mgr.list_sessions();
@@ -320,25 +320,52 @@ fn interactive_resume() -> Result<()> {
     print!("> ");
     io::stdout().flush()?;
 
-    // Read input in a separate scope to release stdin lock before TUI starts
-    let selection = {
-        let stdin = io::stdin();
-        let mut lines = stdin.lock().lines();
-        lines.next().transpose()?.map(|l| l.trim().to_string())
-    };
+    // Simple stdin read
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let selection = input.trim().to_string();
 
-    if let Some(input) = selection {
-        if matches!(input.as_str(), "q" | "quit" | "exit") {
-            println!("Cancelled.");
-            return Ok(());
-        }
+    // Debug output
+    eprintln!("DEBUG: selection = '{}'", selection);
 
-        // Try to parse as number
-        if let Ok(num) = input.parse::<usize>()
-            && num > 0
-            && num <= sessions.len()
+    if matches!(selection.as_str(), "q" | "quit" | "exit" | "") {
+        println!("Cancelled.");
+        return Ok(());
+    }
+
+    // Try to parse as number
+    if let Ok(num) = selection.parse::<usize>()
+        && num > 0
+        && num <= sessions.len()
+    {
+        let session = &sessions[num - 1];
+        println!("\n✓ Resuming session: {}", session.short_id());
+        println!(
+            "  Project: {}",
+            session.project_path.as_deref().unwrap_or("unknown")
+        );
+        println!("  Messages: {}", session.message_count);
+        println!("\nStarting matrixcode with resumed session...\n");
+
+        // Run terminal mode with the selected session
+        let cli = Cli {
+            mode: "terminal".to_string(),
+            continue_session: false,
+            resume: false,
+            resume_id: Some(session.id.clone()),
+            list_sessions: false,
+            skills_dir: None,
+            think: true,
+            max_tokens: 16384,
+            command: None,
+        };
+        return run_terminal_mode(cli);
+    }
+
+    // Try to match by short_id or full id
+    for session in sessions.iter() {
+        if session.short_id() == selection || session.id == selection || session.id.starts_with(&selection)
         {
-            let session = &sessions[num - 1];
             println!("\n✓ Resuming session: {}", session.short_id());
             println!(
                 "  Project: {}",
@@ -347,7 +374,6 @@ fn interactive_resume() -> Result<()> {
             println!("  Messages: {}", session.message_count);
             println!("\nStarting matrixcode with resumed session...\n");
 
-            // Run terminal mode with the selected session
             let cli = Cli {
                 mode: "terminal".to_string(),
                 continue_session: false,
@@ -361,36 +387,9 @@ fn interactive_resume() -> Result<()> {
             };
             return run_terminal_mode(cli);
         }
-
-        // Try to match by short_id or full id
-        for session in sessions.iter() {
-            if session.short_id() == input || session.id == input || session.id.starts_with(&input)
-            {
-                println!("\n✓ Resuming session: {}", session.short_id());
-                println!(
-                    "  Project: {}",
-                    session.project_path.as_deref().unwrap_or("unknown")
-                );
-                println!("  Messages: {}", session.message_count);
-                println!("\nStarting matrixcode with resumed session...\n");
-
-                let cli = Cli {
-                    mode: "terminal".to_string(),
-                    continue_session: false,
-                    resume: false,
-                    resume_id: Some(session.id.clone()),
-                    list_sessions: false,
-                    skills_dir: None,
-                    think: true,
-                    max_tokens: 16384,
-                    command: None,
-                };
-                return run_terminal_mode(cli);
-            }
-        }
-
-        println!("Unknown session: {}", input);
     }
+
+    println!("Unknown session: {}", selection);
 
     Ok(())
 }

@@ -21,6 +21,8 @@ use std::io::Stdout;
 
 pub use app::TuiApp;
 pub use matrixcode_core::{AgentEvent, EventData, EventType, cancel::CancellationToken};
+// Re-export crossterm for CLI use
+pub use ratatui::crossterm;
 
 pub(crate) const ANIM_MS: u64 = 80;
 pub(crate) const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

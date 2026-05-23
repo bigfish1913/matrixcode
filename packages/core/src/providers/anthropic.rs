@@ -218,7 +218,9 @@ fn thinking_config(model: &str) -> Value {
     if adaptive {
         json!({"type": "enabled", "budget_tokens": 10000})
     } else {
-        json!({"type": "enabled", "budget_tokens": 5000})
+        // Use smaller budget for non-Claude models (like glm-5)
+        // to prevent hanging on long histories
+        json!({"type": "enabled", "budget_tokens": 1500})
     }
 }
 
@@ -334,6 +336,10 @@ impl Provider for AnthropicProvider {
         body["stream"] = json!(true);
 
         let url = format!("{}/v1/messages", self.base_url);
+
+        // Debug: log streaming request
+        crate::debug::debug_log().api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
+
         let mut req = self
             .client
             .post(&url)
@@ -374,6 +380,10 @@ impl Provider for AnthropicProvider {
             let mut stop_reason = StopReason::EndTurn;
             let mut usage = Usage::default();
 
+            // Timeout detection: track last meaningful event (non-ping)
+            let mut last_content_time = std::time::Instant::now();
+            const CONTENT_TIMEOUT_SECS: u64 = 30; // 30 seconds without content = timeout
+
             while let Some(chunk) = stream.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
@@ -413,8 +423,21 @@ impl Provider for AnthropicProvider {
 
                 buffer.push_str(&String::from_utf8_lossy(&chunk));
 
+                // Check for timeout: if only ping events for too long, force finalize
+                let elapsed = last_content_time.elapsed().as_secs();
+                if elapsed > CONTENT_TIMEOUT_SECS && !blocks.is_empty() {
+                    crate::debug::debug_log().stream_chunk("TIMEOUT_FORCE_FINALIZE",
+                        &format!("elapsed={}s, blocks={}", elapsed, blocks.len()));
+                    let _ = tx.send(StreamEvent::Done(finalize_incomplete_stream(
+                        std::mem::take(&mut blocks),
+                        stop_reason,
+                        usage,
+                    ))).await;
+                    return;
+                }
+
                 while let Some(frame) = take_next_sse_frame(&mut buffer) {
-                    if handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx)
+                    if handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx, &mut last_content_time)
                         .await
                     {
                         return;
@@ -423,7 +446,7 @@ impl Provider for AnthropicProvider {
             }
 
             if let Some(frame) = take_trailing_sse_frame(&mut buffer)
-                && handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx).await
+                && handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx, &mut last_content_time).await
             {
                 return;
             }
@@ -497,6 +520,7 @@ async fn handle_sse_frame(
     stop_reason: &mut StopReason,
     usage: &mut Usage,
     tx: &mpsc::Sender<StreamEvent>,
+    last_content_time: &mut std::time::Instant,
 ) -> bool {
     let Some(data_line) = extract_sse_data_line(frame) else {
         return false;
@@ -507,7 +531,7 @@ async fn handle_sse_frame(
         Err(_) => return false,
     };
 
-    handle_sse_event(evt, blocks, stop_reason, usage, tx).await
+    handle_sse_event(evt, blocks, stop_reason, usage, tx, last_content_time).await
 }
 
 async fn handle_sse_event(
@@ -516,8 +540,19 @@ async fn handle_sse_event(
     stop_reason: &mut StopReason,
     usage: &mut Usage,
     tx: &mpsc::Sender<StreamEvent>,
+    last_content_time: &mut std::time::Instant,
 ) -> bool {
-    match evt["type"].as_str().unwrap_or("") {
+    let evt_type = evt["type"].as_str().unwrap_or("");
+
+    // Debug: log all SSE events for diagnosis
+    crate::debug::debug_log().stream_chunk(evt_type, &serde_json::to_string(&evt).unwrap_or_default());
+
+    // Update last_content_time for non-ping events
+    if evt_type != "ping" {
+        *last_content_time = std::time::Instant::now();
+    }
+
+    match evt_type {
         "message_start" => {
             // Initial usage payload — `input_tokens` is final
             // (they don't grow during streaming) but
