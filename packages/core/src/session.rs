@@ -663,7 +663,6 @@ impl SessionManager {
         }
         Ok(())
     }
-    }
 
     /// Update current session stats after a turn.
     pub fn update_stats(&mut self, last_input_tokens: u32, total_output_tokens: u64) {
