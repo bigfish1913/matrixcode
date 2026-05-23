@@ -356,6 +356,126 @@ impl Session {
     }
 }
 
+/// File lock for preventing concurrent access to session storage.
+struct SessionFileLock {
+    /// Path to the lock file.
+    lock_path: PathBuf,
+    /// Whether we currently hold the lock.
+    locked: bool,
+}
+
+impl SessionFileLock {
+    /// Create a new file lock for the given directory.
+    fn new(base_dir: &Path) -> Self {
+        Self {
+            lock_path: base_dir.join("sessions.lock"),
+            locked: false,
+        }
+    }
+
+    /// Acquire the lock (blocking with timeout).
+    fn acquire(&mut self, timeout_ms: u64) -> Result<bool> {
+        if self.locked {
+            return Ok(true);
+        }
+
+        let start = std::time::Instant::now();
+
+        while start.elapsed().as_millis() < timeout_ms as u128 {
+            match std::fs::File::create_new(&self.lock_path) {
+                Ok(_) => {
+                    let lock_info = format!("{}:{}", std::process::id(), Utc::now().to_rfc3339());
+                    std::fs::write(&self.lock_path, lock_info)?;
+                    self.locked = true;
+                    return Ok(true);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if self.is_stale_lock()? {
+                        self.remove_stale_lock()?;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(e) => {
+                    return Err(e.into());
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Check if the existing lock is stale (either old or process is dead).
+    fn is_stale_lock(&self) -> Result<bool> {
+        if !self.lock_path.exists() {
+            return Ok(false);
+        }
+
+        // Check if the lock owner process is still running
+        if let Ok(content) = std::fs::read_to_string(&self.lock_path)
+            && let Some(pid_str) = content.split(':').next()
+            && let Ok(pid) = pid_str.parse::<u32>()
+            && !self.is_process_running(pid)
+        {
+            return Ok(true);
+        }
+
+        // Check lock age as fallback
+        let metadata = std::fs::metadata(&self.lock_path)?;
+        let modified = metadata.modified()?;
+        let age = std::time::SystemTime::now()
+            .duration_since(modified)
+            .unwrap_or(std::time::Duration::ZERO);
+
+        Ok(age > std::time::Duration::from_secs(60))
+    }
+
+    /// Check if a process with the given PID is still running.
+    fn is_process_running(&self, pid: u32) -> bool {
+        #[cfg(unix)]
+        {
+            std::path::Path::new(&format!("/proc/{}", pid)).exists()
+        }
+        #[cfg(windows)]
+        {
+            use std::process::Command;
+            let output = Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+                .output();
+
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    stdout.contains(&pid.to_string()) && !stdout.contains("No tasks")
+                }
+                Err(_) => true,
+            }
+        }
+    }
+
+    /// Remove stale lock file.
+    fn remove_stale_lock(&self) -> Result<()> {
+        if self.lock_path.exists() {
+            std::fs::remove_file(&self.lock_path)?;
+        }
+        Ok(())
+    }
+
+    /// Release the lock.
+    fn release(&mut self) -> Result<()> {
+        if self.locked {
+            std::fs::remove_file(&self.lock_path)?;
+            self.locked = false;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for SessionFileLock {
+    fn drop(&mut self) {
+        let _ = self.release();
+    }
+}
+
 /// Manager for session storage.
 pub struct SessionManager {
     /// Base directory for session storage (~/.matrix).
@@ -364,16 +484,20 @@ pub struct SessionManager {
     current_session: Option<Session>,
     /// Session index.
     index: SessionIndex,
+    /// File lock for preventing concurrent writes.
+    lock: SessionFileLock,
 }
 
 impl SessionManager {
     /// Create a new session manager.
     pub fn new() -> Result<Self> {
         let base_dir = Self::get_base_dir()?;
+        let lock = SessionFileLock::new(&base_dir);
         let manager = Self {
             base_dir,
             current_session: None,
             index: SessionIndex::default(),
+            lock,
         };
         manager.ensure_dirs()?;
         let mut manager = manager;
@@ -431,8 +555,8 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Save the session index to disk.
-    fn save_index(&self) -> Result<()> {
+    /// Save the session index to disk (internal, assumes lock held).
+    fn save_index_locked(&mut self) -> Result<()> {
         let path = self.index_path();
         let json =
             serde_json::to_string_pretty(&self.index).context("serializing session index")?;
@@ -442,6 +566,14 @@ impl SessionManager {
         std::fs::rename(&tmp, &path)
             .with_context(|| format!("renaming index tmp file to {}", path.display()))?;
         Ok(())
+    }
+
+    /// Save the session index to disk (public, acquires lock).
+    pub fn save_index(&mut self) -> Result<()> {
+        self.lock.acquire(5000)?;
+        let result = self.save_index_locked();
+        self.lock.release()?;
+        result
     }
 
     /// Start a new session.
@@ -504,23 +636,33 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Save the current session to disk.
+    /// Save the current session to disk (with file lock).
     pub fn save_current(&mut self) -> Result<()> {
         if let Some(ref session) = self.current_session {
+            // Clone entire session to avoid borrow conflicts
+            let session_clone = session.clone();
+
+            // Acquire lock for the entire save operation
+            self.lock.acquire(5000)?;
+
             // Update index first (if index save fails, session file won't be updated)
-            self.index.upsert(session.metadata.clone());
-            self.save_index()?;
+            self.index.upsert(session_clone.metadata.clone());
+            self.save_index_locked()?;
 
             // Now save session file
-            let path = self.session_path(&session.metadata.id);
-            let json = serde_json::to_string(session).context("serializing session")?;
+            let path = self.session_path(&session_clone.metadata.id);
+            let json = serde_json::to_string(&session_clone).context("serializing session")?;
             let tmp = path.with_extension("json.tmp");
             std::fs::write(&tmp, json)
                 .with_context(|| format!("writing session tmp file {}", tmp.display()))?;
             std::fs::rename(&tmp, &path)
                 .with_context(|| format!("renaming session tmp file to {}", path.display()))?;
+
+            // Release lock
+            self.lock.release()?;
         }
         Ok(())
+    }
     }
 
     /// Update current session stats after a turn.
@@ -686,12 +828,18 @@ impl SessionManager {
     /// Clear the current session (start fresh).
     pub fn clear_current(&mut self) -> Result<()> {
         if let Some(ref session) = self.current_session {
+            // Acquire lock
+            self.lock.acquire(5000)?;
+
             // Remove session file
             let path = self.session_path(&session.metadata.id);
             let _ = std::fs::remove_file(&path);
             // Remove from index
             self.index.remove(&session.metadata.id);
-            self.save_index()?;
+            self.save_index_locked()?;
+
+            // Release lock
+            self.lock.release()?;
         }
         self.current_session = None;
         Ok(())

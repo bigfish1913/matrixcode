@@ -115,6 +115,119 @@
       "importance": 65.0,
       "tags": [],
       "is_manual": false
+    },
+    {
+      "id": "708a3fae-1c64-4808-904e-81dcf7745bcc",
+      "created_at": "2026-05-23T14:43:29.080912900Z",
+      "last_referenced": "2026-05-23T14:43:29.080914700Z",
+      "category": "finding",
+      "content": "基于代码分析，我发现以下核心问题：",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "c9ed3ac8-7074-4e51-84fc-904cdca38189",
+      "created_at": "2026-05-23T14:46:23.415996600Z",
+      "last_referenced": "2026-05-23T14:46:23.415998800Z",
+      "category": "structure",
+      "content": "问题分析文档位于 docs/session_memory_issues.md（约15KB），包含Session和Memory架构问题分析及修复方案",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "session_memory_issues.md",
+        "文档",
+        "docs",
+        "架构分析",
+        "documentation",
+        "structure"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "ef65c970-e306-4fb0-b8dd-b760a13bb58a",
+      "created_at": "2026-05-23T14:46:23.416006Z",
+      "last_referenced": "2026-05-23T14:46:23.416006100Z",
+      "category": "finding",
+      "content": "Session存在3个核心问题：项目路径不持久化、路径不一致、并发保护；Memory存在3个核心问题：记忆与会话弱关联、保存逻辑歧义、合并不完善",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "Session",
+        "Memory",
+        "核心问题",
+        "路径不持久化",
+        "弱关联",
+        "session",
+        "memory",
+        "bug"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "f2224ee5-47f8-40da-84b7-59946f1b807e",
+      "created_at": "2026-05-23T14:46:23.416007600Z",
+      "last_referenced": "2026-05-23T14:46:23.416007700Z",
+      "category": "decision",
+      "content": "推荐方案一（统一项目路径管理）作为优先修复方案，优先级P0，这是根本原因，修复后连带解决记忆系统路径问题",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 95.0,
+      "tags": [
+        "统一项目路径管理",
+        "方案一",
+        "P0",
+        "修复优先级",
+        "路径管理",
+        "decision",
+        "session",
+        "path"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "61d1a228-5b80-4c06-ac07-9934c289d82a",
+      "created_at": "2026-05-23T14:46:23.416008900Z",
+      "last_referenced": "2026-05-23T14:46:23.416009Z",
+      "category": "solution",
+      "content": "修复方案排序：方案一（统一项目路径管理，P0）-> 方案二（记忆与会话关联，P2）-> 方案三（会话恢复验证路径，P2）-> 方案四（项目切换命令，P2）",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "修复方案",
+        "优先级",
+        "P0",
+        "P1",
+        "P2",
+        "solution",
+        "roadmap"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "13058681-fae8-4e72-8e42-68269ee2bdb9",
+      "created_at": "2026-05-23T14:46:23.416010100Z",
+      "last_referenced": "2026-05-23T14:46:23.416010200Z",
+      "category": "technical",
+      "content": "跨会话记忆存在核心矛盾，根本原因是项目路径管理不统一，影响Session持久化和Memory关联",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "跨会话记忆",
+        "核心矛盾",
+        "项目路径",
+        "持久化",
+        "session",
+        "memory",
+        "architecture"
+      ],
+      "is_manual": false
     }
   ],
   "config": {

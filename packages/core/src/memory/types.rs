@@ -523,8 +523,8 @@ impl AutoMemory {
                 crate::debug::debug_log().log("MEMORY_DUPLICATE",
                     &format!("similarity={:.2}, existing='{}', new='{}'",
                         similarity,
-                        truncate(&e.content, 50),
-                        truncate(content, 50)));
+                        truncate_with_suffix(&e.content, 50),
+                        truncate_with_suffix(content, 50)));
                 return true;
             }
         }
