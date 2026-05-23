@@ -506,15 +506,18 @@ mod tests {
             super::super::types::MemoryCategory::Decision,
             "使用 PostgreSQL 作为数据库".to_string(),
             None,
+            None,
         ));
         memory.add(super::super::types::MemoryEntry::new(
             super::super::types::MemoryCategory::Decision,
             "前端使用 React 框架开发".to_string(),
             None,
+            None,
         ));
         memory.add(super::super::types::MemoryEntry::new(
             super::super::types::MemoryCategory::Decision,
             "后端采用 Rust 编写".to_string(),
+            None,
             None,
         ));
 

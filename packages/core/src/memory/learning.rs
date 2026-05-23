@@ -312,7 +312,7 @@ pub fn infer_preferences_from_behavior(
 
 /// Convert inference to memory entry.
 pub fn inference_to_memory_entry(inference: &BehaviorInference) -> MemoryEntry {
-    let mut entry = MemoryEntry::new(MemoryCategory::Preference, inference.content.clone(), None);
+    let mut entry = MemoryEntry::new(MemoryCategory::Preference, inference.content.clone(), None, None);
     entry.importance = (inference.confidence * 70.0 + 30.0).min(80.0);
     entry.tags = inference.keywords.clone();
     entry

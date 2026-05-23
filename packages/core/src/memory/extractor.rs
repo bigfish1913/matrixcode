@@ -162,7 +162,7 @@ fn parse_memory_response(json_text: &str, session_id: Option<&str>) -> Result<Ve
             }
 
             let mut entry =
-                MemoryEntry::new(category, item.content, session_id.map(|s| s.to_string()));
+                MemoryEntry::new(category, item.content, session_id.map(|s| s.to_string()), None);
             if item.importance > 0.0 {
                 entry.importance = item.importance.clamp(0.0, 100.0);
             }
@@ -234,6 +234,7 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<Mem
                         category,
                         content,
                         session_id.map(|s| s.to_string()),
+                        None,
                     ));
                 }
             }

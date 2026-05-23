@@ -130,6 +130,9 @@ pub struct MemoryEntry {
     pub content: String,
     /// Source session ID (where this memory was created).
     pub source_session: Option<String>,
+    /// Project path where this memory was created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
     /// Number of times this memory has been referenced.
     pub reference_count: u32,
     /// Importance score (0-100, higher = more important).
@@ -142,7 +145,7 @@ pub struct MemoryEntry {
 
 impl MemoryEntry {
     /// Create a new memory entry.
-    pub fn new(category: MemoryCategory, content: String, source_session: Option<String>) -> Self {
+    pub fn new(category: MemoryCategory, content: String, source_session: Option<String>, project_path: Option<String>) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         Self {
             id,
@@ -151,6 +154,7 @@ impl MemoryEntry {
             category,
             content,
             source_session,
+            project_path,
             reference_count: 0,
             importance: category.default_importance(),
             tags: Vec::new(),
@@ -160,7 +164,7 @@ impl MemoryEntry {
 
     /// Create a manually added memory entry.
     pub fn manual(category: MemoryCategory, content: String) -> Self {
-        let mut entry = Self::new(category, content, None);
+        let mut entry = Self::new(category, content, None, None);
         entry.is_manual = true;
         entry.importance = 95.0;
         entry
@@ -435,7 +439,7 @@ impl AutoMemory {
             self.invalidate_index();
         }
 
-        let entry = MemoryEntry::new(category, content, source_session);
+        let entry = MemoryEntry::new(category, content, source_session, None);
         self.add(entry);
     }
 
@@ -720,7 +724,7 @@ impl AutoMemory {
             }
         }
 
-        let mut merged = MemoryEntry::new(best.category, merged_content, None);
+        let mut merged = MemoryEntry::new(best.category, merged_content, None, None);
         merged.importance = entries
             .iter()
             .map(|e| e.importance)

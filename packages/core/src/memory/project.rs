@@ -200,6 +200,7 @@ impl ProjectStructureAnalyzer {
             MemoryCategory::Technical,
             format!("项目技术栈: {}", config.tech_stack),
             None,
+            None,
         ));
 
         // Entry file
@@ -207,6 +208,7 @@ impl ProjectStructureAnalyzer {
             entries.push(MemoryEntry::new(
                 MemoryCategory::Structure,
                 format!("入口文件: {}", entry),
+                None,
                 None,
             ));
         }
@@ -216,6 +218,7 @@ impl ProjectStructureAnalyzer {
             entries.push(MemoryEntry::new(
                 MemoryCategory::Structure,
                 format!("{} 是 {}", dir, purpose),
+                None,
                 None,
             ));
         }
