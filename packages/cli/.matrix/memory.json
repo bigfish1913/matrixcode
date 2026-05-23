@@ -1,6 +1,18 @@
 {
   "entries": [
     {
+      "id": "1a7dbf6e-7941-4deb-8333-a7b3d1ab375a",
+      "created_at": "2026-05-23T05:56:05.492283400Z",
+      "last_referenced": "2026-05-23T05:56:05.492283500Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
       "id": "2b1fd834-404f-49e8-982b-13e7d965e8a9",
       "created_at": "2026-05-21T10:32:45.863861100Z",
       "last_referenced": "2026-05-21T10:32:45.863864200Z",
@@ -9,7 +21,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 45.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -21,7 +35,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 35.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -33,7 +49,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 35.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -45,7 +63,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 70.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     }
   ],

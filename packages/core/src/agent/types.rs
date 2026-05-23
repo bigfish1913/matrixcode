@@ -12,11 +12,11 @@ use crate::providers::{Message, Provider};
 use crate::skills::Skill;
 use crate::tools::Tool;
 
-pub(crate) const MAX_ITERATIONS: usize = 50;
+pub(crate) const MAX_ITERATIONS: usize = 200;
 
 /// **MAX_ITERATIONS Documentation**:
 /// 
-/// **Why 50 iterations?**
+/// **Why 200 iterations?**
 /// - Sufficient for most common tasks (file edits, code review, simple builds)
 /// - Prevents infinite loops and runaway operations
 /// - Balances task completion with resource efficiency
