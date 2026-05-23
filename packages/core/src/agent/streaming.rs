@@ -25,6 +25,7 @@ impl Agent {
 
         loop {
             attempt += 1;
+            log::info!("Agent: API call attempt {} with {} messages", attempt, request.messages.len());
 
             if let Some(token) = &self.cancel_token
                 && token.is_cancelled()
@@ -32,7 +33,9 @@ impl Agent {
                 return Err(anyhow::anyhow!("Operation cancelled"));
             }
 
+            log::info!("Agent: calling provider.chat_stream");
             let rx_result = self.provider.chat_stream(request.clone()).await;
+            log::info!("Agent: provider.chat_stream returned");
 
             match rx_result {
                 Ok(mut rx) => {

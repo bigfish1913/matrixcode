@@ -574,6 +574,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
     // Spawn Agent task with real Agent
     let agent_task = rt.spawn(async move {
+        log::info!("Agent task: starting");
+
         // Create provider using factory
         let provider = match create_provider_with_headers(
             agent_provider,
@@ -661,8 +663,11 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
         // Restore messages from pre-loaded session
         if !agent_restored_messages.is_empty() {
+            log::info!("Agent task: restoring {} messages", agent_restored_messages.len());
             agent.set_messages(agent_restored_messages);
         }
+
+        log::info!("Agent task: messages restored, entering receive loop");
 
         // Re-open session manager inside the task for saving
         let mut session_mgr = session_mgr_state;

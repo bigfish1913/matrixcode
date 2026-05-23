@@ -54,7 +54,9 @@ impl Agent {
 
                     has_tool_use = true;
 
+                    log::info!("Agent: starting tool '{}' with id {}", name, id);
                     let result = self.execute_tool(name, input.clone()).await;
+                    log::info!("Agent: tool '{}' completed", name);
 
                     let (content, is_error) = match result {
                         Ok(output) => (output, false),

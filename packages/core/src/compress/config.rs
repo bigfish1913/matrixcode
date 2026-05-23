@@ -21,6 +21,44 @@ pub const DEFAULT_TARGET_RATIO: f64 = 0.4;
 pub const DEFAULT_COMPRESSOR_MODEL: &str = "claude-3-5-haiku-20241022";
 
 // ============================================================================
+// Circuit Breaker (NEW - from Claude Code)
+// ============================================================================
+
+/// Maximum consecutive compression failures before stopping retries.
+/// Claude Code: "1,279 sessions had 50+ consecutive failures, wasting ~250K API calls/day"
+pub const MAX_CONSECUTIVE_FAILURES: u32 = 3;
+
+/// Token buffers for threshold levels (from Claude Code).
+pub const AUTOCOMPACT_BUFFER_TOKENS: u32 = 13_000;
+pub const WARNING_THRESHOLD_BUFFER_TOKENS: u32 = 20_000;
+pub const ERROR_THRESHOLD_BUFFER_TOKENS: u32 = 20_000;
+pub const MANUAL_COMPACT_BUFFER_TOKENS: u32 = 3_000;
+
+/// Time-based microcompact threshold (minutes since last assistant message).
+/// When gap exceeds this, server cache has expired - clear old tool results.
+pub const TIME_BASED_MC_GAP_THRESHOLD_MINUTES: u32 = 5;
+
+/// Message to replace cleared tool result content (from Claude Code).
+pub const TIME_BASED_MC_CLEARED_MESSAGE: &str = "[Old tool result content cleared]";
+
+// ============================================================================
+// Threshold Levels (NEW)
+// ============================================================================
+
+/// Threshold level for compression warnings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThresholdLevel {
+    /// Normal - no action needed
+    Normal,
+    /// Warning - approaching limit, warn user
+    Warning,
+    /// Error - near limit, strongly suggest compact
+    Error,
+    /// Blocking - must compact before continuing
+    Blocking,
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -247,5 +285,92 @@ impl CompressionConfig {
         self.compressor_model
             .as_deref()
             .unwrap_or(DEFAULT_COMPRESSOR_MODEL)
+    }
+
+    /// Calculate threshold level based on token usage.
+    /// Returns the level and percentage of context remaining.
+    pub fn calculate_threshold_level(
+        token_usage: u32,
+        context_window: u32,
+    ) -> (ThresholdLevel, u32) {
+        let percent_left = if context_window > 0 {
+            ((context_window - token_usage) as f64 / context_window as f64 * 100.0) as u32
+        } else {
+            0
+        };
+
+        // Calculate thresholds
+        let auto_threshold = context_window.saturating_sub(AUTOCOMPACT_BUFFER_TOKENS);
+        let warning_threshold = auto_threshold.saturating_sub(WARNING_THRESHOLD_BUFFER_TOKENS);
+        let error_threshold = auto_threshold.saturating_sub(ERROR_THRESHOLD_BUFFER_TOKENS);
+        let blocking_threshold = context_window.saturating_sub(MANUAL_COMPACT_BUFFER_TOKENS);
+
+        let level = if token_usage >= blocking_threshold {
+            ThresholdLevel::Blocking
+        } else if token_usage >= error_threshold {
+            ThresholdLevel::Error
+        } else if token_usage >= warning_threshold {
+            ThresholdLevel::Warning
+        } else {
+            ThresholdLevel::Normal
+        };
+
+        (level, percent_left.max(0))
+    }
+}
+
+// ============================================================================
+// Circuit Breaker State (NEW)
+// ============================================================================
+
+/// State for circuit breaker to prevent infinite retry loops.
+#[derive(Debug, Clone, Default)]
+pub struct CircuitBreakerState {
+    /// Number of consecutive compression failures.
+    pub consecutive_failures: u32,
+    /// Whether circuit breaker has tripped.
+    pub is_tripped: bool,
+    /// Last failure timestamp (for reset timeout).
+    pub last_failure_time: Option<u64>,
+}
+
+impl CircuitBreakerState {
+    /// Create a new circuit breaker state.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a failure. Returns true if circuit breaker should trip.
+    pub fn record_failure(&mut self) -> bool {
+        self.consecutive_failures += 1;
+        self.last_failure_time = Some(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs());
+
+        if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+            self.is_tripped = true;
+            return true;
+        }
+        false
+    }
+
+    /// Record a success. Resets failure count.
+    pub fn record_success(&mut self) {
+        self.consecutive_failures = 0;
+        self.is_tripped = false;
+        self.last_failure_time = None;
+    }
+
+    /// Check if compression should be skipped due to circuit breaker.
+    pub fn should_skip(&self) -> bool {
+        self.is_tripped
+    }
+
+    /// Reset the circuit breaker (manual override).
+    pub fn reset(&mut self) {
+        self.consecutive_failures = 0;
+        self.is_tripped = false;
+        self.last_failure_time = None;
     }
 }

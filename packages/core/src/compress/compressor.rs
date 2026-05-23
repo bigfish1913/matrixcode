@@ -41,21 +41,27 @@ impl AiCompressor {
     }
 }
 
-const SUMMARY_SYSTEM_PROMPT: &str = r#"你是一个对话历史压缩助手。将对话压缩为简洁摘要。
+const SUMMARY_SYSTEM_PROMPT: &str = r#"你是一个对话历史压缩助手。将对话压缩为结构化摘要。
 
 输出要求：
-- 简洁：摘要控制在 200 字以内
-- 关键：只保留重要操作和决策
-- 敏感：必须保留用户的敏感指令
+- 结构化：使用9个章节格式
+- 关键：只保留重要信息，忽略无关细节
+- 敏感：必须保留用户的敏感指令（禁止、必须等）
 - 任务：必须保留未完成的待办事项
 - 决策：必须保留关键方案选择和理由
 
-输出格式：
-【摘要】一句话概括主要工作
-【已完成】列出已完成的操作
-【未完成】列出待办任务（如有）
-【关键决策】重要选择及理由（如有）
+9章节输出格式：
+【摘要】一句话概括主要工作（50字以内）
+【已完成】列出已完成的操作（工具调用、文件变更）
+【未完成】列出待办任务和阻塞项
+【关键决策】重要选择及理由（技术选型、方案决策）
+【敏感指令】用户的禁止/必须指令（必须原样保留）
+【技术栈】使用的语言、框架、库、工具
+【文件变更】读取、修改、创建的文件路径
+【问题记录】遇到的问题及解决方案
+【下一步】建议的下一步操作
 
+每章节控制在100字以内，空章节可省略。
 请直接输出内容。"#;
 
 #[async_trait]
@@ -116,18 +122,49 @@ fn parse_summary_response(text: &str) -> (String, Vec<String>) {
     let mut summary = String::new();
     let mut key_points: Vec<String> = Vec::new();
 
+    // Parse 9-section structured format
+    let sections = [
+        "【摘要】", "【已完成】", "【未完成】", "【关键决策】",
+        "【敏感指令】", "【技术栈】", "【文件变更】", "【问题记录】", "【下一步】"
+    ];
+
     for line in text.lines() {
         let line = line.trim();
-        if line.starts_with("•") || line.starts_with("-") || line.starts_with("*") {
-            let point = line.trim_start_matches(['•', '-', '*']).trim();
-            if !point.is_empty() {
-                key_points.push(point.to_string());
+
+        // Check if this is a section header
+        let is_header = sections.iter().any(|s| line.starts_with(s));
+
+        if is_header {
+            // Extract content after the header
+            for section in &sections {
+                if line.starts_with(section) {
+                    let replaced = line.replace(section, "");
+                    let content = replaced.trim();
+                    if !content.is_empty() {
+                        if *section == "【摘要】" {
+                            summary = content.to_string();
+                        } else {
+                            key_points.push(format!("{}{}", section, content));
+                        }
+                    }
+                    break;
+                }
             }
-        } else if !line.is_empty() && summary.is_empty() {
-            summary = line.to_string();
+        } else if !line.is_empty() {
+            // This is content under a section
+            if line.starts_with("•") || line.starts_with("-") || line.starts_with("*") {
+                let point = line.trim_start_matches(['•', '-', '*']).trim();
+                if !point.is_empty() {
+                    key_points.push(point.to_string());
+                }
+            } else if summary.is_empty() {
+                // Fallback: first non-empty line as summary
+                summary = line.to_string();
+            }
         }
     }
 
+    // Fallback if no structured format found
     if summary.is_empty() && !text.is_empty() {
         summary = text.lines().take(3).collect::<Vec<_>>().join(" ");
         if summary.len() > 200 {
@@ -499,6 +536,70 @@ pub fn build_summary_prompt(messages: &[Message]) -> String {
 }
 
 // ============================================================================
+// New Pipeline-Based Compression (Async)
+// ============================================================================
+
+use super::pipeline::CompressionPipeline;
+use super::types::AiCompressionMode;
+
+/// Compress messages with AI assistance (async version).
+///
+/// This is the new recommended API for compression with intelligent
+/// scoring, dependency tracking, and content summarization.
+pub async fn compress_messages_with_ai(
+    messages: &[Message],
+    config: &CompressionConfig,
+    ai_mode: AiCompressionMode,
+    fast_model: Option<Box<dyn Provider>>,
+    token_usage: u32,
+    context_window: u32,
+) -> Result<Vec<Message>> {
+    let mut pipeline = match (ai_mode, fast_model) {
+        (AiCompressionMode::None, _) => CompressionPipeline::new_rule_only(config.clone()),
+        (AiCompressionMode::Light | AiCompressionMode::Deep, Some(model)) => {
+            CompressionPipeline::new_with_ai(config.clone(), model)
+        }
+        _ => CompressionPipeline::new_rule_only(config.clone()),
+    };
+
+    let result = pipeline.execute(messages, ai_mode, token_usage, context_window).await?;
+    Ok(result.messages)
+}
+
+/// Compress messages with full AI support (async version).
+///
+/// Uses both fast_model and main_model for different compression tasks.
+pub async fn compress_messages_with_full_ai(
+    messages: &[Message],
+    config: &CompressionConfig,
+    ai_mode: AiCompressionMode,
+    fast_model: Box<dyn Provider>,
+    main_model: Box<dyn Provider>,
+    token_usage: u32,
+    context_window: u32,
+) -> Result<Vec<Message>> {
+    let mut pipeline = CompressionPipeline::new_with_full_ai(
+        config.clone(),
+        fast_model,
+        main_model,
+    );
+
+    let result = pipeline.execute(messages, ai_mode, token_usage, context_window).await?;
+    Ok(result.messages)
+}
+
+/// Score messages without compressing (analysis only).
+///
+/// Useful for debugging and understanding compression decisions.
+pub fn score_messages_only(
+    messages: &[Message],
+    config: &CompressionConfig,
+) -> Vec<super::types::ScoredMessage> {
+    let pipeline = CompressionPipeline::new_rule_only(config.clone());
+    pipeline.score_only(messages)
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -518,7 +619,9 @@ mod tests {
     #[test]
     fn test_should_compress() {
         let config = CompressionConfig::default();
-        assert!(!should_compress(100_000, Some(200_000), &config));
-        assert!(should_compress(160_000, Some(200_000), &config));
+        // Threshold is 0.5, so 100K/200K = 0.5 triggers compression
+        assert!(should_compress(100_000, Some(200_000), &config));
+        // 80K/200K = 0.4, below threshold
+        assert!(!should_compress(80_000, Some(200_000), &config));
     }
 }
