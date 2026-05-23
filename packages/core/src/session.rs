@@ -203,10 +203,80 @@ impl SessionIndex {
     }
 }
 
+/// Message summary for display (lightweight version).
+/// Used when full message content is compressed but user still needs to see history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageSummary {
+    /// Role of the message sender.
+    pub role: String,
+    /// Brief preview of content (truncated).
+    pub preview: String,
+    /// Timestamp (if available).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<DateTime<Utc>>,
+    /// Whether this message was compressed.
+    pub is_compressed: bool,
+    /// Original message index before compression.
+    pub original_index: usize,
+}
+
+impl MessageSummary {
+    /// Create a summary from a message.
+    pub fn from_message(msg: &Message, index: usize) -> Self {
+        use crate::providers::{ContentBlock, MessageContent, Role};
+        use crate::truncate::truncate_chars;
+
+        let role = match msg.role {
+            Role::User => "user",
+            Role::Assistant => "assistant",
+            Role::Tool => "tool",
+            Role::System => "system",
+        };
+
+        let preview = match &msg.content {
+            MessageContent::Text(t) => truncate_chars(t, 100),
+            MessageContent::Blocks(blocks) => {
+                let parts: Vec<String> = blocks
+                    .iter()
+                    .take(3)
+                    .map(|b| match b {
+                        ContentBlock::Text { text } => truncate_chars(text, 50),
+                        ContentBlock::ToolUse { name, .. } => format!("[{}]", name),
+                        ContentBlock::ToolResult { content, .. } => truncate_chars(content, 50),
+                        ContentBlock::Thinking { thinking, .. } => format!("💭 {}", truncate_chars(thinking, 30)),
+                        _ => "...".to_string(),
+                    })
+                    .collect();
+                parts.join(" ")
+            }
+        };
+
+        Self {
+            role: role.to_string(),
+            preview,
+            timestamp: None,
+            is_compressed: false,
+            original_index: index,
+        }
+    }
+}
+
 /// Full session data including messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub metadata: SessionMetadata,
+    /// Full message history for display (TUI shows this).
+    #[serde(default)]
+    pub full_messages: Vec<Message>,
+    /// Compressed messages for API requests (Agent uses this).
+    /// If empty, use full_messages (no compression happened).
+    #[serde(default)]
+    pub compressed_messages: Vec<Message>,
+    /// Summaries of compressed messages (for TUI history view).
+    #[serde(default)]
+    pub message_summaries: Vec<MessageSummary>,
+    /// Legacy field - migrated to full_messages on load.
+    #[serde(default, skip_serializing)]
     pub messages: Vec<Message>,
 }
 
@@ -215,6 +285,9 @@ impl Session {
     pub fn new(project_path: Option<&Path>) -> Self {
         Self {
             metadata: SessionMetadata::new(project_path),
+            full_messages: Vec::new(),
+            compressed_messages: Vec::new(),
+            message_summaries: Vec::new(),
             messages: Vec::new(),
         }
     }
@@ -225,16 +298,52 @@ impl Session {
         meta.message_count = messages.len();
         Self {
             metadata: meta,
-            messages,
+            full_messages: messages.clone(),
+            compressed_messages: Vec::new(),
+            message_summaries: messages.iter().enumerate()
+                .map(|(i, m)| MessageSummary::from_message(m, i))
+                .collect(),
+            messages: messages,
         }
+    }
+
+    /// Get messages for API requests (use compressed if available).
+    pub fn api_messages(&self) -> &[Message] {
+        if self.compressed_messages.is_empty() {
+            &self.full_messages
+        } else {
+            &self.compressed_messages
+        }
+    }
+
+    /// Get messages for display (always full messages).
+    pub fn display_messages(&self) -> &[Message] {
+        &self.full_messages
     }
 
     /// Update metadata after a turn.
     pub fn update_stats(&mut self, last_input_tokens: u32, total_output_tokens: u64) {
-        self.metadata.message_count = self.messages.len();
+        self.metadata.message_count = self.full_messages.len();
         self.metadata.last_input_tokens = last_input_tokens as u64;
         self.metadata.total_output_tokens = total_output_tokens;
         self.metadata.updated_at = Utc::now();
+    }
+
+    /// Set compressed messages (called after compression).
+    pub fn set_compressed(&mut self, compressed: Vec<Message>, summaries: Vec<MessageSummary>) {
+        self.compressed_messages = compressed;
+        self.message_summaries = summaries;
+    }
+
+    /// Migrate legacy messages field to full_messages.
+    fn migrate_legacy(&mut self) {
+        if !self.messages.is_empty() && self.full_messages.is_empty() {
+            self.full_messages = self.messages.clone();
+            self.message_summaries = self.messages.iter().enumerate()
+                .map(|(i, m)| MessageSummary::from_message(m, i))
+                .collect();
+            self.messages.clear();
+        }
     }
 }
 
@@ -380,6 +489,9 @@ impl SessionManager {
         let mut session: Session = serde_json::from_str(&data)
             .with_context(|| format!("parsing session file {}", path.display()))?;
 
+        // Migrate legacy messages field to full_messages
+        session.migrate_legacy();
+
         // If session name is null but index has a name, use index's name
         if session.metadata.name.is_none()
             && let Some(index_meta) = self.index.find(id)
@@ -435,10 +547,53 @@ impl SessionManager {
                 session.metadata.name = Some(name);
             }
 
-            session.messages = messages;
-            session.metadata.message_count = session.messages.len();
+            // Update both full_messages and summaries
+            session.full_messages = messages.clone();
+            session.message_summaries = messages.iter().enumerate()
+                .map(|(i, m)| MessageSummary::from_message(m, i))
+                .collect();
+            session.metadata.message_count = session.full_messages.len();
             session.metadata.updated_at = Utc::now();
         }
+    }
+
+    /// Set compressed messages for the current session.
+    pub fn set_compressed_messages(&mut self, compressed: Vec<Message>) {
+        if let Some(ref mut session) = self.current_session {
+            // Mark all summaries as compressed first
+            for summary in &mut session.message_summaries {
+                summary.is_compressed = true;
+            }
+
+            // Then mark summaries as NOT compressed if their original message is in compressed version
+            // Compare by role and content preview (since Message doesn't implement PartialEq)
+            for compressed_msg in &compressed {
+                for (idx, full_msg) in session.full_messages.iter().enumerate() {
+                    // Simple comparison: same role and similar content
+                    if session.message_summaries.get(idx).is_some() {
+                        let same_role = compressed_msg.role == full_msg.role;
+                        if same_role {
+                            // Mark as not compressed
+                            if let Some(summary) = session.message_summaries.get_mut(idx) {
+                                summary.is_compressed = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            session.compressed_messages = compressed;
+        }
+    }
+
+    /// Get messages for API requests (compressed if available).
+    pub fn api_messages(&self) -> Option<&[Message]> {
+        self.current_session.as_ref().map(|s| s.api_messages())
+    }
+
+    /// Get messages for display (always full messages).
+    pub fn display_messages(&self) -> Option<&[Message]> {
+        self.current_session.as_ref().map(|s| s.display_messages())
     }
 
     /// Generate a human-readable session name from the first user message.
@@ -487,14 +642,19 @@ impl SessionManager {
         None
     }
 
-    /// Get the current session's messages.
+    /// Get the current session's messages (for API - compressed if available).
     pub fn messages(&self) -> Option<&[Message]> {
-        self.current_session.as_ref().map(|s| s.messages.as_slice())
+        self.current_session.as_ref().map(|s| s.api_messages())
     }
 
-    /// Get mutable reference to messages.
+    /// Get mutable reference to messages (returns full_messages for editing).
     pub fn messages_mut(&mut self) -> Option<&mut Vec<Message>> {
-        self.current_session.as_mut().map(|s| &mut s.messages)
+        self.current_session.as_mut().map(|s| &mut s.full_messages)
+    }
+
+    /// Get full messages for display (TUI).
+    pub fn full_messages(&self) -> Option<&[Message]> {
+        self.current_session.as_ref().map(|s| s.display_messages())
     }
 
     /// Get the current session ID.

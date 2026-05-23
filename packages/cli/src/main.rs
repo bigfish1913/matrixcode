@@ -502,9 +502,10 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
     // Load session BEFORE spawning agent task so TUI can also display restored messages
     let project_path = std::env::current_dir().ok();
-    let (restored_messages, session_mgr_state, session_metadata) = {
+    let (full_messages, api_messages, session_mgr_state, session_metadata) = {
         let mut mgr = SessionManager::new().ok();
-        let mut messages = Vec::new();
+        let mut full = Vec::new();
+        let mut api = Vec::new();
         let mut metadata = None;
 
         if let Some(ref mut mgr) = mgr {
@@ -515,14 +516,17 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     mgr.continue_last(project_path.as_deref()).ok().flatten()
                 };
                 if let Some(s) = session {
-                    messages = s.messages.clone();
+                    // Full messages for TUI display
+                    full = s.full_messages.clone();
+                    // API messages (compressed if available) for Agent
+                    api = s.api_messages().to_vec();
                     metadata = Some(s.metadata.clone());
                 }
             } else {
                 let _ = mgr.start_new(project_path.as_deref());
             }
         }
-        (messages, mgr, metadata)
+        (full, api, mgr, metadata)
     };
 
     // Clone things needed in the agent task
@@ -533,7 +537,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_base_url = base_url.clone();
     let agent_think = cli.think;
     let agent_max_tokens = cli.max_tokens;
-    let agent_restored_messages = restored_messages.clone();
+    let agent_restored_messages = api_messages.clone();  // Agent uses compressed messages
     let agent_project_path = project_path.clone();
     let agent_approve_mode = config
         .approve_mode
@@ -1394,7 +1398,8 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     if let Some(ref mut mgr) = session_mgr {
                         let (input_tokens, output_tokens) = agent.get_token_counts();
                         let messages = agent.get_messages();
-                        mgr.set_messages(messages.to_vec());
+                        // Save compressed messages for API, full messages are already stored
+                        mgr.set_compressed_messages(messages.to_vec());
                         mgr.update_stats(input_tokens as u32, output_tokens);
                         if let Err(e) = mgr.save_current() {
                             let _ = agent_event_tx.send(matrixcode_core::AgentEvent::error(
@@ -1564,9 +1569,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         .with_config(&model, cli.think, cli.max_tokens, None)
         .with_debug_mode(debug_mode);
 
-    // Load restored messages if any
-    if !restored_messages.is_empty() {
-        app.load_messages(restored_messages);
+    // Load restored messages if any (full messages for TUI display)
+    if !full_messages.is_empty() {
+        app.load_messages(full_messages);
         // Restore token stats from session metadata
         if let Some(ref meta) = session_metadata {
             app.set_token_stats(

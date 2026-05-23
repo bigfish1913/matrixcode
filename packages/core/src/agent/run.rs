@@ -129,6 +129,37 @@ impl Agent {
                 });
             }
 
+            // Proactive compression: check context size BEFORE API call
+            // For long conversations, compress early to avoid timeout issues
+            let context_size = self.provider.context_size();
+            let estimated_tokens = estimate_total_tokens(&self.messages);
+
+            if should_compress(estimated_tokens, context_size, &self.compression_config) {
+                self.emit(AgentEvent::progress("⚠️ 上下文过大，正在预压缩...", None))?;
+
+                match compress_messages(
+                    &self.messages,
+                    CompressionStrategy::SlidingWindow,
+                    &self.compression_config,
+                ) {
+                    Ok(compressed) => {
+                        let compressed_tokens = estimate_total_tokens(&compressed);
+                        self.messages = compressed;
+                        crate::debug::debug_log().compression(
+                            estimated_tokens,
+                            compressed_tokens,
+                            compressed_tokens as f32 / estimated_tokens as f32,
+                        );
+                    }
+                    Err(e) => {
+                        self.emit(AgentEvent::progress(
+                            format!("预压缩失败: {}", e),
+                            None,
+                        ))?;
+                    }
+                }
+            }
+
             let tool_defs: Vec<ToolDefinition> =
                 self.tools.iter().map(|t| t.definition()).collect();
             let request = ChatRequest {

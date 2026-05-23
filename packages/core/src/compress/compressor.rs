@@ -344,15 +344,41 @@ fn sliding_window_compress(
         return Ok(messages.to_vec());
     }
 
-    let target_tokens = (estimate_total_tokens(messages) as f64 * config.target_ratio) as u32;
+    // Enhanced sliding window strategy:
+    // 1. Always keep first message (original user request)
+    // 2. Summarize middle messages if too long
+    // 3. Keep recent messages intact
 
-    for start_idx in config.min_preserve_messages..messages.len() {
-        let candidate = &messages[start_idx..];
+    let first_msg = messages.first().cloned();
+    let recent_start = messages.len().saturating_sub(config.min_preserve_messages);
+    let recent_msgs = &messages[recent_start..];
+
+    // Calculate tokens for first + recent
+    let first_tokens = first_msg.as_ref().map(|m| estimate_tokens(m)).unwrap_or(0);
+    let recent_tokens = estimate_total_tokens(recent_msgs);
+    let current_total = estimate_total_tokens(messages);
+    let target_tokens = (current_total as f64 * config.target_ratio) as u32;
+
+    // If first + recent already exceeds target, just use recent (drop first)
+    if first_tokens + recent_tokens <= target_tokens {
+        // We can keep first message + recent messages
+        let mut result: Vec<Message> = Vec::new();
+        if let Some(first) = first_msg {
+            result.push(first);
+        }
+        result.extend(recent_msgs.iter().cloned());
+        return Ok(result);
+    }
+
+    // If still too long, try dropping older messages from recent section
+    for drop_count in 0..recent_msgs.len() {
+        let candidate = &recent_msgs[drop_count..];
         if estimate_total_tokens(candidate) <= target_tokens {
             return Ok(candidate.to_vec());
         }
     }
 
+    // Last resort: just keep minimum recent messages
     Ok(messages[messages.len() - config.min_preserve_messages..].to_vec())
 }
 

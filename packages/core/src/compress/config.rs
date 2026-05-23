@@ -7,10 +7,12 @@ use anyhow::Result;
 // ============================================================================
 
 /// Compression trigger threshold (percentage of context window).
-pub const DEFAULT_COMPRESSION_THRESHOLD: f64 = 0.75;
+/// Lowered to 0.5 to compress earlier for long conversations (128K context -> 64K threshold)
+pub const DEFAULT_COMPRESSION_THRESHOLD: f64 = 0.5;
 
 /// Minimum messages to keep after compression.
-pub const MIN_MESSAGES_TO_KEEP: usize = 8;
+/// Increased to preserve more recent context for continuity
+pub const MIN_MESSAGES_TO_KEEP: usize = 20;
 
 /// Target ratio after compression (keep this fraction of tokens).
 pub const DEFAULT_TARGET_RATIO: f64 = 0.4;
