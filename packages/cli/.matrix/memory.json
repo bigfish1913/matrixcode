@@ -67,6 +67,30 @@
         "project"
       ],
       "is_manual": false
+    },
+    {
+      "id": "e52b4234-1d6e-4b4f-892e-45cf639a6fd2",
+      "created_at": "2026-05-23T07:00:56.665486500Z",
+      "last_referenced": "2026-05-23T07:00:56.665487100Z",
+      "category": "finding",
+      "content": "### 🐛 发现的问题",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "884f0852-118b-4f86-b429-e22985d3a64b",
+      "created_at": "2026-05-23T07:17:51.900160Z",
+      "last_referenced": "2026-05-23T07:17:51.900160600Z",
+      "category": "finding",
+      "content": "### 🐛 发现的核心问题",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [],
+      "is_manual": false
     }
   ],
   "config": {

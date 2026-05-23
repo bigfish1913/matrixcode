@@ -284,6 +284,10 @@ fn main() -> Result<()> {
 fn interactive_resume() -> Result<()> {
     use std::io::{self, Write};
 
+    // Ensure terminal is in normal mode (after possible TUI exit)
+    // Try to disable raw mode again (safe to call multiple times)
+    let _ = matrixcode_tui::crossterm::terminal::disable_raw_mode();
+
     let mgr = SessionManager::new()?;
     let sessions = mgr.list_sessions();
 
@@ -295,22 +299,8 @@ fn interactive_resume() -> Result<()> {
 
     println!("📚 Sessions:\n");
     for (i, session) in sessions.iter().enumerate() {
-        let project = session
-            .project_path
-            .as_deref()
-            .map(|p| p.split('/').next_back().unwrap_or(p))
-            .unwrap_or("unknown");
         let is_current = mgr.has_current() && mgr.current_id() == Some(session.id.as_str());
-
-        println!(
-            "  {}. {} - {} ({} msgs, {} tokens) {}",
-            i + 1,
-            session.short_id(),
-            project,
-            session.message_count,
-            session.total_output_tokens,
-            if is_current { "[current]" } else { "" }
-        );
+        println!("  {}. {}", i + 1, session.format_line(is_current));
     }
 
     println!(
@@ -516,11 +506,21 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                     mgr.continue_last(project_path.as_deref()).ok().flatten()
                 };
                 if let Some(s) = session {
+                    // Log session restore details
+                    log::info!(
+                        "Session restored: full_messages={}, compressed_messages={}, display_messages={}",
+                        s.full_messages.len(),
+                        s.compressed_messages.len(),
+                        s.display_messages().len()
+                    );
+
                     // Full messages for TUI display
                     full = s.full_messages.clone();
                     // API messages (compressed if available) for Agent
                     api = s.api_messages().to_vec();
                     metadata = Some(s.metadata.clone());
+
+                    log::info!("After clone: full={}, api={}", full.len(), api.len());
                 }
             } else {
                 let _ = mgr.start_new(project_path.as_deref());

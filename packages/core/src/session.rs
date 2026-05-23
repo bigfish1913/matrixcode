@@ -338,11 +338,20 @@ impl Session {
     /// Migrate legacy messages field to full_messages.
     fn migrate_legacy(&mut self) {
         if !self.messages.is_empty() && self.full_messages.is_empty() {
+            log::info!(
+                "Migrating legacy session: {} messages -> full_messages",
+                self.messages.len()
+            );
             self.full_messages = self.messages.clone();
             self.message_summaries = self.messages.iter().enumerate()
                 .map(|(i, m)| MessageSummary::from_message(m, i))
                 .collect();
             self.messages.clear();
+            log::info!(
+                "Migration complete: full_messages={}, summaries={}",
+                self.full_messages.len(),
+                self.message_summaries.len()
+            );
         }
     }
 }
