@@ -195,14 +195,14 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
         FeedbackAction::Add => {
             if let Some(ref content) = feedback.new_content {
                 let category = feedback.category.unwrap_or(MemoryCategory::Finding);
-                let entry = MemoryEntry::manual(category, content.clone());
+                let entry = MemoryEntry::manual_global(category, content.clone());
                 memory.add(entry);
                 changes += 1;
             }
         }
         FeedbackAction::NegativePreference => {
             if let Some(ref content) = feedback.new_content {
-                let mut entry = MemoryEntry::manual(MemoryCategory::Preference, content.clone());
+                let mut entry = MemoryEntry::manual_global(MemoryCategory::Preference, content.clone());
                 entry.tags.push("negative".to_string());
                 memory.add(entry);
                 changes += 1;
@@ -310,7 +310,7 @@ pub fn infer_preferences_from_behavior(
     inferences
 }
 
-/// Convert inference to memory entry.
+/// Convert inference to memory entry (global preference).
 pub fn inference_to_memory_entry(inference: &BehaviorInference) -> MemoryEntry {
     let mut entry = MemoryEntry::new(MemoryCategory::Preference, inference.content.clone(), None, None);
     entry.importance = (inference.confidence * 70.0 + 30.0).min(80.0);

@@ -195,12 +195,14 @@ impl ProjectStructureAnalyzer {
             None => return entries,
         };
 
+        let project_path_str = self.project_root.to_string_lossy().to_string();
+
         // Tech stack
         entries.push(MemoryEntry::new(
             MemoryCategory::Technical,
             format!("项目技术栈: {}", config.tech_stack),
             None,
-            None,
+            Some(project_path_str.clone()),
         ));
 
         // Entry file
@@ -209,7 +211,7 @@ impl ProjectStructureAnalyzer {
                 MemoryCategory::Structure,
                 format!("入口文件: {}", entry),
                 None,
-                None,
+                Some(project_path_str.clone()),
             ));
         }
 
@@ -219,7 +221,7 @@ impl ProjectStructureAnalyzer {
                 MemoryCategory::Structure,
                 format!("{} 是 {}", dir, purpose),
                 None,
-                None,
+                Some(project_path_str.clone()),
             ));
         }
 

@@ -374,9 +374,10 @@ impl SessionFileLock {
     }
 
     /// Acquire the lock (blocking with timeout).
-    fn acquire(&mut self, timeout_ms: u64) -> Result<bool> {
+    /// Returns Ok(()) if lock acquired, Err if timeout.
+    fn acquire(&mut self, timeout_ms: u64) -> Result<()> {
         if self.locked {
-            return Ok(true);
+            return Ok(());
         }
 
         let start = std::time::Instant::now();
@@ -387,7 +388,7 @@ impl SessionFileLock {
                     let lock_info = format!("{}:{}", std::process::id(), Utc::now().to_rfc3339());
                     std::fs::write(&self.lock_path, lock_info)?;
                     self.locked = true;
-                    return Ok(true);
+                    return Ok(());
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                     if self.is_stale_lock()? {
@@ -401,7 +402,8 @@ impl SessionFileLock {
             }
         }
 
-        Ok(false)
+        // Timeout - return error instead of Ok(false)
+        anyhow::bail!("Failed to acquire session lock after {}ms timeout", timeout_ms)
     }
 
     /// Check if the existing lock is stale (either old or process is dead).
@@ -847,6 +849,75 @@ impl SessionManager {
     /// List all sessions.
     pub fn list_sessions(&self) -> &[SessionMetadata] {
         &self.index.sessions
+    }
+
+    /// Clean up old sessions that haven't been updated in N days.
+    /// Returns the number of sessions removed.
+    pub fn cleanup_old_sessions(&mut self, max_age_days: u64) -> Result<usize> {
+        let now = chrono::Utc::now();
+        let threshold = chrono::Duration::days(max_age_days as i64);
+
+        let mut to_remove: Vec<String> = Vec::new();
+
+        for session in &self.index.sessions {
+            let age = now - session.updated_at;
+            if age > threshold {
+                to_remove.push(session.id.clone());
+            }
+        }
+
+        let removed_count = to_remove.len();
+
+        if removed_count > 0 {
+            self.lock.acquire(5000)?;
+
+            for id in &to_remove {
+                // Remove session file
+                let path = self.session_path(id);
+                let _ = std::fs::remove_file(&path);
+                // Remove from index
+                self.index.remove(id);
+            }
+
+            self.save_index_locked()?;
+            self.lock.release()?;
+        }
+
+        Ok(removed_count)
+    }
+
+    /// Prune sessions to keep only the most recent N sessions.
+    /// Returns the number of sessions removed.
+    pub fn prune_sessions(&mut self, max_sessions: usize) -> Result<usize> {
+        if self.index.sessions.len() <= max_sessions {
+            return Ok(0);
+        }
+
+        let to_remove = self.index.sessions.len() - max_sessions;
+        let mut ids_to_remove: Vec<String> = Vec::new();
+
+        // Remove oldest sessions (sessions are sorted by updated_at descending)
+        for session in self.index.sessions.iter().skip(max_sessions) {
+            ids_to_remove.push(session.id.clone());
+        }
+
+        self.lock.acquire(5000)?;
+
+        for id in &ids_to_remove {
+            let path = self.session_path(id);
+            let _ = std::fs::remove_file(&path);
+            self.index.remove(id);
+        }
+
+        self.save_index_locked()?;
+        self.lock.release()?;
+
+        Ok(to_remove)
+    }
+
+    /// Get total session count.
+    pub fn session_count(&self) -> usize {
+        self.index.sessions.len()
     }
 
     /// Check if there's a current session.

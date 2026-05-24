@@ -2,7 +2,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::config::*;
 use super::keywords_config::KeywordsConfig;
 use super::types::{AutoMemory, MemoryEntry};
 
@@ -59,6 +58,39 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
     result.sort_by_key(|b| std::cmp::Reverse(b.len()));
     result.truncate(10);
     result
+}
+
+// ============================================================================
+// Skip Simple Messages (Greeting/Short)
+// ============================================================================
+
+/// Greeting patterns to skip keyword extraction.
+const GREETING_PATTERNS: &[&str] = &[
+    "你好", "您好", "hi", "hello", "hey", "嗨", "早上好", "下午好", "晚上好",
+    "good morning", "good afternoon", "good evening",
+    "请问", "帮忙", "帮我", "帮我看", "看看", "help", "请",
+    "开始", "start", "准备好了", "ready",
+];
+
+/// Check if message is simple (greeting/short) and should skip AI keyword extraction.
+/// Returns true if should skip.
+pub fn should_skip_simple_message(msg: &str) -> bool {
+    let trimmed = msg.trim();
+
+    // Skip if too short (< 15 chars)
+    if trimmed.len() < 15 {
+        return true;
+    }
+
+    // Skip greeting patterns
+    let lower = trimmed.to_lowercase();
+    for pattern in GREETING_PATTERNS {
+        if lower.starts_with(pattern) || lower == *pattern {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Calculate word-based similarity between two strings (Jaccard coefficient).
@@ -180,103 +212,18 @@ pub fn has_contradiction_signal(old: &str, new: &str) -> bool {
 }
 
 // ============================================================================
-// AI Keyword Extraction (Hybrid)
+// AI Keyword Extraction (Hybrid) - DEPRECATED, use extract_context_keywords instead
 // ============================================================================
 
-/// Extract keywords using hybrid approach (rule-based + AI fallback).
+/// Extract keywords using hybrid approach (rule-based only now, AI removed).
+/// DEPRECATED: This function now just calls extract_context_keywords.
+/// Use extract_context_keywords directly for clarity.
 pub async fn extract_keywords_hybrid(
     context: &str,
-    fast_provider: Option<&dyn crate::providers::Provider>,
+    _fast_provider: Option<&dyn crate::providers::Provider>,
 ) -> Vec<String> {
-    // First try rule-based extraction
-    let rule_keywords = extract_context_keywords(context);
-
-    // Check if we need AI fallback
-    let mode = AiKeywordMode::from_env();
-    let should_use_ai = mode.should_use_ai(rule_keywords.len()) && fast_provider.is_some();
-
-    // Debug log: show method and model
-    let model_name = fast_provider.map(|p| p.model_name()).unwrap_or("none");
-    crate::debug::debug_log().memory_ai_keywords(
-        model_name,
-        rule_keywords.len(),
-        context.len(),
-        should_use_ai,
-    );
-
-    if should_use_ai {
-        // Use AI for keyword extraction
-        if let Some(provider) = fast_provider {
-            let ai_keywords = extract_keywords_with_ai(context, provider).await;
-            if !ai_keywords.is_empty() {
-                // Debug log: AI result
-                crate::debug::debug_log().memory_ai_keywords(
-                    provider.model_name(),
-                    ai_keywords.len(),
-                    context.len(),
-                    true,
-                );
-                return ai_keywords;
-            }
-        }
-    }
-
-    rule_keywords
-}
-
-/// Extract keywords using AI provider.
-async fn extract_keywords_with_ai(
-    context: &str,
-    provider: &dyn crate::providers::Provider,
-) -> Vec<String> {
-    use crate::providers::{ChatRequest, Message, MessageContent, Role};
-
-    let truncated = if context.len() > 2000 {
-        &context[..2000]
-    } else {
-        context
-    };
-
-    let prompt = format!(
-        "从以下对话内容中提取关键词（用于记忆检索），最多返回10个关键词，以逗号分隔：\n\n{}",
-        truncated
-    );
-
-    let request = ChatRequest {
-        messages: vec![Message {
-            role: Role::User,
-            content: MessageContent::Text(prompt),
-        }],
-        tools: vec![],
-        system: Some("你是一个关键词提取助手，返回关键词列表，不要其他解释。".to_string()),
-        think: false,
-        max_tokens: 100,
-        server_tools: vec![],
-        enable_caching: false,
-    };
-
-    let response = match provider.chat(request).await {
-        Ok(r) => r,
-        Err(_) => return Vec::new(),
-    };
-
-    let text = response
-        .content
-        .iter()
-        .filter_map(|block| {
-            if let crate::providers::ContentBlock::Text { text } = block {
-                Some(text.clone())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("");
-
-    text.split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| s.len() >= 2)
-        .collect()
+    // AI keyword extraction removed - just use rule-based
+    extract_context_keywords(context)
 }
 
 // ============================================================================
@@ -476,6 +423,111 @@ impl Default for TfIdfSearch {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ============================================================================
+// AI Memory Selection (Claude Code style)
+// ============================================================================
+
+/// System prompt for AI memory selection.
+const SELECT_MEMORIES_SYSTEM_PROMPT: &str = r#"你正在选择对处理用户查询有用的记忆。你会收到用户的查询和可用记忆文件列表（包含描述）。
+
+返回最有用的记忆索引列表（最多5个），以 JSON 数组格式返回。
+- 只选择你确定会有帮助的记忆
+- 如果不确定某个记忆是否有用，不要选择它
+- 如果没有明显有用的记忆，可以返回空数组 []
+- 优先选择与当前问题直接相关的记忆
+
+返回格式示例：{"selected": [0, 2, 5]}
+"#;
+
+/// Select relevant memories using AI (Claude Code style).
+///
+/// Takes user query and memory manifest (descriptions), uses AI to select
+/// the most relevant ones (up to 5).
+pub async fn ai_select_memories(
+    query: &str,
+    memory_manifest: &str,
+    provider: &dyn crate::providers::Provider,
+) -> Vec<usize> {
+    use crate::providers::{ChatRequest, Message, MessageContent, Role};
+
+    // Truncate query if too long
+    let truncated_query = if query.len() > 1000 {
+        &query[..1000]
+    } else {
+        query
+    };
+
+    let user_prompt = format!(
+        "查询: {}\n\n可用记忆列表:\n{}\n\n请选择最有用的记忆索引（最多5个）：",
+        truncated_query, memory_manifest
+    );
+
+    let request = ChatRequest {
+        messages: vec![Message {
+            role: Role::User,
+            content: MessageContent::Text(user_prompt),
+        }],
+        tools: vec![],
+        system: Some(SELECT_MEMORIES_SYSTEM_PROMPT.to_string()),
+        think: false,
+        max_tokens: 100,
+        server_tools: vec![],
+        enable_caching: false,
+    };
+
+    let response = match provider.chat(request).await {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+
+    // Extract text from response
+    let text = response
+        .content
+        .iter()
+        .filter_map(|block| {
+            if let crate::providers::ContentBlock::Text { text } = block {
+                Some(text.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    // Parse JSON response
+    parse_selected_indices(&text)
+}
+
+/// Parse selected indices from AI response.
+fn parse_selected_indices(text: &str) -> Vec<usize> {
+    // Try to parse as JSON
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+        if let Some(selected) = json.get("selected").and_then(|s| s.as_array()) {
+            return selected
+                .iter()
+                .filter_map(|v| v.as_u64().map(|n| n as usize))
+                .collect();
+        }
+        // Also try direct array format
+        if let Some(arr) = json.as_array() {
+            return arr
+                .iter()
+                .filter_map(|v| v.as_u64().map(|n| n as usize))
+                .collect();
+        }
+    }
+
+    // Fallback: try to extract numbers from text
+    let mut indices = Vec::new();
+    for part in text.split(',') {
+        let trimmed = part.trim();
+        if let Ok(n) = trimmed.parse::<usize>() {
+            indices.push(n);
+        }
+    }
+    indices
 }
 
 #[cfg(test)]

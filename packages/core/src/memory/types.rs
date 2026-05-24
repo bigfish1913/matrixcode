@@ -163,11 +163,16 @@ impl MemoryEntry {
     }
 
     /// Create a manually added memory entry.
-    pub fn manual(category: MemoryCategory, content: String) -> Self {
-        let mut entry = Self::new(category, content, None, None);
+    pub fn manual(category: MemoryCategory, content: String, project_path: Option<String>) -> Self {
+        let mut entry = Self::new(category, content, None, project_path);
         entry.is_manual = true;
         entry.importance = 95.0;
         entry
+    }
+
+    /// Create a manually added memory entry (global, no project path).
+    pub fn manual_global(category: MemoryCategory, content: String) -> Self {
+        Self::manual(category, content, None)
     }
 
     /// Mark this memory as referenced (increases importance over time).
@@ -418,27 +423,13 @@ impl AutoMemory {
     }
 
     /// Add memory from detected content.
+    /// Delegates to add() which handles duplicate and conflict checks.
     pub fn add_memory(
         &mut self,
         category: MemoryCategory,
         content: String,
         source_session: Option<String>,
     ) {
-        if self.has_similar(&content) {
-            return;
-        }
-
-        if let Some(conflict_idx) = self.find_conflict(&content, category) {
-            let old_content = self.entries[conflict_idx].content.clone();
-            log::debug!(
-                "Memory conflict detected: '{}' supersedes '{}'",
-                content,
-                old_content
-            );
-            self.entries.remove(conflict_idx);
-            self.invalidate_index();
-        }
-
         let entry = MemoryEntry::new(category, content, source_session, None);
         self.add(entry);
     }
@@ -925,6 +916,48 @@ impl AutoMemory {
                 Some(text.to_lowercase())
             }
         }
+    }
+
+    /// Generate manifest for AI selection (Claude Code style).
+    /// Returns a list of memory descriptions with ORIGINAL indices.
+    /// Format: "15. [category] content preview (importance)"
+    /// AI returns indices that can be used directly with get_entries_by_indices.
+    pub fn generate_manifest(&self, max_entries: usize) -> String {
+        if self.entries.is_empty() {
+            return String::new();
+        }
+
+        // Sort by importance (highest first), but keep original indices
+        let mut sorted_entries: Vec<_> = self.entries
+            .iter()
+            .enumerate()
+            .collect();
+        sorted_entries.sort_by(|a, b| b.1.importance.partial_cmp(&a.1.importance).unwrap_or(std::cmp::Ordering::Equal));
+        sorted_entries.truncate(max_entries);
+
+        let mut manifest = String::new();
+        for (original_idx, entry) in sorted_entries.iter() {
+            let preview: String = entry.content.chars().take(80).collect();
+            let preview = preview.trim_end_matches('\n');
+            manifest.push_str(&format!(
+                "{}. {} {} {} (重要性: {:.0})\n",
+                original_idx,  // Use original index, not sorted position
+                entry.category.icon(),
+                preview,
+                entry.category.display_name(),
+                entry.importance
+            ));
+        }
+
+        manifest
+    }
+
+    /// Get entries by indices (from AI selection result).
+    pub fn get_entries_by_indices(&self, indices: &[usize]) -> Vec<&MemoryEntry> {
+        indices
+            .iter()
+            .filter_map(|i| self.entries.get(*i))
+            .collect()
     }
 
     /// Generate summary for system prompt.

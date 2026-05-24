@@ -1141,7 +1141,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                             } else if let Ok(mut mem) = ms.load_global() {
                                 // Infer category from content
                                 let category = matrixcode_core::memory::infer_category_from_content(&content);
-                                let entry = matrixcode_core::memory::MemoryEntry::manual(category, content.clone());
+                                let entry = matrixcode_core::memory::MemoryEntry::manual_global(category, content.clone());
                                 mem.add(entry);
                                 if ms.save_global(&mem).is_ok() {
                                     format!("✓ Added memory: {} {}\n  {}", category.icon(), category.display_name(), content)
@@ -1346,34 +1346,66 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             }
 
             // Handle /sessions command
-            if msg == "/sessions" || msg == "/resume" {
-                if let Some(ref mgr) = session_mgr {
-                    let sessions = mgr.list_sessions();
-                    if sessions.is_empty() {
+            if msg == "/sessions" || msg == "/resume" || msg.starts_with("/sessions ") {
+                let subcmd = if msg.starts_with("/sessions ") {
+                    msg.strip_prefix("/sessions ").unwrap_or("")
+                } else {
+                    ""
+                };
+
+                if let Some(ref mut mgr) = session_mgr {
+                    if subcmd == "cleanup" || subcmd == "prune" {
+                        // Clean up old sessions (older than 30 days)
+                        let old_removed = mgr.cleanup_old_sessions(30).unwrap_or(0);
+                        // Prune to keep only 50 most recent sessions
+                        let pruned = mgr.prune_sessions(50).unwrap_or(0);
+                        let total = old_removed + pruned;
+
                         let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
-                            "No saved sessions found",
+                            format!("✓ Session cleanup: removed {} old sessions ({} by age, {} by count)",
+                                total, old_removed, pruned),
+                            None,
+                        )).await;
+                    } else if subcmd == "stats" {
+                        let sessions = mgr.list_sessions();
+                        let total = sessions.len();
+                        let total_msgs: usize = sessions.iter().map(|s| s.message_count).sum();
+                        let total_tokens: u64 = sessions.iter().map(|s| s.total_output_tokens).sum();
+
+                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                            format!("📊 Session stats:\n  Total sessions: {}\n  Total messages: {}\n  Total output tokens: {}",
+                                total, total_msgs, total_tokens),
                             None,
                         )).await;
                     } else {
-                        let mut info = format!("📚 Sessions ({}):\n\n", sessions.len());
-                        for session in sessions.iter().take(10) {
-                            let project = session.project_path.as_deref()
-                                .map(|p| p.split('/').next_back().unwrap_or(p))
-                                .unwrap_or("unknown");
-                            info.push_str(&format!("• {} - {} ({} msgs, {} out)\n",
-                                session.short_id(),
-                                project,
-                                session.message_count,
-                                session.total_output_tokens));
+                        // List sessions
+                        let sessions = mgr.list_sessions();
+                        if sessions.is_empty() {
+                            let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                                "No saved sessions found",
+                                None,
+                            )).await;
+                        } else {
+                            let mut info = format!("📚 Sessions ({}):\n\n", sessions.len());
+                            for session in sessions.iter().take(10) {
+                                let project = session.project_path.as_deref()
+                                    .map(|p| p.split('/').next_back().unwrap_or(p))
+                                    .unwrap_or("unknown");
+                                info.push_str(&format!("• {} - {} ({} msgs, {} out)\n",
+                                    session.short_id(),
+                                    project,
+                                    session.message_count,
+                                    session.total_output_tokens));
+                            }
+                            if sessions.len() > 10 {
+                                info.push_str(&format!("\n... and {} more sessions", sessions.len() - 10));
+                            }
+                            info.push_str("\n\nCommands: /sessions cleanup, /sessions stats\nUse '/load <id>' to resume");
+                            let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
+                                info,
+                                None,
+                            )).await;
                         }
-                        if sessions.len() > 10 {
-                            info.push_str(&format!("\n... and {} more sessions", sessions.len() - 10));
-                        }
-                        info.push_str("\n\nUse '/load <id>' to resume a session");
-                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
-                            info,
-                            None,
-                        )).await;
                     }
                 } else {
                     let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
@@ -1483,36 +1515,80 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 continue;
             }
 
-            // Dynamic memory retrieval: update memory summary based on current context
-            // This uses AI keyword extraction with fast_provider if available
+            // Dynamic memory retrieval: AI selects relevant memories (Claude Code style)
+            // Skip for first turn or simple messages to avoid unnecessary API calls
             if let Some(ref mem) = memory {
-                let context_keywords = if let Some(ref fp) = fast_provider {
-                    // Use AI-enhanced keyword extraction
-                    matrixcode_core::memory::extract_keywords_hybrid(&msg, Some(fp.as_ref())).await
+                // Check skip conditions
+                let is_first_turn = turn_count == 0;
+                let is_simple_msg = matrixcode_core::memory::should_skip_simple_message(&msg);
+                let has_few_memories = mem.entries.len() < 5;
+
+                if is_first_turn || is_simple_msg {
+                    // Skip AI selection for first turn or simple messages
+                    // Just use static summary if available
+                    let static_summary = mem.generate_prompt_summary(10);
+                    if !static_summary.is_empty() {
+                        agent.update_memory_summary(Some(static_summary));
+                    }
+                } else if has_few_memories {
+                    // Few memories: just use all of them without AI selection
+                    let static_summary = mem.generate_prompt_summary(10);
+                    if !static_summary.is_empty() {
+                        agent.update_memory_summary(Some(static_summary));
+                    }
+                } else if let Some(ref fp) = fast_provider {
+                    // Normal case: AI selects relevant memories
+                    // Generate manifest (descriptions list)
+                    let manifest = mem.generate_manifest(50);  // Top 50 by importance
+
+                    if !manifest.is_empty() {
+                        // AI selects relevant memories
+                        let selected_indices = matrixcode_core::memory::ai_select_memories(
+                            &msg,
+                            &manifest,
+                            fp.as_ref(),
+                        ).await;
+
+                        // Get selected entries and generate summary
+                        let selected_entries = mem.get_entries_by_indices(&selected_indices);
+                        let contextual_summary = if selected_entries.is_empty() {
+                            // AI didn't select any, use top entries
+                            mem.generate_prompt_summary(5)
+                        } else {
+                            // Generate summary from selected entries
+                            let mut summary = String::from("【相关记忆】\n\n");
+                            for entry in selected_entries.iter().take(5) {
+                                summary.push_str(&format!("{} {}\n", entry.category.icon(), entry.content));
+                            }
+                            summary
+                        };
+
+                        if !contextual_summary.is_empty() {
+                            agent.update_memory_summary(Some(contextual_summary));
+
+                            // Debug log
+                            matrixcode_core::debug::debug_log().log("memory_selection",
+                                &format!("AI selected {} memories from {} candidates",
+                                    selected_indices.len(), mem.entries.len()));
+
+                            // Send event for TUI
+                            if !selected_indices.is_empty() {
+                                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                                    matrixcode_core::EventType::MemoryLoaded,
+                                    matrixcode_core::EventData::Memory {
+                                        summary: format!("AI 选择了 {} 条相关记忆", selected_indices.len()),
+                                        entries_count: selected_indices.len(),
+                                    },
+                                )).await;
+                            }
+                        }
+                    }
                 } else {
-                    // Fallback to rule-based extraction
-                    matrixcode_core::memory::extract_context_keywords(&msg)
-                };
-
-                // Generate context-aware summary using pre-extracted keywords (avoid double extraction)
-                let contextual_summary = mem.generate_contextual_summary_with_keywords(&context_keywords, 15);
-
-                // Update agent's memory summary (will rebuild system prompt internally)
-                if !contextual_summary.is_empty() {
-                    agent.update_memory_summary(Some(contextual_summary));
-
-                    // Debug log: keywords extracted
-                    matrixcode_core::debug::debug_log().keywords_extracted(&context_keywords, &msg);
-
-                    // Send keywords event for TUI display (only in debug mode)
-                    if !context_keywords.is_empty() {
-                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
-                            matrixcode_core::EventType::KeywordsExtracted,
-                            matrixcode_core::EventData::Keywords {
-                                keywords: context_keywords,
-                                source: msg.chars().take(50).collect(),
-                            },
-                        )).await;
+                    // No fast provider: use rule-based keyword search
+                    let keywords = matrixcode_core::memory::extract_context_keywords(&msg);
+                    let contextual_summary = mem.generate_contextual_summary_with_keywords(&keywords, 10);
+                    if !contextual_summary.is_empty() {
+                        agent.update_memory_summary(Some(contextual_summary));
                     }
                 }
             }
@@ -1588,6 +1664,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
                             // Use AI extraction with fast provider (smart detection)
                             // Falls back to rule-based if AI fails or unavailable
+                            let project_path_str = agent_project_path.as_ref().map(|p| p.to_string_lossy().to_string());
                             let detected = if let Some(ref fp) = fast_provider {
                                 // AI extraction with fast model
                                 let model_name = agent_fast_model.clone().unwrap_or_default();
@@ -1596,11 +1673,11 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                     model_name,
                                 );
                                 matrixcode_core::memory::detect_memories_smart(
-                                    &text, None, Some(&extractor)
+                                    &text, None, project_path_str.as_deref(), Some(&extractor)
                                 ).await
                             } else {
-                                // Fallback to rule-based detection
-                                matrixcode_core::memory::detect_memories_from_text(&text, None)
+                                // No fast provider - skip detection (no rule-based fallback)
+                                Vec::new()
                             };
 
                             if !detected.is_empty() {
@@ -1608,9 +1685,22 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
                                 // Save each entry to appropriate storage
                                 for entry in detected {
-                                    // Determine if project-specific based on tags or context
-                                    let is_project = entry.tags.contains(&"project".to_string())
-                                        || agent_project_path.is_some();
+                                    // Improved logic: determine if project-specific
+                                    // - Preference: always global (user preferences apply across projects)
+                                    // - UserIntentPattern, TaskPattern: global (behavior patterns)
+                                    // - Decision, Technical, Structure, Finding, Solution: project-specific if has project_path
+                                    let is_global_category = matches!(
+                                        entry.category,
+                                        matrixcode_core::memory::MemoryCategory::Preference
+                                            | matrixcode_core::memory::MemoryCategory::UserIntentPattern
+                                            | matrixcode_core::memory::MemoryCategory::TaskPattern
+                                    );
+
+                                    let is_project = !is_global_category
+                                        && (entry.tags.contains(&"project".to_string())
+                                            || entry.project_path.is_some()
+                                            || agent_project_path.is_some());
+
                                     if let Err(e) = ms.add_entry(entry, is_project) {
                                         log::warn!("Failed to add memory entry: {}", e);
                                     }

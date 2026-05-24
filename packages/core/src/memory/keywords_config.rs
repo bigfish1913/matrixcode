@@ -120,4 +120,4 @@ impl Default for KeywordsConfig {
     fn default() -> Self {
         Self::load()
     }
-}
+}  

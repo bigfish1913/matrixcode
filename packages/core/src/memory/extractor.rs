@@ -16,7 +16,7 @@ use super::types::{AutoMemory, MemoryCategory, MemoryEntry};
 #[async_trait::async_trait]
 pub trait MemoryExtractor: Send + Sync {
     /// Extract memories from conversation text using AI.
-    async fn extract(&self, text: &str, session_id: Option<&str>) -> Result<Vec<MemoryEntry>>;
+    async fn extract(&self, text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Result<Vec<MemoryEntry>>;
 
     /// Get the model name used for extraction.
     fn model_name(&self) -> &str;
@@ -71,7 +71,7 @@ const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是一个记忆提取助手。�
 
 #[async_trait::async_trait]
 impl MemoryExtractor for AiMemoryExtractor {
-    async fn extract(&self, text: &str, session_id: Option<&str>) -> Result<Vec<MemoryEntry>> {
+    async fn extract(&self, text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Result<Vec<MemoryEntry>> {
         use crate::providers::{ChatRequest, Message, MessageContent, Role};
 
         // Safely truncate to ~4000 chars respecting UTF-8 boundaries
@@ -108,7 +108,7 @@ impl MemoryExtractor for AiMemoryExtractor {
             .collect::<Vec<_>>()
             .join("");
 
-        parse_memory_response(&response_text, session_id)
+        parse_memory_response(&response_text, session_id, project_path)
     }
 
     fn model_name(&self) -> &str {
@@ -116,7 +116,7 @@ impl MemoryExtractor for AiMemoryExtractor {
     }
 }
 
-fn parse_memory_response(json_text: &str, session_id: Option<&str>) -> Result<Vec<MemoryEntry>> {
+fn parse_memory_response(json_text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Result<Vec<MemoryEntry>> {
     let cleaned = json_text
         .trim()
         .trim_start_matches("```json")
@@ -162,7 +162,7 @@ fn parse_memory_response(json_text: &str, session_id: Option<&str>) -> Result<Ve
             }
 
             let mut entry =
-                MemoryEntry::new(category, item.content, session_id.map(|s| s.to_string()), None);
+                MemoryEntry::new(category, item.content, session_id.map(|s| s.to_string()), project_path.map(|p| p.to_string()));
             if item.importance > 0.0 {
                 entry.importance = item.importance.clamp(0.0, 100.0);
             }
@@ -206,7 +206,7 @@ fn deduplicate_entries(entries: Vec<MemoryEntry>) -> Vec<MemoryEntry> {
 // ============================================================================
 
 /// Detect memories from text using configurable patterns.
-pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<MemoryEntry> {
+pub fn detect_memories_fallback(text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Vec<MemoryEntry> {
     let config = KeywordsConfig::load();
     let mut entries = Vec::new();
     let text_lower = text.to_lowercase();
@@ -234,7 +234,7 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<Mem
                         category,
                         content,
                         session_id.map(|s| s.to_string()),
-                        None,
+                        project_path.map(|p| p.to_string()),
                     ));
                 }
             }
@@ -245,8 +245,8 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>) -> Vec<Mem
 }
 
 /// Detect memories from text (wrapper for fallback).
-pub fn detect_memories_from_text(text: &str, session_id: Option<&str>) -> Vec<MemoryEntry> {
-    detect_memories_fallback(text, session_id)
+pub fn detect_memories_from_text(text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Vec<MemoryEntry> {
+    detect_memories_fallback(text, session_id, project_path)
 }
 
 /// Smart detection: AI-first with rule-based fallback.
@@ -257,13 +257,15 @@ pub fn detect_memories_from_text(text: &str, session_id: Option<&str>) -> Vec<Me
 pub async fn detect_memories_smart(
     text: &str,
     session_id: Option<&str>,
+    project_path: Option<&str>,
     extractor: Option<&AiMemoryExtractor>,
 ) -> Vec<MemoryEntry> {
     let mode = AiDetectionMode::from_env();
     let text_len = text.len();
 
     // Determine if we should try AI first
-    let should_try_ai = mode != AiDetectionMode::Never && extractor.is_some() && text_len > 200; // Minimum text length for AI (avoid API overhead for short texts)
+    // Only use AI for text > 200 chars (avoid API overhead for short texts)
+    let should_try_ai = mode != AiDetectionMode::Never && extractor.is_some() && text_len > 200;
 
     // Debug log: show method and model
     let model_name = extractor.map(|e| e.model_name()).unwrap_or("none");
@@ -275,7 +277,7 @@ pub async fn detect_memories_smart(
     );
 
     if should_try_ai && let Some(ex) = extractor {
-        if let Ok(ai_entries) = ex.extract(text, session_id).await {
+        if let Ok(ai_entries) = ex.extract(text, session_id, project_path).await {
             // AI succeeded - use AI results entirely (skip hardcoded rules)
             // Debug log: AI result
             crate::debug::debug_log().memory_ai_detection(
@@ -286,19 +288,14 @@ pub async fn detect_memories_smart(
             );
             return deduplicate_entries(ai_entries);
         }
-        // AI failed - log and fall back to rules
-        log::warn!("AI memory extraction failed, falling back to rule-based");
+        // AI failed - log and skip rule-based fallback (per user request)
+        log::warn!("AI memory extraction failed, skipping detection for this turn");
+        return Vec::new();
     }
 
-    // Fallback: rule-based detection using KeywordsConfig
-    let entries = detect_memories_fallback(text, session_id);
-    crate::debug::debug_log().memory_ai_detection(
-        "rule",
-        entries.len(),
-        text_len,
-        false,
-    );
-    entries
+    // For short texts (< 200 chars), skip detection entirely (per user request)
+    // No rule-based fallback
+    Vec::new()
 }
 
 fn extract_memory_content(text: &str, keyword: &str) -> String {

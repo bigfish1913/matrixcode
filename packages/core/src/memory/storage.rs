@@ -30,9 +30,10 @@ impl MemoryFileLock {
     }
 
     /// Acquire the lock (blocking with timeout).
-    pub fn acquire(&mut self, timeout_ms: u64) -> Result<bool> {
+    /// Returns Ok(true) if lock acquired, Err if timeout.
+    pub fn acquire(&mut self, timeout_ms: u64) -> Result<()> {
         if self.locked {
-            return Ok(true);
+            return Ok(());
         }
 
         let start = std::time::Instant::now();
@@ -43,7 +44,7 @@ impl MemoryFileLock {
                     let lock_info = format!("{}:{}", std::process::id(), Utc::now().to_rfc3339());
                     fs::write(&self.lock_path, lock_info)?;
                     self.locked = true;
-                    return Ok(true);
+                    return Ok(());
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                     if self.is_stale_lock()? {
@@ -57,7 +58,8 @@ impl MemoryFileLock {
             }
         }
 
-        Ok(false)
+        // Timeout - return error instead of Ok(false)
+        anyhow::bail!("Failed to acquire memory lock after {}ms timeout", timeout_ms)
     }
 
     /// Check if the existing lock is stale (either old or process is dead).
