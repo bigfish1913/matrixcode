@@ -1620,11 +1620,10 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                         matrixcode_core::debug::debug_log().session_save(messages.len(), output_tokens);
                     }
 
-                    // Auto-detect and save memories (enhanced)
+                    // Auto-detect and save memories (background task for AI extraction)
+                    // Feedback detection (rule-based, fast) stays in main thread
                     if let Some(ref mut ms) = memory_storage {
-                        let messages = agent.get_messages();
-
-                        // 1. Check for user feedback/correction in the user message
+                        // 1. Check for user feedback/correction (rule-based, fast)
                         let feedback_results = matrixcode_core::memory::detect_feedback_patterns(&msg);
                         if !feedback_results.is_empty()
                             && let Ok(mut mem) = ms.load_combined() {
@@ -1650,104 +1649,12 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                 )).await;
                             }
 
-                        // 2. Detect from last assistant message using AI (fast model)
-                        if let Some(last_msg) = messages.last() {
-                            let text = match &last_msg.content {
-                                matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
-                                matrixcode_core::providers::MessageContent::Blocks(blocks) => {
-                                    blocks.iter().filter_map(|b| match b {
-                                        matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
-                                        _ => None,
-                                    }).collect::<Vec<_>>().join("\n")
-                                }
-                            };
-
-                            // Use AI extraction with fast provider (smart detection)
-                            // Falls back to rule-based if AI fails or unavailable
-                            let project_path_str = agent_project_path.as_ref().map(|p| p.to_string_lossy().to_string());
-                            let detected = if let Some(ref fp) = fast_provider {
-                                // AI extraction with fast model
-                                let model_name = agent_fast_model.clone().unwrap_or_default();
-                                let extractor = matrixcode_core::memory::AiMemoryExtractor::new(
-                                    fp.clone_box(),
-                                    model_name,
-                                );
-                                matrixcode_core::memory::detect_memories_smart(
-                                    &text, None, project_path_str.as_deref(), Some(&extractor)
-                                ).await
-                            } else {
-                                // No fast provider - skip detection (no rule-based fallback)
-                                Vec::new()
-                            };
-
-                            if !detected.is_empty() {
-                                let detected_count = detected.len();
-
-                                // Save each entry to appropriate storage
-                                for entry in detected {
-                                    // Improved logic: determine if project-specific
-                                    // - Preference: always global (user preferences apply across projects)
-                                    // - UserIntentPattern, TaskPattern: global (behavior patterns)
-                                    // - Decision, Technical, Structure, Finding, Solution: project-specific if has project_path
-                                    let is_global_category = matches!(
-                                        entry.category,
-                                        matrixcode_core::memory::MemoryCategory::Preference
-                                            | matrixcode_core::memory::MemoryCategory::UserIntentPattern
-                                            | matrixcode_core::memory::MemoryCategory::TaskPattern
-                                    );
-
-                                    let is_project = !is_global_category
-                                        && (entry.tags.contains(&"project".to_string())
-                                            || entry.project_path.is_some()
-                                            || agent_project_path.is_some());
-
-                                    if let Err(e) = ms.add_entry(entry, is_project) {
-                                        log::warn!("Failed to add memory entry: {}", e);
-                                    }
-                                }
-
-                                // Debug log: memory save
-                                matrixcode_core::debug_memory!(detected_count, text.len());
-
-                                // Send event to TUI
-                                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
-                                    matrixcode_core::EventType::MemoryDetected,
-                                    matrixcode_core::EventData::Memory {
-                                        summary: format!("检测到 {} 条记忆", detected_count),
-                                        entries_count: detected_count,
-                                    },
-                                )).await;
-                            }
-
-                            // 3. Infer preferences from behavior (every 5 turns)
-                            if turn_count.is_multiple_of(5) && messages.len() >= 3
-                                && let Ok(mut mem) = ms.load_combined() {
-                                    let config = matrixcode_core::memory::BehaviorInferenceConfig::default();
-                                    let inferred = matrixcode_core::memory::apply_behavior_inferences_to_memory(
-                                        messages, &mut mem, Some(&config)
-                                    );
-                                    if inferred > 0 {
-                                        if let Err(e) = ms.save_global(&mem) {
-                                            log::warn!("Failed to save inferred preferences: {}", e);
-                                        }
-                                        let _ = agent_event_tx.send(matrixcode_core::AgentEvent::progress(
-                                            format!("🧠 推断出 {} 个使用偏好", inferred),
-                                            None,
-                                        )).await;
-                                    }
-                                }
-                        }
-
-                        // 4. Periodic cleanup (every 10 turns)
+                        // 2. Periodic cleanup (every 10 turns) - rule-based, fast
                         if turn_count.is_multiple_of(10)
                             && let Ok(mut mem) = ms.load_combined() {
-                                // Apply time decay
                                 mem.apply_time_decay();
-                                // Smart merge
                                 let merged = mem.smart_merge();
-                                // Prune low importance
                                 mem.prune();
-                                // Save
                                 if let Err(e) = ms.save_global(&mem) {
                                     log::warn!("Failed to save memory after maintenance: {}", e);
                                 }
@@ -1759,6 +1666,85 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                     )).await;
                                 }
                             }
+                    }
+
+                    // 3. AI memory extraction - spawn background task (non-blocking)
+                    // Only run every N turns to reduce API calls
+                    if turn_count.is_multiple_of(3) && fast_provider.is_some() {
+                        let messages = agent.get_messages();
+                        if let Some(last_msg) = messages.last() {
+                            let text = match &last_msg.content {
+                                matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                    blocks.iter().filter_map(|b| match b {
+                                        matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                                        _ => None,
+                                    }).collect::<Vec<_>>().join("\n")
+                                }
+                            };
+
+                            // Clone necessary data for background task
+                            let bg_project_path = agent_project_path.clone();
+                            let bg_fast_model = agent_fast_model.clone();
+                            let bg_event_tx = agent_event_tx.clone();
+
+                            // Spawn background extraction task
+                            tokio::spawn(async move {
+                                // Create new memory storage for background task
+                                // Use cloned path (not borrowed reference)
+                                let bg_ms = matrixcode_core::memory::MemoryStorage::new(bg_project_path.as_deref()).ok();
+
+                                if bg_ms.is_none() || text.is_empty() {
+                                    return;
+                                }
+
+                                let mut bg_ms = bg_ms.unwrap();
+
+                                // Use minimal prompt for extraction (efficient, focused task)
+                                let project_path_str = bg_project_path.as_ref().map(|p| p.to_string_lossy().to_string());
+                                let detected = if let Some(model) = bg_fast_model {
+                                    // Use simple extraction prompt (not full system prompt)
+                                    // This is a focused task, so we use minimal context
+                                    let extractor = matrixcode_core::memory::AiMemoryExtractor::new_minimal(model);
+                                    matrixcode_core::memory::detect_memories_smart(
+                                        &text, None, project_path_str.as_deref(), Some(&extractor)
+                                    ).await
+                                } else {
+                                    Vec::new()
+                                };
+
+                                if !detected.is_empty() {
+                                    let detected_count = detected.len();
+
+                                    for entry in detected {
+                                        let is_global_category = matches!(
+                                            entry.category,
+                                            matrixcode_core::memory::MemoryCategory::Preference
+                                                | matrixcode_core::memory::MemoryCategory::UserIntentPattern
+                                                | matrixcode_core::memory::MemoryCategory::TaskPattern
+                                        );
+
+                                        let is_project = !is_global_category
+                                            && (entry.tags.contains(&"project".to_string())
+                                                || entry.project_path.is_some()
+                                                || bg_project_path.is_some());
+
+                                        if let Err(e) = bg_ms.add_entry(entry, is_project) {
+                                            log::warn!("Failed to add memory entry: {}", e);
+                                        }
+                                    }
+
+                                    // Send event to TUI (non-blocking)
+                                    let _ = bg_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                                        matrixcode_core::EventType::MemoryDetected,
+                                        matrixcode_core::EventData::Memory {
+                                            summary: format!("检测到 {} 条记忆", detected_count),
+                                            entries_count: detected_count,
+                                        },
+                                    )).await;
+                                }
+                            });
+                        }
                     }
                 }
                 Err(e) => {

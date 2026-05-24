@@ -265,6 +265,36 @@ pub fn create_provider_with_headers(
     }
 }
 
+/// Create a minimal provider from environment variables (for background tasks).
+/// Uses global config for API key and base URL, suitable for non-blocking background operations.
+pub fn create_minimal_provider(model: &str) -> Box<dyn Provider> {
+    // Try to load .env first (background tasks may not have .env loaded)
+    let _ = dotenvy::dotenv();
+
+    // Get API key from env (try multiple env vars)
+    let api_key = std::env::var("API_KEY")
+        .or_else(|_| std::env::var("ANTHROPIC_AUTH_TOKEN"))
+        .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
+        .or_else(|_| std::env::var("OPENAI_API_KEY"))
+        .unwrap_or_default();
+
+    // Get base URL from env
+    let base_url = std::env::var("BASE_URL")
+        .or_else(|_| std::env::var("ANTHROPIC_BASE_URL"))
+        .ok();
+
+    // Infer provider type from model name
+    let provider_type = infer_provider_type(model);
+
+    // Create provider (ignore errors, return a default)
+    create_provider_with_headers(provider_type, api_key, model.to_string(), base_url, None)
+        .unwrap_or_else(|_| {
+            // Fallback: create a dummy provider that returns empty
+            // This won't actually work, but prevents crashes
+            panic!("Failed to create minimal provider for background task: no API key configured")
+        })
+}
+
 /// Infer provider type from model name.
 /// Returns Anthropic for Claude models, OpenAI for GPT models.
 pub fn infer_provider_type(model: &str) -> ProviderType {

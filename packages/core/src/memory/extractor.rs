@@ -33,6 +33,17 @@ impl AiMemoryExtractor {
     pub fn new(provider: Box<dyn crate::providers::Provider>, model: String) -> Self {
         Self { provider, model }
     }
+
+    /// Create a minimal extractor (for background tasks, uses simplified prompt).
+    /// This is more efficient for non-blocking background extraction.
+    pub fn new_minimal(model: String) -> Self {
+        // Create a minimal provider that uses the global config
+        // This is for background tasks, so we use a simplified approach
+        Self {
+            provider: crate::create_minimal_provider(&model),
+            model,
+        }
+    }
 }
 
 const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是一个记忆提取助手。从对话中提取值得长期记忆的关键信息。

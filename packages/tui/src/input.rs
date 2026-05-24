@@ -116,6 +116,22 @@ impl TuiApp {
                 self.exit = true;
             }
 
+            // D key (no modifier): toggle debug panel (when debug_mode is on)
+            KeyCode::Char('D') | KeyCode::Char('d')
+                if !k.modifiers.contains(KeyModifiers::ALT)
+                && !k.modifiers.contains(KeyModifiers::CONTROL)
+                && self.debug_mode => {
+                self.toggle_debug_panel();
+            }
+
+            // C key when debug panel is visible: clear debug logs
+            KeyCode::Char('C') | KeyCode::Char('c')
+                if !k.modifiers.contains(KeyModifiers::ALT)
+                && !k.modifiers.contains(KeyModifiers::CONTROL)
+                && self.show_debug_panel => {
+                self.clear_debug_logs();
+            }
+
             // Ctrl+V or Super+V (Mac Cmd+V): paste from clipboard
             KeyCode::Char('v') if k.modifiers.contains(KeyModifiers::CONTROL)
                 || k.modifiers.contains(KeyModifiers::SUPER) => {

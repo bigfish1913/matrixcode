@@ -15,6 +15,14 @@ impl TuiApp {
         let total_height = f.area().height;
         let width = f.area().width;
 
+        // Debug panel height (when visible)
+        let debug_height: u16 = if self.show_debug_panel {
+            // Show debug panel at bottom, take up to 10 lines
+            10.min(total_height / 3)
+        } else {
+            0
+        };
+
         // Fixed heights for bottom components
         let status_height: u16 = 1;
         let hint_height: u16 = if self.should_show_hint() { 1 } else { 0 };
@@ -35,7 +43,7 @@ impl TuiApp {
         let input_height: u16 = self.calculate_input_height();
 
         // Calculate reserved height from bottom
-        let reserved = status_height + input_height + hint_height + gap_height + queue_height + activity_height;
+        let reserved = status_height + input_height + hint_height + gap_height + queue_height + activity_height + debug_height;
 
         // Messages height: what's left, minimum 5 lines
         let messages_height = total_height.saturating_sub(reserved).max(5);
@@ -50,9 +58,11 @@ impl TuiApp {
         let gap_y = hint_y - gap_height;
         let queue_y = gap_y - queue_height;
         let activity_y = queue_y - activity_height;
+        let debug_y = activity_y - debug_height;
 
         // Create areas - messages area starts from top (y=0)
         let messages_area = Rect::new(0, 0, width, messages_height);
+        let debug_area = Rect::new(0, debug_y, width, debug_height);
         let queue_area = Rect::new(0, queue_y, width, queue_height);
         let activity_area = Rect::new(0, activity_y, width, activity_height);
         let hint_area = Rect::new(0, hint_y, width, hint_height);
@@ -61,6 +71,9 @@ impl TuiApp {
 
         // Render in order: messages first (top), then bottom components
         self.draw_messages(f, messages_area);
+        if debug_height > 0 {
+            self.draw_debug_panel(f, debug_area);
+        }
         if queue_height > 0 {
             self.draw_queue(f, queue_area);
         }
@@ -186,5 +199,87 @@ impl TuiApp {
         }
 
         base_height
+    }
+
+    /// Draw debug panel (separate area for debug logs)
+    pub(crate) fn draw_debug_panel(&self, f: &mut ratatui::Frame, area: Rect) {
+        use ratatui::{
+            style::{Color, Modifier, Style},
+            text::{Line, Span},
+            widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+        };
+
+        // Border with title
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow))
+            .title(Span::styled(
+                " 🔍 Debug Logs (D to hide, C to clear) ",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
+
+        let inner_area = block.inner(area);
+        f.render_widget(block, area);
+
+        if self.debug_logs.is_empty() {
+            let empty_msg = Paragraph::new("No debug logs yet...")
+                .style(Style::default().fg(Color::DarkGray));
+            f.render_widget(empty_msg, inner_area);
+            return;
+        }
+
+        // Calculate visible lines
+        let visible_lines = inner_area.height as usize;
+        let total_lines = self.debug_logs.len();
+
+        // Apply scroll offset
+        let scroll_offset = self.debug_scroll_offset as usize;
+        let start = scroll_offset.min(total_lines.saturating_sub(visible_lines));
+        let end = (start + visible_lines).min(total_lines);
+
+        // Build lines from debug logs
+        let lines: Vec<Line> = self.debug_logs[start..end]
+            .iter()
+            .map(|log| {
+                // Color based on category
+                let color = if log.contains("API") {
+                    Color::Cyan
+                } else if log.contains("MEMORY") {
+                    Color::Green
+                } else if log.contains("TOOL") {
+                    Color::Magenta
+                } else if log.contains("SESSION") {
+                    Color::Blue
+                } else if log.contains("KEYWORDS") {
+                    Color::Yellow
+                } else {
+                    Color::Gray
+                };
+                Line::from(Span::styled(log.clone(), Style::default().fg(color)))
+            })
+            .collect();
+
+        let paragraph = Paragraph::new(lines);
+        f.render_widget(paragraph, inner_area);
+
+        // Scrollbar if needed
+        if total_lines > visible_lines {
+            let scrollbar = Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓"))
+                .track_symbol(Some("│"))
+                .thumb_symbol("█");
+
+            let mut scrollbar_state = ScrollbarState::new(total_lines)
+                .position(scroll_offset)
+                .viewport_content_length(visible_lines);
+
+            f.render_stateful_widget(
+                scrollbar,
+                Rect::new(inner_area.right() - 1, inner_area.top(), 1, inner_area.height),
+                &mut scrollbar_state,
+            );
+        }
     }
 }

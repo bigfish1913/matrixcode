@@ -363,6 +363,20 @@ impl TuiApp {
                     }
                 }
             }
+            EventType::DebugLog => {
+                // Add debug log to panel (if debug mode is on)
+                if self.debug_mode
+                    && let Some(EventData::DebugLog { category, message }) = e.data
+                {
+                    let timestamp = e.timestamp;
+                    // Format: [HH:MM:SS] category: message
+                    let secs = (timestamp / 1000) % 60;
+                    let mins = (timestamp / 60000) % 60;
+                    let hours = (timestamp / 3600000) % 24;
+                    let log = format!("[{:02}:{:02}:{:02}] {}: {}", hours, mins, secs, category, message);
+                    self.add_debug_log(log);
+                }
+            }
             _ => {}
         }
     }

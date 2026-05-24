@@ -89,6 +89,10 @@ pub struct TuiApp {
     pub(crate) cron_tasks: Vec<CronTask>,
     // Debug mode
     pub(crate) debug_mode: bool,
+    // Debug panel state
+    pub(crate) show_debug_panel: bool,
+    pub(crate) debug_logs: Vec<String>,
+    pub(crate) debug_scroll_offset: u16,
 }
 
 /// Todo item for progress tracking
@@ -181,6 +185,9 @@ impl TuiApp {
             loop_task: None,
             cron_tasks: Vec::new(),
             debug_mode: false,
+            show_debug_panel: false,
+            debug_logs: Vec::new(),
+            debug_scroll_offset: 0,
         }
     }
 
@@ -226,6 +233,29 @@ impl TuiApp {
     pub fn with_debug_mode(mut self, debug_mode: bool) -> Self {
         self.debug_mode = debug_mode;
         self
+    }
+
+    /// Toggle debug panel visibility
+    pub fn toggle_debug_panel(&mut self) {
+        self.show_debug_panel = !self.show_debug_panel;
+        self.dirty.set(true);
+    }
+
+    /// Add a debug log entry
+    pub fn add_debug_log(&mut self, log: String) {
+        // Keep only last 100 logs to avoid memory issues
+        if self.debug_logs.len() >= 100 {
+            self.debug_logs.remove(0);
+        }
+        self.debug_logs.push(log);
+        self.dirty.set(true);
+    }
+
+    /// Clear debug logs
+    pub fn clear_debug_logs(&mut self) {
+        self.debug_logs.clear();
+        self.debug_scroll_offset = 0;
+        self.dirty.set(true);
     }
 
     pub fn load_messages(&mut self, core_messages: Vec<matrixcode_core::Message>) {

@@ -39,6 +39,7 @@ pub enum EventType {
     Usage,
     Progress,
     AskQuestion, // Ask tool: waiting for user input
+    DebugLog,    // Debug log entry for TUI debug panel
 }
 
 /// Event data
@@ -105,6 +106,10 @@ pub enum EventData {
         question: String,
         options: Option<serde_json::Value>,
     },
+    DebugLog {
+        category: String,
+        message: String,
+    }, // Debug log entry
 }
 
 impl AgentEvent {
@@ -264,6 +269,16 @@ impl AgentEvent {
                 } else {
                     None
                 },
+            },
+        )
+    }
+
+    pub fn debug_log(category: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::with_data(
+            EventType::DebugLog,
+            EventData::DebugLog {
+                category: category.into(),
+                message: message.into(),
             },
         )
     }
