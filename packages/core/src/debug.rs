@@ -10,24 +10,25 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::truncate::truncate_with_suffix;
+use crate::event::AgentEvent;
+use tokio::sync::mpsc;
 
 static API_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
 static COMPRESSION_COUNT: AtomicU64 = AtomicU64::new(0);
 static MEMORY_SAVE_COUNT: AtomicU64 = AtomicU64::new(0);
 static TOOL_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
 
-/// Debug logger that writes to file and optionally prints to console
+/// Debug logger that writes to file
 pub struct DebugLog {
     file: Option<Mutex<File>>,
-    verbose: bool,
 }
 
 impl DebugLog {
     /// Create a new debug logger
     /// Writes to ~/.matrix/debug.log if possible
-    pub fn new(verbose: bool) -> Self {
+    pub fn new() -> Self {
         let file = Self::open_log_file().ok().map(Mutex::new);
-        Self { file, verbose }
+        Self { file }
     }
 
     fn open_log_file() -> Result<File, std::io::Error> {
@@ -56,14 +57,13 @@ impl DebugLog {
     pub fn api_call(&self, model: &str, input_tokens: u32, cached: bool) {
         let count = API_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let msg = format!(
-            "[{}] API#{}: model={}, input_tokens={}, cached={}",
-            Self::timestamp(),
+            "API#{}: model={}, input_tokens={}, cached={}",
             count,
             model,
             input_tokens,
             cached
         );
-        self.write(&msg);
+        self.write_log("API", &msg);
     }
 
     /// Log compression trigger
@@ -71,105 +71,105 @@ impl DebugLog {
         let count = COMPRESSION_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let saved = original_tokens - compressed_tokens;
         let msg = format!(
-            "[{}] COMPRESSION#{}: original={}, compressed={}, saved={}, ratio={:.1}%",
-            Self::timestamp(),
+            "COMPRESSION#{}: original={}, compressed={}, saved={}, ratio={:.1}%",
             count,
             original_tokens,
             compressed_tokens,
             saved,
             ratio * 100.0
         );
-        self.write(&msg);
+        self.write_log("COMPRESS", &msg);
     }
 
     /// Log memory save
     pub fn memory_save(&self, entries: usize, summary_len: usize) {
         let count = MEMORY_SAVE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let msg = format!(
-            "[{}] MEMORY#{}: entries={}, summary_len={}chars",
-            Self::timestamp(),
+            "MEMORY#{}: entries={}, summary_len={}chars",
             count,
             entries,
             summary_len
         );
-        self.write(&msg);
+        self.write_log("MEMORY", &msg);
     }
 
     /// Log keyword extraction
     pub fn keywords_extracted(&self, keywords: &[String], source: &str) {
         let msg = format!(
-            "[{}] KEYWORDS: {} extracted from {}chars | keywords: {}",
-            Self::timestamp(),
+            "{} extracted from {}chars | keywords: {}",
             keywords.len(),
             source.len(),
             keywords.join(", ")
         );
-        self.write(&msg);
+        self.write_log("KEYWORDS", &msg);
     }
 
     /// Log tool execution
     pub fn tool_call(&self, tool: &str, input_preview: &str, result_preview: &str) {
         let count = TOOL_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let msg = format!(
-            "[{}] TOOL#{}: {} | input: {} | result: {}",
-            Self::timestamp(),
+            "TOOL#{}: {} | input: {} | result: {}",
             count,
             tool,
             truncate(input_preview, 50),
             truncate(result_preview, 50)
         );
-        self.write(&msg);
+        self.write_log("TOOL", &msg);
     }
 
     /// Log session save
     pub fn session_save(&self, message_count: usize, total_tokens: u64) {
         let msg = format!(
-            "[{}] SESSION: messages={}, total_tokens={}",
-            Self::timestamp(),
+            "SESSION: messages={}, total_tokens={}",
             message_count,
             total_tokens
         );
-        self.write(&msg);
+        self.write_log("SESSION", &msg);
     }
 
     /// Log generic debug message
     pub fn log(&self, category: &str, message: &str) {
-        let msg = format!("[{}] {}: {}", Self::timestamp(), category, message);
-        self.write(&msg);
+        self.write_log(category, message);
     }
 
     /// Log API request body (for debug)
     pub fn api_request(&self, url: &str, body: &str) {
-        // Truncate large bodies for readability
+        // Write full content to file
         let body_preview = if body.len() > 5000 {
             truncate_with_suffix(body, 5000)
         } else {
             body.to_string()
         };
         let msg = format!(
-            "[{}] API_REQUEST: url={}\n---REQUEST_BODY---\n{}\n---END---",
-            Self::timestamp(),
+            "API_REQUEST: url={}\n---REQUEST_BODY---\n{}\n---END---",
             url,
             body_preview
         );
-        self.write(&msg);
+        self.write(&format!("[{}] {}", Self::timestamp(), msg));
+
+        // Send brief summary to debug panel
+        let panel_msg = format!("url={} | body_len={}chars", url, body.len());
+        self.send_debug_event("API_REQUEST", &panel_msg);
     }
 
     /// Log API response (for debug)
     pub fn api_response(&self, status: u16, body: &str) {
-        // Truncate large responses
+        // Write full content to file
         let body_preview = if body.len() > 10000 {
             truncate_with_suffix(body, 10000)
         } else {
             body.to_string()
         };
         let msg = format!(
-            "[{}] API_RESPONSE: status={}\n---RESPONSE_BODY---\n{}\n---END---",
-            Self::timestamp(),
+            "API_RESPONSE: status={}\n---RESPONSE_BODY---\n{}\n---END---",
             status,
             body_preview
         );
-        self.write(&msg);
+        self.write(&format!("[{}] {}", Self::timestamp(), msg));
+
+        // Send brief summary to debug panel
+        let panel_msg = format!("status={} | body_len={}chars", status, body.len());
+        self.send_debug_event("API_RESPONSE", &panel_msg);
     }
 
     /// Log streaming chunk (for debug, limited)
@@ -193,41 +193,53 @@ impl DebugLog {
     pub fn memory_ai_keywords(&self, model: &str, keywords_count: usize, source_len: usize, used_ai: bool) {
         let method = if used_ai { "AI" } else { "rule" };
         let msg = format!(
-            "[{}] MEMORY_AI_KEYWORDS: model={}, method={}, keywords={}, source_len={}chars",
-            Self::timestamp(),
+            "MEMORY_AI_KEYWORDS: model={}, method={}, keywords={}, source_len={}chars",
             model,
             method,
             keywords_count,
             source_len
         );
-        self.write(&msg);
+        self.write_log("MEMORY", &msg);
     }
 
     /// Log AI memory detection (memory extraction from response)
     pub fn memory_ai_detection(&self, model: &str, entries_count: usize, text_len: usize, used_ai: bool) {
         let method = if used_ai { "AI" } else { "rule" };
         let msg = format!(
-            "[{}] MEMORY_AI_DETECT: model={}, method={}, entries={}, text_len={}chars",
-            Self::timestamp(),
+            "MEMORY_AI_DETECT: model={}, method={}, entries={}, text_len={}chars",
             model,
             method,
             entries_count,
             text_len
         );
-        self.write(&msg);
+        self.write_log("MEMORY", &msg);
     }
 
     fn write(&self, msg: &str) {
-        // Write to file
+        // Write to file only, don't print to console (would mess up TUI)
         if let Some(ref file) = self.file
             && let Ok(mut f) = file.lock()
         {
             let _ = f.write_all(msg.as_bytes());
             let _ = f.write_all(b"\n");
         }
-        // Print to console if verbose
-        if self.verbose {
-            println!("{}", msg);
+    }
+
+    /// Write log with category and send event to TUI debug panel
+    fn write_log(&self, category: &str, message: &str) {
+        let msg = format!("[{}] {}: {}", Self::timestamp(), category, message);
+        self.write(&msg);
+
+        // Send event to TUI debug panel
+        self.send_debug_event(category, message);
+    }
+
+    /// Send debug event to TUI panel only (no file write)
+    fn send_debug_event(&self, category: &str, message: &str) {
+        if let Ok(guard) = DEBUG_EVENT_SENDER.lock()
+            && let Some(ref sender) = *guard
+        {
+            let _ = sender.try_send(AgentEvent::debug_log(category, message));
         }
     }
 
@@ -277,15 +289,24 @@ static DEBUG_LOG: once_cell::sync::Lazy<DebugLog> = once_cell::sync::Lazy::new(|
         }
     }
 
-    let verbose = std::env::var("MATRIXCODE_DEBUG")
-        .map(|v| v == "1" || v == "true" || v == "verbose")
-        .unwrap_or(false);
-    DebugLog::new(verbose)
+    DebugLog::new()
 });
+
+/// Global event sender for TUI debug panel
+static DEBUG_EVENT_SENDER: once_cell::sync::Lazy<Mutex<Option<mpsc::Sender<AgentEvent>>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
 
 /// Get the global debug logger
 pub fn debug_log() -> &'static DebugLog {
     &DEBUG_LOG
+}
+
+/// Set event sender for TUI debug panel
+/// This allows debug logs to be displayed in the TUI debug panel
+pub fn set_debug_event_sender(sender: mpsc::Sender<AgentEvent>) {
+    if let Ok(mut guard) = DEBUG_EVENT_SENDER.lock() {
+        *guard = Some(sender);
+    }
 }
 
 /// Convenience macros

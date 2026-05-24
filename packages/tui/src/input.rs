@@ -4,6 +4,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::app::TuiApp;
 use crate::types::{Activity, ApproveMode, AskOption, Message, Role, SubmitMode};
+use crate::utils::truncate;
 
 impl TuiApp {
     pub(crate) fn on_key(&mut self, k: KeyEvent) {
@@ -28,28 +29,43 @@ impl TuiApp {
                     self.ensure_char_boundary();
                     self.input.insert(self.cursor_pos, '\n');
                     self.cursor_pos += 1; // '\n' is 1 byte
+                    self.multiline_confirm_send = false; // Reset confirmation state
                 } else if self.activity == Activity::Asking && self.waiting_for_ask {
                     // Handle ask confirmation or toggle selection in multi-select
                     self.handle_ask_enter();
                 } else if !self.input.trim().is_empty() {
-                    self.send_input();
+                    // Check if input contains multiple lines
+                    if self.input.contains('\n') && !self.multiline_confirm_send {
+                        // First Enter on multiline: require confirmation
+                        self.multiline_confirm_send = true;
+                        // Don't send, just mark for confirmation
+                    } else {
+                        // Single line, or second Enter on multiline: send
+                        self.multiline_confirm_send = false;
+                        self.send_input();
+                    }
+                } else {
+                    // Empty input: reset confirmation state
+                    self.multiline_confirm_send = false;
                 }
             }
 
-            // Tab: switch between multiple questions or toggle approve mode
-            KeyCode::Tab if !k.modifiers.contains(KeyModifiers::SHIFT) => {
-                if self.activity == Activity::Asking
-                    && self.waiting_for_ask
-                    && self.ask_questions.len() > 1
-                {
-                    self.switch_to_next_question();
-                }
-            }
-
-            // Escape: interrupt or clear input
+            // Escape: various behaviors based on modifiers and state
             KeyCode::Esc => {
-                // If in "Other" input mode, return to selection mode
-                if self.ask_other_input_active {
+                if k.modifiers.contains(KeyModifiers::SHIFT) {
+                    // Shift+Esc: remove first pending message from queue
+                    if !self.pending_messages.is_empty() {
+                        let removed = self.pending_messages.remove(0);
+                        self.push_message(Message {
+                            role: Role::System,
+                            content: format!("🗑️ Removed from queue: {}", truncate(&removed, 50)),
+                        });
+                    }
+                } else if self.multiline_confirm_send {
+                    // Cancel multiline send confirmation
+                    self.multiline_confirm_send = false;
+                } else if self.ask_other_input_active {
+                    // If in "Other" input mode, return to selection mode
                     self.ask_other_input_active = false;
                     self.input.clear();
                     self.cursor_pos = 0;
@@ -59,10 +75,7 @@ impl TuiApp {
                             opt.selected = false;
                         }
                     }
-                    return;
-                }
-
-                if self.activity == Activity::Asking {
+                } else if self.activity == Activity::Asking {
                     // Abort approval request
                     self.waiting_for_ask = false;
                     self.activity = Activity::Idle;
@@ -74,22 +87,31 @@ impl TuiApp {
                         ask_tx.try_send("abort".to_string()).ok();
                     }
                 } else if self.activity != Activity::Idle {
-                    // Immediately stop animation by resetting state
+                    // Interrupt current operation
                     self.activity = Activity::Idle;
                     self.streaming.clear();
                     self.thinking.clear();
                     self.activity_input = None;
                     self.activity_detail.clear();
-
-                    // Signal cancellation - backend will respond with Error event
                     self.cancel.cancel();
                     self.push_message(Message {
                         role: Role::System,
-                        content: "⚡ 已中断".into(),
+                        content: "⚡ Interrupted".into(),
                     });
-                } else {
+                } else if !self.input.is_empty() {
+                    // Clear input when idle
                     self.input.clear();
                     self.cursor_pos = 0;
+                }
+            }
+
+            // Tab: switch between multiple questions or toggle approve mode
+            KeyCode::Tab if !k.modifiers.contains(KeyModifiers::SHIFT) => {
+                if self.activity == Activity::Asking
+                    && self.waiting_for_ask
+                    && self.ask_questions.len() > 1
+                {
+                    self.switch_to_next_question();
                 }
             }
 
@@ -116,20 +138,37 @@ impl TuiApp {
                 self.exit = true;
             }
 
-            // D key (no modifier): toggle debug panel (when debug_mode is on)
+            // Shift+D: toggle debug panel (when debug_mode is on)
             KeyCode::Char('D') | KeyCode::Char('d')
-                if !k.modifiers.contains(KeyModifiers::ALT)
+                if k.modifiers.contains(KeyModifiers::SHIFT)
+                && !k.modifiers.contains(KeyModifiers::ALT)
                 && !k.modifiers.contains(KeyModifiers::CONTROL)
                 && self.debug_mode => {
                 self.toggle_debug_panel();
             }
 
-            // C key when debug panel is visible: clear debug logs
+            // Shift+C: clear debug logs (when debug panel is visible)
             KeyCode::Char('C') | KeyCode::Char('c')
-                if !k.modifiers.contains(KeyModifiers::ALT)
+                if k.modifiers.contains(KeyModifiers::SHIFT)
+                && !k.modifiers.contains(KeyModifiers::ALT)
                 && !k.modifiers.contains(KeyModifiers::CONTROL)
                 && self.show_debug_panel => {
                 self.clear_debug_logs();
+            }
+
+            // Scroll debug panel when visible
+            KeyCode::Up if self.show_debug_panel => {
+                self.debug_scroll_offset = self.debug_scroll_offset.saturating_sub(1);
+            }
+            KeyCode::Down if self.show_debug_panel => {
+                self.debug_scroll_offset += 1;
+            }
+            // Page Up/Down for faster scrolling
+            KeyCode::PageUp if self.show_debug_panel => {
+                self.debug_scroll_offset = self.debug_scroll_offset.saturating_sub(10);
+            }
+            KeyCode::PageDown if self.show_debug_panel => {
+                self.debug_scroll_offset += 10;
             }
 
             // Ctrl+V or Super+V (Mac Cmd+V): paste from clipboard
@@ -1107,5 +1146,7 @@ impl TuiApp {
         self.ensure_char_boundary();
         self.input.insert_str(self.cursor_pos, text);
         self.cursor_pos += text.len(); // cursor_pos is byte position
+        // Reset multiline confirmation on paste (user may want to edit before sending)
+        self.multiline_confirm_send = false;
     }
 }

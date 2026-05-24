@@ -530,6 +530,9 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let (task_tx, mut task_rx) = tokio::sync::mpsc::channel::<String>(10);
     let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(1);
 
+    // Set debug event sender for TUI debug panel
+    matrixcode_core::set_debug_event_sender(event_tx.clone());
+
     // Create cancellation token
     let cancel_token = CancellationToken::new();
 
@@ -1670,7 +1673,19 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
 
                     // 3. AI memory extraction - spawn background task (non-blocking)
                     // Only run every N turns to reduce API calls
-                    if turn_count.is_multiple_of(3) && fast_provider.is_some() {
+                    let should_extract = turn_count.is_multiple_of(3) && fast_provider.is_some();
+                    matrixcode_core::debug::debug_log().log(
+                        "memory_extract",
+                        &format!(
+                            "turn={}, should_extract={}, fast_model={}, project_path={}",
+                            turn_count,
+                            should_extract,
+                            agent_fast_model.as_deref().unwrap_or("none"),
+                            agent_project_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_string())
+                        ),
+                    );
+
+                    if should_extract {
                         let messages = agent.get_messages();
                         if let Some(last_msg) = messages.last() {
                             let text = match &last_msg.content {
@@ -1694,7 +1709,12 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                 // Use cloned path (not borrowed reference)
                                 let bg_ms = matrixcode_core::memory::MemoryStorage::new(bg_project_path.as_deref()).ok();
 
-                                if bg_ms.is_none() || text.is_empty() {
+                                if bg_ms.is_none() {
+                                    matrixcode_core::debug::debug_log().log("memory_extract", "Background task: failed to create memory storage");
+                                    return;
+                                }
+                                if text.is_empty() {
+                                    matrixcode_core::debug::debug_log().log("memory_extract", "Background task: text is empty");
                                     return;
                                 }
 
@@ -1705,13 +1725,17 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                                 let detected = if let Some(model) = bg_fast_model {
                                     // Use simple extraction prompt (not full system prompt)
                                     // This is a focused task, so we use minimal context
+                                    matrixcode_core::debug::debug_log().log("memory_extract", &format!("Background task: extracting with model={}, text_len={}", model, text.len()));
                                     let extractor = matrixcode_core::memory::AiMemoryExtractor::new_minimal(model);
                                     matrixcode_core::memory::detect_memories_smart(
                                         &text, None, project_path_str.as_deref(), Some(&extractor)
                                     ).await
                                 } else {
+                                    matrixcode_core::debug::debug_log().log("memory_extract", "Background task: no fast_model, skipping");
                                     Vec::new()
                                 };
+
+                                matrixcode_core::debug::debug_log().log("memory_extract", &format!("Background task: detected {} entries", detected.len()));
 
                                 if !detected.is_empty() {
                                     let detected_count = detected.len();

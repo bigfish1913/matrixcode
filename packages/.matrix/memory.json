@@ -1,0 +1,184 @@
+{
+  "entries": [
+    {
+      "id": "2b1fd834-404f-49e8-982b-13e7d965e8a9",
+      "created_at": "2026-05-21T10:32:45.863861100Z",
+      "last_referenced": "2026-05-21T10:32:45.863864200Z",
+      "category": "technical",
+      "content": "项目技术栈: Rust",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "ec1ca25c-ae93-4a5b-a84e-ce89b6c61f2e",
+      "created_at": "2026-05-21T10:32:45.863896900Z",
+      "last_referenced": "2026-05-21T10:32:45.863897Z",
+      "category": "structure",
+      "content": "入口文件: src/main.rs",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 35.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "3d3432ef-8c32-425a-8a73-b41d75340a62",
+      "created_at": "2026-05-21T10:32:45.863943500Z",
+      "last_referenced": "2026-05-21T10:32:45.863943600Z",
+      "category": "structure",
+      "content": "src 是 代码目录",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 35.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "0f08911d-c8be-4fea-868c-844c6bae62f2",
+      "created_at": "2026-05-22T16:12:41.021546500Z",
+      "last_referenced": "2026-05-22T16:12:41.021547400Z",
+      "category": "solution",
+      "content": "**🎉 编译警告修复成功！代码质量继续保持A级标准！**",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "1a7dbf6e-7941-4deb-8333-a7b3d1ab375a",
+      "created_at": "2026-05-23T05:56:05.492283400Z",
+      "last_referenced": "2026-05-23T05:56:05.492283500Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project",
+        "merged"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "8172b25c-fb6f-4803-b846-ad23db32b0ff",
+      "created_at": "2026-05-24T15:53:46.976352800Z",
+      "last_referenced": "2026-05-24T15:53:46.976353200Z",
+      "category": "finding",
+      "content": "项目本身的文档 而是你自己的记忆",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "eea52007-b96a-4130-bfbf-539af4981b14",
+      "created_at": "2026-05-24T15:54:02.302436400Z",
+      "last_referenced": "2026-05-24T15:54:02.302438600Z",
+      "category": "technical",
+      "content": "项目技术栈为混合架构：Rust (CLI/Core/TUI) + TypeScript (VS Code 扩展)",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "Rust",
+        "TypeScript",
+        "技术栈",
+        "tech stack",
+        "混合项目",
+        "technical",
+        "architecture"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "9542de32-df68-4c7e-b143-3994b38abe83",
+      "created_at": "2026-05-24T15:54:02.302444200Z",
+      "last_referenced": "2026-05-24T15:54:02.302444200Z",
+      "category": "structure",
+      "content": "项目采用 Monorepo 结构，包含 cli/, core/, tui/, vscode/ 四个主要模块",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "Monorepo",
+        "项目结构",
+        "cli",
+        "core",
+        "tui",
+        "vscode",
+        "structure",
+        "architecture"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "25514cc9-24d6-45ad-aaed-eecc4287b963",
+      "created_at": "2026-05-24T15:54:02.302445500Z",
+      "last_referenced": "2026-05-24T15:54:02.302445600Z",
+      "category": "structure",
+      "content": "CLI 入口文件路径为 cli/src/main.rs，而非 src/main.rs",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "入口文件",
+        "entry point",
+        "main.rs",
+        "CLI",
+        "路径",
+        "structure",
+        "cli"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "3b009269-d32f-4526-b9c1-1f59d92c292b",
+      "created_at": "2026-05-24T15:54:02.302446600Z",
+      "last_referenced": "2026-05-24T15:54:02.302446700Z",
+      "category": "finding",
+      "content": "记忆系统曾存在技术栈矛盾（同时记录 Rust 和 Node.js）和路径不准确的问题，需要定期校验记忆准确性",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "记忆系统",
+        "数据校验",
+        "memory",
+        "矛盾",
+        "准确性",
+        "finding",
+        "meta"
+      ],
+      "is_manual": false
+    }
+  ],
+  "config": {
+    "max_entries": 100,
+    "min_importance": 30.0,
+    "enabled": true,
+    "decay_start_days": 30,
+    "decay_rate": 0.5,
+    "reference_increment": 1.0,
+    "max_importance_ceiling": 100.0
+  },
+  "max_entries": 100,
+  "min_importance": 30.0,
+  "enabled": true
+}

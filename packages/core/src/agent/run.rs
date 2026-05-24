@@ -205,17 +205,31 @@ impl Agent {
                 estimated_tokens
             };
 
-            crate::debug::debug_log().log(
-                "compression",
-                &format!(
-                    "check: api={}, estimated={}, using={}, context={}, threshold={}",
-                    api_tokens,
-                    estimated_tokens,
-                    current_tokens,
-                    context_size.unwrap_or(0),
-                    self.compression_config.threshold
-                ),
-            );
+            // Only log compression check when context is getting full (> 30%)
+            // This avoids cluttering debug panel with meaningless checks
+            if let Some(ctx_size) = context_size {
+                // Send context size to TUI for accurate display
+                self.emit(AgentEvent::with_data(
+                    EventType::ContextSize,
+                    EventData::ContextSize {
+                        context_size: ctx_size as u64,
+                    },
+                ))?;
+
+                let usage_ratio = current_tokens as f64 / ctx_size as f64;
+                if usage_ratio >= 0.3 {
+                    crate::debug::debug_log().log(
+                        "checkcompress",
+                        &format!(
+                            "usage={:.1}%, tokens={}, context={}, threshold={}%",
+                            usage_ratio * 100.0,
+                            current_tokens,
+                            ctx_size,
+                            self.compression_config.threshold * 100.0
+                        ),
+                    );
+                }
+            }
 
             if should_compress(current_tokens, context_size, &self.compression_config) {
                 self.emit(AgentEvent::progress(prompt::MSG_COMPRESSING_CONTEXT, None))?;

@@ -38,6 +38,7 @@ pub enum EventType {
     Error,
     Usage,
     Progress,
+    ContextSize, // Update context window size from provider
     AskQuestion, // Ask tool: waiting for user input
     DebugLog,    // Debug log entry for TUI debug panel
 }
@@ -88,6 +89,9 @@ pub enum EventData {
     Progress {
         message: String,
         percentage: Option<u8>,
+    },
+    ContextSize {
+        context_size: u64,
     },
     Compression {
         original_tokens: u64,

@@ -214,7 +214,7 @@ impl TuiApp {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Yellow))
             .title(Span::styled(
-                " 🔍 Debug Logs (D to hide, C to clear) ",
+                " 🔍 Debug Logs (Shift+D to hide, Shift+C to clear) ",
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             ));
 

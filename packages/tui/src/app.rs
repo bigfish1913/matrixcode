@@ -93,6 +93,8 @@ pub struct TuiApp {
     pub(crate) show_debug_panel: bool,
     pub(crate) debug_logs: Vec<String>,
     pub(crate) debug_scroll_offset: u16,
+    // Multiline input confirmation state
+    pub(crate) multiline_confirm_send: bool,
 }
 
 /// Todo item for progress tracking
@@ -188,6 +190,7 @@ impl TuiApp {
             show_debug_panel: false,
             debug_logs: Vec::new(),
             debug_scroll_offset: 0,
+            multiline_confirm_send: false,
         }
     }
 
@@ -248,6 +251,8 @@ impl TuiApp {
             self.debug_logs.remove(0);
         }
         self.debug_logs.push(log);
+        // Auto-scroll to bottom when new log added
+        self.debug_scroll_offset = self.debug_logs.len().saturating_sub(1) as u16;
         self.dirty.set(true);
     }
 

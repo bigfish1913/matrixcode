@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::app::{TuiApp, TodoItem};
 use crate::types::{Activity, Message, Role, SubmitMode};
-use crate::utils::{extract_tool_detail, fmt_tokens, truncate};
+use crate::utils::{extract_tool_detail, fmt_tokens};
 
 impl TuiApp {
     /// Push a message and set notification flag if user is scrolled up.
@@ -255,18 +255,17 @@ impl TuiApp {
                     self.compressions += 1;
                     // Update token display to reflect compressed state
                     self.tokens_in = compressed_tokens;
-                    if self.debug_mode {
-                        self.push_message(Message {
-                            role: Role::System,
-                            content: format!(
-                                "📦 Compressed: {} → {}tok ({:.0}% saved)",
-                                fmt_tokens(original_tokens),
-                                fmt_tokens(compressed_tokens),
-                                (1.0 - ratio) * 100.0
-                            ),
-                        });
-                        self.auto_scroll = true;
-                    }
+                    // Show compression result to user (useful feedback)
+                    self.push_message(Message {
+                        role: Role::System,
+                        content: format!(
+                            "📦 Compressed: {} → {}tok ({:.0}% saved)",
+                            fmt_tokens(original_tokens),
+                            fmt_tokens(compressed_tokens),
+                            (1.0 - ratio) * 100.0
+                        ),
+                    });
+                    self.auto_scroll = true;
                 }
             }
             EventType::CompressionTriggered => {
@@ -284,59 +283,28 @@ impl TuiApp {
                 }
             }
             EventType::MemoryLoaded => {
+                // Only update counter, don't show in message area
+                // Debug info is already shown in debug panel via DebugLog events
                 if let Some(EventData::Memory { entries_count, .. }) = e.data
                     && entries_count > 0
                 {
                     self.memory_saves += 1;
-                    if self.debug_mode {
-                        self.push_message(Message {
-                            role: Role::System,
-                            content: format!("🧠 Memory: {} entries", entries_count),
-                        });
-                        self.auto_scroll = true;
-                    }
                 }
             }
             EventType::MemoryDetected => {
-                if let Some(EventData::Memory {
-                    summary,
-                    entries_count,
-                }) = e.data
+                // Only update counter, don't show in message area
+                // Debug info is already shown in debug panel via DebugLog events
+                if let Some(EventData::Memory { .. }) = e.data
                 {
                     self.memory_saves += 1;
-                    if self.debug_mode {
-                        self.push_message(Message {
-                            role: Role::System,
-                            content: format!("🧠 Detected {} memories: {}", entries_count, summary),
-                        });
-                        self.auto_scroll = true;
-                    }
                 }
             }
             EventType::KeywordsExtracted => {
-                // Keywords extraction for memory retrieval context
-                // Show extraction info when keywords are found (informative, not debug-only)
-                if let Some(EventData::Keywords { keywords, source }) = e.data
+                // Keywords extraction info only in debug panel now
+                // Update activity detail briefly, no message in main area
+                if let Some(EventData::Keywords { keywords, .. }) = e.data
                     && !keywords.is_empty()
                 {
-                    // Always show in status area (brief), full info in debug mode
-                    let preview = truncate(&source, 30);
-                    if self.debug_mode {
-                        self.push_message(Message {
-                            role: Role::System,
-                            content: format!(
-                                "🔍 Keywords extracted: [{}] from '{}'",
-                                keywords
-                                    .iter()
-                                    .take(10)
-                                    .cloned()
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                                preview
-                            ),
-                        });
-                        self.auto_scroll = true;
-                    }
                     // Update activity detail to show keywords briefly
                     self.activity_detail = format!(
                         "keywords: {}",
@@ -347,6 +315,12 @@ impl TuiApp {
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
+                }
+            }
+            EventType::ContextSize => {
+                // Update context size from provider for accurate display
+                if let Some(EventData::ContextSize { context_size }) = e.data {
+                    self.context_size = context_size;
                 }
             }
             EventType::AskQuestion => {

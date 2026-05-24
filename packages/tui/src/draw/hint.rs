@@ -19,6 +19,7 @@ impl TuiApp {
         // 2. Tool is executing (show tool details)
         // 3. Activity is Asking (show prompt)
         // 4. Has todo items (show progress)
+        // 5. Multiline input waiting for confirmation
         // Note: Thinking animation is handled in messages.rs, not here
         self.input.starts_with('/')
             || matches!(
@@ -30,6 +31,7 @@ impl TuiApp {
             )
             || self.activity == Activity::Asking
             || !self.todo_items.is_empty()
+            || self.multiline_confirm_send
     }
 
     pub(crate) fn draw_hint(&self, f: &mut ratatui::Frame, area: Rect) {
@@ -143,10 +145,18 @@ impl TuiApp {
 
         if spans.is_empty() {
             // Default hint
-            spans.push(Span::styled(
-                "Shift+Enter: multiline │ ↑↓: history │ Tab: complete",
-                Style::default().fg(Color::DarkGray),
-            ));
+            if self.multiline_confirm_send {
+                // Multiline input waiting for confirmation
+                spans.push(Span::styled(
+                    "⚠️ Press Enter again to send, or Esc to cancel",
+                    Style::default().fg(Color::Yellow),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    "Shift+Enter: multiline │ ↑↓: history │ Tab: complete",
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
         }
 
         f.render_widget(Paragraph::new(Line::from(spans)), area);

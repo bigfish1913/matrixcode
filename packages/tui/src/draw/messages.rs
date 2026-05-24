@@ -856,6 +856,23 @@ impl TuiApp {
             if self.activity == Activity::Thinking && !self.thinking.is_empty() {
                 lines.push(Line::raw(""));
             }
+            // Show realtime token count during streaming (debug mode)
+            if self.debug_mode && self.current_request_tokens > 0 {
+                let elapsed = self
+                    .request_start
+                    .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
+                    .unwrap_or_default();
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        "  \u{2500}\u{2500} \u{1f916} ",
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(
+                        format!("({}tok){}", fmt_tokens(self.current_request_tokens), elapsed),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]));
+            }
             let md_lines = render_markdown(&self.streaming, max_w);
             lines.extend(md_lines);
         }
