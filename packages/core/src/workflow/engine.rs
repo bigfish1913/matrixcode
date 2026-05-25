@@ -11,6 +11,7 @@ use super::context::{WorkflowContext};
 use super::def::{FailureStrategy, NodeDef, NodeType, WorkflowDef};
 use super::rule_engine::evaluate_expression;
 use super::template::TemplateRenderer;
+use super::executors::{NodeExecutor, ExecutorFactory};
 
 /// 任务执行器 trait
 #[async_trait::async_trait]
@@ -56,8 +57,12 @@ pub trait EventListener: Send + Sync {
 pub struct WorkflowEngine {
     /// 工作流定义
     definition: WorkflowDef,
-    /// 任务执行器
+    /// 任务执行器（旧接口）
     executor: Option<Arc<dyn TaskExecutor>>,
+    /// 节点执行器（新接口）
+    node_executors: HashMap<String, Arc<dyn NodeExecutor>>,
+    /// 执行器工厂
+    executor_factory: Option<ExecutorFactory>,
     /// 事件监听器
     listeners: Vec<Box<dyn EventListener>>,
     /// 模板渲染器
@@ -73,14 +78,28 @@ impl WorkflowEngine {
         Ok(Self {
             definition,
             executor: None,
+            node_executors: HashMap::new(),
+            executor_factory: None,
             listeners: Vec::new(),
             template_renderer: TemplateRenderer::new(),
         })
     }
 
-    /// 设置任务执行器
+    /// 设置任务执行器（旧接口）
     pub fn with_executor(mut self, executor: Arc<dyn TaskExecutor>) -> Self {
         self.executor = Some(executor);
+        self
+    }
+
+    /// 设置执行器工厂
+    pub fn with_executor_factory(mut self, factory: ExecutorFactory) -> Self {
+        self.executor_factory = Some(factory);
+        self
+    }
+
+    /// 注册节点执行器
+    pub fn register_node_executor(mut self, task_type: &str, executor: Arc<dyn NodeExecutor>) -> Self {
+        self.node_executors.insert(task_type.to_string(), executor);
         self
     }
 
@@ -94,6 +113,47 @@ impl WorkflowEngine {
         for listener in &self.listeners {
             listener.on_event(event.clone());
         }
+    }
+
+    /// 获取节点执行器
+    fn get_node_executor(&self, node: &NodeDef) -> Option<Arc<dyn NodeExecutor>> {
+        // 优先从注册的执行器中查找
+        if let Some(task) = &node.task {
+            if let Some(executor) = self.node_executors.get(task) {
+                return Some(executor.clone());
+            }
+        }
+
+        // 根据节点类型选择默认执行器
+        match node.node_type {
+            NodeType::Task => {
+                // 尝试从工厂创建
+                if let Some(factory) = &self.executor_factory {
+                    if let Some(task) = &node.task {
+                        // 根据任务名称推断执行器类型
+                        if task.starts_with("ai_") || task.starts_with("claude") || task.starts_with("gpt") {
+                            return factory.create_ai_executor().ok();
+                        }
+                        // 默认使用工具执行器
+                        return Some(factory.create_tool_executor());
+                    }
+                }
+            }
+            NodeType::Condition => {
+                if let Some(factory) = &self.executor_factory {
+                    return Some(factory.create_condition_executor());
+                }
+            }
+            NodeType::Approval => {
+                // 审批节点使用特殊的验证执行器
+                if let Some(factory) = &self.executor_factory {
+                    return Some(factory.create_validate_executor());
+                }
+            }
+            _ => {}
+        }
+
+        None
     }
 
     /// 运行工作流
@@ -293,7 +353,13 @@ impl WorkflowEngine {
             }
         }
 
-        // 执行任务
+        // 尝试使用新的 NodeExecutor 接口
+        if let Some(node_executor) = self.get_node_executor(node) {
+            let output = node_executor.execute(node, context).await?;
+            return Ok(Some(output));
+        }
+
+        // 回退到旧的 TaskExecutor 接口
         if let Some(executor) = &self.executor {
             let output = executor.execute(task_name, &rendered_params, context).await?;
             Ok(Some(output))

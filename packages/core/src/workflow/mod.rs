@@ -10,6 +10,7 @@
 //! - `template`: 模板渲染引擎（{{var}} 替换）
 //! - `rule_engine`: 验证规则引擎
 //! - `engine`: 状态机引擎
+//! - `executors`: 节点执行器（AI、工具、条件、验证）
 //!
 //! # 快速开始
 //!
@@ -53,6 +54,7 @@ pub mod context;
 pub mod template;
 pub mod rule_engine;
 pub mod engine;
+pub mod executors;
 
 // 重导出公共接口
 pub use def::{
@@ -98,6 +100,20 @@ pub use engine::{
     EventListener,
     TaskExecutor,
     DefaultTaskExecutor,
+};
+
+pub use executors::{
+    NodeExecutor,
+    AiExecutor,
+    AiExecutorConfig,
+    ToolExecutor,
+    ToolExecutorConfig,
+    ConditionExecutor,
+    ValidateExecutor,
+    ValidateExecutorConfig,
+    CompositeExecutor,
+    CompositeMode,
+    ExecutorFactory,
 };
 
 #[cfg(test)]
