@@ -10,6 +10,7 @@ use ratatui::{
 };
 
 use matrixcode_core::{AgentEvent, cancel::CancellationToken};
+use matrixcode_core::tools::ProxyToolResponse;
 
 use crate::ANIM_MS;
 use crate::types::{Activity, ApproveMode, AskQuestion, Message, Role, SubmitMode};
@@ -81,6 +82,8 @@ pub struct TuiApp {
     pub(crate) tx: tokio::sync::mpsc::Sender<String>,
     pub(crate) rx: tokio::sync::mpsc::Receiver<AgentEvent>,
     pub(crate) cancel: CancellationToken,
+    // Proxy tool response channel
+    pub(crate) proxy_response_tx: Option<tokio::sync::mpsc::Sender<ProxyToolResponse>>,
     // Message queue for pending inputs while AI is processing
     pub(crate) pending_messages: Vec<String>,
     // Loop task state
@@ -183,6 +186,7 @@ impl TuiApp {
             tx,
             rx,
             cancel,
+            proxy_response_tx: None,
             pending_messages: Vec::new(),
             loop_task: None,
             cron_tasks: Vec::new(),
@@ -205,6 +209,12 @@ impl TuiApp {
         shared: std::sync::Arc<std::sync::atomic::AtomicU8>,
     ) -> Self {
         self.shared_approve_mode = Some(shared);
+        self
+    }
+
+    /// Set proxy tool response channel
+    pub fn with_proxy_response_tx(mut self, tx: tokio::sync::mpsc::Sender<ProxyToolResponse>) -> Self {
+        self.proxy_response_tx = Some(tx);
         self
     }
 

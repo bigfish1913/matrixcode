@@ -596,6 +596,95 @@
         "pattern"
       ],
       "is_manual": false
+    },
+    {
+      "id": "6c3fe6ac-1561-48fc-a476-e7a721637f0b",
+      "created_at": "2026-05-25T09:16:09.845852300Z",
+      "last_referenced": "2026-05-25T09:16:09.845854400Z",
+      "category": "decision",
+      "content": "MatrixCode 项目集成三大图片搜索 API 平台：Unsplash（高质量图片）、Pexels（多样化图片）、Pixabay（免费图片），实现统一图片搜索功能",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "Unsplash",
+        "Pexels",
+        "Pixabay",
+        "API",
+        "图片搜索",
+        "MatrixCode",
+        "api",
+        "integration",
+        "image"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "1d92a713-22d0-4c42-977c-5bcf364fea99",
+      "created_at": "2026-05-25T09:16:09.845860500Z",
+      "last_referenced": "2026-05-25T09:16:09.845860600Z",
+      "category": "structure",
+      "content": "项目在 tui/src/ 目录下新增 image_search.rs 模块，包含 Unsplash/Pexels/Pixabay API 客户端、统一 ImageResult 结构和异步并发 search_all() 函数",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "image_search",
+        "TUI",
+        "module",
+        "模块",
+        "ImageResult",
+        "search_all",
+        "structure",
+        "rust"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "2390df83-c1e4-4ffe-ae97-b3c8bac06adb",
+      "created_at": "2026-05-25T09:16:09.845862100Z",
+      "last_referenced": "2026-05-25T09:16:09.845862100Z",
+      "category": "technical",
+      "content": "TUI 模块使用 Rust 异步编程，依赖 reqwest（HTTP 客户端）和 serde（序列化），支持异步 spawn 任务调用真实 API",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "Rust",
+        "reqwest",
+        "serde",
+        "async",
+        "异步",
+        "spawn",
+        "rust",
+        "backend"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "b096289a-f8bc-4e0f-8450-9caf436c2d3f",
+      "created_at": "2026-05-25T09:16:09.845863300Z",
+      "last_referenced": "2026-05-25T09:16:09.845863300Z",
+      "category": "solution",
+      "content": "图片搜索 API 统一响应格式：包含 success、query、total、images 数组，每个图片项含 id、url、thumb_url、description、photographer、platform 等字段",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "JSON",
+        "API",
+        "ImageResult",
+        "response",
+        "响应格式",
+        "统一格式",
+        "api",
+        "design"
+      ],
+      "is_manual": false
     }
   ],
   "config": {

@@ -23,6 +23,8 @@ pulldown-cmark = { workspace = true }
 syntect = { workspace = true }
 unicode-width = { workspace = true }
 log = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

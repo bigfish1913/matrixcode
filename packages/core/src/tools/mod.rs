@@ -89,7 +89,7 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(plan_mode::EnterPlanModeTool),
         Box::new(plan_mode::ExitPlanModeTool),
         Box::new(monitor::MonitorTool),
-        // Box::new(image_search::ImageSearchTool),
+        Box::new(image_search::ImageSearchTool),
         // Workflow-specific tools
     ];
     // Add workflow management tools (independent system like Skill)

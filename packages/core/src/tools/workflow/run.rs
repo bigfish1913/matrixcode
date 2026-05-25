@@ -5,13 +5,36 @@
 use crate::tools::{Tool, ToolDefinition};
 use crate::workflow::{WorkflowRegistry, WorkflowEngine, WorkflowPersistence, WorkflowStatus};
 use crate::workflow::executors::ExecutorFactory;
+use crate::providers::Provider;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Tool to run a workflow
-pub struct WorkflowRunTool;
+pub struct WorkflowRunTool {
+    /// Provider 实例（可选，用于 AI-powered 工具）
+    provider: Option<Arc<dyn Provider>>, 
+}
+
+impl WorkflowRunTool {
+    /// 创建新的 WorkflowRunTool（无 Provider）
+    pub fn new() -> Self {
+        Self { provider: None }
+    }
+    
+    /// 创建带 Provider 的 WorkflowRunTool
+    pub fn with_provider(provider: Arc<dyn Provider>) -> Self {
+        Self { provider: Some(provider) }
+    }
+}
+
+impl Default for WorkflowRunTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait]
 impl Tool for WorkflowRunTool {
@@ -54,7 +77,11 @@ impl Tool for WorkflowRunTool {
             .ok_or_else(|| anyhow::anyhow!("Workflow '{}' 不存在。用 workflow_discover 查看可用列表。", workflow_id))?;
 
         // Create engine with executor factory
-        let factory = ExecutorFactory::new();
+        let factory = if let Some(provider) = &self.provider {
+            ExecutorFactory::new().with_provider(provider.clone())
+        } else {
+            ExecutorFactory::new()
+        };
         let engine = WorkflowEngine::new(workflow_def)?
             .with_executor_factory(factory);
         

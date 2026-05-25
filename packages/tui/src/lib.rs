@@ -6,6 +6,7 @@ mod input;
 mod markdown;
 mod types;
 mod utils;
+mod image_search;
 
 use anyhow::Result;
 use ratatui::{

@@ -20,7 +20,7 @@ use crate::providers::Provider;
 pub fn workflow_tools() -> Vec<BoxedTool> {
     vec![
         Box::new(WorkflowDiscoverTool),
-        Box::new(WorkflowRunTool),
+        Box::new(WorkflowRunTool::new()),
         Box::new(WorkflowMatchTool),
     ]
 }
@@ -28,6 +28,7 @@ pub fn workflow_tools() -> Vec<BoxedTool> {
 /// Get workflow tools that need provider
 pub fn workflow_tools_with_provider(provider: Arc<dyn Provider>) -> Vec<BoxedTool> {
     vec![
+        Box::new(WorkflowRunTool::with_provider(provider.clone())),
         Box::new(ContentGenerationTool::new(provider)),
     ]
 }

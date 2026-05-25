@@ -65,6 +65,12 @@ impl AgentBuilder {
         self.tools.extend(tools.into_iter().map(Arc::from));
         self
     }
+    
+    /// Add multiple tools with provider support
+    pub fn tools_with_provider(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
+        self.tools.extend(tools.into_iter().map(Arc::from));
+        self
+    }
 
     /// Set external event sender for streaming events
     pub fn event_tx(mut self, tx: tokio::sync::mpsc::Sender<AgentEvent>) -> Self {

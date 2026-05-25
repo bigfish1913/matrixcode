@@ -767,7 +767,15 @@ impl ExecutorFactory {
 
     /// 创建工具执行器（使用默认工具集）
     pub fn create_tool_executor(&self) -> Arc<dyn NodeExecutor> {
-        Arc::new(ToolExecutor::new(crate::tools::all_tools()))
+        let tools = if let Some(provider) = &self.provider {
+            crate::tools::all_tools_with_provider(
+                std::sync::Arc::new(Vec::new()),
+                provider.clone()
+            )
+        } else {
+            crate::tools::all_tools()
+        };
+        Arc::new(ToolExecutor::new(tools))
     }
 
     /// 创建条件执行器

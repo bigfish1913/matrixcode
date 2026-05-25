@@ -75,6 +75,11 @@ impl Agent {
         self.proxy_rx = Some(rx);
         tx
     }
+    
+    /// 设置代理工具响应 channel（外部创建）
+    pub fn set_proxy_response_channel(&mut self, rx: mpsc::Receiver<crate::tools::proxy::ProxyToolResponse>) {
+        self.proxy_rx = Some(rx);
+    }
 
     /// Set cancellation token
     pub fn set_cancel_token(&mut self, token: CancellationToken) {

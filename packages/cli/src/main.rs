@@ -1,7 +1,6 @@
 //! MatrixCode CLI - Full Implementation with REPL
 
 mod display;
-mod proxy_tool_handler;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -12,7 +11,6 @@ use matrixcode_core::{
     tools::all_tools_with_skills,
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
-use proxy_tool_handler::{ProxyToolHandler, create_image_search_proxy_tool};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -590,7 +588,6 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     
     // 创建代理工具响应 channel（TUI 发送响应，Agent 接收）
     let (proxy_response_tx, proxy_response_rx) = tokio::sync::mpsc::channel::<matrixcode_core::tools::ProxyToolResponse>(10);
-    let proxy_handler = ProxyToolHandler::new(proxy_response_tx);
 
     // Set debug event sender for TUI debug panel
     matrixcode_core::set_debug_event_sender(event_tx.clone());
@@ -778,7 +775,37 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             .tools(all_tools_with_skills(Arc::new(agent_skills.clone())))
             .event_tx(agent_event_tx.clone())
             .approve_mode(agent_approve_mode)
-            .proxy_tool(create_image_search_proxy_tool())  // 添加图片搜索代理工具
+            .proxy_tool({
+                // 创建图片搜索代理工具
+                use matrixcode_core::tools::{ToolDefinition, proxy::{ProxyTool, ProxyMetadata}};
+                ProxyTool::new(
+                    ToolDefinition {
+                        name: "image_search".to_string(),
+                        description: "搜索网络图片。返回图片搜索结果 URL，用户可在浏览器中查看。参数：query（搜索关键词，必需）、max_results（最大结果数，可选，默认5）".to_string(),
+                        parameters: serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "搜索关键词"
+                                },
+                                "max_results": {
+                                    "type": "integer",
+                                    "description": "最大结果数",
+                                    "default": 5
+                                }
+                            },
+                            "required": ["query"]
+                        }),
+                    },
+                    ProxyMetadata {
+                        tool_type: "web_search".to_string(),
+                        endpoint: None,
+                        timeout_ms: 30000,
+                        custom: None,
+                    }
+                )
+            })  // 添加图片搜索代理工具
             .build();
         
         // 设置代理工具响应 channel
@@ -1932,6 +1959,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token.clone())
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
+        .with_proxy_response_tx(proxy_response_tx)
         .with_config(&model, cli.think.unwrap_or(config.think), cli.max_tokens, None)
         .with_debug_mode(debug_mode);
 

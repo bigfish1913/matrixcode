@@ -351,6 +351,94 @@ impl TuiApp {
                     self.add_debug_log(log);
                 }
             }
+            EventType::ProxyToolRequest => {
+                // Handle proxy tool request - execute externally and send response
+                if let Some(EventData::ProxyToolRequest { request_id, tool_name, tool_input, metadata: _ }) = e.data {
+                    log::info!(
+                        "TUI received proxy tool request: id={}, tool={}",
+                        request_id, tool_name
+                    );
+                    
+                    // For image_search, we need async execution
+                    if tool_name == "image_search" {
+                        // Extract query and max_results
+                        let query = tool_input.get("query").and_then(|q| q.as_str()).unwrap_or("");
+                        let max_results = tool_input.get("max_results").and_then(|m| m.as_u64()).unwrap_or(5) as u32;
+                        
+                        if query.is_empty() {
+                            // Send error response
+                            if let Some(tx) = &self.proxy_response_tx {
+                                let response = matrixcode_core::tools::ProxyToolResponse {
+                                    request_id,
+                                    result: r#"{"error": "query is required"}"#.to_string(),
+                                    is_error: true,
+                                };
+                                if let Err(e) = tx.try_send(response) {
+                                    log::error!("Failed to send proxy tool response: {}", e);
+                                }
+                            }
+                        } else {
+                            // Spawn async task to call real APIs
+                            let tx = self.proxy_response_tx.clone();
+                            let query = query.to_string();
+                            let request_id = request_id;
+                            
+                            tokio::spawn(async move {
+                                use crate::image_search;
+                                
+                                log::info!("Calling real image search APIs for: {}", query);
+                                let results = image_search::search_all(&query, max_results).await;
+                                
+                                let response = match results {
+                                    Ok(images) => {
+                                        // Format results as JSON
+                                        let json = serde_json::json!({
+                                            "success": true,
+                                            "query": query,
+                                            "total": images.len(),
+                                            "images": images
+                                        });
+                                        matrixcode_core::tools::ProxyToolResponse {
+                                            request_id,
+                                            result: json.to_string(),
+                                            is_error: false,
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("Image search error: {}", e);
+                                        matrixcode_core::tools::ProxyToolResponse {
+                                            request_id,
+                                            result: serde_json::json!({
+                                                "success": false,
+                                                "error": e.to_string()
+                                            }).to_string(),
+                                            is_error: true,
+                                        }
+                                    }
+                                };
+                                
+                                if let Some(tx) = tx {
+                                    if let Err(e) = tx.try_send(response) {
+                                        log::error!("Failed to send proxy tool response: {}", e);
+                                    }
+                                }
+                            });
+                        }
+                    } else {
+                        // Unknown tool
+                        if let Some(tx) = &self.proxy_response_tx {
+                            let response = matrixcode_core::tools::ProxyToolResponse {
+                                request_id,
+                                result: format!("{{\"error\": \"Unknown proxy tool: {}\"}}", tool_name),
+                                is_error: true,
+                            };
+                            if let Err(e) = tx.try_send(response) {
+                                log::error!("Failed to send proxy tool response: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
