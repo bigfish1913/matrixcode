@@ -14,9 +14,9 @@ inputs:
 
 outputs:
   - name: article
-    value: "{{generate_output.content}}"
+    value: "{{content}}"
   - name: images
-    value: "{{search_images.images}}"
+    value: "{{images}}"
 
 variables:
   max_images: 3
@@ -63,6 +63,17 @@ nodes:
       style: "{{content_style}}"
     timeout_ms: 120000
 
+  - id: write_file
+    type: task
+    name: 写入文件
+    task: write
+    params:
+      path: "{{topic}}-图文文章.md"
+      content: "{{content}}"
+    on_failure:
+      type: ignore
+    timeout_ms: 10000
+
   - id: end
     type: end
     name: 结束
@@ -82,4 +93,8 @@ edges:
 
   - id: e4
     from: generate_output
+    to: write_file
+
+  - id: e5
+    from: write_file
     to: end
