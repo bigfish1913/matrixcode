@@ -10,7 +10,7 @@ mod content;
 pub use discover::WorkflowDiscoverTool;
 pub use run::WorkflowRunTool;
 pub use r#match::WorkflowMatchTool;
-pub use content::{ImageSearchTool, ContentGenerationTool};
+pub use content::ContentGenerationTool;
 
 use crate::tools::BoxedTool;
 use std::sync::Arc;

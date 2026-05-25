@@ -1,6 +1,7 @@
 //! MatrixCode CLI - Full Implementation with REPL
 
 mod display;
+mod proxy_tool_handler;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -11,6 +12,7 @@ use matrixcode_core::{
     tools::all_tools_with_skills,
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
+use proxy_tool_handler::{ProxyToolHandler, create_image_search_proxy_tool};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -585,6 +587,10 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
     let (task_tx, mut task_rx) = tokio::sync::mpsc::channel::<String>(10);
     let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(1);
+    
+    // 创建代理工具响应 channel（TUI 发送响应，Agent 接收）
+    let (proxy_response_tx, proxy_response_rx) = tokio::sync::mpsc::channel::<matrixcode_core::tools::ProxyToolResponse>(10);
+    let proxy_handler = ProxyToolHandler::new(proxy_response_tx);
 
     // Set debug event sender for TUI debug panel
     matrixcode_core::set_debug_event_sender(event_tx.clone());
@@ -772,7 +778,11 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             .tools(all_tools_with_skills(Arc::new(agent_skills.clone())))
             .event_tx(agent_event_tx.clone())
             .approve_mode(agent_approve_mode)
+            .proxy_tool(create_image_search_proxy_tool())  // 添加图片搜索代理工具
             .build();
+        
+        // 设置代理工具响应 channel
+        agent.set_proxy_response_channel(proxy_response_rx);
 
         // Use the shared approve mode so TUI can update it in real-time
         agent.set_approve_mode_shared(agent_shared_approve_mode);
@@ -817,6 +827,7 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         log::info!("Agent task: entering receive loop");
         while let Some(msg) = task_rx.recv().await {
             log::info!("Agent task: received message (len={})", msg.len());
+            
             // Make msg mutable for skill activation transformation
             let mut msg = msg;
 

@@ -13,7 +13,7 @@ use crate::compress::{
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::prompt;
 use crate::providers::{ChatRequest, Message, MessageContent, Role};
-use crate::tools::ToolDefinition;
+use crate::tools::{Tool, ToolDefinition};
 
 use super::types::{Agent, AgentBuilder, MAX_ITERATIONS};
 
@@ -44,6 +44,8 @@ impl Agent {
             cancel_token: None,
             compression_config: crate::compress::CompressionConfig::default(),
             ask_rx: None,
+            proxy_tools: Vec::new(),
+            proxy_rx: None,
         }
     }
 
@@ -55,6 +57,23 @@ impl Agent {
     /// Set ask response channel (for TUI mode)
     pub fn set_ask_channel(&mut self, rx: mpsc::Receiver<String>) {
         self.ask_rx = Some(rx);
+    }
+    
+    /// 设置代理工具和响应 channel
+    pub fn set_proxy_tools(
+        &mut self,
+        proxy_tools: Vec<crate::tools::proxy::ProxyTool>,
+        proxy_rx: mpsc::Receiver<crate::tools::proxy::ProxyToolResponse>,
+    ) {
+        self.proxy_tools = proxy_tools;
+        self.proxy_rx = Some(proxy_rx);
+    }
+    
+    /// 获取代理工具发送器（用于外部响应）
+    pub fn create_proxy_channel(&mut self) -> mpsc::Sender<crate::tools::proxy::ProxyToolResponse> {
+        let (tx, rx) = mpsc::channel(100);
+        self.proxy_rx = Some(rx);
+        tx
     }
 
     /// Set cancellation token
@@ -160,8 +179,12 @@ impl Agent {
                 }
             }
 
-            let tool_defs: Vec<ToolDefinition> =
-                self.tools.iter().map(|t| t.definition()).collect();
+            // 合并内置工具和代理工具定义
+            let tool_defs: Vec<ToolDefinition> = {
+                let mut defs: Vec<ToolDefinition> = self.tools.iter().map(|t| t.definition()).collect();
+                defs.extend(self.proxy_tools.iter().map(|t| t.definition()));
+                defs
+            };
             let request = ChatRequest {
                 system: Some(self.system_prompt.clone()),
                 messages: self.messages.clone(),

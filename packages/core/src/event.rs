@@ -40,6 +40,8 @@ pub enum EventType {
     Progress,
     ContextSize, // Update context window size from provider
     AskQuestion, // Ask tool: waiting for user input
+    ProxyToolRequest, // Proxy tool: request external execution
+    ProxyToolResponse, // Proxy tool: external execution result
     DebugLog,    // Debug log entry for TUI debug panel
 }
 
@@ -109,6 +111,19 @@ pub enum EventData {
     AskQuestion {
         question: String,
         options: Option<serde_json::Value>,
+    },
+    /// Proxy tool request - needs external execution
+    ProxyToolRequest {
+        request_id: String,
+        tool_name: String,
+        tool_input: serde_json::Value,
+        metadata: crate::tools::proxy::ProxyMetadata,
+    },
+    /// Proxy tool response - external execution result
+    ProxyToolResponse {
+        request_id: String,
+        result: String,
+        is_error: bool,
     },
     DebugLog {
         category: String,
@@ -283,6 +298,40 @@ impl AgentEvent {
             EventData::DebugLog {
                 category: category.into(),
                 message: message.into(),
+            },
+        )
+    }
+    
+    /// 创建代理工具请求事件
+    pub fn proxy_tool_request(
+        request_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        tool_input: serde_json::Value,
+        metadata: crate::tools::proxy::ProxyMetadata,
+    ) -> Self {
+        Self::with_data(
+            EventType::ProxyToolRequest,
+            EventData::ProxyToolRequest {
+                request_id: request_id.into(),
+                tool_name: tool_name.into(),
+                tool_input,
+                metadata,
+            },
+        )
+    }
+    
+    /// 创建代理工具响应事件
+    pub fn proxy_tool_response(
+        request_id: impl Into<String>,
+        result: impl Into<String>,
+        is_error: bool,
+    ) -> Self {
+        Self::with_data(
+            EventType::ProxyToolResponse,
+            EventData::ProxyToolResponse {
+                request_id: request_id.into(),
+                result: result.into(),
+                is_error,
             },
         )
     }

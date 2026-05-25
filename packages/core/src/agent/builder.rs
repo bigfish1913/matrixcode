@@ -26,6 +26,7 @@ impl AgentBuilder {
             profile: PromptProfile::Default,
             project_overview: None,
             memory_summary: None,
+            proxy_tools: Vec::new(),
         }
     }
 
@@ -92,6 +93,18 @@ impl AgentBuilder {
     /// Set memory summary
     pub fn memory(mut self, summary: impl Into<String>) -> Self {
         self.memory_summary = Some(summary.into());
+        self
+    }
+    
+    /// 添加代理工具
+    pub fn proxy_tool(mut self, tool: crate::tools::proxy::ProxyTool) -> Self {
+        self.proxy_tools.push(tool);
+        self
+    }
+    
+    /// 批量添加代理工具
+    pub fn proxy_tools(mut self, tools: Vec<crate::tools::proxy::ProxyTool>) -> Self {
+        self.proxy_tools.extend(tools);
         self
     }
 

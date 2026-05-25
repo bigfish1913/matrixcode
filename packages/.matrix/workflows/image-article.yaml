@@ -57,7 +57,7 @@ nodes:
     task: content_generation
     params:
       topic: "{{topic}}"
-      research_data: "{{research.result}}"
+      research_data: "{{research.result}}"  # websearch 返回纯文本，自动包装为 {result: "..."}
       image_urls: "{{search_images.urls}}"
       style: "{{content_style}}"
     timeout_ms: 45000

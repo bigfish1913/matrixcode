@@ -9,8 +9,13 @@ use crate::compress::CompressionConfig;
 use crate::event::AgentEvent;
 use crate::prompt::PromptProfile;
 use crate::providers::{Message, Provider};
+#[cfg(test)]
+use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, StreamEvent, Usage};
+#[cfg(test)]
+use async_trait::async_trait;
 use crate::skills::Skill;
 use crate::tools::Tool;
+use crate::tools::proxy::ProxyToolResponse;
 
 pub(crate) const MAX_ITERATIONS: usize = 200;
 
@@ -61,6 +66,10 @@ pub struct Agent {
     pub(crate) cancel_token: Option<CancellationToken>,
     pub(crate) compression_config: CompressionConfig,
     pub(crate) ask_rx: Option<mpsc::Receiver<String>>,
+    /// 代理工具列表
+    pub(crate) proxy_tools: Vec<crate::tools::proxy::ProxyTool>,
+    /// 代理工具响应接收器
+    pub(crate) proxy_rx: Option<mpsc::Receiver<ProxyToolResponse>>,
 }
 
 /// Agent builder
@@ -77,4 +86,42 @@ pub struct AgentBuilder {
     pub(crate) profile: PromptProfile,
     pub(crate) project_overview: Option<String>,
     pub(crate) memory_summary: Option<String>,
+    /// 代理工具列表
+    pub(crate) proxy_tools: Vec<crate::tools::proxy::ProxyTool>,
+}
+
+// 注意：AgentBuilder 必须通过 AgentBuilder::new(provider) 创建
+// Default 实现仅供内部测试使用，不应在生产环境使用
+#[cfg(test)]
+impl Default for AgentBuilder {
+    fn default() -> Self {
+        // 测试环境下使用 Mock Provider
+        Self::new(Box::new(MockTestProvider))
+    }
+}
+
+#[cfg(test)]
+struct MockTestProvider;
+
+#[cfg(test)]
+#[async_trait]
+impl Provider for MockTestProvider {
+    async fn chat(&self, _request: ChatRequest) -> anyhow::Result<ChatResponse> {
+        Ok(ChatResponse {
+            content: vec![ContentBlock::Text { text: "mock".to_string() }],
+            stop_reason: StopReason::EndTurn,
+            usage: Usage::default(),
+        })
+    }
+    
+    async fn chat_stream(&self, _request: ChatRequest) -> anyhow::Result<tokio::sync::mpsc::Receiver<StreamEvent>> {
+        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        Ok(rx)
+    }
+    
+    fn model_name(&self) -> &str { "mock" }
+    
+    fn clone_box(&self) -> Box<dyn Provider> {
+        Box::new(MockTestProvider)
+    }
 }

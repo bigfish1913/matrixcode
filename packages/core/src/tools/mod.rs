@@ -3,11 +3,14 @@ pub mod bash;
 pub mod edit;
 pub mod glob;
 pub mod grep;
+pub mod image_search;
 pub mod ls;
 pub mod monitor;
 pub mod multi_edit;
 pub mod plan_mode;
+pub mod proxy;  // 代理工具模块
 pub mod read;
+pub mod registry;  // 工具注册中心
 pub mod search;
 pub mod skill;
 pub mod task;
@@ -16,6 +19,9 @@ pub mod webfetch;
 pub mod websearch;
 pub mod workflow;
 pub mod write;
+
+// Re-export proxy types for convenience
+pub use proxy::{ProxyMetadata, ProxyTool, ProxyToolResponse};
 
 use std::sync::Arc;
 
@@ -83,8 +89,8 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(plan_mode::EnterPlanModeTool),
         Box::new(plan_mode::ExitPlanModeTool),
         Box::new(monitor::MonitorTool),
-        // Workflow-specific tools (ImageSearch, etc.)
-        Box::new(workflow::ImageSearchTool),
+        // Box::new(image_search::ImageSearchTool),
+        // Workflow-specific tools
     ];
     // Add workflow management tools (independent system like Skill)
     tools.extend(workflow::workflow_tools());
