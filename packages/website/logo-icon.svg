@@ -1,0 +1,17 @@
+<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+  <!-- Matrix Icon Only - 3x3 Grid -->
+  <!-- Row 1 -->
+  <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#4A90E2"/>
+  <rect x="16" y="0" width="12" height="12" rx="2.5" fill="#7B68EE"/>
+  <rect x="32" y="0" width="12" height="12" rx="2.5" fill="#00D26A"/>
+
+  <!-- Row 2 -->
+  <rect x="0" y="16" width="12" height="12" rx="2.5" fill="#7B68EE"/>
+  <rect x="16" y="16" width="12" height="12" rx="2.5" fill="#00D26A"/>
+  <rect x="32" y="16" width="12" height="12" rx="2.5" fill="#FF6B6B"/>
+
+  <!-- Row 3 -->
+  <rect x="0" y="32" width="12" height="12" rx="2.5" fill="#00D26A"/>
+  <rect x="16" y="32" width="12" height="12" rx="2.5" fill="#FF6B6B"/>
+  <rect x="32" y="32" width="12" height="12" rx="2.5" fill="#4A90E2"/>
+</svg>

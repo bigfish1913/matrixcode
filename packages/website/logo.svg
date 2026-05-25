@@ -1,0 +1,53 @@
+<svg width="280" height="60" viewBox="0 0 280 60" xmlns="http://www.w3.org/2000/svg">
+  <!-- Matrix Icon - 3x3 Grid -->
+  <g transform="translate(0, 8)">
+    <!-- Row 1 -->
+    <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#4A90E2">
+      <animate attributeName="opacity" values="1;0.7;1" dur="2s" begin="0s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="16" y="0" width="12" height="12" rx="2.5" fill="#7B68EE">
+      <animate attributeName="opacity" values="0.8;1;0.8" dur="2s" begin="0.3s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="32" y="0" width="12" height="12" rx="2.5" fill="#00D26A">
+      <animate attributeName="opacity" values="1;0.6;1" dur="2s" begin="0.6s" repeatCount="indefinite"/>
+    </rect>
+
+    <!-- Row 2 -->
+    <rect x="0" y="16" width="12" height="12" rx="2.5" fill="#7B68EE">
+      <animate attributeName="opacity" values="0.7;1;0.7" dur="2s" begin="0.9s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="16" y="16" width="12" height="12" rx="2.5" fill="#00D26A">
+      <animate attributeName="opacity" values="1;0.8;1" dur="2s" begin="1.2s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="32" y="16" width="12" height="12" rx="2.5" fill="#FF6B6B">
+      <animate attributeName="opacity" values="0.9;1;0.9" dur="2s" begin="1.5s" repeatCount="indefinite"/>
+    </rect>
+
+    <!-- Row 3 -->
+    <rect x="0" y="32" width="12" height="12" rx="2.5" fill="#00D26A">
+      <animate attributeName="opacity" values="1;0.7;1" dur="2s" begin="1.8s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="16" y="32" width="12" height="12" rx="2.5" fill="#FF6B6B">
+      <animate attributeName="opacity" values="0.8;1;0.8" dur="2s" begin="2.1s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="32" y="32" width="12" height="12" rx="2.5" fill="#4A90E2">
+      <animate attributeName="opacity" values="1;0.6;1" dur="2s" begin="2.4s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+
+  <!-- Wordmark: MatrixCode -->
+  <text x="52" y="40" font-family="Inter, SF Pro Display, -apple-system, BlinkMacSystemFont, sans-serif" font-size="26" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">
+    Matrix<tspan fill="#00D26A">Code</tspan>
+  </text>
+
+  <!-- Subtle glow effect -->
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+</svg>

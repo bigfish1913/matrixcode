@@ -1,0 +1,24 @@
+<svg width="280" height="60" viewBox="0 0 280 60" xmlns="http://www.w3.org/2000/svg">
+  <!-- Matrix Icon - 3x3 Grid (Static version) -->
+  <g transform="translate(0, 8)">
+    <!-- Row 1 -->
+    <rect x="0" y="0" width="12" height="12" rx="2.5" fill="#4A90E2"/>
+    <rect x="16" y="0" width="12" height="12" rx="2.5" fill="#7B68EE"/>
+    <rect x="32" y="0" width="12" height="12" rx="2.5" fill="#00D26A"/>
+
+    <!-- Row 2 -->
+    <rect x="0" y="16" width="12" height="12" rx="2.5" fill="#7B68EE"/>
+    <rect x="16" y="16" width="12" height="12" rx="2.5" fill="#00D26A"/>
+    <rect x="32" y="16" width="12" height="12" rx="2.5" fill="#FF6B6B"/>
+
+    <!-- Row 3 -->
+    <rect x="0" y="32" width="12" height="12" rx="2.5" fill="#00D26A"/>
+    <rect x="16" y="32" width="12" height="12" rx="2.5" fill="#FF6B6B"/>
+    <rect x="32" y="32" width="12" height="12" rx="2.5" fill="#4A90E2"/>
+  </g>
+
+  <!-- Wordmark: MatrixCode -->
+  <text x="52" y="40" font-family="Inter, SF Pro Display, -apple-system, BlinkMacSystemFont, sans-serif" font-size="26" font-weight="700" fill="#FFFFFF" letter-spacing="0.5">
+    Matrix<tspan fill="#00D26A">Code</tspan>
+  </text>
+</svg>
