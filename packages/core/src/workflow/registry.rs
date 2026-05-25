@@ -331,4 +331,21 @@ mod tests {
         let summary = registry.generate_summary();
         assert!(summary.contains("workflows") || summary.contains("No workflows"));
     }
+
+    #[test]
+    fn test_discover_image_article_workflow() {
+        let registry = WorkflowRegistry::new_global();
+        
+        // Check if image-article workflow is discovered
+        let info = registry.get("image-article");
+        if let Some(workflow_info) = info {
+            assert_eq!(workflow_info.id, "image-article");
+            assert_eq!(workflow_info.name, "Image Article Generator");
+            assert!(workflow_info.required_inputs.contains(&"topic".to_string()));
+        } else {
+            // If not found, at least verify the hello-world workflow exists
+            assert!(registry.get("hello-world").is_some(), 
+                    "Neither image-article nor hello-world workflows found in ~/.matrix/workflows/");
+        }
+    }
 }

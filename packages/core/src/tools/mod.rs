@@ -14,6 +14,7 @@ pub mod task;
 pub mod todo_write;
 pub mod webfetch;
 pub mod websearch;
+pub mod workflow;
 pub mod write;
 
 use std::sync::Arc;
@@ -25,7 +26,9 @@ use serde_json::Value;
 
 use crate::approval::RiskLevel;
 use crate::skills::Skill;
-use crate::workflow::workflow_tools;
+
+/// Type alias for boxed tool
+pub type BoxedTool = Box<dyn Tool>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -80,9 +83,22 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(plan_mode::EnterPlanModeTool),
         Box::new(plan_mode::ExitPlanModeTool),
         Box::new(monitor::MonitorTool),
+        // Workflow-specific tools (ImageSearch, etc.)
+        Box::new(workflow::ImageSearchTool),
     ];
-    // Add workflow tools (independent system like Skill)
-    tools.extend(workflow_tools());
+    // Add workflow management tools (independent system like Skill)
+    tools.extend(workflow::workflow_tools());
+    tools
+}
+
+/// Build toolset with Provider for AI-powered tools
+pub fn all_tools_with_provider(
+    skills: Arc<Vec<Skill>>,
+    provider: Arc<dyn crate::providers::Provider>,
+) -> Vec<Box<dyn Tool>> {
+    let mut tools = all_tools_with_skills(skills);
+    // Add AI-powered workflow tools
+    tools.extend(workflow::workflow_tools_with_provider(provider));
     tools
 }
 

@@ -57,7 +57,6 @@ pub mod engine;
 pub mod executors;
 pub mod persistence;
 pub mod registry;
-pub mod tool;
 
 // 重导出公共接口
 pub use def::{
@@ -128,8 +127,6 @@ pub use executors::{
     CompositeMode,
     ExecutorFactory,
 };
-
-pub use tool::{workflow_tools, WorkflowDiscoverTool, WorkflowRunTool, WorkflowMatchTool};
 
 #[cfg(test)]
 mod integration_tests {
