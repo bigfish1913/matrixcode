@@ -124,6 +124,7 @@ mod tests {
                 },
                 "required": ["query"]
             }),
+            ..Default::default()
         };
         
         let metadata = ProxyMetadata {
@@ -145,6 +146,7 @@ mod tests {
             name: "test_tool".to_string(),
             description: "Test".to_string(),
             parameters: json!({}),
+            ..Default::default()
         };
         
         let metadata = ProxyMetadata {

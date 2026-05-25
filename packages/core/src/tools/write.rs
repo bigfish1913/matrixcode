@@ -28,6 +28,7 @@ impl Tool for WriteTool {
                 },
                 "required": ["path", "content"]
             }),
+            ..Default::default()
         }
     }
 

@@ -776,30 +776,31 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             .event_tx(agent_event_tx.clone())
             .approve_mode(agent_approve_mode)
             .proxy_tool({
-                // 创建图片搜索代理工具
+                // 创建图片搜索代理工具（优先工具，LLM 会优先选择）
                 use matrixcode_core::tools::{ToolDefinition, proxy::{ProxyTool, ProxyMetadata}};
                 ProxyTool::new(
                     ToolDefinition {
                         name: "image_search".to_string(),
-                        description: "搜索网络图片。返回图片搜索结果 URL，用户可在浏览器中查看。参数：query（搜索关键词，必需）、max_results（最大结果数，可选，默认5）".to_string(),
+                        description: "搜索网络图片。当用户需要查找图片、照片、图像资源时使用此工具。返回图片URL列表，包含来源平台(Unsplash/Pexels/Pixabay)、摄影师信息、尺寸等。适用于：查找壁纸、素材、插图、风景照片等视觉内容。参数：query（搜索关键词，必需）、max_results（最大结果数，可选，默认5）".to_string(),
                         parameters: serde_json::json!({
                             "type": "object",
                             "properties": {
                                 "query": {
                                     "type": "string",
-                                    "description": "搜索关键词"
+                                    "description": "搜索关键词，建议使用英文获得更多结果"
                                 },
                                 "max_results": {
                                     "type": "integer",
-                                    "description": "最大结果数",
+                                    "description": "每个平台返回的最大结果数，默认5，最大10",
                                     "default": 5
                                 }
                             },
                             "required": ["query"]
                         }),
+                        is_priority: true, // 优先工具，描述会自动添加 "[优先]" 标记
                     },
                     ProxyMetadata {
-                        tool_type: "web_search".to_string(),
+                        tool_type: "image_search".to_string(),
                         endpoint: None,
                         timeout_ms: 30000,
                         custom: None,

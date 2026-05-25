@@ -184,10 +184,28 @@ impl Agent {
                 }
             }
 
-            // 合并内置工具和代理工具定义
+            // 合并内置工具和代理工具定义，应用优先标记
             let tool_defs: Vec<ToolDefinition> = {
-                let mut defs: Vec<ToolDefinition> = self.tools.iter().map(|t| t.definition()).collect();
-                defs.extend(self.proxy_tools.iter().map(|t| t.definition()));
+                let mut defs: Vec<ToolDefinition> = self.tools.iter().map(|t| {
+                    let def = t.definition();
+                    let description = def.description_for_llm();
+                    ToolDefinition {
+                        name: def.name,
+                        description,
+                        parameters: def.parameters,
+                        is_priority: def.is_priority,
+                    }
+                }).collect();
+                defs.extend(self.proxy_tools.iter().map(|t| {
+                    let def = t.definition();
+                    let description = def.description_for_llm();
+                    ToolDefinition {
+                        name: def.name,
+                        description,
+                        parameters: def.parameters,
+                        is_priority: def.is_priority,
+                    }
+                }));
                 defs
             };
             let request = ChatRequest {

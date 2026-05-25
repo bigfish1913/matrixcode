@@ -92,16 +92,16 @@ struct PixabayHit {
 /// Normalized image result
 #[derive(Debug, Serialize)]
 pub struct ImageResult {
-    id: String,
-    url: String,
-    full_url: String,
-    thumb_url: String,
-    description: String,
-    photographer: String,
-    photographer_url: String,
-    width: u32,
-    height: u32,
-    platform: String,
+    pub id: String,
+    pub url: String,
+    pub full_url: String,
+    pub thumb_url: String,
+    pub description: String,
+    pub photographer: String,
+    pub photographer_url: String,
+    pub width: u32,
+    pub height: u32,
+    pub platform: String,
 }
 
 /// Get API keys from environment variables (secure approach)

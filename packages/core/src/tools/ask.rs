@@ -31,6 +31,7 @@ impl Tool for AskTool {
             name: "ask".to_string(),
             description: ASK_TOOL_DESCRIPTION.to_string(),
             parameters: ask_tool_schema(),
+            ..Default::default()
         }
     }
 

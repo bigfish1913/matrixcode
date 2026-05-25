@@ -3,7 +3,6 @@ pub mod bash;
 pub mod edit;
 pub mod glob;
 pub mod grep;
-pub mod image_search;
 pub mod ls;
 pub mod monitor;
 pub mod multi_edit;
@@ -28,7 +27,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::approval::RiskLevel;
 use crate::skills::Skill;
@@ -41,6 +40,32 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: Value,
+    /// 是否为优先工具。true 时会在描述前添加 "[优先]" 提示，
+    /// 让 LLM 更倾向选择此工具。默认 false。
+    #[serde(default)]
+    pub is_priority: bool,
+}
+
+impl Default for ToolDefinition {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            parameters: json!({"type": "object"}),
+            is_priority: false,
+        }
+    }
+}
+
+impl ToolDefinition {
+    /// 获取发送给 LLM 的描述（带优先标记）
+    pub fn description_for_llm(&self) -> String {
+        if self.is_priority {
+            format!("[优先] {}", self.description)
+        } else {
+            self.description.clone()
+        }
+    }
 }
 
 #[async_trait]
@@ -89,7 +114,6 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(plan_mode::EnterPlanModeTool),
         Box::new(plan_mode::ExitPlanModeTool),
         Box::new(monitor::MonitorTool),
-        Box::new(image_search::ImageSearchTool),
         // Workflow-specific tools
     ];
     // Add workflow management tools (independent system like Skill)

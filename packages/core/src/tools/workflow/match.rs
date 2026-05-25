@@ -27,6 +27,7 @@ impl Tool for WorkflowMatchTool {
                 },
                 "required": ["query"]
             }),
+            ..Default::default()
         }
     }
 

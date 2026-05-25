@@ -100,12 +100,13 @@ mod tests {
     #[test]
     fn test_register_proxy_tool() {
         let mut registry = ToolRegistry::new();
-        
+
         let proxy_tool = ProxyTool::new(
             ToolDefinition {
                 name: "custom_search".to_string(),
                 description: "自定义搜索".to_string(),
                 parameters: json!({"type": "object"}),
+                ..Default::default()
             },
             ProxyMetadata {
                 tool_type: "search".to_string(),
@@ -125,12 +126,13 @@ mod tests {
     #[test]
     fn test_proxy_definitions() {
         let mut registry = ToolRegistry::new();
-        
+
         registry.register(ProxyTool::new(
             ToolDefinition {
                 name: "test".to_string(),
                 description: "Test".to_string(),
                 parameters: json!({}),
+                ..Default::default()
             },
             ProxyMetadata {
                 tool_type: "test".to_string(),

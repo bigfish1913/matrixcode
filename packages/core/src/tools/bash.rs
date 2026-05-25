@@ -35,6 +35,7 @@ impl Tool for BashTool {
                 },
                 "required": ["command"]
             }),
+            ..Default::default()
         }
     }
 

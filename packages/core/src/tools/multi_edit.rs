@@ -38,6 +38,7 @@ impl Tool for MultiEditTool {
                 },
                 "required": ["path", "edits"]
             }),
+            ..Default::default()
         }
     }
 

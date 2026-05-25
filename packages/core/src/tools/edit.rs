@@ -34,6 +34,7 @@ impl Tool for EditTool {
                 },
                 "required": ["path", "old_string", "new_string"]
             }),
+            ..Default::default()
         }
     }
 

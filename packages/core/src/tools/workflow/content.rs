@@ -51,6 +51,7 @@ impl Tool for ContentGenerationTool {
                 },
                 "required": ["topic"]
             }),
+            ..Default::default()
         }
     }
 

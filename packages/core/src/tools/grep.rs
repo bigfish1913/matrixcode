@@ -107,6 +107,7 @@ impl Tool for GrepTool {
                 },
                 "required": ["pattern"]
             }),
+            ..Default::default()
         }
     }
 

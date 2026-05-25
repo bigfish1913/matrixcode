@@ -24,6 +24,7 @@ impl Tool for LsTool {
                 },
                 "required": []
             }),
+            ..Default::default()
         }
     }
 

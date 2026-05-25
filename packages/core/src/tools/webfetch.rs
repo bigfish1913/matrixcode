@@ -26,6 +26,7 @@ impl Tool for WebFetchTool {
                 },
                 "required": ["url"]
             }),
+            ..Default::default()
         }
     }
 

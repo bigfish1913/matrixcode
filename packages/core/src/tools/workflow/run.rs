@@ -56,6 +56,7 @@ impl Tool for WorkflowRunTool {
                 },
                 "required": ["workflow_id"]
             }),
+            ..Default::default()
         }
     }
 

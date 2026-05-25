@@ -33,6 +33,7 @@ impl Tool for GlobTool {
                 },
                 "required": ["pattern"]
             }),
+            ..Default::default()
         }
     }
 

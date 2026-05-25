@@ -31,6 +31,7 @@ impl Tool for SearchTool {
                 },
                 "required": ["pattern"]
             }),
+            ..Default::default()
         }
     }
 

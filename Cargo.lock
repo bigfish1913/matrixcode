@@ -1715,6 +1715,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "crossterm",
+ "dotenvy",
  "log",
  "matrixcode-core",
  "pulldown-cmark",

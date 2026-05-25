@@ -52,6 +52,7 @@ impl Tool for EnterPlanModeTool {
                 "type": "object",
                 "properties": {}
             }),
+            ..Default::default()
         }
     }
 
@@ -107,6 +108,7 @@ impl Tool for ExitPlanModeTool {
                     }
                 }
             }),
+            ..Default::default()
         }
     }
 

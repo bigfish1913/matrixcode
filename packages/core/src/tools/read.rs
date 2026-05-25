@@ -35,6 +35,7 @@ impl Tool for ReadTool {
                 },
                 "required": ["path"]
             }),
+            ..Default::default()
         }
     }
 

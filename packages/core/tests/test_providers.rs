@@ -74,6 +74,7 @@ fn test_chat_request_creation() {
             name: "read".to_string(),
             description: "Read a file".to_string(),
             parameters: json!({}),
+            ..Default::default()
         }],
         system: Some("You are helpful".to_string()),
         think: false,

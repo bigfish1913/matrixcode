@@ -49,6 +49,7 @@ impl Tool for TaskTool {
                 },
                 "required": ["description", "prompt"]
             }),
+            ..Default::default()
         }
     }
 
@@ -279,6 +280,7 @@ impl Tool for TaskCreateTool {
                 },
                 "required": ["description", "prompt"]
             }),
+            ..Default::default()
         }
     }
 
@@ -335,6 +337,7 @@ impl Tool for TaskGetTool {
                 },
                 "required": ["task_id"]
             }),
+            ..Default::default()
         }
     }
 
@@ -382,6 +385,7 @@ impl Tool for TaskListTool {
                 "type": "object",
                 "properties": {}
             }),
+            ..Default::default()
         }
     }
 
@@ -421,6 +425,7 @@ impl Tool for TaskStopTool {
                 },
                 "required": ["task_id"]
             }),
+            ..Default::default()
         }
     }
 

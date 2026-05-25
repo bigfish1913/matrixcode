@@ -28,3 +28,4 @@ serde = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
+dotenvy = { workspace = true }

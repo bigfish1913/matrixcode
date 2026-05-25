@@ -30,6 +30,7 @@ impl Tool for WebSearchTool {
                 },
                 "required": ["query"]
             }),
+            ..Default::default()
         }
     }
 

@@ -41,6 +41,7 @@ impl Tool for MonitorTool {
                 },
                 "required": ["mode"]
             }),
+            ..Default::default()
         }
     }
 

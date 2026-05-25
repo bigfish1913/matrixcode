@@ -56,6 +56,7 @@ impl Tool for SkillTool {
                 "properties": props,
                 "required": ["name"]
             }),
+            ..Default::default()
         }
     }
 

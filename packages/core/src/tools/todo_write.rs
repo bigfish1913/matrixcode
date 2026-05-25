@@ -44,6 +44,7 @@ impl Tool for TodoWriteTool {
                 },
                 "required": ["todos"]
             }),
+            ..Default::default()
         }
     }
 

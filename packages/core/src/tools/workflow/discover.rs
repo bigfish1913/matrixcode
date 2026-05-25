@@ -22,6 +22,7 @@ impl Tool for WorkflowDiscoverTool {
                 "properties": {},
                 "required": []
             }),
+            ..Default::default()
         }
     }
 
