@@ -58,8 +58,8 @@ nodes:
     task: content_generation
     params:
       topic: "{{topic}}"
-      research_data: "{{research.result}}"
-      image_urls: "{{search_images.images}}"
+      research_data: "{{result}}"
+      image_urls: "{{images}}"
       style: "{{content_style}}"
     timeout_ms: 120000
 

@@ -71,19 +71,27 @@ impl Tool for ContentGenerationTool {
             prompt.push_str(&format!("参考资料:\n{}\n\n", research));
         }
 
-        if let Some(images) = params.get("image_urls").and_then(|v| v.as_array()) {
-            if !images.is_empty() {
-                prompt.push_str("配图:\n");
-                for url in images {
-                    if let Some(url_str) = url.as_str() {
-                        prompt.push_str(&format!("- {}\n", url_str));
+        if let Some(images) = params.get("image_urls") {
+            // Handle both array of strings and array of objects
+            if let Some(arr) = images.as_array() {
+                if !arr.is_empty() {
+                    prompt.push_str("\n**重要：请在文章中插入以下图片**（使用 Markdown 图片格式 `![描述](URL)`）：\n");
+                    for (idx, img) in arr.iter().enumerate() {
+                        // Check if it's a string URL or an object with url field
+                        if let Some(url_str) = img.as_str() {
+                            prompt.push_str(&format!("{}. ![图片{}]({})\n", idx + 1, idx + 1, url_str));
+                        } else if let Some(obj) = img.as_object() {
+                            let url = obj.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                            let desc = obj.get("description").and_then(|d| d.as_str()).unwrap_or("配图");
+                            prompt.push_str(&format!("{}. ![{}({})\n", idx + 1, desc, url));
+                        }
                     }
+                    prompt.push_str("\n请将图片插入到文章的合适位置，使文章更加生动。\n");
                 }
-                prompt.push_str("\n");
             }
         }
 
-        prompt.push_str("请生成一篇完整的内容。");
+        prompt.push_str("\n请生成一篇完整的图文文章，**必须包含图片**。");
 
         // 调用 AI Provider
         let request = crate::providers::ChatRequest {
@@ -111,12 +119,44 @@ impl Tool for ContentGenerationTool {
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                
+
+                // 构建图片画廊（自动添加到文章开头）
+                let image_gallery = if let Some(images) = params.get("image_urls") {
+                    if let Some(arr) = images.as_array() {
+                        if !arr.is_empty() {
+                            let mut gallery = String::from("\n## 📷 配图\n\n");
+                            for (idx, img) in arr.iter().enumerate().take(5) { // 最多显示5张
+                                if let Some(obj) = img.as_object() {
+                                    let url = obj.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                                    let desc = obj.get("description").and_then(|d| d.as_str()).unwrap_or("配图");
+                                    gallery.push_str(&format!("![{}({})\n\n", desc, url));
+                                } else if let Some(url_str) = img.as_str() {
+                                    gallery.push_str(&format!("![图片{}]({})\n\n", idx + 1, url_str));
+                                }
+                            }
+                            gallery
+                        } else {
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+
+                // 将图片画廊添加到内容中
+                let final_content = if image_gallery.is_empty() {
+                    content
+                } else {
+                    format!("{}\n\n{}", image_gallery, content)
+                };
+
                 Ok(json!({
-                    "content": content,
+                    "content": final_content,
                     "topic": topic,
                     "style": style,
-                    "word_count": content.chars().count()
+                    "word_count": final_content.chars().count()
                 }).to_string())
             }
             Err(e) => {
