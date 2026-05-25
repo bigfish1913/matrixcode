@@ -201,6 +201,21 @@ enum WorkflowCommands {
         #[arg(short, long)]
         id: String,
     },
+
+    /// Export workflow to mermaid diagram
+    Export {
+        /// YAML workflow file path
+        #[arg(short, long)]
+        file: String,
+
+        /// Output format (mermaid)
+        #[arg(long, default_value = "mermaid")]
+        format: String,
+
+        /// Output file path (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2032,9 +2047,49 @@ fn handle_workflow_command(command: WorkflowCommands) {
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or_default();
 
-            // Create engine
+            // Create engine with executor factory
+            use matrixcode_core::workflow::executors::ExecutorFactory;
+
+            // Load config for provider
+            let config = Config::load();
+            let model = resolve_model(&config);
+            let provider_type = resolve_provider(&config, &model);
+            let api_key = config
+                .api_key
+                .clone()
+                .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok());
+            let base_url = resolve_base_url(&config);
+            let extra_headers = config.extra_headers.clone();
+
+            // Create provider if API key is available
+            let provider = if let Some(key) = api_key {
+                match create_provider_with_headers(
+                    provider_type,
+                    key,
+                    model,
+                    Some(base_url),
+                    extra_headers,
+                ) {
+                    Ok(p) => Some(std::sync::Arc::from(p)),
+                    Err(e) => {
+                        eprintln!("Warning: Failed to create provider for AI tasks: {}", e);
+                        None
+                    }
+                }
+            } else {
+                eprintln!("Warning: No API key configured, AI tasks will not work");
+                None
+            };
+
+            // Create factory with provider if available
+            let factory = if let Some(p) = provider {
+                ExecutorFactory::new().with_provider(p)
+            } else {
+                ExecutorFactory::new()
+            };
+
             let engine = match WorkflowEngine::new(workflow_def) {
-                Ok(e) => e,
+                Ok(e) => e.with_executor_factory(factory),
                 Err(e) => {
                     eprintln!("❌ Failed to create workflow engine: {}", e);
                     return;
@@ -2294,6 +2349,40 @@ fn handle_workflow_command(command: WorkflowCommands) {
                 Err(e) => {
                     eprintln!("❌ Failed to load workflow: {}", e);
                 }
+            }
+        }
+
+        WorkflowCommands::Export { file, format, output } => {
+            println!("📤 Exporting workflow from: {}", file);
+
+            // Parse workflow definition
+            let workflow_def = match parse_workflow_from_file(&file) {
+                Ok(def) => def,
+                Err(e) => {
+                    eprintln!("❌ Failed to parse workflow: {}", e);
+                    return;
+                }
+            };
+
+            // Check format
+            if format != "mermaid" {
+                eprintln!("❌ Unsupported format: {}. Only 'mermaid' is supported.", format);
+                return;
+            }
+
+            // Generate mermaid diagram
+            use matrixcode_tui::workflow::export_mermaid;
+            let mermaid_output = export_mermaid(&workflow_def, None);
+
+            // Output to file or stdout
+            if let Some(output_path) = output {
+                if let Err(e) = std::fs::write(&output_path, &mermaid_output) {
+                    eprintln!("❌ Failed to write output: {}", e);
+                } else {
+                    println!("✓ Exported to: {}", output_path);
+                }
+            } else {
+                println!("{}", mermaid_output);
             }
         }
     }

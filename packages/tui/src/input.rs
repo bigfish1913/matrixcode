@@ -440,6 +440,16 @@ impl TuiApp {
                 self.thinking_collapsed = !self.thinking_collapsed;
             }
 
+            // Alt+W: toggle workflow panel
+            KeyCode::Char('w') if k.modifiers.contains(KeyModifiers::ALT) => {
+                self.workflow_state.visible = !self.workflow_state.visible;
+                // Load most recent workflow when showing panel
+                if self.workflow_state.visible {
+                    let project_dir = std::env::current_dir().ok();
+                    self.workflow_state.load_most_recent(project_dir.as_ref());
+                }
+            }
+
             // Shift+Tab / BackTab: toggle approve mode
             KeyCode::Tab if k.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.approve_mode = self.approve_mode.next();

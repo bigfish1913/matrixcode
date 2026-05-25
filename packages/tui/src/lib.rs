@@ -7,6 +7,7 @@ mod markdown;
 mod types;
 mod utils;
 pub mod image_search;
+pub mod workflow;
 
 use anyhow::Result;
 use ratatui::{

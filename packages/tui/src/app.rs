@@ -98,6 +98,8 @@ pub struct TuiApp {
     pub(crate) debug_scroll_offset: u16,
     // Multiline input confirmation state
     pub(crate) multiline_confirm_send: bool,
+    // Workflow visualization state
+    pub(crate) workflow_state: crate::workflow::WorkflowViewState,
 }
 
 /// Todo item for progress tracking
@@ -195,6 +197,7 @@ impl TuiApp {
             debug_logs: Vec::new(),
             debug_scroll_offset: 0,
             multiline_confirm_send: false,
+            workflow_state: crate::workflow::WorkflowViewState::default(),
         }
     }
 

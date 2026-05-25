@@ -5,6 +5,7 @@ mod hint;  // New hint bar module
 mod input;
 mod messages;
 mod status;
+mod workflow;
 
 use crate::app::TuiApp;
 use crate::types::Activity;
@@ -14,6 +15,16 @@ impl TuiApp {
     pub(crate) fn draw(&self, f: &mut ratatui::Frame) {
         let total_height = f.area().height;
         let width = f.area().width;
+
+        // Workflow panel width (when visible)
+        let workflow_width: u16 = if self.workflow_state.visible {
+            40u16.min(width / 3)
+        } else {
+            0
+        };
+
+        // Adjust content width to avoid overlap with workflow panel
+        let content_width = width.saturating_sub(workflow_width);
 
         // Debug panel height (when visible)
         let debug_height: u16 = if self.show_debug_panel {
@@ -61,13 +72,14 @@ impl TuiApp {
         let debug_y = activity_y - debug_height;
 
         // Create areas - messages area starts from top (y=0)
-        let messages_area = Rect::new(0, 0, width, messages_height);
-        let debug_area = Rect::new(0, debug_y, width, debug_height);
-        let queue_area = Rect::new(0, queue_y, width, queue_height);
-        let activity_area = Rect::new(0, activity_y, width, activity_height);
-        let hint_area = Rect::new(0, hint_y, width, hint_height);
-        let input_area = Rect::new(0, input_y, width, input_height);
-        let status_area = Rect::new(0, status_y, width, status_height);
+        // Use content_width to avoid overlap with workflow panel
+        let messages_area = Rect::new(0, 0, content_width, messages_height);
+        let debug_area = Rect::new(0, debug_y, content_width, debug_height);
+        let queue_area = Rect::new(0, queue_y, content_width, queue_height);
+        let activity_area = Rect::new(0, activity_y, content_width, activity_height);
+        let hint_area = Rect::new(0, hint_y, content_width, hint_height);
+        let input_area = Rect::new(0, input_y, content_width, input_height);
+        let status_area = Rect::new(0, status_y, content_width, status_height);
 
         // Render in order: messages first (top), then bottom components
         self.draw_messages(f, messages_area);
@@ -85,6 +97,9 @@ impl TuiApp {
         }
         self.draw_input(f, input_area);
         self.draw_status(f, status_area);
+
+        // Workflow panel overlay (right side)
+        self.draw_workflow_panel(f);
     }
 
     /// Check if current activity is a tool activity

@@ -161,14 +161,29 @@ impl WorkflowEngine {
     /// 运行工作流
     pub async fn run(&self, inputs: HashMap<String, serde_json::Value>) -> Result<WorkflowContext> {
         // 创建上下文
-        let mut context = WorkflowContext::new(self.definition.id.clone(), inputs);
+        let mut context = WorkflowContext::new(self.definition.id.clone(), inputs.clone());
 
         // 验证必填输入
         self.validate_inputs(&context)?;
 
-        // 初始化变量
-        for (key, value) in &self.definition.variables {
+        // 初始化变量：先添加 inputs
+        for (key, value) in inputs {
             context.set_variable(key.clone(), value.clone());
+        }
+
+        // 渲染并添加 workflow 定义的变量
+        let renderer = crate::workflow::template::TemplateRenderer::new();
+        for (key, value) in &self.definition.variables {
+            // 如果是字符串，渲染模板
+            let rendered_value = if let serde_json::Value::String(s) = value {
+                match renderer.render(s, &context.variables) {
+                    Ok(rendered) => serde_json::Value::String(rendered),
+                    Err(_) => value.clone(), // 渲染失败保持原值
+                }
+            } else {
+                value.clone()
+            };
+            context.set_variable(key.clone(), rendered_value);
         }
 
         // 开始工作流

@@ -187,23 +187,19 @@ impl TuiApp {
                     // Assistant: separator with optional debug info
                     if self.debug_mode {
                         let token_info = format!("({}tok)", fmt_tokens(self.tokens_out));
-                        let elapsed = self
-                            .request_start
-                            .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
-                            .unwrap_or_default();
                         lines.push(Line::from(vec![
                             Span::styled(
-                                "  \u{2500}\u{2500} \u{1f916} ",
+                                "  ─── 🤖 ",
                                 Style::default().fg(Color::DarkGray),
                             ),
                             Span::styled(
-                                format!("{}{}", token_info, elapsed),
+                                token_info,
                                 Style::default().fg(Color::DarkGray),
                             ),
                         ]));
                     } else {
                         lines.push(Line::styled(
-                            "  \u{2500}\u{2500}",
+                            "  ───",
                             Style::default().fg(Color::DarkGray),
                         ));
                     }
@@ -857,18 +853,19 @@ impl TuiApp {
                 lines.push(Line::raw(""));
             }
             // Show realtime token count during streaming (debug mode)
-            if self.debug_mode && self.current_request_tokens > 0 {
-                let elapsed = self
-                    .request_start
-                    .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
-                    .unwrap_or_default();
+            if self.debug_mode {
+                let token_display = if self.current_request_tokens > 0 {
+                    format!("({}tok)", fmt_tokens(self.current_request_tokens))
+                } else {
+                    "(0tok)".to_string()
+                };
                 lines.push(Line::from(vec![
                     Span::styled(
-                        "  \u{2500}\u{2500} \u{1f916} ",
+                        "  ─── 🤖 ",
                         Style::default().fg(Color::DarkGray),
                     ),
                     Span::styled(
-                        format!("({}tok){}", fmt_tokens(self.current_request_tokens), elapsed),
+                        token_display,
                         Style::default().fg(Color::DarkGray),
                     ),
                 ]));
