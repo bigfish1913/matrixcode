@@ -132,6 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 "required": ["query"]
             }),
+            ..Default::default()
         },
         ProxyMetadata {
             tool_type: "search".to_string(),
@@ -159,6 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 "required": ["sql"]
             }),
+            ..Default::default()
         },
         ProxyMetadata {
             tool_type: "database".to_string(),

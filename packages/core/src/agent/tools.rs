@@ -316,15 +316,16 @@ impl Agent {
         metadata: crate::tools::proxy::ProxyMetadata,
     ) -> Result<String> {
         use uuid::Uuid;
-        
+        use tokio::time::{Duration, timeout};
+
         // 生成唯一请求 ID
         let request_id = Uuid::new_v4().to_string();
-        
+
         log::info!(
             "Proxy tool request: id={}, tool={}, metadata={:?}",
             request_id, name, metadata
         );
-        
+
         // 发送代理工具请求事件
         self.emit(AgentEvent::proxy_tool_request(
             request_id.clone(),
@@ -332,23 +333,25 @@ impl Agent {
             input.clone(),
             metadata.clone(),
         ))?;
-        
+
         // 检查是否有响应 channel
         if let Some(rx) = &mut self.proxy_rx {
-            // 等待调用方返回结果
+            // 等待调用方返回结果（带超时）
+            let timeout_duration = Duration::from_millis(metadata.timeout_ms);
+
             let result = if let Some(token) = &self.cancel_token {
                 tokio::select! {
-                    result = rx.recv() => result,
+                    result = timeout(timeout_duration, rx.recv()) => result,
                     _ = wait_for_cancel(token) => {
                         return Err(anyhow::anyhow!("Operation cancelled"));
                     }
                 }
             } else {
-                rx.recv().await
+                timeout(timeout_duration, rx.recv()).await
             };
-            
+
             match result {
-                Some(response) => {
+                Ok(Some(response)) => {
                     // 验证 request_id 匹配
                     if response.request_id != request_id {
                         log::warn!(
@@ -356,19 +359,23 @@ impl Agent {
                             request_id, response.request_id
                         );
                     }
-                    
+
                     log::info!(
                         "Proxy tool response: id={}, is_error={}",
                         response.request_id, response.is_error
                     );
-                    
+
                     if response.is_error {
                         Err(anyhow::anyhow!("Proxy tool error: {}", response.result))
                     } else {
                         Ok(response.result)
                     }
                 }
-                None => Err(anyhow::anyhow!("Proxy tool channel closed")),
+                Ok(None) => Err(anyhow::anyhow!("Proxy tool channel closed")),
+                Err(_) => Err(anyhow::anyhow!(
+                    "Proxy tool '{}' timed out after {}ms",
+                    name, metadata.timeout_ms
+                )),
             }
         } else {
             Err(anyhow::anyhow!(

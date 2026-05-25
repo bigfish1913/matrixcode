@@ -131,7 +131,9 @@ impl WorkflowEngine {
                 if let Some(factory) = &self.executor_factory {
                     if let Some(task) = &node.task {
                         // 根据任务名称推断执行器类型
-                        if task.starts_with("ai_") || task.starts_with("claude") || task.starts_with("gpt") {
+                        // ai / ai_* / claude* / gpt* 使用 AI 执行器
+                        let task_lower = task.to_lowercase();
+                        if task_lower == "ai" || task_lower.starts_with("ai_") || task_lower.starts_with("claude") || task_lower.starts_with("gpt") {
                             return factory.create_ai_executor().ok();
                         }
                         // 默认使用工具执行器

@@ -44,7 +44,7 @@ impl Agent {
             cancel_token: None,
             compression_config: crate::compress::CompressionConfig::default(),
             ask_rx: None,
-            proxy_tools: Vec::new(),
+            proxy_tools: builder.proxy_tools,
             proxy_rx: None,
         }
     }

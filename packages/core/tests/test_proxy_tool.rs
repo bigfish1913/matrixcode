@@ -211,3 +211,80 @@ async fn test_proxy_tool_error_chain() {
     let result: serde_json::Value = serde_json::from_str(&received_response.result).unwrap();
     assert!(result.get("error").is_some());
 }
+
+/// Test timeout scenario - agent should timeout if no response within timeout_ms
+#[tokio::test]
+async fn test_proxy_tool_timeout() {
+    use tokio::time::{Duration, timeout};
+
+    let (response_tx, mut response_rx) = mpsc::channel::<ProxyToolResponse>(10);
+
+    // Simulate agent waiting for response with short timeout
+    let short_timeout = Duration::from_millis(100);
+
+    // Don't send any response - agent should timeout
+    let result = timeout(short_timeout, response_rx.recv()).await;
+
+    // Should timeout (Err), not receive anything (Ok(None))
+    assert!(result.is_err(), "Should timeout when no response is sent");
+
+    // Now test that response comes through when sent
+    let request_id = Uuid::new_v4().to_string();
+    let response = ProxyToolResponse {
+        request_id,
+        result: json!({"success": true}).to_string(),
+        is_error: false,
+    };
+
+    // Send response before waiting
+    response_tx.send(response).await.unwrap();
+
+    // Wait with longer timeout - should succeed
+    let longer_timeout = Duration::from_millis(1000);
+    let result = timeout(longer_timeout, response_rx.recv()).await;
+
+    assert!(result.is_ok(), "Should receive response when sent before timeout");
+}
+
+/// Test send().await vs try_send behavior in async context
+#[tokio::test]
+async fn test_send_vs_try_send_async() {
+    // Create a small channel (size 2)
+    let (tx, mut rx) = mpsc::channel::<ProxyToolResponse>(2);
+
+    // Fill the channel
+    for i in 0..2 {
+        tx.try_send(ProxyToolResponse {
+            request_id: format!("req-{}", i),
+            result: "{}".to_string(),
+            is_error: false,
+        }).unwrap();
+    }
+
+    // try_send should fail now (channel full)
+    let try_result = tx.try_send(ProxyToolResponse {
+        request_id: "req-overflow".to_string(),
+        result: "{}".to_string(),
+        is_error: false,
+    });
+    assert!(try_result.is_err(), "try_send should fail when channel is full");
+
+    // send().await should wait for capacity and succeed
+    // We need to receive from rx in parallel to make room
+    let tx_clone = tx.clone();
+    let send_handle = tokio::spawn(async move {
+        // This will wait until there's room in the channel
+        tx_clone.send(ProxyToolResponse {
+            request_id: "req-async".to_string(),
+            result: "{}".to_string(),
+            is_error: false,
+        }).await
+    });
+
+    // Receive one to make room
+    rx.recv().await.unwrap();
+
+    // Now send should complete
+    let send_result = send_handle.await.unwrap();
+    assert!(send_result.is_ok(), "send().await should succeed after channel has room");
+}
