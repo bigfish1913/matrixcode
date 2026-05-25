@@ -755,11 +755,12 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         }
 
         // Build system prompt with memory, project overview and skills
-        let system_prompt = matrixcode_core::prompt::build_system_prompt(
+        let system_prompt = matrixcode_core::prompt::build_system_prompt_with_workflows(
             &matrixcode_core::prompt::PromptProfile::Default,
             &agent_skills,
             project_overview.as_ref().map(|o| o.content.as_str()),
             if initial_memory_summary.is_empty() { None } else { Some(&initial_memory_summary) },
+            agent_project_path.as_ref(),
         );
 
         // Build agent with external event sender

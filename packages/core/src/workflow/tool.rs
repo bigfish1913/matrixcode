@@ -1,12 +1,12 @@
-//! Workflow Tool for Agent
+//! Workflow Tools for Agent
 //!
-//! Provides tool interface for AI to execute workflows
+//! Provides tool interface for AI to discover and execute workflows
 
-use matrixcode_core::tools::{Tool, ToolDefinition, ToolParameter};
-use matrixcode_core::workflow::{WorkflowRegistry, WorkflowEngine, WorkflowPersistence, WorkflowStatus};
+use crate::tools::{Tool, ToolDefinition};
+use crate::workflow::{WorkflowRegistry, WorkflowEngine, WorkflowPersistence, WorkflowStatus};
 use anyhow::Result;
 use async_trait::async_trait;
-use std::collections::HashMap;
+use serde_json::Value;
 
 /// Tool to discover available workflows
 pub struct WorkflowDiscoverTool;
@@ -15,40 +15,39 @@ pub struct WorkflowDiscoverTool;
 impl Tool for WorkflowDiscoverTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: "workflow_discover",
-            description: "Discover available workflows. Returns a list of workflow IDs and descriptions that can be executed.",
-            parameters: vec![],
+            name: "workflow_discover".to_string(),
+            description: "发现可执行的自动化流程。返回 workflow ID、描述和所需输入参数列表。".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
         }
     }
 
-    async fn execute(&self, _params: HashMap<String, serde_json::Value>) -> Result<serde_json::Value> {
+    async fn execute(&self, _params: Value) -> Result<String> {
         let project_path = std::env::current_dir().ok();
         let registry = WorkflowRegistry::new(project_path.as_ref());
 
         if registry.is_empty() {
-            return Ok(serde_json::json!({
-                "success": false,
-                "message": "No workflows found. Create YAML files in .matrix/workflows/ or ~/.matrix/workflows/",
-                "workflows": []
-            }));
+            return Ok("未发现 workflow。在 .matrix/workflows/ 或 ~/.matrix/workflows/ 目录创建 YAML 文件。".to_string());
         }
 
-        let workflows: Vec<serde_json::Value> = registry.list()
-            .iter()
-            .map(|info| serde_json::json!({
-                "id": info.id,
-                "name": info.name,
-                "description": info.description,
-                "required_inputs": info.required_inputs,
-                "source": if info.source == matrixcode_core::workflow::WorkflowSource::Project { "project" } else { "global" }
-            }))
-            .collect();
+        let mut result = format!("发现 {} 个 workflow:\n\n", registry.count());
+        for info in registry.list() {
+            result.push_str(&format!("• {} - ", info.id));
+            if let Some(ref desc) = info.description {
+                result.push_str(desc);
+            } else {
+                result.push_str(&info.name);
+            }
+            if !info.required_inputs.is_empty() {
+                result.push_str(&format!(" [需要: {}]", info.required_inputs.join(", ")));
+            }
+            result.push_str("\n");
+        }
 
-        Ok(serde_json::json!({
-            "success": true,
-            "message": format!("Found {} workflows", workflows.len()),
-            "workflows": workflows
-        }))
+        Ok(result)
     }
 }
 
@@ -59,39 +58,33 @@ pub struct WorkflowRunTool;
 impl Tool for WorkflowRunTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: "workflow_run",
-            description: "Execute a workflow by ID. The workflow will run through all its nodes and return the results.",
-            parameters: vec![
-                ToolParameter {
-                    name: "workflow_id",
-                    description: "The workflow ID to execute. Use workflow_discover to find available IDs.",
-                    required: true,
-                    schema: None,
+            name: "workflow_run".to_string(),
+            description: "执行指定的 workflow。传入 workflow ID 和可选的输入参数，workflow 会按定义的节点顺序执行。".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "workflow_id": {
+                        "type": "string",
+                        "description": "要执行的 workflow ID。先用 workflow_discover 查看可用 ID。"
+                    },
+                    "inputs": {
+                        "type": "object",
+                        "description": "workflow 输入参数（JSON 对象）。键名必须匹配 workflow 的 required_inputs。"
+                    }
                 },
-                ToolParameter {
-                    name: "inputs",
-                    description: "JSON object with workflow inputs. Keys must match workflow's required_inputs.",
-                    required: false,
-                    schema: None,
-                },
-            ],
+                "required": ["workflow_id"]
+            }),
         }
     }
 
-    async fn execute(&self, params: HashMap<String, serde_json::Value>) -> Result<serde_json::Value> {
+    async fn execute(&self, params: Value) -> Result<String> {
         let workflow_id = params.get("workflow_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing workflow_id parameter"))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 workflow_id 参数"))?;
 
-        let inputs: HashMap<String, serde_json::Value> = params.get("inputs")
-            .and_then(|v| {
-                if v.is_object() {
-                    Some(v.as_object().unwrap().clone())
-                } else {
-                    None
-                }
-            })
-            .map(|m| m.into_iter().collect())
+        let inputs: std::collections::HashMap<String, Value> = params.get("inputs")
+            .and_then(|v| v.as_object())
+            .map(|m| m.clone().into_iter().collect())
             .unwrap_or_default();
 
         let project_path = std::env::current_dir().ok();
@@ -99,7 +92,7 @@ impl Tool for WorkflowRunTool {
 
         // Load workflow
         let workflow_def = registry.load_workflow(workflow_id)?
-            .ok_or_else(|| anyhow::anyhow!("Workflow '{}' not found. Use workflow_discover to list available workflows.", workflow_id))?;
+            .ok_or_else(|| anyhow::anyhow!("Workflow '{}' 不存在。用 workflow_discover 查看可用列表。", workflow_id))?;
 
         // Create engine and run
         let engine = WorkflowEngine::new(workflow_def)?;
@@ -112,36 +105,22 @@ impl Tool for WorkflowRunTool {
         }
 
         // Build result
-        let status_str = match context.status {
-            WorkflowStatus::Completed => "completed",
-            WorkflowStatus::Failed => "failed",
-            WorkflowStatus::Paused => "paused",
-            WorkflowStatus::Running => "running",
-            WorkflowStatus::Cancelled => "cancelled",
-            WorkflowStatus::Pending => "pending",
+        let status = if context.status == WorkflowStatus::Completed {
+            "✓ 完成".to_string()
+        } else if context.status == WorkflowStatus::Failed {
+            format!("❌ 失败: {}", context.error.unwrap_or_default())
+        } else {
+            format!("状态: {:?}", context.status)
         };
 
-        let execution_path: Vec<serde_json::Value> = context.execution_path.iter()
-            .map(|node_id| {
-                let exec = context.get_node_execution(node_id);
-                serde_json::json!({
-                    "node_id": node_id,
-                    "status": exec.map(|e| format!("{:?}", e.status)).unwrap_or("unknown"),
-                    "output": exec.and_then(|e| e.output.clone())
-                })
-            })
-            .collect();
-
-        Ok(serde_json::json!({
-            "success": context.status == WorkflowStatus::Completed,
-            "instance_id": context.instance_id,
-            "workflow_id": context.workflow_id,
-            "status": status_str,
-            "nodes_executed": context.execution_path.len(),
-            "execution_path": execution_path,
-            "error": context.error,
-            "variables": context.variables
-        }))
+        Ok(format!(
+            "Workflow '{}' 执行结果:\n\n实例ID: {}\n节点执行: {} 个\n{}\n\n变量输出: {}",
+            workflow_id,
+            context.instance_id,
+            context.execution_path.len(),
+            status,
+            serde_json::to_string_pretty(&context.variables).unwrap_or_default()
+        ))
     }
 }
 
@@ -152,23 +131,25 @@ pub struct WorkflowMatchTool;
 impl Tool for WorkflowMatchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: "workflow_match",
-            description: "Find workflows matching a query/intent. Returns ranked list of relevant workflows.",
-            parameters: vec![
-                ToolParameter {
-                    name: "query",
-                    description: "Natural language query describing what you want to do. Examples: 'process text', 'generate code', 'validate output'",
-                    required: true,
-                    schema: None,
+            name: "workflow_match".to_string(),
+            description: "根据意图查找匹配的 workflow。传入自然语言描述，返回最相关的 workflow 列表。".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "意图描述，如 '处理文本'、'生成代码'、'验证输出'"
+                    }
                 },
-            ],
+                "required": ["query"]
+            }),
         }
     }
 
-    async fn execute(&self, params: HashMap<String, serde_json::Value>) -> Result<serde_json::Value> {
+    async fn execute(&self, params: Value) -> Result<String> {
         let query = params.get("query")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing query parameter"))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 query 参数"))?;
 
         let project_path = std::env::current_dir().ok();
         let registry = WorkflowRegistry::new(project_path.as_ref());
@@ -176,29 +157,22 @@ impl Tool for WorkflowMatchTool {
         let matches = registry.match_workflows(query);
 
         if matches.is_empty() {
-            return Ok(serde_json::json!({
-                "success": false,
-                "message": format!("No workflows match '{}'", query),
-                "matches": []
-            }));
+            return Ok(format!("未找到匹配 '{}' 的 workflow。用 workflow_discover 查看全部。", query));
         }
 
-        let matched_workflows: Vec<serde_json::Value> = matches.iter()
-            .take(5)
-            .map(|info| serde_json::json!({
-                "id": info.id,
-                "name": info.name,
-                "description": info.description,
-                "required_inputs": info.required_inputs
-            }))
-            .collect();
+        let mut result = format!("匹配 '{}' 的 workflow:\n\n", query);
+        for info in matches.iter().take(5) {
+            result.push_str(&format!("• {} - ", info.id));
+            if let Some(ref desc) = info.description {
+                result.push_str(desc);
+            } else {
+                result.push_str(&info.name);
+            }
+            result.push_str("\n");
+        }
 
-        Ok(serde_json::json!({
-            "success": true,
-            "message": format!("Found {} matching workflows", matched_workflows.len()),
-            "query": query,
-            "matches": matched_workflows
-        }))
+        result.push_str("\n调用: workflow_run {\"workflow_id\": \"选定的ID\"}");
+        Ok(result)
     }
 }
 
@@ -209,11 +183,4 @@ pub fn workflow_tools() -> Vec<Box<dyn Tool>> {
         Box::new(WorkflowRunTool),
         Box::new(WorkflowMatchTool),
     ]
-}
-
-/// Add workflow tools to existing tools
-pub fn add_workflow_tools(tools: Vec<Box<dyn Tool>>) -> Vec<Box<dyn Tool>> {
-    let mut all_tools = tools;
-    all_tools.extend(workflow_tools());
-    all_tools
 }

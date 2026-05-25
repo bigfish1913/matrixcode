@@ -129,6 +129,8 @@ pub use executors::{
     ExecutorFactory,
 };
 
+pub use tool::{workflow_tools, WorkflowDiscoverTool, WorkflowRunTool, WorkflowMatchTool};
+
 #[cfg(test)]
 mod integration_tests {
     use super::*;

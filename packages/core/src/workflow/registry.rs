@@ -313,8 +313,8 @@ mod tests {
     #[test]
     fn test_registry_creation() {
         let registry = WorkflowRegistry::new_global();
-        // May have 0 workflows if no files exist
-        assert!(registry.count() >= 0);
+        // count() returns usize which is always >= 0
+        let _count = registry.count();
     }
 
     #[test]

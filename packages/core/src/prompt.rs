@@ -228,6 +228,7 @@ pub fn build_static_system_prompt(profile: PromptProfile) -> String {
 pub const SECTION_PROJECT_CONTEXT: &str = "PROJECT CONTEXT";
 pub const SECTION_TASK_CONTEXT: &str = "TASK CONTEXT";
 pub const SECTION_AVAILABLE_SKILLS: &str = "AVAILABLE SKILLS";
+pub const SECTION_AVAILABLE_WORKFLOWS: &str = "AVAILABLE WORKFLOWS";
 pub const SECTION_ACCUMULATED_MEMORY: &str = "ACCUMULATED MEMORY";
 
 /// Memory summary section header for system prompt.
@@ -446,6 +447,17 @@ pub fn build_system_prompt(
     project_overview: Option<&str>,
     memory_summary: Option<&str>,
 ) -> String {
+    build_system_prompt_with_workflows(profile, skills, project_overview, memory_summary, None)
+}
+
+/// Build full system prompt with workflow support
+pub fn build_system_prompt_with_workflows(
+    profile: &PromptProfile,
+    skills: &[crate::skills::Skill],
+    project_overview: Option<&str>,
+    memory_summary: Option<&str>,
+    project_path: Option<&std::path::PathBuf>,
+) -> String {
     let builder = SystemPromptBuilder::new(*profile);
 
     // Get static prompt parts
@@ -476,6 +488,29 @@ pub fn build_system_prompt(
         result.push_str("\n\n[AVAILABLE SKILLS]\n");
         for skill in skills {
             result.push_str(&format!("- {}: {}\n", skill.name, skill.description));
+        }
+    }
+
+    // Add available workflows (discover from project path)
+    if let Some(path) = project_path {
+        use crate::workflow::WorkflowRegistry;
+        let registry = WorkflowRegistry::new(Some(path));
+        if !registry.is_empty() {
+            result.push_str("\n\n[AVAILABLE WORKFLOWS]\n");
+            result.push_str("可执行的自动化流程（使用 workflow_run 工具调用）:\n\n");
+            for info in registry.list() {
+                result.push_str(&format!("- {}: ", info.id));
+                if let Some(ref desc) = info.description {
+                    result.push_str(desc);
+                } else {
+                    result.push_str(&info.name);
+                }
+                if !info.required_inputs.is_empty() {
+                    result.push_str(&format!(" (需要输入: {})", info.required_inputs.join(", ")));
+                }
+                result.push_str("\n");
+            }
+            result.push_str("\n调用方式: 使用 workflow_run 工具，传入 workflow_id 和可选的 inputs 参数。\n");
         }
     }
 

@@ -25,6 +25,7 @@ use serde_json::Value;
 
 use crate::approval::RiskLevel;
 use crate::skills::Skill;
+use crate::workflow::workflow_tools;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -55,7 +56,7 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
 /// skills catalogue. The catalogue can be empty; the tool still works
 /// but will only report "no skills loaded" if invoked.
 pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
-    vec![
+    let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ask::AskTool),
         Box::new(read::ReadTool),
         Box::new(write::WriteTool),
@@ -79,7 +80,10 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(plan_mode::EnterPlanModeTool),
         Box::new(plan_mode::ExitPlanModeTool),
         Box::new(monitor::MonitorTool),
-    ]
+    ];
+    // Add workflow tools (independent system like Skill)
+    tools.extend(workflow_tools());
+    tools
 }
 
 /// Generate tools description for system prompt
@@ -105,4 +109,30 @@ pub fn generate_tools_prompt() -> String {
     }
 
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_all_tools_includes_workflow_tools() {
+        let tools = all_tools();
+        let tool_names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
+
+        // Verify workflow tools are present
+        assert!(tool_names.contains(&"workflow_discover".to_string()), "workflow_discover should be in tools");
+        assert!(tool_names.contains(&"workflow_run".to_string()), "workflow_run should be in tools");
+        assert!(tool_names.contains(&"workflow_match".to_string()), "workflow_match should be in tools");
+    }
+
+    #[test]
+    fn test_generate_tools_prompt_includes_workflow() {
+        let prompt = generate_tools_prompt();
+
+        // Verify workflow tools appear in prompt
+        assert!(prompt.contains("workflow_discover"), "prompt should mention workflow_discover");
+        assert!(prompt.contains("workflow_run"), "prompt should mention workflow_run");
+        assert!(prompt.contains("workflow_match"), "prompt should mention workflow_match");
+    }
 }
