@@ -392,27 +392,27 @@ impl TuiApp {
                             ));
                         }
                     } else if *is_error {
-                        // Error: show with red border for prominence
+                        // Error: show with red border for prominence (single-line style)
                         lines.push(Line::styled(
-                            "  ╔═ ERROR ═══════════════════════════╗",
+                            "  ┌─ ERROR ───────────────────────────┐",
                             Style::default().fg(Color::Red),
                         ));
                         for line in msg.content.lines().take(preview_count) {
                             let truncated = truncate(line, max_w.saturating_sub(8));
                             lines.push(Line::styled(
-                                format!("  ║ {}", truncated),
+                                format!("  │ {}", truncated),
                                 Style::default().fg(Color::Red),
                             ));
                         }
                         let total_lines = msg.content.lines().count();
                         if total_lines > preview_count {
                             lines.push(Line::styled(
-                                format!("  ║ ... ({} more lines)", total_lines - preview_count),
+                                format!("  │ ... ({} more lines)", total_lines - preview_count),
                                 Style::default().fg(Color::DarkGray),
                             ));
                         }
                         lines.push(Line::styled(
-                            "  ╚══════════════════════════════════╝",
+                            "  └───────────────────────────────────┘",
                             Style::default().fg(Color::Red),
                         ));
                     } else if preview_count > 0 {
