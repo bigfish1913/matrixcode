@@ -27,6 +27,15 @@ impl AnthropicProvider {
         Self::with_headers(api_key, model, base_url, None)
     }
 
+    /// Load proxy from environment variables
+    fn load_proxy_from_env() -> Option<String> {
+        std::env::var("HTTPS_PROXY")
+            .ok()
+            .or_else(|| std::env::var("https_proxy").ok())
+            .or_else(|| std::env::var("HTTP_PROXY").ok())
+            .or_else(|| std::env::var("http_proxy").ok())
+    }
+
     pub fn with_headers(
         api_key: String,
         model: String,
@@ -37,10 +46,20 @@ impl AnthropicProvider {
         // - No total timeout (streaming responses can take a long time)
         // - Connect timeout: 10 seconds
         // - Read timeout per chunk: 60 seconds (for slow responses between chunks)
-        let client = reqwest::Client::builder()
+        let mut client_builder = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .read_timeout(std::time::Duration::from_secs(60))
-            .timeout(std::time::Duration::from_secs(300)) // Total timeout for non-streaming
+            .timeout(std::time::Duration::from_secs(300)); // Total timeout for non-streaming
+
+        // Add proxy from environment if available
+        if let Some(proxy_url) = Self::load_proxy_from_env() {
+            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+                log::info!("AnthropicProvider using proxy: {}", proxy_url);
+                client_builder = client_builder.proxy(proxy);
+            }
+        }
+
+        let client = client_builder
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         let extra_headers: Vec<(String, String)> = extra_headers

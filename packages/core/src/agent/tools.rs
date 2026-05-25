@@ -8,7 +8,6 @@ use crate::approval::{ApproveMode, needs_approval};
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role};
 use crate::truncate::truncate_with_suffix;
-use crate::tools::Tool;
 
 use super::helpers::extract_tool_detail;
 use super::types::Agent;
@@ -130,11 +129,11 @@ impl Agent {
         input: serde_json::Value,
     ) -> Result<String> {
         // 先检查是否是代理工具
-        if let Some(proxy_tool) = self.proxy_tools.iter().find(|t| t.definition().name == name) {
+        if self.proxy_tool_defs.iter().any(|t| t.definition.name == name) {
             log::info!("Executing proxy tool: {}", name);
-            return self.handle_proxy_tool(name, input, proxy_tool.metadata().clone()).await;
+            return self.handle_proxy_tool(name, input).await;
         }
-        
+
         let tool = self.tools.iter().find(|t| t.definition().name == name);
 
         if let Some(tool) = tool {
@@ -307,80 +306,52 @@ impl Agent {
             Err(anyhow::anyhow!("Tool '{}' not found", name))
         }
     }
-    
-    /// 处理代理工具 - 发送请求给调用方，等待执行结果
-    async fn handle_proxy_tool(
-        &mut self,
-        name: &str,
-        input: serde_json::Value,
-        metadata: crate::tools::proxy::ProxyMetadata,
-    ) -> Result<String> {
-        use uuid::Uuid;
-        use tokio::time::{Duration, timeout};
 
-        // 生成唯一请求 ID
-        let request_id = Uuid::new_v4().to_string();
+    /// 处理代理工具 - 直接调用 executor 执行
+    async fn handle_proxy_tool(&mut self, name: &str, input: serde_json::Value) -> Result<String> {
+        // 检查是否有执行器
+        if let Some(executor) = &self.proxy_executor {
+            log::info!("Proxy tool: calling executor for {}", name);
 
-        log::info!(
-            "Proxy tool request: id={}, tool={}, metadata={:?}",
-            request_id, name, metadata
-        );
+            // 获取超时时间
+            let timeout_ms = self.proxy_tool_defs
+                .iter()
+                .find(|t| t.definition.name == name)
+                .map(|t| t.timeout_ms)
+                .unwrap_or(30000);
 
-        // 发送代理工具请求事件
-        self.emit(AgentEvent::proxy_tool_request(
-            request_id.clone(),
-            name.to_string(),
-            input.clone(),
-            metadata.clone(),
-        ))?;
-
-        // 检查是否有响应 channel
-        if let Some(rx) = &mut self.proxy_rx {
-            // 等待调用方返回结果（带超时）
-            let timeout_duration = Duration::from_millis(metadata.timeout_ms);
-
+            // 执行代理工具（带超时和取消）
             let result = if let Some(token) = &self.cancel_token {
                 tokio::select! {
-                    result = timeout(timeout_duration, rx.recv()) => result,
+                    result = tokio::time::timeout(
+                        tokio::time::Duration::from_millis(timeout_ms),
+                        executor.exec(name, input.clone())
+                    ) => result,
                     _ = wait_for_cancel(token) => {
                         return Err(anyhow::anyhow!("Operation cancelled"));
                     }
                 }
             } else {
-                timeout(timeout_duration, rx.recv()).await
+                tokio::time::timeout(
+                    tokio::time::Duration::from_millis(timeout_ms),
+                    executor.exec(name, input.clone())
+                ).await
             };
 
             match result {
-                Ok(Some(response)) => {
-                    // 验证 request_id 匹配
-                    if response.request_id != request_id {
-                        log::warn!(
-                            "Proxy tool response mismatch: expected={}, got={}",
-                            request_id, response.request_id
-                        );
-                    }
-
-                    log::info!(
-                        "Proxy tool response: id={}, is_error={}",
-                        response.request_id, response.is_error
-                    );
-
-                    if response.is_error {
-                        Err(anyhow::anyhow!("Proxy tool error: {}", response.result))
-                    } else {
-                        Ok(response.result)
-                    }
+                Ok(inner_result) => {
+                    log::info!("Proxy tool {} completed", name);
+                    inner_result
                 }
-                Ok(None) => Err(anyhow::anyhow!("Proxy tool channel closed")),
                 Err(_) => Err(anyhow::anyhow!(
                     "Proxy tool '{}' timed out after {}ms",
-                    name, metadata.timeout_ms
+                    name, timeout_ms
                 )),
             }
         } else {
             Err(anyhow::anyhow!(
-                "Proxy tool '{}' requested but no response channel configured. \
-                 Use agent.create_proxy_channel() to setup the channel.",
+                "Proxy tool '{}' requested but no executor configured. \
+                 Use agent.set_proxy_executor() to configure.",
                 name
             ))
         }

@@ -120,6 +120,7 @@ pub use executors::{
     AiExecutorConfig,
     ToolExecutor,
     ToolExecutorConfig,
+    ProxyExecutor,
     ConditionExecutor,
     ValidateExecutor,
     ValidateExecutorConfig,

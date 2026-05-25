@@ -385,10 +385,10 @@ impl TuiApp {
                             let request_id = request_id;
 
                             tokio::spawn(async move {
-                                use crate::image_search;
+                                use crate::image_utils;
 
                                 log::info!("Calling real image search APIs for: {}", query);
-                                let results = image_search::search_all(&query, max_results).await;
+                                let results = image_utils::search_all(&query, max_results).await;
 
                                 let response = match results {
                                     Ok(images) => {

@@ -100,6 +100,8 @@ pub struct TuiApp {
     pub(crate) multiline_confirm_send: bool,
     // Workflow visualization state
     pub(crate) workflow_state: crate::workflow::WorkflowViewState,
+    // Workflow refresh timing
+    pub(crate) last_workflow_refresh: Instant,
 }
 
 /// Todo item for progress tracking
@@ -198,6 +200,7 @@ impl TuiApp {
             debug_scroll_offset: 0,
             multiline_confirm_send: false,
             workflow_state: crate::workflow::WorkflowViewState::default(),
+            last_workflow_refresh: Instant::now(),
         }
     }
 
@@ -427,6 +430,18 @@ impl TuiApp {
                 self.frame = (self.frame + 1) % 10;
                 self.last_anim = Instant::now();
                 self.dirty.set(true);
+                // Advance workflow spinner frame
+                self.workflow_state.advance_spinner();
+            }
+
+            // Workflow state refresh - every 500ms when panel is visible
+            const WORKFLOW_REFRESH_MS: u64 = 500;
+            if self.workflow_state.visible
+                && self.last_workflow_refresh.elapsed().as_millis() >= WORKFLOW_REFRESH_MS as u128
+            {
+                self.refresh_workflow_state();
+                self.last_workflow_refresh = Instant::now();
+                self.dirty.set(true);
             }
 
             // Handle events - mark dirty on any user input
@@ -497,6 +512,49 @@ impl TuiApp {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Refresh workflow state from persistence files
+    fn refresh_workflow_state(&mut self) {
+        if !self.workflow_state.visible {
+            return;
+        }
+
+        // Get current directory as project path
+        let project_dir = std::env::current_dir().ok();
+
+        // Reload workflow context from persistence
+        if self.workflow_state.context.is_some() {
+            // Reload existing workflow instance
+            let instances = crate::workflow::WorkflowViewState::load_recent_instances(project_dir.as_ref());
+            if let Some(ctx) = instances.first() {
+                // Only update if status changed or execution_path grew
+                let old_ctx = self.workflow_state.context.as_ref();
+                let should_update = old_ctx.map(|old| {
+                    old.status != ctx.status ||
+                    old.execution_path.len() != ctx.execution_path.len() ||
+                    old.updated_at != ctx.updated_at
+                }).unwrap_or(true);
+
+                if should_update {
+                    self.workflow_state.update_context(ctx.clone());
+                    // Also reload workflow def if workflow_id changed
+                    if self.workflow_state.workflow_def.is_none() ||
+                       self.workflow_state.workflow_def.as_ref().map(|d| &d.id) !=
+                       Some(&ctx.workflow_id) {
+                        if let Some(def) = crate::workflow::WorkflowViewState::load_workflow_def(
+                            project_dir.as_ref(),
+                            &ctx.workflow_id
+                        ) {
+                            self.workflow_state.set_workflow(def);
+                        }
+                    }
+                }
+            }
+        } else if self.workflow_state.workflow_def.is_none() {
+            // No workflow loaded yet - try to load most recent
+            self.workflow_state.load_most_recent(project_dir.as_ref());
         }
     }
 }

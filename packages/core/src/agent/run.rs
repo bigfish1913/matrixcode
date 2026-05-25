@@ -13,7 +13,8 @@ use crate::compress::{
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::prompt;
 use crate::providers::{ChatRequest, Message, MessageContent, Role};
-use crate::tools::{Tool, ToolDefinition};
+use crate::tools::ToolDefinition;
+use crate::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
 
 use super::types::{Agent, AgentBuilder, MAX_ITERATIONS};
 
@@ -44,8 +45,8 @@ impl Agent {
             cancel_token: None,
             compression_config: crate::compress::CompressionConfig::default(),
             ask_rx: None,
-            proxy_tools: builder.proxy_tools,
-            proxy_rx: None,
+            proxy_tool_defs: builder.proxy_tool_defs,
+            proxy_executor: builder.proxy_executor,
         }
     }
 
@@ -58,27 +59,11 @@ impl Agent {
     pub fn set_ask_channel(&mut self, rx: mpsc::Receiver<String>) {
         self.ask_rx = Some(rx);
     }
-    
-    /// 设置代理工具和响应 channel
-    pub fn set_proxy_tools(
-        &mut self,
-        proxy_tools: Vec<crate::tools::proxy::ProxyTool>,
-        proxy_rx: mpsc::Receiver<crate::tools::proxy::ProxyToolResponse>,
-    ) {
-        self.proxy_tools = proxy_tools;
-        self.proxy_rx = Some(proxy_rx);
-    }
-    
-    /// 获取代理工具发送器（用于外部响应）
-    pub fn create_proxy_channel(&mut self) -> mpsc::Sender<crate::tools::proxy::ProxyToolResponse> {
-        let (tx, rx) = mpsc::channel(100);
-        self.proxy_rx = Some(rx);
-        tx
-    }
-    
-    /// 设置代理工具响应 channel（外部创建）
-    pub fn set_proxy_response_channel(&mut self, rx: mpsc::Receiver<crate::tools::proxy::ProxyToolResponse>) {
-        self.proxy_rx = Some(rx);
+
+    /// 设置代理工具执行器
+    pub fn set_proxy_executor(&mut self, executor: Arc<dyn ProxyToolExecutor>, tool_defs: Vec<ProxyToolDef>) {
+        self.proxy_executor = Some(executor);
+        self.proxy_tool_defs = tool_defs;
     }
 
     /// Set cancellation token
@@ -196,13 +181,14 @@ impl Agent {
                         is_priority: def.is_priority,
                     }
                 }).collect();
-                defs.extend(self.proxy_tools.iter().map(|t| {
-                    let def = t.definition();
+                // 添加代理工具定义
+                defs.extend(self.proxy_tool_defs.iter().map(|t| {
+                    let def = &t.definition;
                     let description = def.description_for_llm();
                     ToolDefinition {
-                        name: def.name,
+                        name: def.name.clone(),
                         description,
-                        parameters: def.parameters,
+                        parameters: def.parameters.clone(),
                         is_priority: def.is_priority,
                     }
                 }));

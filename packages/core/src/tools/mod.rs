@@ -7,7 +7,7 @@ pub mod ls;
 pub mod monitor;
 pub mod multi_edit;
 pub mod plan_mode;
-pub mod proxy;  // 代理工具模块
+pub mod toolproxy;  // 代理工具模块
 pub mod read;
 pub mod registry;  // 工具注册中心
 pub mod search;
@@ -20,7 +20,7 @@ pub mod workflow;
 pub mod write;
 
 // Re-export proxy types for convenience
-pub use proxy::{ProxyMetadata, ProxyTool, ProxyToolResponse};
+pub use toolproxy::{ProxyToolExecutor, ProxyToolDef, ProxyMetadata, ProxyTool, ProxyToolResponse, ProxyToolRequest};
 
 use std::sync::Arc;
 
@@ -102,7 +102,7 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(ls::LsTool),
         Box::new(bash::BashTool),
         Box::new(todo_write::TodoWriteTool),
-        Box::new(websearch::WebSearchTool),
+        Box::new(websearch::WebSearchTool::new()),
         Box::new(webfetch::WebFetchTool),
         Box::new(skill::SkillTool::new(skills)),
         // New high-priority tools

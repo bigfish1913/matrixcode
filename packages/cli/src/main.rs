@@ -600,9 +600,6 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
     let (task_tx, mut task_rx) = tokio::sync::mpsc::channel::<String>(10);
     let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(1);
-    
-    // 创建代理工具响应 channel（TUI 发送响应，Agent 接收）
-    let (proxy_response_tx, proxy_response_rx) = tokio::sync::mpsc::channel::<matrixcode_core::tools::ProxyToolResponse>(10);
 
     // Set debug event sender for TUI debug panel
     matrixcode_core::set_debug_event_sender(event_tx.clone());
@@ -790,42 +787,11 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
             .tools(all_tools_with_skills(Arc::new(agent_skills.clone())))
             .event_tx(agent_event_tx.clone())
             .approve_mode(agent_approve_mode)
-            .proxy_tool({
-                // 创建图片搜索代理工具（优先工具）
-                use matrixcode_core::tools::{ToolDefinition, proxy::{ProxyTool, ProxyMetadata}};
-                ProxyTool::new(
-                    ToolDefinition {
-                        name: "image_search".to_string(),
-                        description: "搜索网络图片资源。返回真实图片URL列表（Unsplash/Pexels/Pixabay）。适用于：找壁纸、素材、插图、风景照片等。参数：query（关键词）、max_results（数量）".to_string(),
-                        parameters: serde_json::json!({
-                            "type": "object",
-                            "properties": {
-                                "query": {
-                                    "type": "string",
-                                    "description": "搜索关键词，建议使用英文获得更多结果"
-                                },
-                                "max_results": {
-                                    "type": "integer",
-                                    "description": "每个平台返回的最大结果数，默认5，最大10",
-                                    "default": 5
-                                }
-                            },
-                            "required": ["query"]
-                        }),
-                        is_priority: true,
-                    },
-                    ProxyMetadata {
-                        tool_type: "image_search".to_string(),
-                        endpoint: None,
-                        timeout_ms: 30000,
-                        custom: None,
-                    }
-                )
-            })  // 添加图片搜索代理工具
+            .proxy_executor(
+                matrixcode_tui::image_search::create_default_executor(),
+                matrixcode_tui::image_search::get_default_proxy_tools()
+            )
             .build();
-        
-        // 设置代理工具响应 channel
-        agent.set_proxy_response_channel(proxy_response_rx);
 
         // Use the shared approve mode so TUI can update it in real-time
         agent.set_approve_mode_shared(agent_shared_approve_mode);
@@ -1975,7 +1941,6 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token.clone())
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
-        .with_proxy_response_tx(proxy_response_tx)
         .with_config(&model, cli.think.unwrap_or(config.think), cli.max_tokens, None)
         .with_debug_mode(debug_mode);
 
@@ -2088,8 +2053,14 @@ fn handle_workflow_command(command: WorkflowCommands) {
                 ExecutorFactory::new()
             };
 
+            // Create proxy executor for image_search
+            let proxy_executor = matrixcode_tui::image_search::create_default_executor();
+            let proxy_tool_defs = matrixcode_tui::image_search::get_default_proxy_tools();
+
             let engine = match WorkflowEngine::new(workflow_def) {
-                Ok(e) => e.with_executor_factory(factory),
+                Ok(e) => e
+                    .with_executor_factory(factory)
+                    .with_proxy_executor(proxy_executor, proxy_tool_defs),
                 Err(e) => {
                     eprintln!("❌ Failed to create workflow engine: {}", e);
                     return;
@@ -2451,8 +2422,6 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
 
                     // Build agent with event channel
                     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
-                    // 创建代理工具响应 channel
-                    let (proxy_response_tx, proxy_response_rx) = tokio::sync::mpsc::channel::<matrixcode_core::tools::ProxyToolResponse>(10);
 
                     let mut agent = AgentBuilder::new(provider)
                         .system_prompt(system_prompt)
@@ -2461,116 +2430,21 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         .tools(all_tools_with_skills(Arc::new(skills.to_vec())))
                         .approve_mode(approve_mode)
                         .event_tx(event_tx)
-                        .proxy_tool({
-                            // 创建图片搜索代理工具（优先工具）
-                            use matrixcode_core::tools::{ToolDefinition, proxy::{ProxyTool, ProxyMetadata}};
-                            ProxyTool::new(
-                                ToolDefinition {
-                                    name: "image_search".to_string(),
-                                    description: "搜索网络图片资源。返回真实图片URL列表（Unsplash/Pexels/Pixabay）。适用于：找壁纸、素材、插图、风景照片等。参数：query（关键词）、max_results（数量）".to_string(),
-                                    parameters: serde_json::json!({
-                                        "type": "object",
-                                        "properties": {
-                                            "query": {
-                                                "type": "string",
-                                                "description": "搜索关键词，建议使用英文获得更多结果"
-                                            },
-                                            "max_results": {
-                                                "type": "integer",
-                                                "description": "每个平台返回的最大结果数，默认5，最大10",
-                                                "default": 5
-                                            }
-                                        },
-                                        "required": ["query"]
-                                    }),
-                                    is_priority: true,
-                                },
-                                ProxyMetadata {
-                                    tool_type: "image_search".to_string(),
-                                    endpoint: None,
-                                    timeout_ms: 30000,
-                                    custom: None,
-                                }
-                            )
-                        })
+                        .proxy_executor(
+                            matrixcode_tui::image_search::create_default_executor(),
+                            matrixcode_tui::image_search::get_default_proxy_tools()
+                        )
                         .build();
-
-                    // 设置代理工具响应 channel
-                    agent.set_proxy_response_channel(proxy_response_rx);
 
                     // Run agent
                     let run_future = agent.run(msg);
 
-                    // Process events while running - use spawn to avoid race condition
+                    // Process events while running
                     let event_task = tokio::spawn(async move {
                         while let Some(event) = event_rx.recv().await {
-                            // Log events for debug
                             if event.event_type == matrixcode_core::EventType::Error {
                                 if let Some(data) = &event.data {
                                     eprintln!("⚠️ Error event: {:?}", data);
-                                }
-                            }
-
-                            // Handle proxy tool request events
-                            if event.event_type == matrixcode_core::EventType::ProxyToolRequest {
-                                if let Some(matrixcode_core::EventData::ProxyToolRequest { request_id, tool_name, tool_input, metadata: _ }) = event.data {
-                                    log::info!("Proxy tool request: id={}, tool={}", request_id, tool_name);
-
-                                    if tool_name == "image_search" {
-                                        let query = tool_input.get("query").and_then(|q| q.as_str()).unwrap_or("");
-                                        let max_results = tool_input.get("max_results").and_then(|m| m.as_u64()).unwrap_or(5) as u32;
-
-                                        if query.is_empty() {
-                                            let response = matrixcode_core::tools::ProxyToolResponse {
-                                                request_id,
-                                                result: r#"{"error": "query is required"}"#.to_string(),
-                                                is_error: true,
-                                            };
-                                            if let Err(e) = proxy_response_tx.try_send(response) {
-                                                log::error!("Failed to send proxy tool error response: {}", e);
-                                            }
-                                        } else {
-                                            // Spawn async task to call real APIs
-                                            let tx = proxy_response_tx.clone();
-                                            let query = query.to_string();
-
-                                            tokio::spawn(async move {
-                                                use matrixcode_tui::image_search;
-
-                                                log::info!("Calling real image search APIs for: {}", query);
-                                                let results = image_search::search_all(&query, max_results).await;
-
-                                                let response = match results {
-                                                    Ok(images) => {
-                                                        let json = serde_json::json!({
-                                                            "success": true,
-                                                            "query": query,
-                                                            "total": images.len(),
-                                                            "images": images
-                                                        });
-                                                        log::info!("Image search completed: {} results", images.len());
-                                                        matrixcode_core::tools::ProxyToolResponse {
-                                                            request_id,
-                                                            result: json.to_string(),
-                                                            is_error: false,
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        log::error!("Image search error: {}", e);
-                                                        matrixcode_core::tools::ProxyToolResponse {
-                                                            request_id,
-                                                            result: serde_json::json!({"error": e.to_string()}).to_string(),
-                                                            is_error: true,
-                                                        }
-                                                    }
-                                                };
-
-                                                if let Err(e) = tx.send(response).await {
-                                                    log::error!("Failed to send proxy tool response: {}", e);
-                                                }
-                                            });
-                                        }
-                                    }
                                 }
                             }
                         }

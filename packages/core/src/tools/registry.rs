@@ -2,8 +2,8 @@
 //!
 //! 工具注册中心 - 仅管理代理工具
 
-use super::{Tool, ToolDefinition};
-use super::proxy::{ProxyTool, ProxyMetadata};
+use super::ToolDefinition;
+use super::toolproxy::{ProxyTool, ProxyMetadata};
 
 /// 工具注册中心 - 仅管理代理工具（内置工具由 Agent 直接管理）
 pub struct ToolRegistry {

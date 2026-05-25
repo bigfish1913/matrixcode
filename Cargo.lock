@@ -1714,6 +1714,7 @@ version = "0.4.15"
 dependencies = [
  "anyhow",
  "arboard",
+ "async-trait",
  "crossterm",
  "dotenvy",
  "log",

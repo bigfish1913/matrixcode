@@ -8,6 +8,7 @@ use crate::prompt::PromptProfile;
 use crate::providers::Provider;
 use crate::skills::Skill;
 use crate::tools::Tool;
+use crate::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
 
 use super::types::{Agent, AgentBuilder};
 
@@ -26,7 +27,8 @@ impl AgentBuilder {
             profile: PromptProfile::Default,
             project_overview: None,
             memory_summary: None,
-            proxy_tools: Vec::new(),
+            proxy_tool_defs: Vec::new(),
+            proxy_executor: None,
         }
     }
 
@@ -65,7 +67,7 @@ impl AgentBuilder {
         self.tools.extend(tools.into_iter().map(Arc::from));
         self
     }
-    
+
     /// Add multiple tools with provider support
     pub fn tools_with_provider(mut self, tools: Vec<Box<dyn Tool>>) -> Self {
         self.tools.extend(tools.into_iter().map(Arc::from));
@@ -101,16 +103,20 @@ impl AgentBuilder {
         self.memory_summary = Some(summary.into());
         self
     }
-    
-    /// 添加代理工具
-    pub fn proxy_tool(mut self, tool: crate::tools::proxy::ProxyTool) -> Self {
-        self.proxy_tools.push(tool);
-        self
-    }
-    
-    /// 批量添加代理工具
-    pub fn proxy_tools(mut self, tools: Vec<crate::tools::proxy::ProxyTool>) -> Self {
-        self.proxy_tools.extend(tools);
+
+    /// 设置代理工具执行器
+    ///
+    /// # Example
+    /// ```rust
+    /// let executor = Arc::new(MyProxyExecutor);
+    /// let tool_def = ProxyToolDef::new("image_search", "搜索图片", json!({...}))
+    ///     .with_priority(true);
+    ///
+    /// builder.proxy_executor(executor, vec![tool_def])
+    /// ```
+    pub fn proxy_executor(mut self, executor: Arc<dyn ProxyToolExecutor>, tool_defs: Vec<ProxyToolDef>) -> Self {
+        self.proxy_executor = Some(executor);
+        self.proxy_tool_defs = tool_defs;
         self
     }
 

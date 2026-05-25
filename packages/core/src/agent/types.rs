@@ -15,7 +15,6 @@ use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, Stre
 use async_trait::async_trait;
 use crate::skills::Skill;
 use crate::tools::Tool;
-use crate::tools::proxy::ProxyToolResponse;
 
 pub(crate) const MAX_ITERATIONS: usize = 200;
 
@@ -66,10 +65,10 @@ pub struct Agent {
     pub(crate) cancel_token: Option<CancellationToken>,
     pub(crate) compression_config: CompressionConfig,
     pub(crate) ask_rx: Option<mpsc::Receiver<String>>,
-    /// 代理工具列表
-    pub(crate) proxy_tools: Vec<crate::tools::proxy::ProxyTool>,
-    /// 代理工具响应接收器
-    pub(crate) proxy_rx: Option<mpsc::Receiver<ProxyToolResponse>>,
+    /// 代理工具定义列表（发送给 LLM）
+    pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
+    /// 代理工具执行器
+    pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
 }
 
 /// Agent builder
@@ -86,8 +85,10 @@ pub struct AgentBuilder {
     pub(crate) profile: PromptProfile,
     pub(crate) project_overview: Option<String>,
     pub(crate) memory_summary: Option<String>,
-    /// 代理工具列表
-    pub(crate) proxy_tools: Vec<crate::tools::proxy::ProxyTool>,
+    /// 代理工具定义列表
+    pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
+    /// 代理工具执行器
+    pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
 }
 
 // 注意：AgentBuilder 必须通过 AgentBuilder::new(provider) 创建

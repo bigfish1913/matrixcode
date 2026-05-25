@@ -297,7 +297,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     println!("💡 下一步:");
     println!("   - 查看文档: docs/CUSTOM_TOOLS.md");
-    println!("   - 查看源码: core/src/tools/proxy.rs");
+    println!("   - 查看源码: core/src/tools/toolproxy.rs");
     println!("   - 集成到你的应用中\n");
     
     Ok(())

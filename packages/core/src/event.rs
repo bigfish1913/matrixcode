@@ -117,7 +117,7 @@ pub enum EventData {
         request_id: String,
         tool_name: String,
         tool_input: serde_json::Value,
-        metadata: crate::tools::proxy::ProxyMetadata,
+        metadata: crate::tools::toolproxy::ProxyMetadata,
     },
     /// Proxy tool response - external execution result
     ProxyToolResponse {
@@ -307,7 +307,7 @@ impl AgentEvent {
         request_id: impl Into<String>,
         tool_name: impl Into<String>,
         tool_input: serde_json::Value,
-        metadata: crate::tools::proxy::ProxyMetadata,
+        metadata: crate::tools::toolproxy::ProxyMetadata,
     ) -> Self {
         Self::with_data(
             EventType::ProxyToolRequest,

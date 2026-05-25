@@ -175,6 +175,27 @@ impl TemplateRenderer {
             || self.nested_pattern.is_match(rendered)
             || self.default_pattern.is_match(rendered)
     }
+
+    /// 渲染参数 HashMap
+    ///
+    /// 对每个参数值，如果是字符串则渲染模板，否则保持原值
+    pub fn render_params(
+        &self,
+        params: &HashMap<String, serde_json::Value>,
+        variables: &HashMap<String, serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        let mut rendered = HashMap::new();
+        for (key, value) in params {
+            let rendered_value = if let serde_json::Value::String(s) = value {
+                let rendered_str = self.render(s, variables)?;
+                serde_json::Value::String(rendered_str)
+            } else {
+                value.clone()
+            };
+            rendered.insert(key.clone(), rendered_value);
+        }
+        Ok(serde_json::Value::Object(rendered.into_iter().collect()))
+    }
 }
 
 /// 便捷渲染函数

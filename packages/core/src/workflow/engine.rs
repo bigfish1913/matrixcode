@@ -12,6 +12,7 @@ use super::def::{FailureStrategy, NodeDef, NodeType, WorkflowDef};
 use super::rule_engine::evaluate_expression;
 use super::template::TemplateRenderer;
 use super::executors::{NodeExecutor, ExecutorFactory};
+use crate::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
 
 /// 任务执行器 trait
 #[async_trait::async_trait]
@@ -37,7 +38,7 @@ pub enum WorkflowEvent {
     /// 节点执行失败
     NodeFailed { node_id: String, error: String },
     /// 节点跳过
-    NodeSkipped { node_id: String },
+    NodeSkipped { node_id: String, reason: String },
     /// 工作流完成
     Completed,
     /// 工作流失败
@@ -63,6 +64,10 @@ pub struct WorkflowEngine {
     node_executors: HashMap<String, Arc<dyn NodeExecutor>>,
     /// 执行器工厂
     executor_factory: Option<ExecutorFactory>,
+    /// 代理工具执行器
+    proxy_executor: Option<Arc<dyn ProxyToolExecutor>>,
+    /// 代理工具定义列表
+    proxy_tool_defs: Vec<ProxyToolDef>,
     /// 事件监听器
     listeners: Vec<Box<dyn EventListener>>,
     /// 模板渲染器
@@ -80,6 +85,8 @@ impl WorkflowEngine {
             executor: None,
             node_executors: HashMap::new(),
             executor_factory: None,
+            proxy_executor: None,
+            proxy_tool_defs: Vec::new(),
             listeners: Vec::new(),
             template_renderer: TemplateRenderer::new(),
         })
@@ -94,6 +101,13 @@ impl WorkflowEngine {
     /// 设置执行器工厂
     pub fn with_executor_factory(mut self, factory: ExecutorFactory) -> Self {
         self.executor_factory = Some(factory);
+        self
+    }
+
+    /// 设置代理工具执行器
+    pub fn with_proxy_executor(mut self, executor: Arc<dyn ProxyToolExecutor>, tool_defs: Vec<ProxyToolDef>) -> Self {
+        self.proxy_executor = Some(executor);
+        self.proxy_tool_defs = tool_defs;
         self
     }
 
@@ -121,6 +135,18 @@ impl WorkflowEngine {
         if let Some(task) = &node.task {
             if let Some(executor) = self.node_executors.get(task) {
                 return Some(executor.clone());
+            }
+        }
+
+        // 检查是否是代理工具
+        if let Some(task) = &node.task {
+            if self.proxy_tool_defs.iter().any(|t| t.definition.name == *task) {
+                if let Some(executor) = &self.proxy_executor {
+                    return Some(Arc::new(super::executors::ProxyExecutor::new(
+                        executor.clone(),
+                        self.proxy_tool_defs.clone(),
+                    )));
+                }
             }
         }
 
@@ -246,7 +272,13 @@ impl WorkflowEngine {
                             }
                         }
                         FailureStrategy::Ignore => {
-                            // 忽略错误，继续执行下一个节点
+                            // 忽略错误，标记节点为 Skipped 并继续执行下一个节点
+                            let exec = context.get_or_create_node_execution(&node.id);
+                            exec.skip();
+                            self.emit_event(WorkflowEvent::NodeSkipped {
+                                node_id: node.id.clone(),
+                                reason: e.to_string(),
+                            });
                             let next = self.get_next_node(node, context)?;
                             current_node = next
                                 .as_ref()

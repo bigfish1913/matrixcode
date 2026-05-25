@@ -26,7 +26,7 @@ impl Tool for ContentGenerationTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "content_generation".to_string(),
-            description: "使用 AI 生成内容（文章、文��等）。需要 Provider 支持。".to_string(),
+            description: "使用 AI 生成内容（文章等）。需要 Provider 支持。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

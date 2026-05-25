@@ -14,9 +14,9 @@ inputs:
 
 outputs:
   - name: article
-    value: "{{final_output}}"
+    value: "{{generate_output.content}}"
   - name: images
-    value: "{{image_urls}}"
+    value: "{{search_images.images}}"
 
 variables:
   max_images: 3
@@ -34,11 +34,12 @@ nodes:
     params:
       query: "{{topic}}"
       max_results: 5
+      use_proxy: true
     on_failure:
       type: retry
       max_attempts: 2
       interval_ms: 2000
-    timeout_ms: 30000
+    timeout_ms: 120000
 
   - id: search_images
     type: task
@@ -49,7 +50,7 @@ nodes:
       max_results: "{{max_images}}"
     on_failure:
       type: ignore
-    timeout_ms: 20000
+    timeout_ms: 30000
 
   - id: generate_output
     type: task
@@ -57,10 +58,10 @@ nodes:
     task: content_generation
     params:
       topic: "{{topic}}"
-      research_data: "{{research.result}}"  # websearch 返回纯文本，自动包装为 {result: "..."}
-      image_urls: "{{search_images.urls}}"
+      research_data: "{{research.result}}"
+      image_urls: "{{search_images.images}}"
       style: "{{content_style}}"
-    timeout_ms: 45000
+    timeout_ms: 120000
 
   - id: end
     type: end
