@@ -1689,6 +1689,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "dirs",
  "dotenvy",
  "env_logger",
  "futures-util",

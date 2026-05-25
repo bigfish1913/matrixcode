@@ -55,6 +55,9 @@ pub mod template;
 pub mod rule_engine;
 pub mod engine;
 pub mod executors;
+pub mod persistence;
+pub mod registry;
+pub mod tool;
 
 // 重导出公共接口
 pub use def::{
@@ -100,6 +103,16 @@ pub use engine::{
     EventListener,
     TaskExecutor,
     DefaultTaskExecutor,
+};
+
+pub use persistence::{
+    WorkflowPersistence,
+};
+
+pub use registry::{
+    WorkflowRegistry,
+    WorkflowInfo,
+    WorkflowSource,
 };
 
 pub use executors::{

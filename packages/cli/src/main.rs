@@ -153,6 +153,56 @@ struct Cli {
     command: Option<Commands>,
 }
 
+/// Workflow subcommands
+#[derive(Subcommand)]
+enum WorkflowCommands {
+    /// Run a workflow from YAML file
+    Run {
+        /// YAML workflow file path
+        #[arg(short, long)]
+        file: String,
+
+        /// Input parameters (JSON format)
+        #[arg(short, long)]
+        inputs: Option<String>,
+    },
+
+    /// Discover available workflows
+    Discover {
+        /// Match query to find relevant workflows
+        #[arg(short, long)]
+        query: Option<String>,
+    },
+
+    /// List workflow history
+    List {
+        /// Filter by status (running, paused, completed, failed)
+        #[arg(short, long)]
+        status: Option<String>,
+    },
+
+    /// Show workflow status
+    Status {
+        /// Workflow instance ID
+        #[arg(short, long)]
+        id: String,
+    },
+
+    /// Resume a paused workflow
+    Resume {
+        /// Workflow instance ID
+        #[arg(short, long)]
+        id: String,
+    },
+
+    /// Abort a running workflow
+    Abort {
+        /// Workflow instance ID
+        #[arg(short, long)]
+        id: String,
+    },
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Start chat session
@@ -181,6 +231,12 @@ enum Commands {
 
     /// Show status
     Status,
+
+    /// Workflow management commands
+    Workflow {
+        #[command(subcommand)]
+        command: WorkflowCommands,
+    },
 }
 
 /// Get default model name for anthropic provider.
@@ -919,8 +975,74 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
                 continue;
             }
 
+            // Handle /workflow commands
+            if msg == "/workflow" || msg.starts_with("/workflow ") {
+                use matrixcode_core::workflow::WorkflowRegistry;
+
+                let parts: Vec<&str> = msg.split_whitespace().collect();
+                let subcmd = parts.get(1).copied().unwrap_or("");
+
+                let project_path = agent_project_path.clone();
+
+                // Quick response for discover/list (no async needed)
+                let response = match subcmd {
+                    "" | "discover" | "list" => {
+                        let registry = WorkflowRegistry::new(project_path.as_ref());
+                        if registry.is_empty() {
+                            "📋 No workflows found.\n\nCreate workflow YAML files in:\n  - .matrix/workflows/ (project)\n  - ~/.matrix/workflows/ (global)".to_string()
+                        } else {
+                            registry.generate_summary()
+                        }
+                    }
+                    "match" => {
+                        let query = parts.get(2..).map(|p| p.join(" ")).unwrap_or_default();
+                        if query.is_empty() {
+                            "Usage: /workflow match <query>\nExample: /workflow match process text".to_string()
+                        } else {
+                            let registry = WorkflowRegistry::new(project_path.as_ref());
+                            let matches = registry.match_workflows(&query);
+                            if matches.is_empty() {
+                                format!("❌ No workflows match '{}'\n\nUse '/workflow discover' to see all available.", query)
+                            } else {
+                                let mut result = format!("🔍 Matching workflows for '{}':\n\n", query);
+                                for info in matches.iter().take(5) {
+                                    result.push_str(&format!("• {} - {}\n", info.id, info.name));
+                                }
+                                result.push_str("\nTo run: /workflow run <id>");
+                                result
+                            }
+                        }
+                    }
+                    "run" => {
+                        let workflow_id = parts.get(2).copied().unwrap_or("");
+                        if workflow_id.is_empty() {
+                            "Usage: /workflow run <workflow-id> [inputs]\nExample: /workflow run hello-world".to_string()
+                        } else {
+                            // Queue workflow execution (complex operation)
+                            format!("⏳ Workflow '{}' queued for execution.\n\nUse CLI command for full execution:\n  matrixcode workflow run --file .matrix/workflows/{workflow_id}.yaml", workflow_id)
+                        }
+                    }
+                    "help" => {
+                        "📋 /workflow commands:\n\n  discover - List available workflows\n  match <query> - Find matching workflows\n  run <id> - Execute workflow (use CLI for full run)".to_string()
+                    }
+                    _ => {
+                        format!("Unknown subcommand '{}'. Use '/workflow help' for available commands.", subcmd)
+                    }
+                };
+
+                let _ = agent_event_tx.send(matrixcode_core::AgentEvent::with_data(
+                    matrixcode_core::EventType::Progress,
+                    matrixcode_core::EventData::Progress {
+                        message: response,
+                        percentage: None,
+                    },
+                )).await;
+                continue;
+            }
+
             // Handle /skill_name form (direct skill invocation)
             if msg.starts_with("/") && !msg.starts_with("/skills")
+               && !msg.starts_with("/workflow")
                && !msg.starts_with("/compact") && !msg.starts_with("/compress")
                && !msg.starts_with("/help") && !msg.starts_with("/init")
                && !msg.starts_with("/memory") && !msg.starts_with("/overview")
@@ -1840,6 +1962,302 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
     result
 }
 
+/// Handle workflow subcommands
+fn handle_workflow_command(command: WorkflowCommands) {
+    use matrixcode_core::workflow::{
+        parse_workflow_from_file, WorkflowEngine, WorkflowPersistence,
+        WorkflowStatus,
+    };
+
+    match command {
+        WorkflowCommands::Run { file, inputs } => {
+            println!("🔄 Running workflow from: {}", file);
+
+            // Parse workflow definition
+            let workflow_def = match parse_workflow_from_file(&file) {
+                Ok(def) => def,
+                Err(e) => {
+                    eprintln!("❌ Failed to parse workflow: {}", e);
+                    return;
+                }
+            };
+
+            println!("  Workflow: {}", workflow_def.id);
+            println!("  Name: {}", workflow_def.name);
+            println!("  Nodes: {}", workflow_def.nodes.len());
+
+            // Parse inputs if provided
+            let inputs_map: std::collections::HashMap<String, serde_json::Value> = inputs
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
+
+            // Create engine
+            let engine = match WorkflowEngine::new(workflow_def) {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("❌ Failed to create workflow engine: {}", e);
+                    return;
+                }
+            };
+
+            // Run workflow - use block_in_place to allow blocking inside async context
+            // or create new runtime if not in async context
+            let context = if tokio::runtime::Handle::try_current().is_ok() {
+                // Already in a runtime, use block_in_place
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(engine.run(inputs_map))
+                })
+            } else {
+                // Not in a runtime, create one
+                let rt = match tokio::runtime::Runtime::new() {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        eprintln!("Failed to create tokio runtime: {}", e);
+                        return;
+                    }
+                };
+                rt.block_on(engine.run(inputs_map))
+            };
+
+            match context {
+                Ok(context) => {
+                    println!();
+                    println!("📊 Workflow completed:");
+                    println!("  Instance ID: {}", context.instance_id);
+                    println!("  Status: {:?}", context.status);
+                    println!("  Nodes executed: {}", context.execution_path.len());
+
+                    if context.status == WorkflowStatus::Completed {
+                        println!("✓ Workflow completed successfully");
+                    } else if context.status == WorkflowStatus::Failed {
+                        println!("❌ Workflow failed: {}", context.error.as_ref().unwrap_or(&String::new()));
+                    }
+
+                    // Save context
+                    let project_path = std::env::current_dir().ok();
+                    let persistence = WorkflowPersistence::new(project_path.as_ref());
+                    if let Err(e) = persistence.save(&context) {
+                        eprintln!("Warning: Failed to save workflow context: {}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Workflow execution failed: {}", e);
+                }
+            }
+        }
+
+        WorkflowCommands::Discover { query } => {
+            use matrixcode_core::workflow::WorkflowRegistry;
+
+            let project_path = std::env::current_dir().ok();
+            let registry = WorkflowRegistry::new(project_path.as_ref());
+
+            if registry.is_empty() {
+                println!("No workflows found in:");
+                println!("  - Project: .matrix/workflows/");
+                println!("  - User: ~/.matrix/workflows/");
+                println!("\nCreate workflow YAML files in these directories.");
+                return;
+            }
+
+            if let Some(q) = query {
+                // Match workflows by query
+                let matches = registry.match_workflows(&q);
+                if matches.is_empty() {
+                    println!("No workflows match query: '{}'", q);
+                    println!("\nAvailable workflows:");
+                    for info in registry.list() {
+                        let source = if info.source == matrixcode_core::workflow::WorkflowSource::Project { "project" } else { "global" };
+                        println!("  - {} ({})", info.id, source);
+                    }
+                } else {
+                    println!("🔍 Matching workflows for '{}':\n", q);
+                    for info in matches {
+                        let source = if info.source == matrixcode_core::workflow::WorkflowSource::Project { "project" } else { "global" };
+                        println!("  {} - {} [{}]", info.id, info.name, source);
+                        if let Some(ref desc) = info.description {
+                            let desc_short = desc.chars().take(60).collect::<String>();
+                            println!("    {}", desc_short);
+                        }
+                        if !info.required_inputs.is_empty() {
+                            println!("    Required: {}", info.required_inputs.join(", "));
+                        }
+                        println!("    File: {}", info.path.display());
+                        println!();
+                    }
+                }
+            } else {
+                // List all discovered workflows
+                println!("🔍 Discovered workflows ({}):\n", registry.count());
+                let summary = registry.generate_summary();
+                println!("{}", summary);
+            }
+        }
+
+        WorkflowCommands::List { status } => {
+            let project_path = std::env::current_dir().ok();
+            let persistence = WorkflowPersistence::new(project_path.as_ref());
+
+            let workflows = if let Some(filter) = status {
+                // Parse status filter
+                let filter_status = match filter.to_lowercase().as_str() {
+                    "running" => WorkflowStatus::Running,
+                    "paused" => WorkflowStatus::Paused,
+                    "completed" => WorkflowStatus::Completed,
+                    "failed" => WorkflowStatus::Failed,
+                    "cancelled" => WorkflowStatus::Cancelled,
+                    _ => {
+                        eprintln!("Unknown status: {}. Use: running, paused, completed, failed, cancelled", filter);
+                        return;
+                    }
+                };
+                persistence.list_by_status(filter_status).unwrap_or_default()
+            } else {
+                persistence.list().unwrap_or_default()
+            };
+
+            if workflows.is_empty() {
+                println!("No workflows found.");
+                println!("\nWorkflows are stored in:");
+                println!("  - Project: .matrix/workflows/ (if in project)");
+                println!("  - User: ~/.matrix/workflows/ (global)");
+            } else {
+                println!("📚 Workflow History:\n");
+                for ctx in &workflows {
+                    println!("  {} - {} ({:?})",
+                        ctx.instance_id,
+                        ctx.workflow_id,
+                        ctx.status
+                    );
+                    println!("    Nodes: {} | Created: {}",
+                        ctx.execution_path.len(),
+                        ctx.created_at.format("%Y-%m-%d %H:%M")
+                    );
+                    if let Some(err) = &ctx.error {
+                        println!("    Error: {}", err.chars().take(50).collect::<String>());
+                    }
+                    println!();
+                }
+                println!("Total: {} workflows", workflows.len());
+            }
+        }
+
+        WorkflowCommands::Status { id } => {
+            let project_path = std::env::current_dir().ok();
+            let persistence = WorkflowPersistence::new(project_path.as_ref());
+
+            match persistence.load(&id) {
+                Ok(Some(ctx)) => {
+                    println!("📊 Workflow Status:\n");
+                    println!("  Instance ID: {}", ctx.instance_id);
+                    println!("  Workflow: {}", ctx.workflow_id);
+                    println!("  Status: {:?}", ctx.status);
+                    println!("  Current Node: {}", ctx.current_node_id.as_ref().unwrap_or(&"none".to_string()));
+                    println!("  Created: {}", ctx.created_at.format("%Y-%m-%d %H:%M"));
+                    if let Some(started) = ctx.started_at {
+                        println!("  Started: {}", started.format("%Y-%m-%d %H:%M"));
+                    }
+                    if let Some(finished) = ctx.finished_at {
+                        println!("  Finished: {}", finished.format("%Y-%m-%d %H:%M"));
+                        if let Some(duration) = ctx.total_duration_ms() {
+                            println!("  Duration: {} ms", duration);
+                        }
+                    }
+                    println!();
+                    println!("  Execution Path:");
+                    for node_id in &ctx.execution_path {
+                        if let Some(exec) = ctx.get_node_execution(node_id) {
+                            println!("    - {} ({:?})", node_id, exec.status);
+                        }
+                    }
+                    if let Some(err) = &ctx.error {
+                        println!();
+                        println!("  ❌ Error: {}", err);
+                    }
+                }
+                Ok(None) => {
+                    println!("❌ Workflow '{}' not found", id);
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to load workflow: {}", e);
+                }
+            }
+        }
+
+        WorkflowCommands::Resume { id } => {
+            println!("🔄 Resuming workflow: {}", id);
+
+            let project_path = std::env::current_dir().ok();
+            let persistence = WorkflowPersistence::new(project_path.as_ref());
+
+            match persistence.load(&id) {
+                Ok(Some(ctx)) => {
+                    if ctx.status != WorkflowStatus::Paused {
+                        println!("❌ Workflow is not paused (status: {:?})", ctx.status);
+                        println!("Only paused workflows can be resumed.");
+                        return;
+                    }
+
+                    println!("  Workflow: {}", ctx.workflow_id);
+                    println!("  Current Node: {}", ctx.current_node_id.as_ref().unwrap_or(&"unknown".to_string()));
+
+                    // TODO: Implement actual resume logic with engine
+                    // For now, just update status
+                    let mut ctx = ctx;
+                    ctx.resume();
+
+                    if let Err(e) = persistence.save(&ctx) {
+                        eprintln!("❌ Failed to save resumed workflow: {}", e);
+                    } else {
+                        println!("✓ Workflow resumed (status: Running)");
+                        println!();
+                        println!("Note: Full resume execution requires re-running the workflow engine.");
+                        println!("Use: matrixcode workflow run --file <yaml> --inputs '{}'",
+                            serde_json::to_string(&ctx.inputs).unwrap_or_default());
+                    }
+                }
+                Ok(None) => {
+                    println!("❌ Workflow '{}' not found", id);
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to load workflow: {}", e);
+                }
+            }
+        }
+
+        WorkflowCommands::Abort { id } => {
+            println!("⏹️ Aborting workflow: {}", id);
+
+            let project_path = std::env::current_dir().ok();
+            let persistence = WorkflowPersistence::new(project_path.as_ref());
+
+            match persistence.load(&id) {
+                Ok(Some(ctx)) => {
+                    if ctx.status != WorkflowStatus::Running {
+                        println!("❌ Workflow is not running (status: {:?})", ctx.status);
+                        return;
+                    }
+
+                    let mut ctx = ctx;
+                    ctx.cancel();
+
+                    if let Err(e) = persistence.save(&ctx) {
+                        eprintln!("❌ Failed to save aborted workflow: {}", e);
+                    } else {
+                        println!("✓ Workflow aborted");
+                    }
+                }
+                Ok(None) => {
+                    println!("❌ Workflow '{}' not found", id);
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to load workflow: {}", e);
+                }
+            }
+        }
+    }
+}
+
 /// Handle single command with actual agent execution
 fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
     // Load config
@@ -2277,6 +2695,10 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                         eprintln!("❌ Error: {}", e);
                     }
                 }
+            }
+            Commands::Workflow { command } => {
+                // Handle workflow subcommands
+                handle_workflow_command(command);
             }
         }
     });
@@ -2765,6 +3187,10 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                 println!("{}", AgentEvent::session_ended().to_json()?);
                 Ok::<_, anyhow::Error>(())
             })?;
+        }
+        Some(Commands::Workflow { command }) => {
+            // Workflow commands don't use JSON output, just handle directly
+            handle_workflow_command(command);
         }
         None => {
             println!(

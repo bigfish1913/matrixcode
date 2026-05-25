@@ -313,4 +313,24 @@ mod tests {
         assert_eq!(exec.status, NodeStatus::Completed);
         assert!(exec.output.is_some());
     }
+
+    #[test]
+    fn test_pause_resume() {
+        let mut ctx = WorkflowContext::new(
+            "test-workflow".to_string(),
+            HashMap::new(),
+        );
+
+        ctx.start();
+        assert_eq!(ctx.status, WorkflowStatus::Running);
+        assert!(ctx.can_continue());
+
+        ctx.pause();
+        assert_eq!(ctx.status, WorkflowStatus::Paused);
+        assert!(!ctx.can_continue());
+
+        ctx.resume();
+        assert_eq!(ctx.status, WorkflowStatus::Running);
+        assert!(ctx.can_continue());
+    }
 }

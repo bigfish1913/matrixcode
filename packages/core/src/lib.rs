@@ -36,5 +36,16 @@ pub use providers::{
 pub use session::{Session, SessionManager};
 pub use truncate::{find_boundary, truncate_bytes, truncate_chars, truncate_with_suffix};
 
+// Workflow exports
+pub use workflow::{
+    WorkflowDef, NodeDef, EdgeDef, NodeType, FailureStrategy,
+    WorkflowEngine, WorkflowContext, WorkflowStatus, WorkflowPersistence,
+    parse_workflow, parse_workflow_from_file, to_yaml,
+    TemplateRenderer, render_template,
+    Rule, RuleEngine, ValidationResult, evaluate_expression,
+    NodeExecutor, AiExecutor, ToolExecutor, ConditionExecutor, ValidateExecutor,
+    ExecutorFactory,
+};
+
 /// Core version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

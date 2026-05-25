@@ -271,6 +271,94 @@
         "tools"
       ],
       "is_manual": false
+    },
+    {
+      "id": "5d069b60-e8e2-49f9-887f-40750253e393",
+      "created_at": "2026-05-25T06:42:06.040600100Z",
+      "last_referenced": "2026-05-25T06:42:06.040602100Z",
+      "category": "technical",
+      "content": "MatrixCode 启动命令：matrixcode（首次启动）、--continue（恢复上次会话）、--resume（选择历史会话）、--list-sessions（查看所有会话）",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "MatrixCode",
+        "启动命令",
+        "CLI",
+        "会话管理",
+        "session",
+        "cli",
+        "usage"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "69f1c19b-0bee-42e6-b26c-8087f98d65c5",
+      "created_at": "2026-05-25T06:42:06.040627600Z",
+      "last_referenced": "2026-05-25T06:42:06.040627700Z",
+      "category": "technical",
+      "content": "MatrixCode 可用工具：read（读取文件）、write（创建文件）、edit（编辑文件）、grep（搜索内容）、glob（查找文件）、ls（列目录）、bash（执行命令）、ask（提问确认）",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "MatrixCode",
+        "工具",
+        "tools",
+        "read",
+        "write",
+        "edit",
+        "grep",
+        "bash",
+        "tools",
+        "cli"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "0c417b1b-9fe1-4179-a812-f37c35cc4f10",
+      "created_at": "2026-05-25T06:42:06.040629600Z",
+      "last_referenced": "2026-05-25T06:42:06.040629700Z",
+      "category": "solution",
+      "content": "MatrixCode 核心工作流程：代码重构（结构优化/模块拆分）、Bug修复（定位/修复/验证）、功能开发（新模块/测试用例）、代码分析（审查/架构分析）、测试编写（单元测试/集成测试）",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "MatrixCode",
+        "工作流程",
+        "workflow",
+        "代码重构",
+        "Bug修复",
+        "测试",
+        "workflow",
+        "usage"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "573cbbf1-93c5-4cdf-876c-6ce4ec741b44",
+      "created_at": "2026-05-25T06:42:06.040631700Z",
+      "last_referenced": "2026-05-25T06:42:06.040631700Z",
+      "category": "technical",
+      "content": "MatrixCode 配置文件路径：~/.matrix/config.json，配置项包括 provider、api_key、model、think、approve_mode",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "MatrixCode",
+        "配置文件",
+        "config.json",
+        "configuration",
+        "api_key",
+        "config",
+        "setup"
+      ],
+      "is_manual": false
     }
   ],
   "config": {
