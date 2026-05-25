@@ -7,6 +7,7 @@ vars:
   CORE_DIR: packages/core
   TUI_DIR: packages/tui
   VSCODE_DIR: packages/vscode
+  NPM_DIR: packages/npm
 
 tasks:
   status:
@@ -25,13 +26,14 @@ tasks:
     cmds:
       - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const root=fs.readFileSync(\"Cargo.toml\",\"utf8\").replace(/^version = .*/m,\"version = \\\"\"+v+\"\\\"\");fs.writeFileSync(\"Cargo.toml\",root)"'
       - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const p=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));p.version=v;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(p,null,2))"'
+      - cmd: 'node -e "const fs=require(\"fs\");const v=\"{{.CLI_ARGS}}\";const p=JSON.parse(fs.readFileSync(\"{{.NPM_DIR}}/package.json\"));p.version=v;fs.writeFileSync(\"{{.NPM_DIR}}/package.json\",JSON.stringify(p,null,2))"'
       - cmd: 'cargo update -w'  # 更新 Cargo.lock
       - cmd: 'echo "Bumped to {{.CLI_ARGS}}"'
 
   bump-auto:
     desc: Auto bump patch version (0.4.2 -> 0.4.3)
     cmds:
-      - cmd: 'node -e "const fs=require(\"fs\");const root=fs.readFileSync(\"Cargo.toml\",\"utf8\");const m=root.match(/^version = \"([^\"]+)\"/m);if(m){const p=m[1].split(\".\");p[2]=parseInt(p[2])+1;const nv=p.join(\".\");fs.writeFileSync(\"Cargo.toml\",root.replace(/^version = .*/m,\"version = \\\"\"+nv+\"\\\"\"));const vsc=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));vsc.version=nv;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(vsc,null,2));console.log(\"Bumped to: \"+nv)}"'
+      - cmd: 'node -e "const fs=require(\"fs\");const root=fs.readFileSync(\"Cargo.toml\",\"utf8\");const m=root.match(/^version = \"([^\"]+)\"/m);if(m){const p=m[1].split(\".\");p[2]=parseInt(p[2])+1;const nv=p.join(\".\");fs.writeFileSync(\"Cargo.toml\",root.replace(/^version = .*/m,\"version = \\\"\"+nv+\"\\\"\"));const vsc=JSON.parse(fs.readFileSync(\"{{.VSCODE_DIR}}/package.json\"));vsc.version=nv;fs.writeFileSync(\"{{.VSCODE_DIR}}/package.json\",JSON.stringify(vsc,null,2));const npm=JSON.parse(fs.readFileSync(\"{{.NPM_DIR}}/package.json\"));npm.version=nv;fs.writeFileSync(\"{{.NPM_DIR}}/package.json\",JSON.stringify(npm,null,2));console.log(\"Bumped to: \"+nv)}"'
       - cmd: 'cargo update -w'
 
   tag:
@@ -68,13 +70,34 @@ tasks:
     cmds:
       - 'npm run publish'
 
+  build-binaries:
+    desc: Build release binaries for all platforms
+    cmds:
+      - cmd: 'cargo build --release --target x86_64-pc-windows-msvc'
+        ignore_error: true
+      - cmd: 'cargo build --release --target x86_64-apple-darwin'
+        ignore_error: true
+      - cmd: 'cargo build --release --target aarch64-apple-darwin'
+        ignore_error: true
+      - cmd: 'cargo build --release --target x86_64-unknown-linux-gnu'
+        ignore_error: true
+      - cmd: 'cargo build --release --target aarch64-unknown-linux-gnu'
+        ignore_error: true
+
+  publish-npm:
+    desc: Publish npm package
+    dir: '{{.NPM_DIR}}'
+    cmds:
+      - 'npm publish --access public'
+
   publish:
-    desc: Auto bump version and publish all (cargo + vscode)
+    desc: Auto bump version and publish all (cargo + vscode + npm)
     cmds:
       - task: bump-auto
-      - cmd: 'node -e "const fs=require(\"fs\");const execSync=require(\"child_process\").execSync;const c=fs.readFileSync(\"Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const v=m[1];execSync(\"git add Cargo.toml Cargo.lock {{.VSCODE_DIR}}/package.json\");execSync(\"git commit -m \\\"chore: bump to \"+v+\"\\\"\");execSync(\"git tag \"+v);execSync(\"git push origin dev\");execSync(\"git push origin \"+v)}"'
+      - cmd: 'node -e "const fs=require(\"fs\");const execSync=require(\"child_process\").execSync;const c=fs.readFileSync(\"Cargo.toml\",\"utf8\");const m=c.match(/^version = \"([^\"]+)\"/m);if(m){const v=m[1];execSync(\"git add Cargo.toml Cargo.lock {{.VSCODE_DIR}}/package.json {{.NPM_DIR}}/package.json\");execSync(\"git commit -m \\\"chore: bump to \"+v+\"\\\"\");execSync(\"git tag \"+v);execSync(\"git push origin dev\");execSync(\"git push origin \"+v)}"'
       - task: publish-cargo
       - task: publish-vscode
+      - task: publish-npm
 
   release:
     desc: Full release workflow (task release -- 0.4.3)
