@@ -169,7 +169,15 @@ impl ProjectOverview {
         }
         let content = fs::read_to_string(&path)
             .with_context(|| format!("reading overview file {}", path.display()))?;
-        Ok(Some(Self { content, path }))
+
+        // Limit to 200 lines to prevent excessively long content
+        let limited_content = content
+            .lines()
+            .take(200)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Ok(Some(Self { content: limited_content, path }))
     }
 
     /// Generate and save a new overview using AI analysis.

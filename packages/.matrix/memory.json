@@ -167,6 +167,110 @@
         "meta"
       ],
       "is_manual": false
+    },
+    {
+      "id": "3e22a4b0-1eaa-4bb5-8ad8-91a09eaf7e9a",
+      "created_at": "2026-05-24T16:28:25.603550300Z",
+      "last_referenced": "2026-05-24T16:28:25.603552400Z",
+      "category": "structure",
+      "content": "MatrixCode 官网结构：index.html（首页）、docs.html（文档页）、examples.html（示例页）、styles.css、script.js，采用纯静态架构",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "MatrixCode",
+        "官网",
+        "website",
+        "静态网站",
+        "index.html",
+        "structure",
+        "frontend"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "1718cc28-71c7-482c-8612-50c027f1c70c",
+      "created_at": "2026-05-24T16:28:25.603583900Z",
+      "last_referenced": "2026-05-24T16:28:25.603583900Z",
+      "category": "technical",
+      "content": "MatrixCode 官网技术特点：现代深色主题、渐变配色、毛玻璃效果、完全响应式设计、滚动动画、代码高亮、代码复制功能",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "深色主题",
+        "dark theme",
+        "响应式",
+        "responsive",
+        "动画效果",
+        "frontend",
+        "design"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "ee916772-5c1e-4a4d-98b4-8be9ad804b69",
+      "created_at": "2026-05-24T16:28:25.603585100Z",
+      "last_referenced": "2026-05-24T16:28:25.603585200Z",
+      "category": "decision",
+      "content": "MatrixCode 官网部署方案推荐：GitHub Pages（免费首选）、Netlify、Vercel、Cloudflare Pages，均为纯静态托管",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "GitHub Pages",
+        "Netlify",
+        "Vercel",
+        "部署",
+        "deployment",
+        "deploy",
+        "config"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "ccb228e6-d69e-4f1c-88c4-c49b1aa700b0",
+      "created_at": "2026-05-24T16:28:25.603586300Z",
+      "last_referenced": "2026-05-24T16:28:25.603586400Z",
+      "category": "technical",
+      "content": "MatrixCode Logo 地址：https://matrix.laofu.online/logo-horizontal.svg",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 60.0,
+      "tags": [
+        "MatrixCode",
+        "Logo",
+        "logo-horizontal.svg",
+        "branding",
+        "config",
+        "assets"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "6851cc76-d6f1-4539-a52d-70c3da7b066e",
+      "created_at": "2026-05-24T16:28:25.603588300Z",
+      "last_referenced": "2026-05-24T16:28:25.603588400Z",
+      "category": "finding",
+      "content": "MatrixCode 核心功能包含 6 大功能模块、9 个工具，支持代码重构、Bug修复、功能开发、代码分析、测试编写等场景",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "MatrixCode",
+        "核心功能",
+        "工具",
+        "代码重构",
+        "Bug修复",
+        "features",
+        "tools"
+      ],
+      "is_manual": false
     }
   ],
   "config": {

@@ -250,6 +250,7 @@ const OVERVIEW_PROMPT_REQUIREMENTS: &[&str] = &[
     "4. 总结项目的关键模式和约定",
     "5. 提供开发注意事项",
     "6. 如果有业务逻辑（如订单流程、用户系统等），请详细说明",
+    "7. 限制在 200 行以内，保持精简",
 ];
 
 const OVERVIEW_PROMPT_FORMAT: &str = "输出格式：直接输出 markdown 内容，不要加代码块包裹。";
