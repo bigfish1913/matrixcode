@@ -20,6 +20,7 @@ pub mod session;
 pub mod skills;
 pub mod tools;
 pub mod truncate;
+pub mod workflow;
 pub mod workspace;
 
 // Public exports
