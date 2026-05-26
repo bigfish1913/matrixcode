@@ -6,7 +6,8 @@ use serde::Deserialize;
 
 use super::config::*;
 use super::keywords_config::KeywordsConfig;
-use super::types::{AutoMemory, MemoryCategory, MemoryEntry};
+use super::entry::{MemoryCategory, MemoryEntry};
+use super::manager::AutoMemory;
 
 // ============================================================================
 // Memory Extractor Trait

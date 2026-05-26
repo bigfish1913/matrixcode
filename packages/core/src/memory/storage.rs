@@ -6,7 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::config::MemoryConfig;
-use super::types::{AutoMemory, MemoryEntry};
+use super::entry::MemoryEntry;
+use super::manager::AutoMemory;
 
 // ============================================================================
 // File Lock

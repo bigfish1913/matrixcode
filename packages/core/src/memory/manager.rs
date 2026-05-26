@@ -1,254 +1,25 @@
-//! Core memory types and manager.
+//! Memory manager and search index.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use super::config::*;
+use super::entry::{MemoryCategory, MemoryEntry};
 use super::retrieval::{
     TfIdfSearch, compute_relevance, expand_semantic_keywords, extract_context_keywords,
     extract_keywords_hybrid, has_contradiction_signal,
 };
 use crate::providers::Message;
-use crate::truncate::{find_boundary, truncate_with_suffix};
+use crate::truncate::truncate_with_suffix;
 
 // ============================================================================
-// Helper Functions
+// Search Index
 // ============================================================================
-
-/// Truncate string with "..." suffix, respecting UTF-8 boundaries.
-pub(crate) fn truncate_str(s: &str, max_len: usize) -> String {
-    truncate_with_suffix(s, max_len)
-}
-
-/// Truncate string without suffix, respecting UTF-8 boundaries.
-pub(crate) fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        let end = find_boundary(s, max_len);
-        s[..end].to_string()
-    }
-}
-
-// ============================================================================
-// Memory Categories
-// ============================================================================
-
-/// Categories for memory entries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum MemoryCategory {
-    /// User preferences (e.g., "I prefer vim over nano")
-    Preference,
-    /// Project decisions (e.g., "Decided to use PostgreSQL")
-    Decision,
-    /// Key findings (e.g., "API endpoint is at /api/v2")
-    Finding,
-    /// Problem solutions (e.g., "Fixed auth bug by adding token refresh")
-    Solution,
-    /// Technical notes (e.g., "React Query is used for data fetching")
-    Technical,
-    /// Project structure (e.g., "src/index.ts is entry point")
-    Structure,
-    /// Key decisions made during task execution (e.g., "Chose React over Vue for this project")
-    KeyDecision,
-    /// Failed approaches to avoid repeating (e.g., "Direct file read failed, need to use glob first")
-    FailedApproach,
-    /// User intent patterns learned from interactions (e.g., "User prefers detailed explanations")
-    UserIntentPattern,
-    /// Task completion patterns (e.g., "User confirms completion by saying '好的'")
-    TaskPattern,
-}
-
-impl MemoryCategory {
-    /// Get display name for the category.
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            MemoryCategory::Preference => "偏好",
-            MemoryCategory::Decision => "决策",
-            MemoryCategory::Finding => "发现",
-            MemoryCategory::Solution => "解决方案",
-            MemoryCategory::Technical => "技术",
-            MemoryCategory::Structure => "结构",
-            MemoryCategory::KeyDecision => "关键决策",
-            MemoryCategory::FailedApproach => "失败方案",
-            MemoryCategory::UserIntentPattern => "意图模式",
-            MemoryCategory::TaskPattern => "任务模式",
-        }
-    }
-
-    /// Get icon for the category.
-    pub fn icon(&self) -> &'static str {
-        match self {
-            MemoryCategory::Preference => "👤",
-            MemoryCategory::Decision => "🎯",
-            MemoryCategory::Finding => "💡",
-            MemoryCategory::Solution => "🔧",
-            MemoryCategory::Technical => "📚",
-            MemoryCategory::Structure => "🏗️",
-            MemoryCategory::KeyDecision => "⚡",
-            MemoryCategory::FailedApproach => "❌",
-            MemoryCategory::UserIntentPattern => "🧠",
-            MemoryCategory::TaskPattern => "📋",
-        }
-    }
-
-    /// Get default importance score for the category.
-    pub fn default_importance(&self) -> f64 {
-        match self {
-            MemoryCategory::Decision => DEFAULT_IMPORTANCE_DECISION,
-            MemoryCategory::Solution => DEFAULT_IMPORTANCE_SOLUTION,
-            MemoryCategory::Preference => DEFAULT_IMPORTANCE_PREF,
-            MemoryCategory::Finding => DEFAULT_IMPORTANCE_FINDING,
-            MemoryCategory::Technical => DEFAULT_IMPORTANCE_TECH,
-            MemoryCategory::Structure => DEFAULT_IMPORTANCE_STRUCTURE,
-            MemoryCategory::KeyDecision => 85.0,
-            MemoryCategory::FailedApproach => 70.0,
-            MemoryCategory::UserIntentPattern => 80.0,
-            MemoryCategory::TaskPattern => 75.0,
-        }
-    }
-}
-
-// ============================================================================
-// Memory Entry
-// ============================================================================
-
-/// A single memory entry.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryEntry {
-    /// Unique identifier.
-    pub id: String,
-    /// When the memory was created.
-    pub created_at: DateTime<Utc>,
-    /// When the memory was last accessed/referenced.
-    pub last_referenced: DateTime<Utc>,
-    /// Category of the memory.
-    pub category: MemoryCategory,
-    /// The memory content.
-    pub content: String,
-    /// Source session ID (where this memory was created).
-    pub source_session: Option<String>,
-    /// Project path where this memory was created.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project_path: Option<String>,
-    /// Number of times this memory has been referenced.
-    pub reference_count: u32,
-    /// Importance score (0-100, higher = more important).
-    pub importance: f64,
-    /// Tags for searching/filtering.
-    pub tags: Vec<String>,
-    /// Whether this memory was manually added by user.
-    pub is_manual: bool,
-}
-
-impl MemoryEntry {
-    /// Create a new memory entry.
-    pub fn new(category: MemoryCategory, content: String, source_session: Option<String>, project_path: Option<String>) -> Self {
-        let id = uuid::Uuid::new_v4().to_string();
-        Self {
-            id,
-            created_at: Utc::now(),
-            last_referenced: Utc::now(),
-            category,
-            content,
-            source_session,
-            project_path,
-            reference_count: 0,
-            importance: category.default_importance(),
-            tags: Vec::new(),
-            is_manual: false,
-        }
-    }
-
-    /// Create a manually added memory entry.
-    pub fn manual(category: MemoryCategory, content: String, project_path: Option<String>) -> Self {
-        let mut entry = Self::new(category, content, None, project_path);
-        entry.is_manual = true;
-        entry.importance = 95.0;
-        entry
-    }
-
-    /// Create a manually added memory entry (global, no project path).
-    pub fn manual_global(category: MemoryCategory, content: String) -> Self {
-        Self::manual(category, content, None)
-    }
-
-    /// Mark this memory as referenced (increases importance over time).
-    pub fn mark_referenced(&mut self) {
-        self.mark_referenced_with_increment(2.0);
-    }
-
-    /// Mark this memory as referenced with custom importance increment.
-    pub fn mark_referenced_with_increment(&mut self, increment: f64) {
-        self.reference_count += 1;
-        self.last_referenced = Utc::now();
-        self.importance = (self.importance + increment).min(MAX_IMPORTANCE_CEILING);
-    }
-
-    /// Format for display.
-    pub fn format_line(&self) -> String {
-        let time = self.created_at.format("%Y-%m-%d %H:%M");
-        let importance_marker = if self.importance >= IMPORTANCE_STAR_THRESHOLD {
-            "⭐"
-        } else {
-            ""
-        };
-        let manual_marker = if self.is_manual { "📝" } else { "" };
-        format!(
-            "{} {} {}{}{} {}",
-            self.category.icon(),
-            time,
-            importance_marker,
-            manual_marker,
-            self.category.display_name(),
-            truncate_str(&self.content, MAX_DISPLAY_LENGTH)
-        )
-    }
-
-    /// Format for inclusion in system prompt.
-    pub fn format_for_prompt(&self) -> String {
-        let category_name = self.category.display_name();
-        if self.content.len() > MAX_MEMORY_CONTENT_LENGTH {
-            format!(
-                "{}: {}...",
-                category_name,
-                truncate(&self.content, MAX_MEMORY_CONTENT_LENGTH - 3)
-            )
-        } else {
-            format!("{}: {}", category_name, self.content)
-        }
-    }
-}
-
-// ============================================================================
-// Auto Memory Manager
-// ============================================================================
-
-/// Manager for automatic memory accumulation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutoMemory {
-    /// All memory entries.
-    pub entries: Vec<MemoryEntry>,
-    /// Configuration for memory management.
-    #[serde(default)]
-    pub config: MemoryConfig,
-    /// Legacy fields for backward compatibility (deprecated).
-    #[serde(default = "default_max_entries")]
-    pub max_entries: usize,
-    #[serde(default = "default_min_importance")]
-    pub min_importance: f64,
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    /// Search index (not serialized, rebuilt on load).
-    #[serde(skip)]
-    search_index: Option<SearchIndex>,
-}
 
 /// Search index for fast lookups.
 #[derive(Debug, Clone)]
-struct SearchIndex {
+pub struct SearchIndex {
     /// Lowercase content cache for each entry.
     content_lower: Vec<String>,
     /// Entries grouped by category.
@@ -262,7 +33,7 @@ struct SearchIndex {
 
 impl SearchIndex {
     /// Build index from entries.
-    fn build(entries: &[MemoryEntry]) -> Self {
+    pub fn build(entries: &[MemoryEntry]) -> Self {
         let content_lower: Vec<String> = entries.iter().map(|e| e.content.to_lowercase()).collect();
 
         let mut by_category: HashMap<MemoryCategory, Vec<usize>> = HashMap::new();
@@ -294,7 +65,7 @@ impl SearchIndex {
     }
 
     /// Search by query with optional limit.
-    fn search(
+    pub fn search(
         &self,
         _entries: &[MemoryEntry],
         query_lower: &str,
@@ -315,7 +86,7 @@ impl SearchIndex {
     }
 
     /// Multi-keyword search (matches any keyword).
-    fn search_multi(&self, keywords_lower: &[String]) -> Vec<usize> {
+    pub fn search_multi(&self, keywords_lower: &[String]) -> Vec<usize> {
         self.by_importance
             .iter()
             .filter(|&idx| {
@@ -327,14 +98,44 @@ impl SearchIndex {
     }
 }
 
+// ============================================================================
+// Helper Functions for Defaults
+// ============================================================================
+
 fn default_max_entries() -> usize {
     100
 }
+
 fn default_min_importance() -> f64 {
     30.0
 }
+
 fn default_enabled() -> bool {
     true
+}
+
+// ============================================================================
+// Auto Memory Manager
+// ============================================================================
+
+/// Manager for automatic memory accumulation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoMemory {
+    /// All memory entries.
+    pub entries: Vec<MemoryEntry>,
+    /// Configuration for memory management.
+    #[serde(default)]
+    pub config: MemoryConfig,
+    /// Legacy fields for backward compatibility (deprecated).
+    #[serde(default = "default_max_entries")]
+    pub max_entries: usize,
+    #[serde(default = "default_min_importance")]
+    pub min_importance: f64,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    /// Search index (not serialized, rebuilt on load).
+    #[serde(skip)]
+    search_index: Option<SearchIndex>,
 }
 
 impl Default for AutoMemory {
@@ -396,8 +197,7 @@ impl AutoMemory {
         Self::with_config(MemoryConfig::archival())
     }
 
-    /// Add a new memory entry.
-    /// Add entry with duplicate check.
+    /// Add a new memory entry with duplicate check.
     pub fn add(&mut self, entry: MemoryEntry) {
         // Check for similar content before adding
         if self.has_similar(&entry.content) {
@@ -423,7 +223,6 @@ impl AutoMemory {
     }
 
     /// Add memory from detected content.
-    /// Delegates to add() which handles duplicate and conflict checks.
     pub fn add_memory(
         &mut self,
         category: MemoryCategory,
@@ -919,20 +718,17 @@ impl AutoMemory {
     }
 
     /// Generate manifest for AI selection (Claude Code style).
-    /// Returns a list of memory descriptions with ORIGINAL indices.
-    /// Format: "15. [category] content preview (importance)"
-    /// AI returns indices that can be used directly with get_entries_by_indices.
     pub fn generate_manifest(&self, max_entries: usize) -> String {
         if self.entries.is_empty() {
             return String::new();
         }
 
-        // Sort by importance (highest first), but keep original indices
-        let mut sorted_entries: Vec<_> = self.entries
-            .iter()
-            .enumerate()
-            .collect();
-        sorted_entries.sort_by(|a, b| b.1.importance.partial_cmp(&a.1.importance).unwrap_or(std::cmp::Ordering::Equal));
+        let mut sorted_entries: Vec<_> = self.entries.iter().enumerate().collect();
+        sorted_entries.sort_by(|a, b| {
+            b.1.importance
+                .partial_cmp(&a.1.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         sorted_entries.truncate(max_entries);
 
         let mut manifest = String::new();
@@ -941,7 +737,7 @@ impl AutoMemory {
             let preview = preview.trim_end_matches('\n');
             manifest.push_str(&format!(
                 "{}. {} {} {} (重要性: {:.0})\n",
-                original_idx,  // Use original index, not sorted position
+                original_idx,
                 entry.category.icon(),
                 preview,
                 entry.category.display_name(),
@@ -954,10 +750,7 @@ impl AutoMemory {
 
     /// Get entries by indices (from AI selection result).
     pub fn get_entries_by_indices(&self, indices: &[usize]) -> Vec<&MemoryEntry> {
-        indices
-            .iter()
-            .filter_map(|i| self.entries.get(*i))
-            .collect()
+        indices.iter().filter_map(|i| self.entries.get(*i)).collect()
     }
 
     /// Generate summary for system prompt.
@@ -1038,14 +831,12 @@ impl AutoMemory {
                 return std::cmp::Ordering::Greater;
             }
 
-            let score_a = a.1 * CONTEXT_RELEVANCE_WEIGHT
-                + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
-            let score_b = b.1 * CONTEXT_RELEVANCE_WEIGHT
-                + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_a =
+                a.1 * CONTEXT_RELEVANCE_WEIGHT + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_b =
+                b.1 * CONTEXT_RELEVANCE_WEIGHT + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
 
-            score_b
-                .partial_cmp(&score_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let selected: Vec<&MemoryEntry> = scored
@@ -1118,9 +909,7 @@ impl AutoMemory {
             let score_a = a.1 + (a.0.importance / MAX_IMPORTANCE_CEILING);
             let score_b = b.1 + (b.0.importance / MAX_IMPORTANCE_CEILING);
 
-            score_b
-                .partial_cmp(&score_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
         });
 
         scored
@@ -1164,14 +953,12 @@ impl AutoMemory {
                 return std::cmp::Ordering::Greater;
             }
 
-            let score_a = a.1 * CONTEXT_RELEVANCE_WEIGHT
-                + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
-            let score_b = b.1 * CONTEXT_RELEVANCE_WEIGHT
-                + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_a =
+                a.1 * CONTEXT_RELEVANCE_WEIGHT + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
+            let score_b =
+                b.1 * CONTEXT_RELEVANCE_WEIGHT + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
 
-            score_b
-                .partial_cmp(&score_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let selected: Vec<&MemoryEntry> = scored
@@ -1243,22 +1030,10 @@ impl AutoMemory {
             0.0
         };
 
-        let oldest = self
-            .entries
-            .iter()
-            .min_by_key(|e| e.created_at)
-            .map(|e| e.created_at);
-        let newest = self
-            .entries
-            .iter()
-            .max_by_key(|e| e.created_at)
-            .map(|e| e.created_at);
+        let oldest = self.entries.iter().min_by_key(|e| e.created_at).map(|e| e.created_at);
+        let newest = self.entries.iter().max_by_key(|e| e.created_at).map(|e| e.created_at);
 
-        let highly_referenced = self
-            .entries
-            .iter()
-            .filter(|e| e.reference_count >= 3)
-            .count();
+        let highly_referenced = self.entries.iter().filter(|e| e.reference_count >= 3).count();
 
         MemoryStatistics {
             total,
@@ -1365,10 +1140,7 @@ impl MemoryStatistics {
 
         output.push_str("质量指标：\n");
         output.push_str(&format!("  平均重要性: {:.1} 分\n", self.avg_importance));
-        output.push_str(&format!(
-            "  高频引用: {} 条 (≥3次)\n",
-            self.highly_referenced
-        ));
+        output.push_str(&format!("  高频引用: {} 条 (≥3次)\n", self.highly_referenced));
 
         if let Some(oldest) = self.oldest {
             let days = (Utc::now() - oldest).num_days();

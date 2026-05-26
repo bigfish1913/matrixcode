@@ -1,15 +1,16 @@
 //! Executors Tests
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, Usage};
-    use crate::workflow::context::WorkflowContext;
-    use crate::workflow::def::{BranchDef, FailureStrategy, NodeDef, NodeType};
-    use crate::workflow::rule_engine::Rule;
-    use crate::tools::bash::BashTool;
-    use std::collections::HashMap;
-    use serde_json::json;
+use super::{AiExecutor, AiExecutorConfig, ToolExecutor, ToolExecutorConfig,
+            ConditionExecutor, ValidateExecutor, ValidateExecutorConfig,
+            CompositeExecutor, CompositeMode, ExecutorFactory, NodeExecutor};
+use anyhow::Result;
+use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, Usage};
+use crate::workflow::context::WorkflowContext;
+use crate::workflow::def::{BranchDef, FailureStrategy, NodeDef, NodeType};
+use crate::workflow::rule_engine::Rule;
+use crate::tools::bash::BashTool;
+use std::collections::HashMap;
+use serde_json::json;
 
     // ============================================================================
     // Mock Provider for AI Executor Testing
@@ -88,7 +89,7 @@ mod tests {
         let node = create_task_node("test-ai", "generate_text", HashMap::new());
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_ok());
 
         let output = result.unwrap();
@@ -108,7 +109,7 @@ mod tests {
         let node = create_task_node("test-ai-params", "analyze", params);
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_ok());
     }
 
@@ -128,7 +129,7 @@ mod tests {
         let inputs = HashMap::from([("user_input".to_string(), json!("hello world"))]);
         let mut context = WorkflowContext::new("test-workflow".to_string(), inputs);
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_ok());
 
         // Check that context was updated with output
@@ -150,7 +151,7 @@ mod tests {
         let node = create_task_node("test-config", "test_task", HashMap::new());
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_ok());
         assert_eq!(executor.name(), "ai_executor");
     }
@@ -178,7 +179,7 @@ mod tests {
         };
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("requires a task name"));
     }
@@ -285,7 +286,7 @@ mod tests {
         let node = create_task_node("test-tool", "nonexistent_tool", HashMap::new());
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -311,7 +312,7 @@ mod tests {
         };
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("requires a task name"));
     }
@@ -370,7 +371,7 @@ mod tests {
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
         context.set_variable("score".to_string(), json!(90));
 
-        let result = executor.execute(&node, &mut context).await.unwrap();
+        let result = NodeExecutor::execute(&executor, &node, &mut context).await.unwrap();
         assert_eq!(result.get("matched_branch").unwrap(), &json!("high_score"));
         assert_eq!(result.get("target").unwrap(), &json!("success_node"));
     }
@@ -391,7 +392,7 @@ mod tests {
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
         context.set_variable("score".to_string(), json!(50));
 
-        let result = executor.execute(&node, &mut context).await.unwrap();
+        let result = NodeExecutor::execute(&executor, &node, &mut context).await.unwrap();
         assert_eq!(result.get("matched").unwrap(), &json!(false));
         assert_eq!(result.get("branches_checked").unwrap(), &json!(1));
     }
@@ -418,7 +419,7 @@ mod tests {
         };
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("has no branches"));
     }
@@ -441,7 +442,7 @@ mod tests {
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
         context.set_variable("count".to_string(), json!(10));
 
-        let result = executor.execute(&node, &mut context).await.unwrap();
+        let result = NodeExecutor::execute(&executor, &node, &mut context).await.unwrap();
         assert_eq!(result.get("matched_branch").unwrap(), &json!("match"));
     }
 
@@ -462,7 +463,7 @@ mod tests {
         context.set_variable("count".to_string(), json!(10));
         context.set_variable("enabled".to_string(), json!(true));
 
-        let result = executor.execute(&node, &mut context).await.unwrap();
+        let result = NodeExecutor::execute(&executor, &node, &mut context).await.unwrap();
         assert_eq!(result.get("matched_branch").unwrap(), &json!("complex_true"));
     }
 
@@ -506,7 +507,7 @@ mod tests {
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
         context.set_variable("status".to_string(), json!("ready"));
 
-        let result = executor.execute(&node, &mut context).await.unwrap();
+        let result = NodeExecutor::execute(&executor, &node, &mut context).await.unwrap();
         assert_eq!(result.get("passed").unwrap(), &json!(true));
         assert!(result.get("errors").unwrap().as_array().unwrap().is_empty());
     }
@@ -527,7 +528,7 @@ mod tests {
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
         context.set_variable("status".to_string(), json!("pending"));
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Validation failed"));
     }
@@ -539,7 +540,7 @@ mod tests {
         let node = create_task_node("no-rules", "validate", HashMap::new());
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("requires 'rules'"));
     }
@@ -565,7 +566,7 @@ mod tests {
         context.set_variable("status".to_string(), json!("ready"));
         context.set_variable("count".to_string(), json!(15));
 
-        let result = executor.execute(&node, &mut context).await.unwrap();
+        let result = NodeExecutor::execute(&executor, &node, &mut context).await.unwrap();
         assert_eq!(result.get("passed").unwrap(), &json!(true));
     }
 
@@ -590,7 +591,7 @@ mod tests {
         let node = create_task_node("ai-validate", "validate", params);
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await.unwrap();
+        let result = NodeExecutor::execute(&executor, &node, &mut context).await.unwrap();
         assert_eq!(result.get("passed").unwrap(), &json!(true));
     }
 
@@ -615,7 +616,7 @@ mod tests {
         let node = create_task_node("ai-fail", "validate", params);
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await;
+        let result: Result<serde_json::Value> = NodeExecutor::execute(&executor, &node, &mut context).await;
         assert!(result.is_err());
     }
 
@@ -640,7 +641,7 @@ mod tests {
         let node = create_task_node("ai-no-abort", "validate", params);
         let mut context = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
 
-        let result = executor.execute(&node, &mut context).await.unwrap();
+        let result = NodeExecutor::execute(&executor, &node, &mut context).await.unwrap();
         assert_eq!(result.get("passed").unwrap(), &json!(false));
         assert!(!result.get("errors").unwrap().as_array().unwrap().is_empty());
     }
@@ -776,7 +777,7 @@ mod tests {
     #[test]
     fn test_executor_factory_create_ai_executor_without_provider() {
         let factory = ExecutorFactory::new();
-        let result = factory.create_ai_executor();
+        let result: Result<std::sync::Arc<dyn NodeExecutor>> = factory.create_ai_executor();
         match result {
             Err(e) => assert!(e.to_string().contains("Provider not configured")),
             Ok(_) => panic!("Should fail without provider"),
@@ -811,7 +812,7 @@ mod tests {
             enable_ai_validation: true,
             ..Default::default()
         };
-        let result = factory.create_validate_executor_with_ai(config);
+        let result: Result<std::sync::Arc<dyn NodeExecutor>> = factory.create_validate_executor_with_ai(config);
         match result {
             Err(e) => assert!(e.to_string().contains("Provider not configured")),
             Ok(_) => panic!("Should fail without provider"),
@@ -897,4 +898,3 @@ mod tests {
             approvers: None,
         }
     }
-}

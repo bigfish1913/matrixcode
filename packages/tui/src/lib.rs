@@ -3,7 +3,6 @@ mod commands;
 mod draw;
 mod events;
 mod input;
-mod input_handlers;
 mod markdown;
 mod types;
 mod utils;

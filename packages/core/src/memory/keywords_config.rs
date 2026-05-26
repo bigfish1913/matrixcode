@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::types::MemoryCategory;
+use super::entry::MemoryCategory;
 
 fn home_dir() -> Option<PathBuf> {
     var_os("HOME").or_else(|| var_os("USERPROFILE")).map(PathBuf::from)

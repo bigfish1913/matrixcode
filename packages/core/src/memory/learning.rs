@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use super::config::MIN_MEMORY_CONTENT_LENGTH;
 use super::extractor::infer_category_from_content;
 use super::retrieval::extract_context_keywords;
-use super::types::{AutoMemory, MemoryCategory, MemoryEntry};
+use super::entry::{MemoryCategory, MemoryEntry};
+use super::manager::AutoMemory;
 
 // ============================================================================
 // Feedback Detection

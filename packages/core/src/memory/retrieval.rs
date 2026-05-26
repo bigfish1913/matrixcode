@@ -3,7 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use super::keywords_config::KeywordsConfig;
-use super::types::{AutoMemory, MemoryEntry};
+use super::entry::{MemoryEntry, MemoryCategory};
+use super::manager::AutoMemory;
 
 // ============================================================================
 // Keyword Extraction (uses KeywordsConfig)
@@ -554,20 +555,20 @@ mod tests {
 
         // Add multiple documents so IDF calculation works properly
         // (IDF = ln(N/df) where N is total docs, df is docs containing word)
-        memory.add(super::super::types::MemoryEntry::new(
-            super::super::types::MemoryCategory::Decision,
+        memory.add(MemoryEntry::new(
+            MemoryCategory::Decision,
             "使用 PostgreSQL 作为数据库".to_string(),
             None,
             None,
         ));
-        memory.add(super::super::types::MemoryEntry::new(
-            super::super::types::MemoryCategory::Decision,
+        memory.add(MemoryEntry::new(
+            MemoryCategory::Decision,
             "前端使用 React 框架开发".to_string(),
             None,
             None,
         ));
-        memory.add(super::super::types::MemoryEntry::new(
-            super::super::types::MemoryCategory::Decision,
+        memory.add(MemoryEntry::new(
+            MemoryCategory::Decision,
             "后端采用 Rust 编写".to_string(),
             None,
             None,

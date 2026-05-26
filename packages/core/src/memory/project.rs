@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use super::storage::MemoryStorage;
-use super::types::{MemoryCategory, MemoryEntry};
+use super::entry::{MemoryCategory, MemoryEntry};
 
 // ============================================================================
 // Project Type Configuration
