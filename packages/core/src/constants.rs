@@ -79,7 +79,8 @@ pub const ANTHROPIC_DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 pub const OPENAI_DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
 /// CodeGraph CLI command timeout (seconds)
-pub const CODEGRAPH_CLI_TIMEOUT_SECS: u64 = 60;
+pub const CODEGRAPH_CLI_TIMEOUT_SECS: u64 = 120;
 
 /// CodeGraph auto-sync debounce interval (seconds)
-pub const CODEGRAPH_SYNC_INTERVAL_SECS: u64 = 2;
+/// Increased to reduce Node.js process frequency
+pub const CODEGRAPH_SYNC_INTERVAL_SECS: u64 = 30;

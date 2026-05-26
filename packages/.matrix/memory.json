@@ -1,6 +1,40 @@
 {
   "entries": [
     {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "2b1fd834-404f-49e8-982b-13e7d965e8a9",
       "created_at": "2026-05-21T10:32:45.863861100Z",
       "last_referenced": "2026-05-21T10:32:45.863864200Z",
@@ -530,7 +564,8 @@
         "Tool",
         "structure",
         "rust",
-        "convention"
+        "convention",
+        "project"
       ],
       "is_manual": false
     },
@@ -551,7 +586,8 @@
         "Tool",
         "模块职责",
         "convention",
-        "architecture"
+        "architecture",
+        "project"
       ],
       "is_manual": false
     },
@@ -572,7 +608,8 @@
         "MessageContent",
         "Provider API",
         "api",
-        "backend"
+        "backend",
+        "project"
       ],
       "is_manual": false
     },
@@ -593,7 +630,8 @@
         "tool registration",
         "mod.rs",
         "rust",
-        "pattern"
+        "pattern",
+        "project"
       ],
       "is_manual": false
     },
@@ -616,7 +654,8 @@
         "MatrixCode",
         "api",
         "integration",
-        "image"
+        "image",
+        "project"
       ],
       "is_manual": false
     },
@@ -638,7 +677,8 @@
         "ImageResult",
         "search_all",
         "structure",
-        "rust"
+        "rust",
+        "project"
       ],
       "is_manual": false
     },
@@ -660,7 +700,8 @@
         "异步",
         "spawn",
         "rust",
-        "backend"
+        "backend",
+        "project"
       ],
       "is_manual": false
     },
@@ -682,8 +723,65 @@
         "响应格式",
         "统一格式",
         "api",
-        "design"
+        "design",
+        "project"
       ],
+      "is_manual": false
+    },
+    {
+      "id": "b1787c3b-ed7d-4abb-bcb7-3d94dc925a0f",
+      "created_at": "2026-05-26T15:54:46.922210400Z",
+      "last_referenced": "2026-05-26T15:54:46.922210500Z",
+      "category": "solution",
+      "content": "代码查找正确方法：查找符号用 codegraph_search，分析调用关系用 codegraph_callers/callees，只在搜索字符串内容、CodeGraph未索引文件、需要完整文件内容时才使用 grep/read",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "codegraph_search",
+        "codegraph_callers",
+        "codegraph_callees",
+        "grep",
+        "代码查找",
+        "workflow",
+        "tools",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "26132fea-1e80-4d01-9429-c7f8d2f7ab17",
+      "created_at": "2026-05-26T15:54:46.922212Z",
+      "last_referenced": "2026-05-26T15:54:46.922212100Z",
+      "category": "finding",
+      "content": "CodeGraph 比传统方法（grep、read）效率高 10-100 倍",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "CodeGraph",
+        "效率",
+        "性能",
+        "grep",
+        "performance",
+        "tools",
+        "performance",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "73ee25cd-fefc-4f96-a085-8ba85d29c170",
+      "created_at": "2026-05-26T15:56:39.098846700Z",
+      "last_referenced": "2026-05-26T15:56:39.098847200Z",
+      "category": "finding",
+      "content": "放在上面会好点",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [],
       "is_manual": false
     }
   ],

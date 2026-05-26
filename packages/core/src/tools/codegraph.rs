@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tokio::sync::{broadcast, mpsc};
@@ -653,7 +654,7 @@ impl CodeGraphWatcher {
     /// Run the watcher loop.
     async fn run_watcher_loop(
         project_path: PathBuf,
-        sync_interval: Duration,
+        _sync_interval: Duration, // Kept for API compatibility, actual debounce is fixed
         cancel_token: CancellationToken,
     ) {
         // Ensure CodeGraph CLI is available
@@ -676,6 +677,12 @@ impl CodeGraphWatcher {
             }
         }
 
+        // Initial sync on startup to ensure index is fresh
+        log::info!("CodeGraph: performing initial sync on startup");
+        if let Err(e) = manager.sync().await {
+            log::warn!("CodeGraph initial sync failed: {}", e);
+        }
+
         // Channel for file change events
         let (change_tx, mut change_rx) = mpsc::channel::<PathBuf>(100);
 
@@ -692,18 +699,30 @@ impl CodeGraphWatcher {
         // Load ignore matcher with .gitignore support
         let ignore_matcher = IgnoreMatcher::load(&project_path);
 
-        // Track last sync time for debouncing
+        // Track sync state
         let mut last_sync = Instant::now();
-        let mut pending_changes = false;
+        let mut pending_count = 0;
+        let syncing = Arc::new(AtomicBool::new(false));
+        let syncing_clone = syncing.clone();
+        // Debounce: wait for changes to settle before sync
+        let debounce_delay = Duration::from_secs(10); // Wait 10s after last change
 
         log::info!("CodeGraph watcher started for: {}", project_path.display());
 
-        // Use a check interval for cancellation (faster response)
-        let check_interval = Duration::from_secs(1);
+        // Check interval for cancellation (responsive but not too frequent)
+        let check_interval = Duration::from_secs(2);
 
         loop {
             // Check cancellation at the start of each iteration
             if cancel_token.is_cancelled() {
+                // Final sync before exit if there are pending changes
+                if pending_count > 0 && !syncing.load(Ordering::SeqCst) {
+                    log::info!("CodeGraph: final sync before exit ({} pending changes)", pending_count);
+                    let manager = CodeGraphManager::new(&project_path);
+                    if manager.is_initialized() {
+                        let _ = manager.sync().await;
+                    }
+                }
                 log::info!("CodeGraph watcher stopped (cancelled)");
                 break;
             }
@@ -711,39 +730,38 @@ impl CodeGraphWatcher {
             tokio::select! {
                 // Check for file changes
                 Some(path) = change_rx.recv() => {
-                    // Check cancellation before processing
                     if cancel_token.is_cancelled() {
-                        log::info!("CodeGraph watcher stopped (cancelled)");
                         break;
                     }
                     // Check if it's a source file and not ignored
                     if is_source_file(&path)
                         && !ignore_matcher.should_ignore(&path, &project_path) {
-                        pending_changes = true;
-                        log::debug!("CodeGraph: source file changed: {}", path.display());
+                        pending_count += 1;
+                        last_sync = Instant::now(); // Reset debounce timer
+                        log::debug!("CodeGraph: file changed {} (total pending: {})", path.display(), pending_count);
                     }
                 }
 
-                // Periodic check for cancellation and sync
+                // Periodic check: sync when changes settle (debounce)
                 _ = sleep(check_interval) => {
-                    // Check cancellation
                     if cancel_token.is_cancelled() {
-                        log::info!("CodeGraph watcher stopped (cancelled)");
                         break;
                     }
 
-                    // Sync check (debounced)
-                    if pending_changes && last_sync.elapsed() >= sync_interval {
-                        // Run sync
+                    // Only sync when: not already syncing + have pending changes + debounce elapsed
+                    if !syncing_clone.load(Ordering::SeqCst)
+                        && pending_count > 0
+                        && last_sync.elapsed() >= debounce_delay {
+                        syncing_clone.store(true, Ordering::SeqCst);
                         let manager = CodeGraphManager::new(&project_path);
                         if manager.is_initialized() {
-                            log::info!("CodeGraph: auto-sync triggered");
+                            log::info!("CodeGraph: auto-sync triggered ({} pending changes)", pending_count);
                             if let Err(e) = manager.sync().await {
                                 log::warn!("CodeGraph sync failed: {}", e);
                             }
-                            last_sync = Instant::now();
-                            pending_changes = false;
+                            pending_count = 0;
                         }
+                        syncing_clone.store(false, Ordering::SeqCst);
                     }
                 }
             }

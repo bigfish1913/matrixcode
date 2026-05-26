@@ -157,7 +157,7 @@ const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_EDITING,
     SYSTEM_PROMPT_EXECUTION,
     SYSTEM_PROMPT_LANGUAGE,
-    SYSTEM_PROMPT_CODEGRAPH,
+    // SYSTEM_PROMPT_CODEGRAPH 移到工具列表之后动态添加
     SYSTEM_PROMPT_OUTPUT_CONTROL,
     SYSTEM_PROMPT_COMPLETION,
     SYSTEM_PROMPT_TASK_TRACKING,
@@ -494,8 +494,14 @@ pub fn build_system_prompt_with_workflows(
     // Dynamically generate tools description (include CodeGraph if project_path available)
     let tools_prompt = crate::tools::generate_tools_prompt_with_path(project_path);
 
-    // Combine: static prompt + tools + sections
+    // Combine: static prompt (before tools) + tools + CODEGRAPH rules (after tools) + sections
     let mut parts = vec![static_prompt, tools_prompt];
+    
+    // Add CODEGRAPH usage rules AFTER tools list (so AI sees tools first, then learns how to choose)
+    if project_path.is_some() {
+        parts.push(SYSTEM_PROMPT_CODEGRAPH.to_string());
+    }
+    
     parts.extend(builder.context.render_sections());
     let mut result = parts.join("\n\n");
 

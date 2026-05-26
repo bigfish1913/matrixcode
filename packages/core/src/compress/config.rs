@@ -294,7 +294,9 @@ impl CompressionConfig {
         context_window: u32,
     ) -> (ThresholdLevel, u32) {
         let percent_left = if context_window > 0 {
-            ((context_window - token_usage) as f64 / context_window as f64 * 100.0) as u32
+            // 使用 saturating_sub 防止下溢，确保百分比在 0-100 范围内
+            let remaining = context_window.saturating_sub(token_usage);
+            ((remaining as f64 / context_window as f64 * 100.0) as u32).min(100)
         } else {
             0
         };
@@ -372,5 +374,51 @@ impl CircuitBreakerState {
         self.consecutive_failures = 0;
         self.is_tripped = false;
         self.last_failure_time = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_threshold_level_normal() {
+        // 正常情况：使用了 50% 的上下文
+        let (level, percent) = CompressionConfig::calculate_threshold_level(50_000, 100_000);
+        assert_eq!(level, ThresholdLevel::Normal);
+        assert_eq!(percent, 50);
+    }
+
+    #[test]
+    fn test_calculate_threshold_level_exceeds_window() {
+        // 关键测试：token_usage 超过 context_window
+        // 修复前会因 u32 下溢产生巨大值，修复后应为 0
+        let (level, percent) = CompressionConfig::calculate_threshold_level(120_000, 100_000);
+        assert_eq!(level, ThresholdLevel::Blocking);
+        assert_eq!(percent, 0, "百分比应为 0，不应该超过 100%");
+    }
+
+    #[test]
+    fn test_calculate_threshold_level_full_usage() {
+        // 完全用满上下文
+        let (level, percent) = CompressionConfig::calculate_threshold_level(100_000, 100_000);
+        assert_eq!(level, ThresholdLevel::Blocking);
+        assert_eq!(percent, 0);
+    }
+
+    #[test]
+    fn test_calculate_threshold_level_zero_window() {
+        // 边界情况：context_window 为 0，意味着没有可用空间
+        // 所有阈值都会变成 0，因此任何 token_usage > 0 都触发 Blocking
+        let (level, percent) = CompressionConfig::calculate_threshold_level(1000, 0);
+        assert_eq!(level, ThresholdLevel::Blocking);  // 0 空间时应该阻止
+        assert_eq!(percent, 0);
+    }
+
+    #[test]
+    fn test_calculate_threshold_level_small_remaining() {
+        // 接近上限但未超过
+        let (_level, percent) = CompressionConfig::calculate_threshold_level(99_000, 100_000);
+        assert_eq!(percent, 1);
     }
 }
