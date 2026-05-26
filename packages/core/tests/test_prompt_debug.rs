@@ -32,25 +32,25 @@ fn test_print_full_system_prompt() {
     println!("\n=== CODEGRAPH SECTION CHECK ===");
     if prompt.contains("CodeGraph") {
         println!("✓ Contains 'CodeGraph'");
-        // Find and print the CodeGraph section
-        let start = prompt.find("CodeGraph").unwrap();
-        let end = start + 500.min(prompt.len() - start);
-        println!("CodeGraph section:\n{}", &prompt[start..end]);
+        // Find and print the CodeGraph section (char-safe slicing)
+        let start_idx = prompt.find("CodeGraph").unwrap();
+        let chars = prompt.chars().skip(start_idx).take(500).collect::<String>();
+        println!("CodeGraph section:\n{}", chars);
     } else {
         println!("❌ Does NOT contain 'CodeGraph'");
     }
 
     println!("\n=== TOOLS SECTION CHECK ===");
-    if prompt.contains("codegraph_search") {
-        println!("✓ Contains 'codegraph_search'");
+    if prompt.contains("code_search") {
+        println!("✓ Contains 'code_search'");
     } else {
-        println!("❌ Does NOT contain 'codegraph_search'");
+        println!("❌ Does NOT contain 'code_search'");
     }
 
-    if prompt.contains("codegraph_callers") {
-        println!("✓ Contains 'codegraph_callers'");
+    if prompt.contains("code_callers") {
+        println!("✓ Contains 'code_callers'");
     } else {
-        println!("❌ Does NOT contain 'codegraph_callers'");
+        println!("❌ Does NOT contain 'code_callers'");
     }
 
     // Check if ls and grep are present too
