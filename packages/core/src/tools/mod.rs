@@ -206,10 +206,10 @@ mod tests {
         let prompt = generate_tools_prompt_with_path(Some(&path));
 
         // Verify codegraph tools appear in prompt when path provided
-        assert!(prompt.contains("codegraph_search"), "prompt should mention codegraph_search");
-        assert!(prompt.contains("codegraph_callers"), "prompt should mention codegraph_callers");
-        assert!(prompt.contains("codegraph_callees"), "prompt should mention codegraph_callees");
-        assert!(prompt.contains("codegraph_status"), "prompt should mention codegraph_status");
+        assert!(prompt.contains("code_search"), "prompt should mention code_search");
+        assert!(prompt.contains("code_callers"), "prompt should mention code_callers");
+        assert!(prompt.contains("code_callees"), "prompt should mention code_callees");
+        assert!(prompt.contains("code_status"), "prompt should mention code_status");
     }
 
     #[test]
@@ -217,7 +217,7 @@ mod tests {
         let prompt = generate_tools_prompt();
 
         // Verify codegraph tools NOT in prompt without path
-        assert!(!prompt.contains("codegraph_search"), "prompt should NOT mention codegraph_search without path");
+        assert!(!prompt.contains("code_search"), "prompt should NOT mention code_search without path");
     }
 }
 

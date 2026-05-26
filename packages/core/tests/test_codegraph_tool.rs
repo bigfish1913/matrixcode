@@ -24,7 +24,7 @@ async fn test_codegraph_search_tool_execute() {
 
     let tool = CodeGraphSearchTool::new(&project_path);
     let def = tool.definition();
-    assert_eq!(def.name, "codegraph_search");
+    assert_eq!(def.name, "code_search");
 
     // Search for a common symbol
     let result = tool.execute(serde_json::json!({
@@ -55,7 +55,7 @@ async fn test_codegraph_status_tool_execute() {
 
     let tool = CodeGraphStatusTool::new(&project_path);
     let def = tool.definition();
-    assert_eq!(def.name, "codegraph_status");
+    assert_eq!(def.name, "code_status");
 
     let result = tool.execute(serde_json::json!({})).await;
 
@@ -87,10 +87,10 @@ fn test_generate_tools_prompt_with_codegraph() {
 
     println!("Tools prompt:\n{}", prompt);
 
-    assert!(prompt.contains("codegraph_search"), "Prompt should include codegraph_search");
-    assert!(prompt.contains("codegraph_callers"), "Prompt should include codegraph_callers");
-    assert!(prompt.contains("codegraph_callees"), "Prompt should include codegraph_callees");
-    assert!(prompt.contains("codegraph_status"), "Prompt should include codegraph_status");
+    assert!(prompt.contains("code_search"), "Prompt should include code_search");
+    assert!(prompt.contains("code_callers"), "Prompt should include code_callers");
+    assert!(prompt.contains("code_callees"), "Prompt should include code_callees");
+    assert!(prompt.contains("code_status"), "Prompt should include code_status");
 }
 
 #[test]
@@ -108,6 +108,6 @@ fn test_build_system_prompt_with_codegraph() {
     );
 
     // Check if codegraph tools are mentioned in the prompt
-    assert!(prompt.contains("codegraph_search"), "System prompt should include codegraph_search");
-    assert!(prompt.contains("codegraph_callers"), "System prompt should include codegraph_callers");
+    assert!(prompt.contains("code_search"), "System prompt should include code_search");
+    assert!(prompt.contains("code_callers"), "System prompt should include code_callers");
 }

@@ -819,7 +819,7 @@ impl CodeGraphSearchTool {
 impl Tool for CodeGraphSearchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: "codegraph_search".to_string(),
+            name: "code_search".to_string(),
             description: "搜索代码符号（函数、类、方法等）。比 grep 更快，返回符号定义位置和签名信息。需要项目已初始化 CodeGraph (.codegraph/ 目录存在)。".to_string(),
             parameters: json!({
                 "type": "object",
@@ -892,7 +892,7 @@ impl CodeGraphCallersTool {
 impl Tool for CodeGraphCallersTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: "codegraph_callers".to_string(),
+            name: "code_callers".to_string(),
             description: "查找调用指定符号的所有函数/方法。用于理解代码依赖关系，分析修改影响范围。".to_string(),
             parameters: json!({
                 "type": "object",
@@ -974,7 +974,7 @@ impl CodeGraphCalleesTool {
 impl Tool for CodeGraphCalleesTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: "codegraph_callees".to_string(),
+            name: "code_callees".to_string(),
             description: "查找指定符号调用的所有函数/方法。用于理解函数执行流程和依赖链。".to_string(),
             parameters: json!({
                 "type": "object",
@@ -1055,7 +1055,7 @@ impl CodeGraphStatusTool {
 impl Tool for CodeGraphStatusTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: "codegraph_status".to_string(),
+            name: "code_status".to_string(),
             description: "检查 CodeGraph 索引状态。返回文件数、节点数、边数、支持的语言等信息。".to_string(),
             parameters: json!({
                 "type": "object",
@@ -1086,6 +1086,56 @@ impl Tool for CodeGraphStatusTool {
     }
 }
 
+/// Tool for manually syncing CodeGraph index.
+pub struct CodeGraphSyncTool {
+    manager: Arc<CodeGraphManager>,
+}
+
+impl CodeGraphSyncTool {
+    pub fn new(project_path: &Path) -> Self {
+        Self {
+            manager: Arc::new(CodeGraphManager::new(project_path)),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for CodeGraphSyncTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "code_sync".to_string(),
+            description: "手动同步 CodeGraph 索引。当代码库有变化但自动同步未触发时使用，确保搜索结果是最新的。".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {}
+            }),
+            is_priority: false,
+        }
+    }
+
+    async fn execute(&self, _params: Value) -> Result<String> {
+        if !self.manager.is_initialized() {
+            return Ok("CodeGraph 未初始化。请先运行 codegraph init -i 来构建索引。".to_string());
+        }
+
+        log::info!("CodeGraph: manual sync triggered by AI");
+        self.manager.sync().await?;
+
+        let status = self.manager.status()?;
+        Ok(format!(
+            "CodeGraph 索引已同步。\n\n文件数: {}\n节点数: {}\n边数: {}\n语言: {}",
+            status.file_count,
+            status.node_count,
+            status.edge_count,
+            status.languages.join(", ")
+        ))
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Safe
+    }
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -1097,6 +1147,7 @@ pub fn codegraph_tools(project_path: &Path) -> Vec<Box<dyn Tool>> {
         Box::new(CodeGraphCallersTool::new(project_path)),
         Box::new(CodeGraphCalleesTool::new(project_path)),
         Box::new(CodeGraphStatusTool::new(project_path)),
+        Box::new(CodeGraphSyncTool::new(project_path)),
     ]
 }
 
@@ -1118,10 +1169,11 @@ mod tests {
         let tools = codegraph_tools(&path);
 
         let names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
-        assert!(names.contains(&"codegraph_search".to_string()));
-        assert!(names.contains(&"codegraph_callers".to_string()));
-        assert!(names.contains(&"codegraph_callees".to_string()));
-        assert!(names.contains(&"codegraph_status".to_string()));
+        assert!(names.contains(&"code_search".to_string()));
+        assert!(names.contains(&"code_callers".to_string()));
+        assert!(names.contains(&"code_callees".to_string()));
+        assert!(names.contains(&"code_status".to_string()));
+        assert!(names.contains(&"code_sync".to_string()));
     }
 
     #[test]
@@ -1131,7 +1183,7 @@ mod tests {
 
         for tool in tools {
             let def = tool.definition();
-            if def.name == "codegraph_search" {
+            if def.name == "code_search" {
                 assert!(def.is_priority);
             }
         }

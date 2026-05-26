@@ -113,8 +113,8 @@ const SYSTEM_PROMPT_CODEGRAPH: &str = r#"CodeGraph 代码图谱：
 CodeGraph 是预先索引的代码知识库，查询速度比 grep/read 快 10-100 倍。
 
 【使用优先级 - 必须遵守】
-1. 查找代码符号（函数、类、方法、变量）→ 必须先用 codegraph_search
-2. 分析调用关系 → 必须用 codegraph_callers/callees
+1. 查找代码符号（函数、类、方法、变量）→ 必须先用 code_search
+2. 分析调用关系 → 必须用 code_callers/callees
 3. CodeGraph 返回的位置和源码片段视为已读取，不要重复 Read
 4. 只在以下情况使用 grep/search/Read：
    - 搜索字符串内容（如错误消息、日志文本）
@@ -124,17 +124,18 @@ CodeGraph 是预先索引的代码知识库，查询速度比 grep/read 快 10-1
 【工具选择对照】
 | 用户请求 | 正确工具 | 错误工具 |
 |----------|----------|----------|
-| "查找 Agent 类的定义" | codegraph_search | ❌ grep/ls |
+| "查找 Agent 类的定义" | code_search | ❌ grep/ls |
 | "读取当前目录结构" | ls | ✓ 正确 |
-| "谁调用了 run 方法" | codegraph_callers | ❌ grep |
+| "谁调用了 run 方法" | code_callers | ❌ grep |
 | "查找错误信息 'failed'" | grep | ✓ 正确 |
 | "读取 config.rs 的完整内容" | Read | ✓ 正确 |
 
 【工具用法】
-- codegraph_search: 搜索符号定义，返回位置、签名、文档
-- codegraph_callers: 查找谁调用了某符号（向上追溯）
-- codegraph_callees: 查找某符号调用了谁（向下追踪）
-- codegraph_status: 检查索引状态"#;
+- code_search: 搜索符号定义，返回位置、签名、文档
+- code_callers: 查找谁调用了某符号（向上追溯）
+- code_callees: 查找某符号调用了谁（向下追踪）
+- code_status: 检查索引状态
+- code_sync: 手动同步索引（代码有变化但搜索结果不准确时使用）"#;
 
 const SYSTEM_PROMPT_TASK_TRACKING: &str = r#"任务追踪：
 - 多步骤任务必须先用 todo_write 列出所有子任务
