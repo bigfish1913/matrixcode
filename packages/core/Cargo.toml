@@ -25,6 +25,7 @@ dotenvy = { workspace = true }
 futures-util = { workspace = true }
 glob = { workspace = true }
 regex = { workspace = true }
+urlencoding = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }

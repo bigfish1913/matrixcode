@@ -26,6 +26,7 @@ unicode-width = { workspace = true }
 log = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
+futures-util = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

@@ -8,7 +8,7 @@ use display::{print_response_border, print_thinking_border};
 use matrixcode_core::{
     AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
     create_provider_with_headers, infer_provider_type, memory::MemoryStorage, providers::Provider,
-    tools::all_tools_with_skills,
+    tools::all_tools_with_box_provider,
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
 use std::path::{Path, PathBuf};
@@ -779,12 +779,12 @@ fn run_terminal_mode(cli: Cli) -> Result<()> {
         );
 
         // Build agent with external event sender
-        let mut agent = AgentBuilder::new(provider)
+        let mut agent = AgentBuilder::new(provider.clone_box())
             .system_prompt(system_prompt)
             .model_name(agent_model.clone())
             .max_tokens(agent_max_tokens)
             .think(agent_think)
-            .tools(all_tools_with_skills(Arc::new(agent_skills.clone())))
+            .tools(all_tools_with_box_provider(Arc::new(agent_skills.clone()), provider.clone_box()))
             .event_tx(agent_event_tx.clone())
             .approve_mode(agent_approve_mode)
             .proxy_executor(
@@ -2423,11 +2423,11 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                     // Build agent with event channel
                     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
 
-                    let mut agent = AgentBuilder::new(provider)
+                    let mut agent = AgentBuilder::new(provider.clone_box())
                         .system_prompt(system_prompt)
                         .model_name(model.clone())
                         .max_tokens(4096)
-                        .tools(all_tools_with_skills(Arc::new(skills.to_vec())))
+                        .tools(all_tools_with_box_provider(Arc::new(skills.to_vec()), provider.clone_box()))
                         .approve_mode(approve_mode)
                         .event_tx(event_tx)
                         .proxy_executor(
@@ -2729,11 +2729,11 @@ fn handle_command(cmd: Commands, skills: &[matrixcode_core::skills::Skill]) {
                 };
 
                 // Build agent
-                let mut agent = AgentBuilder::new(provider)
+                let mut agent = AgentBuilder::new(provider.clone_box())
                     .system_prompt(system_prompt)
                     .model_name(model.clone())
                     .max_tokens(4096)
-                    .tools(all_tools_with_skills(Arc::new(skills.to_vec())))
+                    .tools(all_tools_with_box_provider(Arc::new(skills.to_vec()), provider.clone_box()))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)  // Auto mode for quick actions
                     .build();
 
@@ -2866,11 +2866,11 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                         return Ok::<_, anyhow::Error>(());
                     }
                 };
-                let mut agent = AgentBuilder::new(provider)
+                let mut agent = AgentBuilder::new(provider.clone_box())
                     .system_prompt(system_prompt)
                     .model_name(model)
                     .max_tokens(4096)
-                    .tools(all_tools_with_skills(Arc::new(skills.clone())))
+                    .tools(all_tools_with_box_provider(Arc::new(skills.clone()), provider.clone_box()))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                     .event_tx(event_tx)
                     .build();
@@ -3230,11 +3230,11 @@ fn run_service_mode(cli: Cli) -> Result<()> {
                         return Ok::<_, anyhow::Error>(());
                     }
                 };
-                let mut agent = AgentBuilder::new(provider)
+                let mut agent = AgentBuilder::new(provider.clone_box())
                     .system_prompt(system_prompt)
                     .model_name(model)
                     .max_tokens(4096)
-                    .tools(all_tools_with_skills(Arc::new(skills.clone())))
+                    .tools(all_tools_with_box_provider(Arc::new(skills.clone()), provider.clone_box()))
                     .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                     .build();
 
@@ -3417,10 +3417,10 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                         Ok(p) => p,
                         Err(e) => return Err(e),
                     };
-                    let mut agent = AgentBuilder::new(provider)
+                    let mut agent = AgentBuilder::new(provider.clone_box())
                         .model_name(model)
                         .max_tokens(max_tokens)
-                        .tools(all_tools_with_skills(Arc::new(skills.clone())))
+                        .tools(all_tools_with_box_provider(Arc::new(skills.clone()), provider.clone_box()))
                         .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                         .build();
 
@@ -3473,10 +3473,10 @@ fn handle_daemon_request(request: DaemonRequest) -> Result<Vec<AgentEvent>> {
                         Ok(p) => p,
                         Err(e) => return Err(e),
                     };
-                    let mut agent = AgentBuilder::new(provider)
+                    let mut agent = AgentBuilder::new(provider.clone_box())
                         .model_name(model)
                         .max_tokens(4096)
-                        .tools(all_tools_with_skills(Arc::new(skills.clone())))
+                        .tools(all_tools_with_box_provider(Arc::new(skills.clone()), provider.clone_box()))
                         .approve_mode(matrixcode_core::approval::ApproveMode::Auto)
                         .build();
 

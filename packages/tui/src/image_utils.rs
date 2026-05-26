@@ -90,7 +90,7 @@ struct PixabayHit {
 }
 
 /// Normalized image result
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct ImageResult {
     pub id: String,
     pub url: String,
@@ -102,6 +102,8 @@ pub struct ImageResult {
     pub width: u32,
     pub height: u32,
     pub platform: String,
+    /// URL availability validated
+    pub validated: bool,
 }
 
 /// Get API keys from environment variables (secure approach)
@@ -118,6 +120,56 @@ fn get_pixabay_key() -> Option<String> {
     std::env::var("PIXABAY_API_KEY").ok()
 }
 
+/// Validate image URL accessibility (HEAD request)
+async fn validate_image_url(client: &reqwest::Client, url: &str) -> bool {
+    if url.is_empty() {
+        return false;
+    }
+    
+    match client.head(url).send().await {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() || status.as_u16() == 302 {
+                // Check content-type if available
+                if let Some(content_type) = resp.headers().get("content-type") {
+                    if let Ok(ct) = content_type.to_str() {
+                        return ct.starts_with("image/");
+                    }
+                }
+                // Some servers don't return content-type for HEAD, assume valid
+                return status.is_success();
+            }
+            false
+        }
+        Err(e) => {
+            log::debug!("URL validation failed for {}: {}", url, e);
+            false
+        }
+    }
+}
+
+/// Validate image URL with GET request (fallback when HEAD fails)
+async fn validate_image_url_get(client: &reqwest::Client, url: &str) -> bool {
+    if url.is_empty() {
+        return false;
+    }
+    
+    // Only fetch first 1KB to verify it's accessible
+    match client
+        .get(url)
+        .header("Range", "bytes=0-1023")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            status.is_success() || status.as_u16() == 206 // Partial Content
+        }
+        Err(_) => false,
+    }
+}
+
 /// Search Unsplash API
 pub async fn search_unsplash(query: &str, per_page: u32) -> Result<Vec<ImageResult>> {
     let key = get_unsplash_key().ok_or_else(|| {
@@ -126,6 +178,7 @@ pub async fn search_unsplash(query: &str, per_page: u32) -> Result<Vec<ImageResu
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (compatible; MatrixCode/1.0)")
         .build()?;
 
     let url = format!(
@@ -156,6 +209,7 @@ pub async fn search_unsplash(query: &str, per_page: u32) -> Result<Vec<ImageResu
         width: photo.width,
         height: photo.height,
         platform: "Unsplash".to_string(),
+        validated: false, // Will be validated later
     }).collect())
 }
 
@@ -167,6 +221,7 @@ pub async fn search_pexels(query: &str, per_page: u32) -> Result<Vec<ImageResult
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (compatible; MatrixCode/1.0)")
         .build()?;
 
     let url = format!(
@@ -197,6 +252,7 @@ pub async fn search_pexels(query: &str, per_page: u32) -> Result<Vec<ImageResult
         width: photo.width,
         height: photo.height,
         platform: "Pexels".to_string(),
+        validated: false,
     }).collect())
 }
 
@@ -208,6 +264,7 @@ pub async fn search_pixabay(query: &str, per_page: u32) -> Result<Vec<ImageResul
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (compatible; MatrixCode/1.0)")
         .build()?;
 
     let url = format!(
@@ -239,12 +296,80 @@ pub async fn search_pixabay(query: &str, per_page: u32) -> Result<Vec<ImageResul
             width: hit.webformat_width,
             height: hit.webformat_height,
             platform: "Pixabay".to_string(),
+            validated: false,
         }
     }).collect())
 }
 
+/// Validate all image URLs concurrently and filter out invalid ones
+/// Returns only images with validated URLs
+async fn validate_images(images: Vec<ImageResult>) -> Vec<ImageResult> {
+    if images.is_empty() {
+        return images;
+    }
+    
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .user_agent("Mozilla/5.0 (compatible; MatrixCode/1.0)")
+        .danger_accept_invalid_certs(true) // Some CDNs may have cert issues
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    
+    log::info!("Validating {} image URLs...", images.len());
+    
+    // Validate all images concurrently
+    let mut tasks = Vec::new();
+    for img in images {
+        let client = client.clone();
+        let url = img.url.clone();
+        
+        let task = tokio::spawn(async move {
+            // Try HEAD first (faster)
+            let valid = validate_image_url(&client, &url).await;
+            
+            // If HEAD fails (some servers don't support HEAD), try GET
+            let valid = if !valid {
+                log::debug!("HEAD failed for {}, trying GET...", url);
+                validate_image_url_get(&client, &url).await
+            } else {
+                true
+            };
+            
+            if valid {
+                log::debug!("URL validated: {}", url);
+            } else {
+                log::debug!("URL invalid: {}", url);
+            }
+            
+            (img, valid)
+        });
+        
+        tasks.push(task);
+    }
+    
+    // Execute all validations concurrently
+    let results = futures_util::future::join_all(tasks).await;
+    
+    // Filter and return only validated images
+    let mut validated = Vec::new();
+    let total_count = results.len();
+    
+    for result in results {
+        if let Ok((mut img, valid)) = result {
+            if valid {
+                img.validated = true;
+                validated.push(img);
+            }
+        }
+    }
+    
+    log::info!("Validated {}/{} images", validated.len(), total_count);
+    validated
+}
+
 /// Search all platforms and return combined results
 /// Only searches platforms that have API keys configured
+/// Validates all image URLs before returning
 pub async fn search_all(query: &str, per_page: u32) -> Result<Vec<ImageResult>> {
     let mut all_results = Vec::new();
     let mut errors = Vec::new();
@@ -283,9 +408,22 @@ pub async fn search_all(query: &str, per_page: u32) -> Result<Vec<ImageResult>> 
         return Err(anyhow::anyhow!("All searches failed: {}", errors.join("; ")));
     }
 
-    for e in errors {
+    for e in &errors {
         log::warn!("Image search partial error: {}", e);
     }
 
-    Ok(all_results)
+    // Validate all image URLs
+    let total_count = all_results.len();
+    let validated_results = validate_images(all_results).await;
+    
+    // Return error if all images failed validation
+    if validated_results.is_empty() && !errors.is_empty() {
+        return Err(anyhow::anyhow!(
+            "All {} images failed URL validation. Errors: {}",
+            total_count,
+            errors.join("; ")
+        ));
+    }
+
+    Ok(validated_results)
 }

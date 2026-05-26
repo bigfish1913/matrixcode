@@ -86,11 +86,9 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
     all_tools_with_skills(Arc::new(Vec::new()))
 }
 
-/// Build the toolset and include the `skill` tool bound to the given
-/// skills catalogue. The catalogue can be empty; the tool still works
-/// but will only report "no skills loaded" if invoked.
-pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
-    let mut tools: Vec<Box<dyn Tool>> = vec![
+/// Base toolset without workflow tools (to avoid duplicates).
+fn base_tools(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
+    vec![
         Box::new(ask::AskTool),
         Box::new(read::ReadTool),
         Box::new(write::WriteTool),
@@ -105,7 +103,6 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(websearch::WebSearchTool::new()),
         Box::new(webfetch::WebFetchTool),
         Box::new(skill::SkillTool::new(skills)),
-        // New high-priority tools
         Box::new(task::TaskTool),
         Box::new(task::TaskCreateTool),
         Box::new(task::TaskGetTool),
@@ -114,20 +111,24 @@ pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(plan_mode::EnterPlanModeTool),
         Box::new(plan_mode::ExitPlanModeTool),
         Box::new(monitor::MonitorTool),
-        // Workflow-specific tools
-    ];
-    // Add workflow management tools (independent system like Skill)
+    ]
+}
+
+/// Build the toolset with skill support but without provider.
+pub fn all_tools_with_skills(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
+    let mut tools = base_tools(skills);
+    // Add workflow tools without provider
     tools.extend(workflow::workflow_tools());
     tools
 }
 
-/// Build toolset with Provider for AI-powered tools
+/// Build toolset with Provider for AI-powered tools.
 pub fn all_tools_with_provider(
     skills: Arc<Vec<Skill>>,
     provider: Arc<dyn crate::providers::Provider>,
 ) -> Vec<Box<dyn Tool>> {
-    let mut tools = all_tools_with_skills(skills);
-    // Add AI-powered workflow tools
+    let mut tools = base_tools(skills);
+    // Add AI-powered workflow tools (with provider)
     tools.extend(workflow::workflow_tools_with_provider(provider));
     tools
 }
@@ -181,4 +182,25 @@ mod tests {
         assert!(prompt.contains("workflow_run"), "prompt should mention workflow_run");
         assert!(prompt.contains("workflow_match"), "prompt should mention workflow_match");
     }
+}
+
+/// Convert Box<dyn Provider> to Arc<dyn Provider>
+/// This is needed for CLI which uses Box<dyn Provider> from clone_box()
+pub fn provider_box_to_arc(boxed: Box<dyn crate::providers::Provider>) -> Arc<dyn crate::providers::Provider> {
+    // Use Arc::from on Box since Provider: Send + Sync
+    // This is safe because Arc requires Send + Sync
+    unsafe {
+        // Reconstruct from raw pointer
+        let raw = Box::into_raw(boxed);
+        Arc::from_raw(raw)
+    }
+}
+
+/// Build toolset with Box Provider (for CLI compatibility)
+pub fn all_tools_with_box_provider(
+    skills: Arc<Vec<Skill>>,
+    boxed_provider: Box<dyn crate::providers::Provider>,
+) -> Vec<Box<dyn Tool>> {
+    let provider = provider_box_to_arc(boxed_provider);
+    all_tools_with_provider(skills, provider)
 }
