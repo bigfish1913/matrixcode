@@ -184,23 +184,21 @@ mod tests {
     }
 }
 
-/// Convert Box<dyn Provider> to Arc<dyn Provider>
-/// This is needed for CLI which uses Box<dyn Provider> from clone_box()
-pub fn provider_box_to_arc(boxed: Box<dyn crate::providers::Provider>) -> Arc<dyn crate::providers::Provider> {
-    // Use Arc::from on Box since Provider: Send + Sync
-    // This is safe because Arc requires Send + Sync
-    unsafe {
-        // Reconstruct from raw pointer
-        let raw = Box::into_raw(boxed);
-        Arc::from_raw(raw)
-    }
+/// Build toolset with Arc Provider (preferred method)
+pub fn all_tools_with_arc_provider(
+    skills: Arc<Vec<Skill>>,
+    provider: Arc<dyn crate::providers::Provider>,
+) -> Vec<Box<dyn Tool>> {
+    all_tools_with_provider(skills, provider)
 }
 
-/// Build toolset with Box Provider (for CLI compatibility)
+/// Build toolset with Box Provider (for CLI compatibility - safe implementation)
+/// Uses clone_arc to safely convert Box to Arc without unsafe code.
 pub fn all_tools_with_box_provider(
     skills: Arc<Vec<Skill>>,
     boxed_provider: Box<dyn crate::providers::Provider>,
 ) -> Vec<Box<dyn Tool>> {
-    let provider = provider_box_to_arc(boxed_provider);
-    all_tools_with_provider(skills, provider)
+    // Safe conversion: clone_arc creates a new Arc without unsafe pointer manipulation
+    let arc_provider = boxed_provider.clone_arc();
+    all_tools_with_provider(skills, arc_provider)
 }

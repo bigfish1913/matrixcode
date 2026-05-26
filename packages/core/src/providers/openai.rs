@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 use crate::models::context_window_for;
 use crate::tools::ToolDefinition;
@@ -184,6 +185,16 @@ impl Provider for OpenAIProvider {
 
     fn clone_box(&self) -> Box<dyn Provider> {
         Box::new(Self {
+            api_key: self.api_key.clone(),
+            model: self.model.clone(),
+            base_url: self.base_url.clone(),
+            client: reqwest::Client::new(),
+            extra_headers: self.extra_headers.clone(),
+        })
+    }
+
+    fn clone_arc(&self) -> Arc<dyn Provider> {
+        Arc::new(Self {
             api_key: self.api_key.clone(),
             model: self.model.clone(),
             base_url: self.base_url.clone(),

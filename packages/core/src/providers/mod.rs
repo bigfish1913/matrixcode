@@ -7,6 +7,7 @@ mod tests;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::tools::ToolDefinition;
@@ -205,6 +206,9 @@ pub trait Provider: Send + Sync {
 
     /// Clone the provider into a boxed type.
     fn clone_box(&self) -> Box<dyn Provider>;
+
+    /// Clone the provider into an Arc type (preferred for tool system).
+    fn clone_arc(&self) -> Arc<dyn Provider>;
 }
 
 impl Clone for Box<dyn Provider> {

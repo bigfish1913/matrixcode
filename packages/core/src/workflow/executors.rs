@@ -930,6 +930,10 @@ mod tests {
         fn clone_box(&self) -> Box<dyn Provider> {
             Box::new(MockProvider)
         }
+
+        fn clone_arc(&self) -> std::sync::Arc<dyn Provider> {
+            std::sync::Arc::new(MockProvider)
+        }
     }
 
     /// Mock Provider that returns a configurable response
@@ -959,6 +963,13 @@ mod tests {
 
         fn clone_box(&self) -> Box<dyn Provider> {
             Box::new(ConfigurableMockProvider {
+                response_text: self.response_text.clone(),
+                response_json: self.response_json.clone(),
+            })
+        }
+
+        fn clone_arc(&self) -> std::sync::Arc<dyn Provider> {
+            std::sync::Arc::new(ConfigurableMockProvider {
                 response_text: self.response_text.clone(),
                 response_json: self.response_json.clone(),
             })

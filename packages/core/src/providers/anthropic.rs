@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use log::debug;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::models::context_window_for;
@@ -304,6 +305,16 @@ impl Provider for AnthropicProvider {
 
     fn clone_box(&self) -> Box<dyn Provider> {
         Box::new(Self {
+            api_key: self.api_key.clone(),
+            model: self.model.clone(),
+            base_url: self.base_url.clone(),
+            client: reqwest::Client::new(),
+            extra_headers: self.extra_headers.clone(),
+        })
+    }
+
+    fn clone_arc(&self) -> Arc<dyn Provider> {
+        Arc::new(Self {
             api_key: self.api_key.clone(),
             model: self.model.clone(),
             base_url: self.base_url.clone(),

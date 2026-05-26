@@ -125,4 +125,8 @@ impl Provider for MockTestProvider {
     fn clone_box(&self) -> Box<dyn Provider> {
         Box::new(MockTestProvider)
     }
+
+    fn clone_arc(&self) -> std::sync::Arc<dyn Provider> {
+        std::sync::Arc::new(MockTestProvider)
+    }
 }

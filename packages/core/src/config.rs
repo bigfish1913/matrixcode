@@ -406,6 +406,55 @@ impl MatrixConfig {
             || env::var("API_KEY").ok().is_some()
             || env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some()
     }
+
+    /// Create a Provider instance from configuration.
+    /// Useful for tools that need AI capabilities but don't have an injected provider.
+    pub fn create_provider_from_env() -> anyhow::Result<std::sync::Arc<dyn crate::providers::Provider>> {
+        use crate::providers::ProviderType;
+
+        let config = Self::load();
+
+        // Get API key
+        let api_key = config.api_key.clone()
+            .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
+            .or_else(|| env::var("API_KEY").ok())
+            .ok_or_else(|| anyhow::anyhow!("未配置 API key，无法执行 AI 任务"))?;
+
+        // Get model
+        let model = config.model.clone()
+            .or_else(|| env::var("MODEL").ok())
+            .or_else(|| env::var("ANTHROPIC_MODEL").ok())
+            .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+
+        // Parse provider type
+        let provider_type = config.provider.clone()
+            .or_else(|| env::var("PROVIDER").ok())
+            .map(|p| match p.to_lowercase().as_str() {
+                "openai" => ProviderType::OpenAI,
+                _ => ProviderType::Anthropic,
+            })
+            .unwrap_or_else(|| {
+                // Infer from model name
+                if model.starts_with("gpt") || model.starts_with("o1") {
+                    ProviderType::OpenAI
+                } else {
+                    ProviderType::Anthropic
+                }
+            });
+
+        // Get base URL
+        let base_url = config.base_url.clone()
+            .or_else(|| env::var("BASE_URL").ok())
+            .or_else(|| env::var("ANTHROPIC_BASE_URL").ok());
+
+        crate::providers::create_provider_with_headers(
+            provider_type,
+            api_key,
+            model,
+            base_url,
+            config.extra_headers.clone()
+        ).map(|p| std::sync::Arc::from(p))
+    }
 }
 
 /// Create a default config file for new users.

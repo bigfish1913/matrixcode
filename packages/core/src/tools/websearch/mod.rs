@@ -183,6 +183,7 @@ impl Tool for WebSearchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parser::{strip_html_tags, clean_url};
 
     #[test]
     fn test_strip_html_tags() {

@@ -21,7 +21,7 @@ impl ContentGenerationTool {
     }
 
     /// 从参数中提取主题
-    fn extract_topic(&self, params: &Value) -> Result<&str> {
+    fn extract_topic<'a>(&self, params: &'a Value) -> Result<&'a str> {
         params.get("topic")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 topic 参数"))

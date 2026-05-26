@@ -12,7 +12,7 @@ use crate::approval::RiskLevel;
 use crate::truncate::truncate_string_in_place;
 use validator::CommandValidator;
 
-pub use validator::{CommandValidator, ValidationResult};
+pub use validator::ValidationResult;
 
 pub struct BashTool;
 

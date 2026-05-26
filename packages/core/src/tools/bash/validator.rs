@@ -100,7 +100,7 @@ impl CommandValidator {
 
         // Check exact blocked root paths
         for blocked in &self.blocked_root_paths {
-            if norm == blocked {
+            if norm == *blocked {
                 return ValidationResult::blocked("destructive rm -rf on root path blocked");
             }
         }
