@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::constants::{DEFAULT_MAX_TOKENS, COMPRESS_MAX_TOKENS, FAST_MAX_TOKENS};
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role,
 };
@@ -53,7 +54,7 @@ impl ModelConfig {
     pub fn new(name: String) -> Self {
         Self {
             name: name.clone(),
-            max_tokens: 16384,
+            max_tokens: DEFAULT_MAX_TOKENS,
             think: true,
             context_size: infer_context_size(&name),
         }
@@ -67,13 +68,13 @@ impl ModelConfig {
             ModelRole::Plan => Self::new(name),
             ModelRole::Compress => Self {
                 name,
-                max_tokens: 1024,
+                max_tokens: COMPRESS_MAX_TOKENS,
                 think: false,
                 context_size: Some(200_000),
             },
             ModelRole::Fast => Self {
                 name,
-                max_tokens: 2048,
+                max_tokens: FAST_MAX_TOKENS,
                 think: false,
                 context_size: Some(200_000),
             },

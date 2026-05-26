@@ -6,7 +6,7 @@ use anyhow::Result;
 use matrixcode_core::{
     AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
     create_provider_with_headers, infer_provider_type, providers::Provider,
-    tools::all_tools_with_box_provider, approval::ApproveMode,
+    tools::all_tools_full, approval::ApproveMode,
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
 use std::path::PathBuf;
@@ -446,13 +446,18 @@ async fn run_agent_task(
         project_path.as_ref(),
     );
 
-    // Build agent
+    // Build agent with CodeGraph tools
+    let project_path_for_tools = project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let mut agent = AgentBuilder::new(provider.clone_box())
         .system_prompt(system_prompt)
         .model_name(model.clone())
         .max_tokens(max_tokens)
         .think(think)
-        .tools(all_tools_with_box_provider(Arc::new(skills.clone()), provider.clone_box()))
+        .tools(all_tools_full(
+            Arc::new(skills.clone()),
+            provider.clone_arc(),
+            project_path_for_tools,
+        ))
         .event_tx(event_tx.clone())
         .approve_mode(approve_mode)
         .proxy_executor(
@@ -473,6 +478,16 @@ async fn run_agent_task(
 
     agent.set_cancel_token(cancel_token.clone());
     agent.set_ask_channel(ask_rx);
+
+    // Start CodeGraph watcher for auto-sync
+    if let Some(ref pp) = project_path {
+        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
+        let watcher = CodeGraphWatcher::new(pp.as_path());
+        let watcher_cancel = cancel_token.clone();
+        if let Ok(_) = watcher.start(watcher_cancel) {
+            log::info!("CodeGraph auto-sync watcher started for: {}", pp.display());
+        }
+    }
 
     let mut turn_count: usize = 0;
 

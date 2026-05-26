@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::constants::{
-    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS,
+    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS, DEFAULT_READ_TIMEOUT_SECS,
     THINKING_BUDGET_NEW_MODELS, THINKING_BUDGET_OLD_MODELS,
     DEFAULT_CONTENT_TIMEOUT_SECS, ANTHROPIC_API_VERSION,
 };
@@ -51,10 +51,10 @@ impl AnthropicProvider {
         // Create client with better timeout handling for streaming
         // - No total timeout (streaming responses can take a long time)
         // - Connect timeout: DEFAULT_CONNECT_TIMEOUT_SECS seconds
-        // - Read timeout per chunk: 60 seconds (for slow responses between chunks)
+        // - Read timeout per chunk: DEFAULT_READ_TIMEOUT_SECS seconds (for slow responses between chunks)
         let mut client_builder = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
-            .read_timeout(std::time::Duration::from_secs(60))
+            .read_timeout(std::time::Duration::from_secs(DEFAULT_READ_TIMEOUT_SECS))
             .timeout(std::time::Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS)); // Total timeout for non-streaming
 
         // Add proxy from environment if available

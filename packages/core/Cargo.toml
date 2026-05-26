@@ -30,6 +30,8 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
 serde_yaml = "0.9"
+rusqlite = { workspace = true }
+notify = { workspace = true }
 
 [dev-dependencies]
 mockito = { workspace = true }

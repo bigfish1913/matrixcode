@@ -2,7 +2,11 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::time::Duration;
 
+use crate::constants::{
+    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS, DEFAULT_READ_TIMEOUT_SECS,
+};
 use crate::models::context_window_for;
 use crate::tools::ToolDefinition;
 
@@ -36,9 +40,9 @@ impl OpenAIProvider {
         // - Connect timeout: 10s
         // - Read timeout per chunk: 60s (for slow responses between chunks)
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .read_timeout(std::time::Duration::from_secs(60))
+            .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
+            .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
+            .read_timeout(Duration::from_secs(DEFAULT_READ_TIMEOUT_SECS))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         let extra_headers: Vec<(String, String)> = extra_headers

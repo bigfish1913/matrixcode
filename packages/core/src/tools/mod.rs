@@ -1,5 +1,6 @@
 pub mod ask;
 pub mod bash;
+pub mod codegraph;
 pub mod edit;
 pub mod glob;
 pub mod grep;
@@ -31,6 +32,7 @@ use serde_json::{Value, json};
 
 use crate::approval::RiskLevel;
 use crate::skills::Skill;
+use std::path::PathBuf;
 
 /// Type alias for boxed tool
 pub type BoxedTool = Box<dyn Tool>;
@@ -201,4 +203,31 @@ pub fn all_tools_with_box_provider(
     // Safe conversion: clone_arc creates a new Arc without unsafe pointer manipulation
     let arc_provider = boxed_provider.clone_arc();
     all_tools_with_provider(skills, arc_provider)
+}
+
+/// Build toolset with project path for CodeGraph integration.
+pub fn all_tools_with_project_path(
+    skills: Arc<Vec<Skill>>,
+    project_path: PathBuf,
+) -> Vec<Box<dyn Tool>> {
+    let mut tools = base_tools(skills);
+    // Add CodeGraph tools
+    tools.extend(codegraph::codegraph_tools(&project_path));
+    // Add workflow tools
+    tools.extend(workflow::workflow_tools());
+    tools
+}
+
+/// Build full toolset with provider and project path.
+pub fn all_tools_full(
+    skills: Arc<Vec<Skill>>,
+    provider: Arc<dyn crate::providers::Provider>,
+    project_path: PathBuf,
+) -> Vec<Box<dyn Tool>> {
+    let mut tools = base_tools(skills);
+    // Add CodeGraph tools
+    tools.extend(codegraph::codegraph_tools(&project_path));
+    // Add AI-powered workflow tools
+    tools.extend(workflow::workflow_tools_with_provider(provider));
+    tools
 }

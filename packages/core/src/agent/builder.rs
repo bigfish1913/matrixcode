@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::approval::ApproveMode;
+use crate::constants::QUICK_ACTION_MAX_TOKENS;
 use crate::event::AgentEvent;
 use crate::prompt::PromptProfile;
 use crate::providers::Provider;
@@ -19,7 +20,7 @@ impl AgentBuilder {
             model_name: "unknown".to_string(),
             tools: Vec::new(),
             system_prompt: "You are a helpful AI coding assistant.".to_string(),
-            max_tokens: 4096,
+            max_tokens: QUICK_ACTION_MAX_TOKENS,
             think: false,
             approve_mode: ApproveMode::Ask,
             event_tx: None,

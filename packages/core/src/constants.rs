@@ -8,6 +8,12 @@ pub const DEFAULT_MAX_TOKENS: u32 = 16384;
 /// Max tokens for quick actions/compression
 pub const QUICK_ACTION_MAX_TOKENS: u32 = 4096;
 
+/// Max tokens for compress role (shorter output)
+pub const COMPRESS_MAX_TOKENS: u32 = 1024;
+
+/// Max tokens for fast role (quick actions)
+pub const FAST_MAX_TOKENS: u32 = 2048;
+
 /// Max tokens for memory extraction
 pub const MEMORY_EXTRACTION_MAX_TOKENS: u32 = 512;
 
@@ -19,6 +25,9 @@ pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 
 /// Default total request timeout in seconds
 pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
+
+/// Default read timeout for streaming chunks (seconds)
+pub const DEFAULT_READ_TIMEOUT_SECS: u64 = 60;
 
 /// Default content timeout in seconds (for slow APIs)
 pub const DEFAULT_CONTENT_TIMEOUT_SECS: u64 = 300;

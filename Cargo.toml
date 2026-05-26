@@ -60,6 +60,10 @@ arboard = "3"
 # Testing
 mockito = "1"
 
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+notify = "8.0"
+
 # Internal crates
 matrixcode-core = { path = "packages/core", version = "0.4.3" }
 matrixcode-tui = { path = "packages/tui", version = "0.4.3" }
