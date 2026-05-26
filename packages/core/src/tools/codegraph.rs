@@ -704,8 +704,8 @@ impl CodeGraphWatcher {
         let mut pending_count = 0;
         let syncing = Arc::new(AtomicBool::new(false));
         let syncing_clone = syncing.clone();
-        // Debounce: wait for changes to settle before sync
-        let debounce_delay = Duration::from_secs(10); // Wait 10s after last change
+        // Debounce: wait longer for changes to settle (reduce CPU usage)
+        let debounce_delay = Duration::from_secs(60); // Wait 60s after last change
 
         log::info!("CodeGraph watcher started for: {}", project_path.display());
 
@@ -768,7 +768,7 @@ impl CodeGraphWatcher {
         }
     }
 
-    /// Create the underlying file watcher.
+    /// Create the underlying file watcher with optimized config.
     fn create_file_watcher(
         project_path: &Path,
         change_tx: mpsc::Sender<PathBuf>,
@@ -777,14 +777,22 @@ impl CodeGraphWatcher {
 
         let handler = move |event: Result<Event, notify::Error>| {
             if let Ok(event) = event {
-                for path in event.paths {
-                    // Send change event
-                    let _ = tx.blocking_send(path);
+                // Only process create/modify/remove events, ignore access/other
+                if !event.kind.is_access() && !event.kind.is_other() {
+                    for path in event.paths {
+                        // Send change event (non-blocking to avoid stalls)
+                        let _ = tx.try_send(path);
+                    }
                 }
             }
         };
 
-        let mut watcher = RecommendedWatcher::new(handler, Config::default())?;
+        // Use optimized config to reduce event noise
+        let config = Config::default()
+            .with_poll_interval(Duration::from_secs(2)) // Reduce poll frequency
+            .with_compare_contents(false); // Don't compare file contents
+
+        let mut watcher = RecommendedWatcher::new(handler, config)?;
         watcher.watch(project_path, RecursiveMode::Recursive)?;
 
         Ok(watcher)
