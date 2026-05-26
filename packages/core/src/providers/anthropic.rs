@@ -6,6 +6,11 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use crate::constants::{
+    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS,
+    THINKING_BUDGET_NEW_MODELS, THINKING_BUDGET_OLD_MODELS,
+    DEFAULT_CONTENT_TIMEOUT_SECS, ANTHROPIC_API_VERSION,
+};
 use crate::models::context_window_for;
 use crate::tools::ToolDefinition;
 
@@ -45,12 +50,12 @@ impl AnthropicProvider {
     ) -> Self {
         // Create client with better timeout handling for streaming
         // - No total timeout (streaming responses can take a long time)
-        // - Connect timeout: 10 seconds
+        // - Connect timeout: DEFAULT_CONNECT_TIMEOUT_SECS seconds
         // - Read timeout per chunk: 60 seconds (for slow responses between chunks)
         let mut client_builder = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
+            .connect_timeout(std::time::Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
             .read_timeout(std::time::Duration::from_secs(60))
-            .timeout(std::time::Duration::from_secs(300)); // Total timeout for non-streaming
+            .timeout(std::time::Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS)); // Total timeout for non-streaming
 
         // Add proxy from environment if available
         if let Some(proxy_url) = Self::load_proxy_from_env() {
@@ -286,10 +291,10 @@ fn thinking_config(model: &str) -> Value {
         || m.contains("20250")
         || m.contains("2025");
     if adaptive {
-        json!({"type": "enabled", "budget_tokens": 10000})
+        json!({"type": "enabled", "budget_tokens": THINKING_BUDGET_NEW_MODELS})
     } else {
          // to prevent hanging on long histories
-        json!({"type": "enabled", "budget_tokens": 5000})
+        json!({"type": "enabled", "budget_tokens": THINKING_BUDGET_OLD_MODELS})
     }
 }
 
@@ -341,7 +346,7 @@ impl Provider for AnthropicProvider {
         if self.is_official_anthropic() {
             req = req
                 .header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2025-04-15")
+                .header("anthropic-version", ANTHROPIC_API_VERSION)
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
         } else {
             req = req
@@ -438,7 +443,7 @@ impl Provider for AnthropicProvider {
         if self.is_official_anthropic() {
             req = req
                 .header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2025-04-15")
+                .header("anthropic-version", ANTHROPIC_API_VERSION)
                 .header("anthropic-beta", "prompt-caching-2024-07-31");
         } else {
             req = req
@@ -475,7 +480,7 @@ impl Provider for AnthropicProvider {
 
             // Timeout detection: track last meaningful event (non-ping)
             let mut last_content_time = std::time::Instant::now();
-            const CONTENT_TIMEOUT_SECS: u64 = 300; // 5 minutes without content = timeout (for slow APIs like DashScope/glm-5)
+            const CONTENT_TIMEOUT_SECS: u64 = DEFAULT_CONTENT_TIMEOUT_SECS; // 5 minutes without content = timeout (for slow APIs like DashScope/glm-5)
 
             while let Some(chunk) = stream.next().await {
                 let chunk = match chunk {

@@ -233,10 +233,14 @@ impl Provider for OpenAIProvider {
             req = req.header(name, value);
         }
 
-        let response = req.send().await?;
+        let response = req.send().await.map_err(|e| {
+            anyhow::anyhow!("HTTP request failed: {} (url: {})", e, url)
+        })?;
 
         let status = response.status();
-        let response_body: Value = response.json().await?;
+        let response_body: Value = response.json().await.map_err(|e| {
+            anyhow::anyhow!("Failed to parse response JSON: {}", e)
+        })?;
 
         // Debug: log response
         crate::debug::debug_log().api_response(status.as_u16(), &serde_json::to_string(&response_body).unwrap_or_default());
@@ -244,8 +248,12 @@ impl Provider for OpenAIProvider {
         if !status.is_success() {
             let err_msg = response_body["error"]["message"]
                 .as_str()
-                .unwrap_or("unknown error");
-            anyhow::bail!("OpenAI API error ({}): {}", status, err_msg);
+                .unwrap_or_else(|| {
+                    response_body["error"]
+                        .as_str()
+                        .unwrap_or("unknown error")
+                });
+            anyhow::bail!("API error ({}): {}", status, err_msg);
         }
 
         let choice = &response_body["choices"][0];

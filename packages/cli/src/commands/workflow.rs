@@ -12,6 +12,8 @@ use matrixcode_core::workflow::{
 use matrixcode_core::workflow::executors::ExecutorFactory;
 use matrixcode_core::{create_provider_with_headers, infer_provider_type};
 
+use crate::constants::{DEFAULT_MODEL, DISPLAY_ERROR_CHARS_LIMIT};
+
 /// Workflow subcommands
 #[derive(clap::Subcommand, Debug)]
 pub enum WorkflowCommands {
@@ -193,7 +195,7 @@ fn handle_list(status: Option<String>) {
             println!("  {} - {} ({:?})", ctx.instance_id, ctx.workflow_id, ctx.status);
             println!("    Nodes: {} | Created: {}", ctx.execution_path.len(), ctx.created_at.format("%Y-%m-%d %H:%M"));
             if let Some(err) = &ctx.error {
-                println!("    Error: {}", err.chars().take(50).collect::<String>());
+                println!("    Error: {}", err.chars().take(DISPLAY_ERROR_CHARS_LIMIT).collect::<String>());
             }
             println!();
         }
@@ -336,7 +338,7 @@ fn create_provider(config: &Config) -> Option<Arc<dyn matrixcode_core::providers
 
     let model = config.model.clone()
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
-        .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
     let provider_type = infer_provider_type(&model);
     let base_url = config.base_url.clone()
         .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())

@@ -17,7 +17,7 @@ use ratatui::{
     crossterm::{
         cursor::Show,
         event, execute,
-        terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
+        terminal::{disable_raw_mode, enable_raw_mode},
     },
 };
 use std::io::Stdout;
@@ -32,6 +32,10 @@ pub(crate) const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴"
 
 pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
+    // Enable mouse capture for scroll wheel support
+    // Note: This prevents normal text selection. To select text:
+    // - macOS: Hold Option (⌥) key
+    // - Windows/Linux: Hold Shift key
     execute!(
         std::io::stdout(),
         event::EnableMouseCapture,
@@ -48,8 +52,9 @@ pub fn restore_terminal() -> Result<()> {
         std::io::stdout(),
         event::DisableMouseCapture,
         event::DisableBracketedPaste,
-        Clear(ClearType::All),
         Show
     )?;
+    // Move cursor to new line for clean exit
+    println!();
     Ok(())
 }

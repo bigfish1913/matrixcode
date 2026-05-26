@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 use crate::commands::WorkflowCommands;
+use crate::constants::DEFAULT_MAX_TOKENS;
 
 /// CLI arguments
 #[derive(Parser)]
@@ -40,7 +41,7 @@ pub struct Cli {
     pub think: Option<bool>,
 
     /// Max tokens
-    #[arg(long, default_value = "16384")]
+    #[arg(long, default_value_t = DEFAULT_MAX_TOKENS)]
     pub max_tokens: u32,
 
     #[command(subcommand)]

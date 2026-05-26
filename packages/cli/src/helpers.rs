@@ -6,9 +6,11 @@ use std::path::PathBuf;
 
 use matrixcode_core::{Config, infer_provider_type, providers::ProviderType, skills::discover_skills};
 
+use crate::constants::DEFAULT_MODEL;
+
 /// Get default model name for anthropic provider.
 pub fn default_model() -> String {
-    "claude-sonnet-4-20250514".to_string()
+    DEFAULT_MODEL.to_string()
 }
 
 /// Get default base URL for anthropic provider.

@@ -17,6 +17,7 @@ use matrixcode_core::{
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::constants::{EVENT_CHANNEL_BUFFER, QUICK_ACTION_MAX_TOKENS, EVENT_TIMEOUT_MS, DISPLAY_SESSIONS_LIMIT};
 use crate::types::{Cli, Commands};
 use crate::helpers::{resolve_provider, resolve_model, resolve_base_url, model_with_source, load_skills};
 use crate::commands::handle_workflow_command;
@@ -94,7 +95,7 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                 println!("{}", AgentEvent::session_started().to_json()?);
 
                 if let Some(msg) = message {
-                    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+                    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
 
                     let system_prompt = build_system_prompt(&PromptProfile::Default, &skills, None, None);
 
@@ -115,7 +116,7 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                     let mut agent = AgentBuilder::new(provider.clone_box())
                         .system_prompt(system_prompt)
                         .model_name(model)
-                        .max_tokens(4096)
+                        .max_tokens(QUICK_ACTION_MAX_TOKENS)
                         .tools(all_tools_with_box_provider(Arc::new(skills.clone()), provider.clone_box()))
                         .approve_mode(ApproveMode::Auto)
                         .event_tx(event_tx)
@@ -219,12 +220,12 @@ async fn handle_chat(
         }
     };
 
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
 
     let mut agent = AgentBuilder::new(provider.clone_box())
         .system_prompt(system_prompt)
         .model_name(model.to_string())
-        .max_tokens(4096)
+        .max_tokens(QUICK_ACTION_MAX_TOKENS)
         .tools(all_tools_with_box_provider(Arc::new(skills.to_vec()), provider.clone_box()))
         .approve_mode(approve_mode)
         .event_tx(event_tx)
@@ -246,7 +247,7 @@ async fn handle_chat(
     });
 
     let result = run_future.await;
-    let _ = tokio::time::timeout(tokio::time::Duration::from_millis(100), event_task).await;
+    let _ = tokio::time::timeout(tokio::time::Duration::from_millis(EVENT_TIMEOUT_MS), event_task).await;
 
     match result {
         Ok(_) => {
@@ -293,7 +294,7 @@ async fn handle_quick_action(
     let mut agent = AgentBuilder::new(provider.clone_box())
         .system_prompt(system_prompt)
         .model_name(model.to_string())
-        .max_tokens(4096)
+        .max_tokens(QUICK_ACTION_MAX_TOKENS)
         .tools(all_tools_with_box_provider(Arc::new(skills.to_vec()), provider.clone_box()))
         .approve_mode(ApproveMode::Auto)
         .build();
@@ -421,7 +422,7 @@ fn handle_new_session() {
 fn handle_history_json() -> Result<()> {
     if let Ok(mgr) = SessionManager::new() {
         let sessions = mgr.list_sessions();
-        for session in sessions.iter().take(10) {
+        for session in sessions.iter().take(DISPLAY_SESSIONS_LIMIT) {
             println!("{}", AgentEvent::progress(
                 format!("{} - {} ({} msgs)", session.short_id(), session.id, session.message_count),
                 None,
@@ -479,7 +480,7 @@ async fn handle_quick_action_json(
     let mut agent = AgentBuilder::new(provider.clone_box())
         .system_prompt(system_prompt)
         .model_name(model.to_string())
-        .max_tokens(4096)
+        .max_tokens(QUICK_ACTION_MAX_TOKENS)
         .tools(all_tools_with_box_provider(Arc::new(skills.to_vec()), provider.clone_box()))
         .approve_mode(ApproveMode::Auto)
         .build();

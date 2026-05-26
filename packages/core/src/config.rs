@@ -23,6 +23,9 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
+use crate::constants::{DEFAULT_MAX_TOKENS, ANTHROPIC_DEFAULT_BASE_URL, OPENAI_DEFAULT_BASE_URL};
+use crate::models::DEFAULT_MAIN_MODEL;
+
 /// Matrixcode configuration file structure.
 /// Uses universal naming (no ANTHROPIC_ prefix).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -89,7 +92,7 @@ fn default_true() -> bool {
     true
 }
 fn default_max_tokens() -> u32 {
-    16384
+    DEFAULT_MAX_TOKENS
 }
 fn default_approve_mode() -> Option<String> {
     Some("ask".to_string())
@@ -194,7 +197,7 @@ impl MatrixConfig {
             model: env.ANTHROPIC_MODEL,
             think: true,
             markdown: true,
-            max_tokens: 16384,
+            max_tokens: DEFAULT_MAX_TOKENS,
             context_size: None,
             multi_model: None,
             plan_model: env.ANTHROPIC_REASONING_MODEL,
@@ -231,7 +234,7 @@ impl MatrixConfig {
                 .unwrap_or(true),
             max_tokens: env::var("MAX_TOKENS").ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(16384),
+                .unwrap_or(DEFAULT_MAX_TOKENS),
             context_size: env::var("CONTEXT_SIZE").ok()
                 .and_then(|v| v.parse().ok()),
             multi_model: env::var("MULTI_MODEL").ok()
@@ -364,7 +367,7 @@ impl MatrixConfig {
             .or(self.model.clone())
             .unwrap_or_else(|| match provider {
                 "openai" => "gpt-4o".to_string(),
-                _ => "claude-sonnet-4-20250514".to_string(),
+                _ => DEFAULT_MAIN_MODEL.to_string(),
             })
     }
 
@@ -375,8 +378,8 @@ impl MatrixConfig {
             .or_else(|| env::var("ANTHROPIC_BASE_URL").ok())
             .or(self.base_url.clone())
             .unwrap_or_else(|| match provider {
-                "openai" => "https://api.openai.com/v1".to_string(),
-                _ => "https://api.anthropic.com".to_string(),
+                "openai" => OPENAI_DEFAULT_BASE_URL.to_string(),
+                _ => ANTHROPIC_DEFAULT_BASE_URL.to_string(),
             })
     }
 
@@ -419,7 +422,7 @@ impl MatrixConfig {
         self.model.clone()
             .or_else(|| env::var("MODEL").ok())
             .or_else(|| env::var("ANTHROPIC_MODEL").ok())
-            .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string())
+            .unwrap_or_else(|| DEFAULT_MAIN_MODEL.to_string())
     }
 
     /// Get base URL with fallback chain
@@ -482,7 +485,7 @@ pub fn create_default_config() -> anyhow::Result<()> {
         model: None,
         think: true,
         markdown: true,
-        max_tokens: 16384,
+        max_tokens: DEFAULT_MAX_TOKENS,
         context_size: None,
         multi_model: Some(false),
         plan_model: None,
@@ -577,7 +580,7 @@ mod tests {
             model: None,
             think: true,
             markdown: true,
-            max_tokens: 16384,
+            max_tokens: DEFAULT_MAX_TOKENS,
             context_size: None,
             multi_model: None,
             plan_model: None,

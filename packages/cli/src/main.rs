@@ -1,6 +1,7 @@
 //! MatrixCode CLI - Entry point
 
 mod commands;
+mod constants;
 mod display;
 mod helpers;
 mod terminal_mode;

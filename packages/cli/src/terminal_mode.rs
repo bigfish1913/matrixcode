@@ -13,6 +13,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::commands::{handle_init_command, InitCommandResult};
+use crate::constants::{
+    DEFAULT_MAX_TOKENS, EVENT_CHANNEL_BUFFER, TASK_CHANNEL_BUFFER, ASK_CHANNEL_BUFFER,
+    CLEANUP_TIMEOUT_MS, SESSION_CLEANUP_DAYS, DISPLAY_SESSIONS_LIMIT,
+    MEMORY_MANIFEST_SIZE, MEMORY_SUMMARY_SIZE, MEMORY_INITIAL_SUMMARY_SIZE,
+    MEMORY_TURN_CLEANUP_INTERVAL, MEMORY_EXTRACTION_INTERVAL, MEMORY_MIN_ENTRIES_FOR_AI_SELECTION,
+    DISPLAY_OVERVIEW_CHARS_LIMIT, DISPLAY_MEMORY_SEARCH_LIMIT,
+};
 use crate::helpers::{resolve_provider, resolve_model, resolve_base_url, load_skills};
 use crate::types::Cli;
 
@@ -69,7 +76,7 @@ pub fn interactive_resume() -> Result<()> {
             list_sessions: false,
             skills_dir: None,
             think: Some(true),
-            max_tokens: 16384,
+            max_tokens: DEFAULT_MAX_TOKENS,
             command: None,
         };
         return run_terminal_mode(cli);
@@ -91,7 +98,7 @@ pub fn interactive_resume() -> Result<()> {
                 list_sessions: false,
                 skills_dir: None,
                 think: Some(true),
-                max_tokens: 16384,
+                max_tokens: DEFAULT_MAX_TOKENS,
                 command: None,
             };
             return run_terminal_mode(cli);
@@ -132,6 +139,19 @@ pub fn list_sessions() {
 
 /// Terminal mode with TUI
 pub fn run_terminal_mode(cli: Cli) -> Result<()> {
+    // Set panic hook to restore terminal state before crashing
+    std::panic::set_hook(Box::new(|info| {
+        // Try to restore terminal state
+        let _ = matrixcode_tui::crossterm::terminal::disable_raw_mode();
+        let _ = matrixcode_tui::crossterm::execute!(
+            std::io::stdout(),
+            matrixcode_tui::crossterm::event::DisableBracketedPaste,
+            matrixcode_tui::crossterm::cursor::Show
+        );
+        // Print panic message manually
+        eprintln!("\n\n{}", info);
+    }));
+
     // Load config
     let config = Config::load();
 
@@ -163,9 +183,9 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
 
     // Create channels for Agent communication
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
-    let (task_tx, task_rx) = tokio::sync::mpsc::channel::<String>(10);
-    let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(1);
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
+    let (task_tx, task_rx) = tokio::sync::mpsc::channel::<String>(TASK_CHANNEL_BUFFER);
+    let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(ASK_CHANNEL_BUFFER);
 
     // Set debug event sender for TUI debug panel
     matrixcode_core::set_debug_event_sender(event_tx.clone());
@@ -317,8 +337,8 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Cleanup: cancel agent task
     cancel_token.cancel();
     let cleanup_result = rt.block_on(async {
-        tokio::time::timeout(tokio::time::Duration::from_millis(500), async {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        tokio::time::timeout(tokio::time::Duration::from_millis(CLEANUP_TIMEOUT_MS), async {
+            tokio::time::sleep(tokio::time::Duration::from_millis(CLEANUP_TIMEOUT_MS)).await;
         })
         .await
     });
@@ -399,14 +419,14 @@ async fn run_agent_task(
         let _ = event_tx.send(AgentEvent::with_data(
             matrixcode_core::EventType::MemoryLoaded,
             matrixcode_core::EventData::Memory {
-                summary: mem.generate_prompt_summary(10),
+                summary: mem.generate_prompt_summary(MEMORY_INITIAL_SUMMARY_SIZE),
                 entries_count: mem.entries.len(),
             },
         )).await;
     }
 
     let initial_memory_summary = memory.as_ref()
-        .map(|mem| mem.generate_prompt_summary(20))
+        .map(|mem| mem.generate_prompt_summary(MEMORY_SUMMARY_SIZE))
         .unwrap_or_default();
 
     // Load project overview
@@ -622,20 +642,20 @@ async fn run_agent_task(
         if let Some(ref mem) = memory {
             let is_first_turn = turn_count == 0;
             let is_simple_msg = matrixcode_core::memory::should_skip_simple_message(&msg);
-            let has_few_memories = mem.entries.len() < 5;
+            let has_few_memories = mem.entries.len() < MEMORY_MIN_ENTRIES_FOR_AI_SELECTION;
 
             if is_first_turn || is_simple_msg {
-                let static_summary = mem.generate_prompt_summary(10);
+                let static_summary = mem.generate_prompt_summary(MEMORY_INITIAL_SUMMARY_SIZE);
                 if !static_summary.is_empty() {
                     agent.update_memory_summary(Some(static_summary));
                 }
             } else if has_few_memories {
-                let static_summary = mem.generate_prompt_summary(10);
+                let static_summary = mem.generate_prompt_summary(MEMORY_INITIAL_SUMMARY_SIZE);
                 if !static_summary.is_empty() {
                     agent.update_memory_summary(Some(static_summary));
                 }
             } else if let Some(ref fp) = fast_provider {
-                let manifest = mem.generate_manifest(50);
+                let manifest = mem.generate_manifest(MEMORY_MANIFEST_SIZE);
                 if !manifest.is_empty() {
                     let selected_indices = matrixcode_core::memory::ai_select_memories(
                         &msg,
@@ -683,67 +703,18 @@ async fn run_agent_task(
         match agent.run(msg.clone()).await {
             Ok(_) => {
                 // Auto-save session
-                if let Some(ref mut mgr) = session_mgr {
-                    let (input_tokens, output_tokens) = agent.get_token_counts();
-                    let messages = agent.get_messages();
-                    mgr.set_messages(messages.to_vec());
-                    mgr.set_compressed_messages(messages.to_vec());
-                    mgr.update_stats(input_tokens as u32, output_tokens);
-                    if let Err(e) = mgr.save_current() {
-                        let _ = event_tx.send(AgentEvent::error(
-                            format!("Session save failed: {}", e),
-                            None,
-                            None,
-                        )).await;
-                    }
-                    matrixcode_core::debug::debug_log().session_save(messages.len(), output_tokens);
-                }
+                save_session_after_turn(&event_tx, &mut session_mgr, &mut agent).await;
 
-                // Memory handling
-                if let Some(ref mut ms) = memory_storage {
-                    // Feedback detection
-                    let feedback_results = matrixcode_core::memory::detect_feedback_patterns(&msg);
-                    if !feedback_results.is_empty()
-                        && let Ok(mut mem) = ms.load_combined() {
-                        let feedback_count = feedback_results.len();
-                        for feedback in feedback_results {
-                            matrixcode_core::memory::apply_feedback_to_memory(&mut mem, &feedback);
-                        }
-                        if mem.entries.iter().any(|e| e.tags.contains(&"project".to_string())) {
-                            if let Err(e) = ms.save_project(&mem) {
-                                log::warn!("Failed to save project memory: {}", e);
-                            }
-                        } else {
-                            if let Err(e) = ms.save_global(&mem) {
-                                log::warn!("Failed to save global memory: {}", e);
-                            }
-                        }
-                        let _ = event_tx.send(AgentEvent::progress(
-                            format!("🧠 Learned from feedback: {} corrections", feedback_count),
-                            None,
-                        )).await;
-                    }
+                // Handle memory feedback
+                handle_memory_feedback(&event_tx, &mut memory_storage, &msg).await;
 
-                    // Periodic cleanup
-                    if turn_count.is_multiple_of(10)
-                        && let Ok(mut mem) = ms.load_combined() {
-                        mem.apply_time_decay();
-                        let merged = mem.smart_merge();
-                        mem.prune();
-                        if let Err(e) = ms.save_global(&mem) {
-                            log::warn!("Failed to save memory after maintenance: {}", e);
-                        }
-                        if merged > 0 {
-                            let _ = event_tx.send(AgentEvent::progress(
-                                format!("🧠 合并了 {} 条相似记忆", merged),
-                                None,
-                            )).await;
-                        }
-                    }
+                // Periodic memory cleanup
+                if turn_count.is_multiple_of(MEMORY_TURN_CLEANUP_INTERVAL) {
+                    handle_memory_periodic_cleanup(&event_tx, &mut memory_storage).await;
                 }
 
                 // AI memory extraction
-                let should_extract = turn_count.is_multiple_of(3) && fast_provider.is_some();
+                let should_extract = turn_count.is_multiple_of(MEMORY_EXTRACTION_INTERVAL) && fast_provider.is_some();
                 matrixcode_core::debug::debug_log().log(
                     "memory_extract",
                     &format!("turn={}, should_extract={}", turn_count, should_extract),
@@ -752,65 +723,12 @@ async fn run_agent_task(
                 if should_extract {
                     let messages = agent.get_messages();
                     if let Some(last_msg) = messages.last() {
-                        let text = match &last_msg.content {
-                            matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
-                            matrixcode_core::providers::MessageContent::Blocks(blocks) => {
-                                blocks.iter().filter_map(|b| match b {
-                                    matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
-                                    _ => None,
-                                }).collect::<Vec<_>>().join("\n")
-                            }
-                        };
-
-                        let bg_project_path = project_path.clone();
-                        let bg_fast_model = fast_model.clone();
-                        let bg_event_tx = event_tx.clone();
-
-                        tokio::spawn(async move {
-                            let bg_ms = matrixcode_core::memory::MemoryStorage::new(bg_project_path.as_deref()).ok();
-                            if bg_ms.is_none() || text.is_empty() {
-                                return;
-                            }
-                            let mut bg_ms = bg_ms.unwrap();
-
-                            let project_path_str = bg_project_path.as_ref().map(|p| p.to_string_lossy().to_string());
-                            let detected = if let Some(model) = bg_fast_model {
-                                matrixcode_core::debug::debug_log().log("memory_extract", &format!("Background: extracting with model={}", model));
-                                let extractor = matrixcode_core::memory::AiMemoryExtractor::new_minimal(model);
-                                matrixcode_core::memory::detect_memories_smart(
-                                    &text, None, project_path_str.as_deref(), Some(&extractor)
-                                ).await
-                            } else {
-                                Vec::new()
-                            };
-
-                            if !detected.is_empty() {
-                                let detected_count = detected.len();
-                                for entry in detected {
-                                    let is_global_category = matches!(
-                                        entry.category,
-                                        matrixcode_core::memory::MemoryCategory::Preference
-                                            | matrixcode_core::memory::MemoryCategory::UserIntentPattern
-                                            | matrixcode_core::memory::MemoryCategory::TaskPattern
-                                    );
-                                    let is_project = !is_global_category
-                                        && (entry.tags.contains(&"project".to_string())
-                                            || entry.project_path.is_some()
-                                            || bg_project_path.is_some());
-
-                                    if let Err(e) = bg_ms.add_entry(entry, is_project) {
-                                        log::warn!("Failed to add memory entry: {}", e);
-                                    }
-                                }
-                                let _ = bg_event_tx.send(AgentEvent::with_data(
-                                    matrixcode_core::EventType::MemoryDetected,
-                                    matrixcode_core::EventData::Memory {
-                                        summary: format!("检测到 {} 条记忆", detected_count),
-                                        entries_count: detected_count,
-                                    },
-                                )).await;
-                            }
-                        });
+                        spawn_memory_extraction_task(
+                            event_tx.clone(),
+                            project_path.clone(),
+                            fast_model.clone(),
+                            last_msg,
+                        );
                     }
                 }
             }
@@ -1067,7 +985,7 @@ async fn handle_memory_in_task(
                 if query.is_empty() {
                     "Usage: /memory search <query>".to_string()
                 } else if let Ok(mem) = ms.load_combined() {
-                    let results = mem.search_with_limit(&query, Some(10));
+                    let results = mem.search_with_limit(&query, Some(DISPLAY_MEMORY_SEARCH_LIMIT));
                     if results.is_empty() {
                         format!("No memories found for '{}'", query)
                     } else {
@@ -1119,7 +1037,7 @@ async fn handle_overview_in_task(
         "" | "show" => {
             if overview_path.exists() {
                 let content = std::fs::read_to_string(&overview_path).unwrap_or_default();
-                format!("📄 Project Overview:\n\n{}", content.chars().take(2000).collect::<String>())
+                format!("📄 Project Overview:\n\n{}", content.chars().take(DISPLAY_OVERVIEW_CHARS_LIMIT).collect::<String>())
             } else {
                 "❌ No overview found. Run '/init' to generate.".to_string()
             }
@@ -1170,7 +1088,7 @@ async fn handle_sessions_in_task(
 
     if let Some(mgr) = session_mgr {
         if subcmd == "cleanup" {
-            let removed = mgr.cleanup_old_sessions(30).unwrap_or(0);
+            let removed = mgr.cleanup_old_sessions(SESSION_CLEANUP_DAYS).unwrap_or(0);
             let _ = event_tx.send(AgentEvent::progress(format!("✓ Removed {} old sessions", removed), None)).await;
         } else if subcmd == "stats" {
             let sessions = mgr.list_sessions();
@@ -1184,7 +1102,7 @@ async fn handle_sessions_in_task(
                 let _ = event_tx.send(AgentEvent::progress("No saved sessions", None)).await;
             } else {
                 let mut info = format!("📚 Sessions ({}):\n", sessions.len());
-                for session in sessions.iter().take(10) {
+                for session in sessions.iter().take(DISPLAY_SESSIONS_LIMIT) {
                     info.push_str(&format!("• {} - {} msgs\n", session.short_id(), session.message_count));
                 }
                 let _ = event_tx.send(AgentEvent::progress(info, None)).await;
@@ -1232,4 +1150,150 @@ async fn handle_config_in_task(
     info.push_str(&format!("Think: {}\n", config.think));
     info.push_str(&format!("Max Tokens: {}\n", config.max_tokens));
     let _ = event_tx.send(AgentEvent::progress(info, None)).await;
+}
+
+// Post-run handling functions
+
+/// Save session after agent turn
+async fn save_session_after_turn(
+    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    session_mgr: &mut Option<SessionManager>,
+    agent: &mut matrixcode_core::agent::Agent,
+) {
+    if let Some(mgr) = session_mgr {
+        let (input_tokens, output_tokens) = agent.get_token_counts();
+        let messages = agent.get_messages();
+        mgr.set_messages(messages.to_vec());
+        mgr.set_compressed_messages(messages.to_vec());
+        mgr.update_stats(input_tokens as u32, output_tokens);
+        if let Err(e) = mgr.save_current() {
+            let _ = event_tx.send(AgentEvent::error(
+                format!("Session save failed: {}", e),
+                None,
+                None,
+            )).await;
+        }
+        matrixcode_core::debug::debug_log().session_save(messages.len(), output_tokens);
+    }
+}
+
+/// Handle memory feedback detection
+async fn handle_memory_feedback(
+    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    memory_storage: &mut Option<matrixcode_core::memory::MemoryStorage>,
+    msg: &str,
+) {
+    if let Some(ms) = memory_storage {
+        let feedback_results = matrixcode_core::memory::detect_feedback_patterns(msg);
+        if !feedback_results.is_empty()
+            && let Ok(mut mem) = ms.load_combined() {
+            let feedback_count = feedback_results.len();
+            for feedback in feedback_results {
+                matrixcode_core::memory::apply_feedback_to_memory(&mut mem, &feedback);
+            }
+            if mem.entries.iter().any(|e| e.tags.contains(&"project".to_string())) {
+                if let Err(e) = ms.save_project(&mem) {
+                    log::warn!("Failed to save project memory: {}", e);
+                }
+            } else {
+                if let Err(e) = ms.save_global(&mem) {
+                    log::warn!("Failed to save global memory: {}", e);
+                }
+            }
+            let _ = event_tx.send(AgentEvent::progress(
+                format!("🧠 Learned from feedback: {} corrections", feedback_count),
+                None,
+            )).await;
+        }
+    }
+}
+
+/// Handle periodic memory cleanup
+async fn handle_memory_periodic_cleanup(
+    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    memory_storage: &mut Option<matrixcode_core::memory::MemoryStorage>,
+) {
+    if let Some(ms) = memory_storage
+        && let Ok(mut mem) = ms.load_combined() {
+        mem.apply_time_decay();
+        let merged = mem.smart_merge();
+        mem.prune();
+        if let Err(e) = ms.save_global(&mem) {
+            log::warn!("Failed to save memory after maintenance: {}", e);
+        }
+        if merged > 0 {
+            let _ = event_tx.send(AgentEvent::progress(
+                format!("🧠 合并了 {} 条相似记忆", merged),
+                None,
+            )).await;
+        }
+    }
+}
+
+/// Spawn background task for AI memory extraction
+fn spawn_memory_extraction_task(
+    event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
+    project_path: Option<PathBuf>,
+    fast_model: Option<String>,
+    last_message: &matrixcode_core::providers::Message,
+) {
+    let text = match &last_message.content {
+        matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+        matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+            blocks.iter().filter_map(|b| match b {
+                matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            }).collect::<Vec<_>>().join("\n")
+        }
+    };
+
+    if text.is_empty() {
+        return;
+    }
+
+    tokio::spawn(async move {
+        let bg_ms = matrixcode_core::memory::MemoryStorage::new(project_path.as_deref()).ok();
+        if bg_ms.is_none() {
+            return;
+        }
+        let mut bg_ms = bg_ms.unwrap();
+
+        let project_path_str = project_path.as_ref().map(|p| p.to_string_lossy().to_string());
+        let detected = if let Some(model) = fast_model {
+            matrixcode_core::debug::debug_log().log("memory_extract", &format!("Background: extracting with model={}", model));
+            let extractor = matrixcode_core::memory::AiMemoryExtractor::new_minimal(model);
+            matrixcode_core::memory::detect_memories_smart(
+                &text, None, project_path_str.as_deref(), Some(&extractor)
+            ).await
+        } else {
+            Vec::new()
+        };
+
+        if !detected.is_empty() {
+            let detected_count = detected.len();
+            for entry in detected {
+                let is_global_category = matches!(
+                    entry.category,
+                    matrixcode_core::memory::MemoryCategory::Preference
+                        | matrixcode_core::memory::MemoryCategory::UserIntentPattern
+                        | matrixcode_core::memory::MemoryCategory::TaskPattern
+                );
+                let is_project = !is_global_category
+                    && (entry.tags.contains(&"project".to_string())
+                        || entry.project_path.is_some()
+                        || project_path.is_some());
+
+                if let Err(e) = bg_ms.add_entry(entry, is_project) {
+                    log::warn!("Failed to add memory entry: {}", e);
+                }
+            }
+            let _ = event_tx.send(AgentEvent::with_data(
+                matrixcode_core::EventType::MemoryDetected,
+                matrixcode_core::EventData::Memory {
+                    summary: format!("检测到 {} 条记忆", detected_count),
+                    entries_count: detected_count,
+                },
+            )).await;
+        }
+    });
 }

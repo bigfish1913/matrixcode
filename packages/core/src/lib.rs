@@ -8,6 +8,7 @@ pub mod approval;
 pub mod cancel;
 pub mod compress;
 pub mod config;
+pub mod constants;
 pub mod debug;
 pub mod event;
 pub mod memory;

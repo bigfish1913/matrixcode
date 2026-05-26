@@ -220,6 +220,13 @@ impl ProjectOverview {
             .await
             .with_context(|| "calling AI for overview generation")?;
 
+        // Log usage for debugging
+        log::info!(
+            "Overview generation: input_tokens={}, output_tokens={}",
+            response.usage.input_tokens,
+            response.usage.output_tokens
+        );
+
         // Extract content from response
         let content = extract_response_content(&response);
 
