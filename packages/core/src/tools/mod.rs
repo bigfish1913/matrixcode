@@ -137,7 +137,21 @@ pub fn all_tools_with_provider(
 
 /// Generate tools description for system prompt
 pub fn generate_tools_prompt() -> String {
-    let tools = all_tools();
+    generate_tools_prompt_with_path(None)
+}
+
+/// Generate tools description with optional CodeGraph support
+pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String {
+    let mut tools = base_tools(Arc::new(Vec::new()));
+
+    // Add CodeGraph tools if project path provided
+    if let Some(path) = project_path {
+        tools.extend(codegraph::codegraph_tools(path));
+    }
+
+    // Add workflow tools
+    tools.extend(workflow::workflow_tools());
+
     let mut lines = vec!["可用工具：".to_string()];
 
     for tool in tools {
@@ -163,6 +177,7 @@ pub fn generate_tools_prompt() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_all_tools_includes_workflow_tools() {
@@ -183,6 +198,26 @@ mod tests {
         assert!(prompt.contains("workflow_discover"), "prompt should mention workflow_discover");
         assert!(prompt.contains("workflow_run"), "prompt should mention workflow_run");
         assert!(prompt.contains("workflow_match"), "prompt should mention workflow_match");
+    }
+
+    #[test]
+    fn test_generate_tools_prompt_with_path_includes_codegraph() {
+        let path = PathBuf::from(".");
+        let prompt = generate_tools_prompt_with_path(Some(&path));
+
+        // Verify codegraph tools appear in prompt when path provided
+        assert!(prompt.contains("codegraph_search"), "prompt should mention codegraph_search");
+        assert!(prompt.contains("codegraph_callers"), "prompt should mention codegraph_callers");
+        assert!(prompt.contains("codegraph_callees"), "prompt should mention codegraph_callees");
+        assert!(prompt.contains("codegraph_status"), "prompt should mention codegraph_status");
+    }
+
+    #[test]
+    fn test_generate_tools_prompt_without_path_excludes_codegraph() {
+        let prompt = generate_tools_prompt();
+
+        // Verify codegraph tools NOT in prompt without path
+        assert!(!prompt.contains("codegraph_search"), "prompt should NOT mention codegraph_search without path");
     }
 }
 

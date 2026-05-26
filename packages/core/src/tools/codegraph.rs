@@ -698,8 +698,11 @@ impl CodeGraphWatcher {
 
         log::info!("CodeGraph watcher started for: {}", project_path.display());
 
+        // Use a check interval for cancellation (faster response)
+        let check_interval = Duration::from_secs(1);
+
         loop {
-            // Check cancellation first
+            // Check cancellation at the start of each iteration
             if cancel_token.is_cancelled() {
                 log::info!("CodeGraph watcher stopped (cancelled)");
                 break;
@@ -708,6 +711,11 @@ impl CodeGraphWatcher {
             tokio::select! {
                 // Check for file changes
                 Some(path) = change_rx.recv() => {
+                    // Check cancellation before processing
+                    if cancel_token.is_cancelled() {
+                        log::info!("CodeGraph watcher stopped (cancelled)");
+                        break;
+                    }
                     // Check if it's a source file and not ignored
                     if is_source_file(&path)
                         && !ignore_matcher.should_ignore(&path, &project_path) {
@@ -716,8 +724,15 @@ impl CodeGraphWatcher {
                     }
                 }
 
-                // Periodic sync check (debounced)
-                _ = sleep(sync_interval) => {
+                // Periodic check for cancellation and sync
+                _ = sleep(check_interval) => {
+                    // Check cancellation
+                    if cancel_token.is_cancelled() {
+                        log::info!("CodeGraph watcher stopped (cancelled)");
+                        break;
+                    }
+
+                    // Sync check (debounced)
                     if pending_changes && last_sync.elapsed() >= sync_interval {
                         // Run sync
                         let manager = CodeGraphManager::new(&project_path);

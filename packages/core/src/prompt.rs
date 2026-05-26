@@ -110,21 +110,31 @@ const SYSTEM_PROMPT_OUTPUT_CONTROL: &str = r#"输出控制：
 - 输出代码只展示关键部分，用注释标注省略内容"#;
 
 const SYSTEM_PROMPT_CODEGRAPH: &str = r#"CodeGraph 代码图谱：
-使用 CodeGraph 工具进行高效的代码探索和符号分析：
+CodeGraph 是预先索引的代码知识库，查询速度比 grep/read 快 10-100 倍。
 
-【核心原则】
-- 查找符号时优先使用 codegraph_search（比 grep 更快更精确）
-- 分析调用关系用 codegraph_callers/callees（单次查询返回完整链条）
-- CodeGraph 返回的源码视为已读取，不要重复 Read 同一位置
-- 快速定位后用 Read 补充细节，避免启动多个 Explore 子代理
+【使用优先级 - 必须遵守】
+1. 查找代码符号（函数、类、方法、变量）→ 必须先用 codegraph_search
+2. 分析调用关系 → 必须用 codegraph_callers/callees
+3. CodeGraph 返回的位置和源码片段视为已读取，不要重复 Read
+4. 只在以下情况使用 grep/search/Read：
+   - 搜索字符串内容（如错误消息、日志文本）
+   - CodeGraph 未索引的文件或语言
+   - 需要完整文件内容而非片段时
+
+【工具选择对照】
+| 用户请求 | 正确工具 | 错误工具 |
+|----------|----------|----------|
+| "查找 Agent 类的定义" | codegraph_search | ❌ grep/ls |
+| "读取当前目录结构" | ls | ✓ 正确 |
+| "谁调用了 run 方法" | codegraph_callers | ❌ grep |
+| "查找错误信息 'failed'" | grep | ✓ 正确 |
+| "读取 config.rs 的完整内容" | Read | ✓ 正确 |
 
 【工具用法】
-| 需求 | 工具 | 说明 |
-|------|------|------|
-| 查找函数/类定义 | codegraph_search | 返回签名、位置、签名信息 |
-| 查找谁调用某函数 | codegraph_callers | 分析影响范围、依赖关系 |
-| 查找某函数调用了谁 | codegraph_callees | 理解执行流程、依赖链 |
-| 检查索引状态 | codegraph_status | 确认索引是否正常 |"#;
+- codegraph_search: 搜索符号定义，返回位置、签名、文档
+- codegraph_callers: 查找谁调用了某符号（向上追溯）
+- codegraph_callees: 查找某符号调用了谁（向下追踪）
+- codegraph_status: 检查索引状态"#;
 
 const SYSTEM_PROMPT_TASK_TRACKING: &str = r#"任务追踪：
 - 多步骤任务必须先用 todo_write 列出所有子任务
@@ -481,8 +491,8 @@ pub fn build_system_prompt_with_workflows(
     // Get static prompt parts
     let static_prompt = build_static_system_prompt(*profile);
 
-    // Dynamically generate tools description
-    let tools_prompt = crate::tools::generate_tools_prompt();
+    // Dynamically generate tools description (include CodeGraph if project_path available)
+    let tools_prompt = crate::tools::generate_tools_prompt_with_path(project_path);
 
     // Combine: static prompt + tools + sections
     let mut parts = vec![static_prompt, tools_prompt];

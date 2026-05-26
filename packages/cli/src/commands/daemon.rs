@@ -7,12 +7,13 @@ use anyhow::Result;
 use matrixcode_core::{
     AgentEvent, AgentBuilder, Config,
     create_provider_with_headers,
-    tools::all_tools_with_box_provider,
+    tools::all_tools_full,
     approval::ApproveMode,
     session::SessionManager,
 };
 use serde::Deserialize;
 use std::io::{BufRead, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::constants::QUICK_ACTION_MAX_TOKENS;
@@ -20,6 +21,15 @@ use crate::helpers::{
     resolve_provider, resolve_model_with_override, resolve_base_url,
     load_skills, build_quick_action_prompt, model_with_source,
 };
+
+/// Request context from VSCode extension
+#[derive(Deserialize, Default)]
+#[allow(dead_code)]
+struct RequestContext {
+    workspace: Option<String>,
+    file: Option<String>,
+    language: Option<String>,
+}
 
 /// Daemon request
 #[derive(Deserialize)]
@@ -32,6 +42,8 @@ pub struct DaemonRequest {
     session_id: Option<String>,
     model: Option<String>,
     max_tokens: Option<u32>,
+    /// Context from VSCode extension (contains workspace, file, etc.)
+    context: Option<RequestContext>,
 }
 
 /// Run daemon mode - persistent background process
@@ -105,6 +117,11 @@ fn handle_chat_request(request: &DaemonRequest) -> Result<Vec<AgentEvent>> {
     let mut events = Vec::new();
     let config = Config::load();
     let skills = load_skills(&[]);
+    let project_path = request.context
+        .as_ref()
+        .and_then(|c| c.workspace.as_ref())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
     if let Some(content) = &request.content {
         let api_key = config.api_key.clone()
@@ -128,7 +145,11 @@ fn handle_chat_request(request: &DaemonRequest) -> Result<Vec<AgentEvent>> {
             let mut agent = AgentBuilder::new(provider.clone_box())
                 .model_name(model)
                 .max_tokens(max_tokens)
-                .tools(all_tools_with_box_provider(Arc::new(skills.clone()), provider.clone_box()))
+                .tools(all_tools_full(
+                    Arc::new(skills.clone()),
+                    provider.clone_arc(),
+                    project_path.clone(),
+                ))
                 .approve_mode(ApproveMode::Auto)
                 .build();
 
@@ -150,6 +171,11 @@ fn handle_quick_action_request(request: &DaemonRequest) -> Result<Vec<AgentEvent
     let mut events = Vec::new();
     let config = Config::load();
     let skills = load_skills(&[]);
+    let project_path = request.context
+        .as_ref()
+        .and_then(|c| c.workspace.as_ref())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
     if let Some(action) = &request.action {
         let prompt = build_quick_action_prompt(action, request.file.as_ref());
@@ -176,7 +202,11 @@ fn handle_quick_action_request(request: &DaemonRequest) -> Result<Vec<AgentEvent
             let mut agent = AgentBuilder::new(provider.clone_box())
                 .model_name(model)
                 .max_tokens(QUICK_ACTION_MAX_TOKENS)
-                .tools(all_tools_with_box_provider(Arc::new(skills.clone()), provider.clone_box()))
+                .tools(all_tools_full(
+                    Arc::new(skills.clone()),
+                    provider.clone_arc(),
+                    project_path.clone(),
+                ))
                 .approve_mode(ApproveMode::Auto)
                 .build();
 

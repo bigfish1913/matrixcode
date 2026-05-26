@@ -7,7 +7,7 @@ use matrixcode_core::{
     AgentEvent, AgentBuilder, Config,
     create_provider_with_headers,
     providers::{MessageContent, Role, ContentBlock},
-    tools::all_tools_with_box_provider,
+    tools::all_tools_full,
     prompt::{build_system_prompt, PromptProfile},
     approval::ApproveMode,
     session::SessionManager,
@@ -117,7 +117,11 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                         .system_prompt(system_prompt)
                         .model_name(model)
                         .max_tokens(QUICK_ACTION_MAX_TOKENS)
-                        .tools(all_tools_with_box_provider(Arc::new(skills.clone()), provider.clone_box()))
+                        .tools(all_tools_full(
+                            Arc::new(skills.clone()),
+                            provider.clone_arc(),
+                            std::env::current_dir().unwrap_or_default(),
+                        ))
                         .approve_mode(ApproveMode::Auto)
                         .event_tx(event_tx)
                         .build();
@@ -226,7 +230,11 @@ async fn handle_chat(
         .system_prompt(system_prompt)
         .model_name(model.to_string())
         .max_tokens(QUICK_ACTION_MAX_TOKENS)
-        .tools(all_tools_with_box_provider(Arc::new(skills.to_vec()), provider.clone_box()))
+        .tools(all_tools_full(
+            Arc::new(skills.to_vec()),
+            provider.clone_arc(),
+            std::env::current_dir().unwrap_or_default(),
+        ))
         .approve_mode(approve_mode)
         .event_tx(event_tx)
         .proxy_executor(
@@ -294,7 +302,11 @@ async fn handle_quick_action(
         .system_prompt(system_prompt)
         .model_name(model.to_string())
         .max_tokens(QUICK_ACTION_MAX_TOKENS)
-        .tools(all_tools_with_box_provider(Arc::new(skills.to_vec()), provider.clone_box()))
+        .tools(all_tools_full(
+            Arc::new(skills.to_vec()),
+            provider.clone_arc(),
+            std::env::current_dir().unwrap_or_default(),
+        ))
         .approve_mode(ApproveMode::Auto)
         .build();
 
@@ -480,7 +492,11 @@ async fn handle_quick_action_json(
         .system_prompt(system_prompt)
         .model_name(model.to_string())
         .max_tokens(QUICK_ACTION_MAX_TOKENS)
-        .tools(all_tools_with_box_provider(Arc::new(skills.to_vec()), provider.clone_box()))
+        .tools(all_tools_full(
+            Arc::new(skills.to_vec()),
+            provider.clone_arc(),
+            std::env::current_dir().unwrap_or_default(),
+        ))
         .approve_mode(ApproveMode::Auto)
         .build();
 

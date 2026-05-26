@@ -17,7 +17,7 @@ use ratatui::{
     crossterm::{
         cursor::Show,
         event, execute,
-        terminal::{disable_raw_mode, enable_raw_mode},
+        terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
     },
 };
 use std::io::Stdout;
@@ -32,27 +32,26 @@ pub(crate) const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴"
 
 pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
-    // Hybrid mode: mouse capture enabled but NO alternate screen
-    // This allows scroll events to be captured while potentially
-    // allowing text selection (depends on terminal behavior)
+    // Clear screen at startup to remove previous terminal content
     execute!(
         std::io::stdout(),
+        Clear(ClearType::All),
         event::EnableMouseCapture,
         event::EnableBracketedPaste
     )?;
     let t = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
-    // Don't clear screen - append mode
     Ok(t)
 }
 
 pub fn restore_terminal() -> Result<()> {
     disable_raw_mode()?;
+    // Clear screen at exit to remove app content
     execute!(
         std::io::stdout(),
+        Clear(ClearType::All),
         event::DisableMouseCapture,
         event::DisableBracketedPaste,
         Show
     )?;
-    println!();
     Ok(())
 }

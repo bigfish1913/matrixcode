@@ -240,33 +240,10 @@ impl TuiApp {
 
             // Up arrow: ask selection, history navigation, or multiline cursor
             KeyCode::Up if !k.modifiers.contains(KeyModifiers::ALT) => {
-                // If in "Other" input mode, allow multiline navigation
-                if self.ask_other_input_active && self.input.contains('\n') {
-                    let (current_line_num, col_chars, _) = self.get_line_info();
-                    if current_line_num > 1 {
-                        let char_pos = self.byte_pos_to_char_pos();
-                        let input_chars: Vec<char> = self.input.chars().collect();
-                        let before_cursor_str: String = input_chars
-                            [..char_pos.min(input_chars.len())]
-                            .iter()
-                            .collect();
-
-                        // Previous line is before the last '\n' in before_cursor_str
-                        let prev_lines_str =
-                            &before_cursor_str[..before_cursor_str.rfind('\n').unwrap_or(0)];
-                        let prev_line_start_char = prev_lines_str.chars().count();
-
-                        // Find previous line length
-                        let prev_line_end_char =
-                            char_pos.saturating_sub(col_chars).saturating_sub(1); // -1 for the newline
-                        let prev_line_len_chars =
-                            prev_line_end_char.saturating_sub(prev_line_start_char);
-
-                        // Move to same column (or end if shorter)
-                        let target_char_pos =
-                            prev_line_start_char + col_chars.min(prev_line_len_chars);
-                        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
-                    }
+                // If in "Other" input mode or multiline input, allow navigation
+                if (self.ask_other_input_active || self.input.contains('\n'))
+                    && self.move_cursor_up_line() {
+                    // Cursor moved successfully
                 } else if self.activity == Activity::Asking
                     && self.waiting_for_ask
                     && !self.ask_options.is_empty()
@@ -275,32 +252,6 @@ impl TuiApp {
                     // Ask selection (only when not in Other input mode)
                     if self.ask_selected_index > 0 {
                         self.ask_selected_index -= 1;
-                    }
-                } else if self.input.contains('\n') {
-                    let (current_line_num, col_chars, _) = self.get_line_info();
-                    if current_line_num > 1 {
-                        let char_pos = self.byte_pos_to_char_pos();
-                        let input_chars: Vec<char> = self.input.chars().collect();
-                        let before_cursor_str: String = input_chars
-                            [..char_pos.min(input_chars.len())]
-                            .iter()
-                            .collect();
-
-                        // Previous line is before the last '\n' in before_cursor_str
-                        let prev_lines_str =
-                            &before_cursor_str[..before_cursor_str.rfind('\n').unwrap_or(0)];
-                        let prev_line_start_char = prev_lines_str.chars().count();
-
-                        // Find previous line length
-                        let prev_line_end_char =
-                            char_pos.saturating_sub(col_chars).saturating_sub(1); // -1 for the newline
-                        let prev_line_len_chars =
-                            prev_line_end_char.saturating_sub(prev_line_start_char);
-
-                        // Move to same column (or end if shorter)
-                        let target_char_pos =
-                            prev_line_start_char + col_chars.min(prev_line_len_chars);
-                        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
                     }
                 } else if !self.input_history.is_empty() {
                     // Single-line: browse history
@@ -323,40 +274,10 @@ impl TuiApp {
 
             // Down arrow: ask selection, history navigation, or multiline cursor
             KeyCode::Down if !k.modifiers.contains(KeyModifiers::ALT) => {
-                // If in "Other" input mode, allow multiline navigation
-                if self.ask_other_input_active && self.input.contains('\n') {
-                    let (current_line_num, col_chars, total_lines) = self.get_line_info();
-                    if current_line_num < total_lines {
-                        let char_pos = self.byte_pos_to_char_pos();
-                        let input_chars: Vec<char> = self.input.chars().collect();
-
-                        // Boundary check: char_pos must not exceed input_chars.len()
-                        let safe_char_pos = char_pos.min(input_chars.len());
-
-                        // Find next line start
-                        let remaining_chars = &input_chars[safe_char_pos..];
-                        let next_line_start_char = remaining_chars
-                            .iter()
-                            .position(|c| *c == '\n')
-                            .map(|i| safe_char_pos + i + 1)
-                            .unwrap_or_else(|| input_chars.len());
-
-                        // Find next line end
-                        let next_line_chars = &input_chars[next_line_start_char..];
-                        let next_line_end_char = next_line_chars
-                            .iter()
-                            .position(|c| *c == '\n')
-                            .map(|i| next_line_start_char + i)
-                            .unwrap_or_else(|| input_chars.len());
-
-                        let next_line_len_chars =
-                            next_line_end_char.saturating_sub(next_line_start_char);
-
-                        // Move to same column (or end if shorter)
-                        let target_char_pos =
-                            next_line_start_char + col_chars.min(next_line_len_chars);
-                        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
-                    }
+                // If in "Other" input mode or multiline input, allow navigation
+                if (self.ask_other_input_active || self.input.contains('\n'))
+                    && self.move_cursor_down_line() {
+                    // Cursor moved successfully
                 } else if self.activity == Activity::Asking
                     && self.waiting_for_ask
                     && !self.ask_options.is_empty()
@@ -365,39 +286,6 @@ impl TuiApp {
                     // Ask selection (only when not in Other input mode)
                     if self.ask_selected_index < self.ask_options.len() - 1 {
                         self.ask_selected_index += 1;
-                    }
-                } else if self.input.contains('\n') {
-                    let (current_line_num, col_chars, total_lines) = self.get_line_info();
-                    if current_line_num < total_lines {
-                        let char_pos = self.byte_pos_to_char_pos();
-                        let input_chars: Vec<char> = self.input.chars().collect();
-
-                        // Boundary check: char_pos must not exceed input_chars.len()
-                        let safe_char_pos = char_pos.min(input_chars.len());
-
-                        // Find next line start
-                        let remaining_chars = &input_chars[safe_char_pos..];
-                        let next_line_start_char = remaining_chars
-                            .iter()
-                            .position(|c| *c == '\n')
-                            .map(|i| safe_char_pos + i + 1)
-                            .unwrap_or_else(|| input_chars.len());
-
-                        // Find next line end
-                        let next_line_chars = &input_chars[next_line_start_char..];
-                        let next_line_end_char = next_line_chars
-                            .iter()
-                            .position(|c| *c == '\n')
-                            .map(|i| next_line_start_char + i)
-                            .unwrap_or_else(|| input_chars.len());
-
-                        let next_line_len_chars =
-                            next_line_end_char.saturating_sub(next_line_start_char);
-
-                        // Move to same column (or end if shorter)
-                        let target_char_pos =
-                            next_line_start_char + col_chars.min(next_line_len_chars);
-                        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
                     }
                 } else if let Some(idx) = self.history_index {
                     // Single-line: browse history forward
@@ -612,6 +500,72 @@ impl TuiApp {
             .map(|i| before_cursor[i + 1..].chars().count())
             .unwrap_or_else(|| before_cursor.chars().count());
         (current_line_num, col_chars, total_lines)
+    }
+
+    /// Move cursor up one line in multiline input, preserving column position.
+    /// Returns true if movement was possible, false if already on first line.
+    fn move_cursor_up_line(&mut self) -> bool {
+        let (current_line_num, col_chars, _) = self.get_line_info();
+        if current_line_num <= 1 {
+            return false;
+        }
+
+        let char_pos = self.byte_pos_to_char_pos();
+        let input_chars: Vec<char> = self.input.chars().collect();
+        let before_cursor_str: String = input_chars
+           [..char_pos.min(input_chars.len())]
+            .iter()
+            .collect();
+
+        // Previous line is before the last '\n' in before_cursor_str
+        let prev_lines_str = &before_cursor_str[..before_cursor_str.rfind('\n').unwrap_or(0)];
+        let prev_line_start_char = prev_lines_str.chars().count();
+
+        // Find previous line length
+        let prev_line_end_char = char_pos.saturating_sub(col_chars).saturating_sub(1);
+        let prev_line_len_chars = prev_line_end_char.saturating_sub(prev_line_start_char);
+
+        // Move to same column (or end if shorter)
+        let target_char_pos = prev_line_start_char + col_chars.min(prev_line_len_chars);
+        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
+        true
+    }
+
+    /// Move cursor down one line in multiline input, preserving column position.
+    /// Returns true if movement was possible, false if already on last line.
+    fn move_cursor_down_line(&mut self) -> bool {
+        let (current_line_num, _, total_lines) = self.get_line_info();
+        if current_line_num >= total_lines {
+            return false;
+        }
+
+        let char_pos = self.byte_pos_to_char_pos();
+        let input_chars: Vec<char> = self.input.chars().collect();
+        let safe_char_pos = char_pos.min(input_chars.len());
+
+        // Find next line start
+        let remaining_chars = &input_chars[safe_char_pos..];
+        let next_line_start_char = remaining_chars
+            .iter()
+            .position(|c| *c == '\n')
+            .map(|i| safe_char_pos + i + 1)
+            .unwrap_or_else(|| input_chars.len());
+
+        // Find next line end
+        let next_line_chars = &input_chars[next_line_start_char..];
+        let next_line_end_char = next_line_chars
+            .iter()
+            .position(|c| *c == '\n')
+            .map(|i| next_line_start_char + i)
+            .unwrap_or_else(|| input_chars.len());
+
+        let next_line_len_chars = next_line_end_char.saturating_sub(next_line_start_char);
+        let (_, col_chars, _) = self.get_line_info();
+
+        // Move to same column (or end if shorter)
+        let target_char_pos = next_line_start_char + col_chars.min(next_line_len_chars);
+        self.cursor_pos = self.char_pos_to_byte_pos(target_char_pos);
+        true
     }
 
     pub(crate) fn send_input(&mut self) {

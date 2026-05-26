@@ -529,7 +529,7 @@ async fn run_agent_task(
 
         // Handle /init
         if msg.starts_with("/init") {
-            handle_init_in_task(&event_tx, &msg, &project_path, &provider_type, &api_key, &model, &base_url, &extra_headers).await;
+            handle_init_in_task(&event_tx, &msg, &project_path, provider.as_ref()).await;
             continue;
         }
 
@@ -756,16 +756,11 @@ async fn run_agent_task(
 
 // Helper functions for the agent task
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_init_in_task(
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
     msg: &str,
     project_path: &Option<PathBuf>,
-    provider_type: &matrixcode_core::providers::ProviderType,
-    api_key: &str,
-    model: &str,
-    base_url: &str,
-    extra_headers: &Option<std::collections::HashMap<String, String>>,
+    provider: &dyn matrixcode_core::providers::Provider,
 ) {
     let result = handle_init_command(msg, project_path.as_deref());
     match result {
@@ -788,25 +783,7 @@ async fn handle_init_in_task(
             )).await;
 
             if let Some(path) = project_path {
-                let overview_provider = match create_provider_with_headers(
-                    *provider_type,
-                    api_key.to_string(),
-                    model.to_string(),
-                    Some(base_url.to_string()),
-                    extra_headers.clone(),
-                ) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        let _ = event_tx.send(AgentEvent::error(
-                            format!("Failed to create provider for overview: {}", e),
-                            Some("provider_error".to_string()),
-                            None,
-                        )).await;
-                        return;
-                    }
-                };
-
-                match matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), overview_provider.as_ref()).await {
+                match matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), provider).await {
                     Ok(overview) => {
                         let _ = event_tx.send(AgentEvent::with_data(
                             matrixcode_core::EventType::Progress,
