@@ -9,8 +9,10 @@ use std::collections::HashMap;
 /// 工作流状态
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum WorkflowStatus {
     /// 待执行
+    #[default]
     Pending,
     /// 运行中
     Running,
@@ -24,17 +26,14 @@ pub enum WorkflowStatus {
     Cancelled,
 }
 
-impl Default for WorkflowStatus {
-    fn default() -> Self {
-        WorkflowStatus::Pending
-    }
-}
 
 /// 节点状态
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum NodeStatus {
     /// 待执行
+    #[default]
     Pending,
     /// 运行中
     Running,
@@ -46,11 +45,6 @@ pub enum NodeStatus {
     Skipped,
 }
 
-impl Default for NodeStatus {
-    fn default() -> Self {
-        NodeStatus::Pending
-    }
-}
 
 /// 节点执行记录
 #[derive(Debug, Clone, Serialize, Deserialize)]

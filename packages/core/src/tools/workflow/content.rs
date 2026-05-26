@@ -50,9 +50,9 @@ impl ContentGenerationTool {
 
     /// 添加图片插入指令
     fn append_image_instructions(&self, prompt: &mut String, params: &Value) {
-        if let Some(images) = params.get("image_urls") {
-            if let Some(arr) = images.as_array() {
-                if !arr.is_empty() {
+        if let Some(images) = params.get("image_urls")
+            && let Some(arr) = images.as_array()
+                && !arr.is_empty() {
                     prompt.push_str("\n**重要：请在文章中插入以下图片**（使用 Markdown 图片格式 `![描述](URL)`）：\n");
                     for (idx, img) in arr.iter().enumerate() {
                         let (url, desc) = self.extract_image_info(img, idx);
@@ -60,8 +60,6 @@ impl ContentGenerationTool {
                     }
                     prompt.push_str("\n请将图片插入到文章的合适位置，使文章更加生动。\n");
                 }
-            }
-        }
     }
 
     /// 从图片参数中提取 URL 和描述
@@ -85,9 +83,9 @@ impl ContentGenerationTool {
 
     /// 构建图片画廊
     fn build_image_gallery(&self, params: &Value) -> String {
-        if let Some(images) = params.get("image_urls") {
-            if let Some(arr) = images.as_array() {
-                if !arr.is_empty() {
+        if let Some(images) = params.get("image_urls")
+            && let Some(arr) = images.as_array()
+                && !arr.is_empty() {
                     let mut gallery = String::from("\n## 📷 配图\n\n");
                     for (idx, img) in arr.iter().enumerate().take(5) {
                         let (url, desc) = self.extract_image_info(img, idx);
@@ -97,8 +95,6 @@ impl ContentGenerationTool {
                     }
                     return gallery;
                 }
-            }
-        }
         String::new()
     }
 

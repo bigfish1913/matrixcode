@@ -94,19 +94,17 @@ impl WebSearchTool {
         if self.config.enable_fallback {
             log::info!("Trying fallback search backends...");
 
-            if let Ok(results) = backends::search_wikipedia(&client, query, max_results).await {
-                if !results.is_empty() {
+            if let Ok(results) = backends::search_wikipedia(&client, query, max_results).await
+                && !results.is_empty() {
                     log::info!("Fallback search succeeded via Wikipedia");
                     return Ok(results);
                 }
-            }
 
-            if let Ok(results) = backends::search_searxng(&client, query, max_results).await {
-                if !results.is_empty() {
+            if let Ok(results) = backends::search_searxng(&client, query, max_results).await
+                && !results.is_empty() {
                     log::info!("Fallback search succeeded via SearXNG");
                     return Ok(results);
                 }
-            }
         }
 
         Err(last_error

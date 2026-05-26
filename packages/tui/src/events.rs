@@ -133,8 +133,8 @@ impl TuiApp {
                     }
 
                     // Track todo_write for progress display
-                    if name == "todo_write" && input.is_some() {
-                        self.update_todo_items(input.as_ref().unwrap());
+                    if name == "todo_write" && let Some(ref input) = input {
+                        self.update_todo_items(input);
                     }
                 }
             }
@@ -382,7 +382,6 @@ impl TuiApp {
                             // Spawn async task to call real APIs
                             let tx = self.proxy_response_tx.clone();
                             let query = query.to_string();
-                            let request_id = request_id;
 
                             tokio::spawn(async move {
                                 use crate::image_utils;

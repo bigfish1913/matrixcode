@@ -177,7 +177,7 @@ impl<'a> DagWidget<'a> {
                 if from_y < area.bottom() {
                     buf.set_string(from_x, from_y, "│", Style::default().fg(Color::Gray));
                 }
-                if from_y + 1 < area.bottom() && from_y + 1 <= to_y {
+                if from_y + 1 < area.bottom() && from_y < to_y {
                     buf.set_string(from_x, from_y + 1, "▼", Style::default().fg(Color::Gray));
                 }
             } else {

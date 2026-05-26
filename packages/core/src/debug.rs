@@ -23,6 +23,12 @@ pub struct DebugLog {
     file: Option<Mutex<File>>,
 }
 
+impl Default for DebugLog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DebugLog {
     /// Create a new debug logger
     /// Writes to ~/.matrix/debug.log if possible

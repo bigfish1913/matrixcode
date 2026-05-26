@@ -107,6 +107,7 @@ impl From<FailureStrategy> for FailureStrategyConfig {
 
 /// 失败策略
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum FailureStrategy {
     /// 重试
     Retry {
@@ -118,6 +119,7 @@ pub enum FailureStrategy {
     /// 忽略继续
     Ignore,
     /// 终止工作流
+    #[default]
     Abort,
     /// 跳转到指定节点
     Goto {
@@ -126,11 +128,6 @@ pub enum FailureStrategy {
     },
 }
 
-impl Default for FailureStrategy {
-    fn default() -> Self {
-        FailureStrategy::Abort
-    }
-}
 
 impl Serialize for FailureStrategy {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

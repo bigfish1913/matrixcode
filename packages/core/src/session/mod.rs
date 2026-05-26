@@ -4,6 +4,7 @@
 
 mod manager;
 mod metadata;
+#[allow(clippy::module_inception)]
 mod session;
 
 pub use manager::SessionManager;

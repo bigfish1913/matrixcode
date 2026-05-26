@@ -131,11 +131,10 @@ async fn validate_image_url(client: &reqwest::Client, url: &str) -> bool {
             let status = resp.status();
             if status.is_success() || status.as_u16() == 302 {
                 // Check content-type if available
-                if let Some(content_type) = resp.headers().get("content-type") {
-                    if let Ok(ct) = content_type.to_str() {
+                if let Some(content_type) = resp.headers().get("content-type")
+                    && let Ok(ct) = content_type.to_str() {
                         return ct.starts_with("image/");
                     }
-                }
                 // Some servers don't return content-type for HEAD, assume valid
                 return status.is_success();
             }
@@ -355,12 +354,11 @@ async fn validate_images(images: Vec<ImageResult>) -> Vec<ImageResult> {
     let total_count = results.len();
     
     for result in results {
-        if let Ok((mut img, valid)) = result {
-            if valid {
+        if let Ok((mut img, valid)) = result
+            && valid {
                 img.validated = true;
                 validated.push(img);
             }
-        }
     }
     
     log::info!("Validated {}/{} images", validated.len(), total_count);

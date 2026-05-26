@@ -132,30 +132,27 @@ impl WorkflowEngine {
     /// 获取节点执行器
     fn get_node_executor(&self, node: &NodeDef) -> Option<Arc<dyn NodeExecutor>> {
         // 优先从注册的执行器中查找
-        if let Some(task) = &node.task {
-            if let Some(executor) = self.node_executors.get(task) {
+        if let Some(task) = &node.task
+            && let Some(executor) = self.node_executors.get(task) {
                 return Some(executor.clone());
             }
-        }
 
         // 检查是否是代理工具
-        if let Some(task) = &node.task {
-            if self.proxy_tool_defs.iter().any(|t| t.definition.name == *task) {
-                if let Some(executor) = &self.proxy_executor {
+        if let Some(task) = &node.task
+            && self.proxy_tool_defs.iter().any(|t| t.definition.name == *task)
+                && let Some(executor) = &self.proxy_executor {
                     return Some(Arc::new(super::executors::ProxyExecutor::new(
                         executor.clone(),
                         self.proxy_tool_defs.clone(),
                     )));
                 }
-            }
-        }
 
         // 根据节点类型选择默认执行器
         match node.node_type {
             NodeType::Task => {
                 // 尝试从工厂创建
-                if let Some(factory) = &self.executor_factory {
-                    if let Some(task) = &node.task {
+                if let Some(factory) = &self.executor_factory
+                    && let Some(task) = &node.task {
                         // 根据任务名称推断执行器类型
                         // ai / ai_* / claude* / gpt* 使用 AI 执行器
                         let task_lower = task.to_lowercase();
@@ -165,7 +162,6 @@ impl WorkflowEngine {
                         // 默认使用工具执行器
                         return Some(factory.create_tool_executor());
                     }
-                }
             }
             NodeType::Condition => {
                 if let Some(factory) = &self.executor_factory {
@@ -526,11 +522,10 @@ impl WorkflowEngine {
         // 条件节点从分支获取下一个节点
         if node.node_type == NodeType::Condition {
             let exec = context.get_node_execution(&node.id);
-            if let Some(exec) = exec {
-                if let Some(serde_json::Value::String(target)) = &exec.output {
+            if let Some(exec) = exec
+                && let Some(serde_json::Value::String(target)) = &exec.output {
                     return Ok(Some(target.clone()));
                 }
-            }
         }
 
         // 根据边条件选择下一个节点
@@ -552,13 +547,11 @@ impl WorkflowEngine {
     /// 验证输入参数
     fn validate_inputs(&self, context: &WorkflowContext) -> Result<()> {
         for input_def in &self.definition.inputs {
-            if input_def.required {
-                if context.get_input(&input_def.name).is_none() {
-                    if input_def.default.is_none() {
+            if input_def.required
+                && context.get_input(&input_def.name).is_none()
+                    && input_def.default.is_none() {
                         anyhow::bail!("Required input '{}' is missing", input_def.name);
                     }
-                }
-            }
         }
         Ok(())
     }

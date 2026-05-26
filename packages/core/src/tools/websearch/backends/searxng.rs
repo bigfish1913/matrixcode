@@ -53,16 +53,14 @@ pub async fn search(client: &Client, query: &str, max_results: usize) -> Result<
 
         let response = client.get(&url).send().await;
 
-        if let Ok(resp) = response {
-            if resp.status().is_success() {
-                if let Ok(json) = resp.json::<Value>().await {
+        if let Ok(resp) = response
+            && resp.status().is_success()
+                && let Ok(json) = resp.json::<Value>().await {
                     let results = parse_json(&json, max_results);
                     if !results.is_empty() {
                         return Ok(results);
                     }
                 }
-            }
-        }
     }
 
     Err(anyhow::anyhow!("All SearXNG instances failed"))

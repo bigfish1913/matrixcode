@@ -109,7 +109,7 @@ impl ToolExecutor {
 
     /// 获取所有工具定义
     pub fn get_all_tool_definitions(&self) -> Vec<ToolDefinition> {
-        self.tools.iter().map(|(_, t)| t.definition()).collect()
+        self.tools.values().map(|t| t.definition()).collect()
     }
 }
 

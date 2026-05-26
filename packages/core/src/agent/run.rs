@@ -217,15 +217,14 @@ impl Agent {
             should_continue = self.process_response(&response).await?;
 
             // If model wants to stop (no tool calls), check for pending todos
-            if !should_continue && iterations < MAX_ITERATIONS - 1 {
-                if self.has_pending_todos() {
+            if !should_continue && iterations < MAX_ITERATIONS - 1
+                && self.has_pending_todos() {
                     self.messages.push(Message {
                         role: Role::User,
                         content: MessageContent::Text(prompt::MSG_PENDING_TODOS.to_string()),
                     });
                     should_continue = true;
                 }
-            }
 
             let context_size = self.provider.context_size();
             let api_tokens = self.last_input_tokens.load(Ordering::Relaxed) as u32;

@@ -45,7 +45,7 @@ impl Tool for WorkflowDiscoverTool {
             if !info.required_inputs.is_empty() {
                 result.push_str(&format!(" [需要: {}]", info.required_inputs.join(", ")));
             }
-            result.push_str("\n");
+            result.push('\n');
         }
 
         Ok(result)

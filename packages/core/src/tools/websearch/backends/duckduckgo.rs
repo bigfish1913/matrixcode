@@ -121,11 +121,10 @@ fn fallback_parse(html: &str, max_results: usize, results: &mut Vec<SearchResult
 /// Search using DuckDuckGo
 pub async fn search(client: &Client, query: &str, max_results: usize) -> Result<Vec<SearchResult>> {
     // Try Lite first (less likely to be blocked)
-    if let Ok(results) = search_lite(client, query, max_results).await {
-        if !results.is_empty() {
+    if let Ok(results) = search_lite(client, query, max_results).await
+        && !results.is_empty() {
             return Ok(results);
         }
-    }
 
     // Fallback to HTML interface
     let url = format!(

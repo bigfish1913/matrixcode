@@ -218,11 +218,10 @@ impl SessionManager {
                 for (idx, full_msg) in session.full_messages.iter().enumerate() {
                     if session.message_summaries.get(idx).is_some() {
                         let same_role = compressed_msg.role == full_msg.role;
-                        if same_role {
-                            if let Some(summary) = session.message_summaries.get_mut(idx) {
+                        if same_role
+                            && let Some(summary) = session.message_summaries.get_mut(idx) {
                                 summary.is_compressed = false;
                             }
-                        }
                     }
                 }
             }

@@ -30,13 +30,12 @@ fn main() -> Result<()> {
 
     let mut loaded_env = false;
     for path in &env_paths {
-        if path.exists() {
-            if dotenvy::from_path(path).is_ok() {
+        if path.exists()
+            && dotenvy::from_path(path).is_ok() {
                 println!("[env: loaded from {}]", path.display());
                 loaded_env = true;
                 break;
             }
-        }
     }
 
     if !loaded_env {

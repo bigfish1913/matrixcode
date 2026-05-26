@@ -628,11 +628,10 @@ fn resolve_value(expr: &str, context: &HashMap<String, serde_json::Value>) -> Re
     if let Ok(n) = expr.parse::<i64>() {
         return Ok(serde_json::Value::Number(n.into()));
     }
-    if let Ok(n) = expr.parse::<f64>() {
-        if let Some(num) = serde_json::Number::from_f64(n) {
+    if let Ok(n) = expr.parse::<f64>()
+        && let Some(num) = serde_json::Number::from_f64(n) {
             return Ok(serde_json::Value::Number(num));
         }
-    }
 
     // 布尔字面量
     if expr == "true" {
@@ -662,11 +661,10 @@ fn resolve_numeric(expr: &str, context: &HashMap<String, serde_json::Value>) -> 
     }
 
     // 变量引用
-    if let Some(value) = context.get(expr) {
-        if let Some(n) = value.as_f64() {
+    if let Some(value) = context.get(expr)
+        && let Some(n) = value.as_f64() {
             return Ok(n);
         }
-    }
 
     anyhow::bail!("Not a numeric value: {}", expr)
 }

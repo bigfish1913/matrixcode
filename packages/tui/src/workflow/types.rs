@@ -39,6 +39,7 @@ impl Default for WorkflowViewState {
 }
 
 /// DAG layout cache (computed from WorkflowDef)
+#[derive(Default)]
 pub struct DagLayout {
     /// Node positions (row, col) in grid coordinates
     pub node_positions: HashMap<String, (usize, usize)>,
@@ -51,17 +52,6 @@ pub struct DagLayout {
     pub width: usize,
 }
 
-impl Default for DagLayout {
-    fn default() -> Self {
-        Self {
-            node_positions: HashMap::new(),
-            edges: Vec::new(),
-            layers: Vec::new(),
-            height: 0,
-            width: 0,
-        }
-    }
-}
 
 /// Edge connection info
 pub struct EdgeInfo {
@@ -144,7 +134,7 @@ pub fn to_visual_status(status: &NodeStatus, error: Option<&String>) -> NodeVisu
         NodeStatus::Running => NodeVisualStatus::Running,
         NodeStatus::Completed => NodeVisualStatus::Completed,
         NodeStatus::Failed => NodeVisualStatus::Failed {
-            error: error.map(|s| s.clone()).unwrap_or_default(),
+            error: error.cloned().unwrap_or_default(),
         },
         NodeStatus::Skipped => NodeVisualStatus::Skipped,
     }
@@ -212,11 +202,10 @@ impl WorkflowViewState {
 
     /// Get node visual status
     pub fn get_node_status(&self, node_id: &str) -> NodeVisualStatus {
-        if let Some(ctx) = &self.context {
-            if let Some(exec) = ctx.node_executions.get(node_id) {
+        if let Some(ctx) = &self.context
+            && let Some(exec) = ctx.node_executions.get(node_id) {
                 return to_visual_status(&exec.status, exec.error.as_ref());
             }
-        }
         NodeVisualStatus::Pending
     }
 

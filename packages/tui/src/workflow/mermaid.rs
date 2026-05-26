@@ -59,7 +59,7 @@ pub fn export_mermaid(def: &WorkflowDef, ctx: Option<&WorkflowContext>) -> Strin
     }
 
     // Style definitions
-    output.push_str("\n");
+    output.push('\n');
     output.push_str("    classDef pending fill:#f9f9f9,stroke:#999,stroke-width:1px\n");
     output.push_str("    classDef running fill:#fff3cd,stroke:#ffc107,stroke-width:3px\n");
     output.push_str("    classDef completed fill:#d4edda,stroke:#28a745,stroke-width:2px\n");

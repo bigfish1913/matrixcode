@@ -85,9 +85,10 @@ impl TuiApp {
                 // Copy buffer content to frame
                 for y in inner_area.top()..inner_area.bottom() {
                     for x in inner_area.left()..inner_area.right() {
-                        if let Some(cell) = buf.cell((x, y)) {
-                            f.buffer_mut().cell_mut((x, y)).map(|c| *c = cell.clone());
-                        }
+                        if let Some(cell) = buf.cell((x, y))
+                            && let Some(c) = f.buffer_mut().cell_mut((x, y)) {
+                                *c = cell.clone();
+                            }
                     }
                 }
             }

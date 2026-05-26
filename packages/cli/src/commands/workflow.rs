@@ -164,7 +164,7 @@ fn handle_discover(query: Option<String>) {
         } else {
             println!("🔍 Matching workflows for '{}':\n", q);
             for info in matches {
-                print_workflow_info(&info);
+                print_workflow_info(info);
             }
         }
     } else {

@@ -315,7 +315,7 @@ impl CompressionConfig {
             ThresholdLevel::Normal
         };
 
-        (level, percent_left.max(0))
+        (level, percent_left)
     }
 }
 

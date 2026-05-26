@@ -103,8 +103,8 @@ impl ValidateExecutor {
 
             // 解析响应
             for block in &response.content {
-                if let ContentBlock::Text { text } = block {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+                if let ContentBlock::Text { text } = block
+                    && let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
                         let passed = json.get("passed")
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false);
@@ -120,7 +120,6 @@ impl ValidateExecutor {
                             errors,
                         });
                     }
-                }
             }
 
             // 无法解析 AI 响应

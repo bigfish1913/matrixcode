@@ -64,17 +64,16 @@ impl Agent {
         for msg in self.messages.iter().rev().take(10) {
             if let MessageContent::Blocks(blocks) = &msg.content {
                 for block in blocks {
-                    if let ContentBlock::ToolUse { name, input, .. } = block {
-                        if name == "todo_write" {
-                            // Check if there are non-completed todos
-                            if let Some(todos) = input.get("todos").and_then(|t| t.as_array()) {
-                                for todo in todos {
-                                    if let Some(status) = todo.get("status").and_then(|s| s.as_str()) {
-                                        if status != "completed" {
-                                            return true;
-                                        }
+                    if let ContentBlock::ToolUse { name, input, .. } = block
+                        && name == "todo_write"
+                    {
+                        // Check if there are non-completed todos
+                        if let Some(todos) = input.get("todos").and_then(|t| t.as_array()) {
+                            for todo in todos {
+                                if let Some(status) = todo.get("status").and_then(|s| s.as_str())
+                                    && status != "completed" {
+                                        return true;
                                     }
-                                }
                             }
                         }
                     }

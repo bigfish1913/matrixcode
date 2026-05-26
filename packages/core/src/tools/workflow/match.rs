@@ -53,7 +53,7 @@ impl Tool for WorkflowMatchTool {
             } else {
                 result.push_str(&info.name);
             }
-            result.push_str("\n");
+            result.push('\n');
         }
 
         result.push_str("\n调用: workflow_run {\"workflow_id\": \"选定的ID\"}");

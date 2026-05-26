@@ -109,6 +109,23 @@ const SYSTEM_PROMPT_OUTPUT_CONTROL: &str = r#"输出控制：
 - 工具结果超过 50KB 会自动截断，主动控制避免信息丢失
 - 输出代码只展示关键部分，用注释标注省略内容"#;
 
+const SYSTEM_PROMPT_CODEGRAPH: &str = r#"CodeGraph 代码图谱：
+使用 CodeGraph 工具进行高效的代码探索和符号分析：
+
+【核心原则】
+- 查找符号时优先使用 codegraph_search（比 grep 更快更精确）
+- 分析调用关系用 codegraph_callers/callees（单次查询返回完整链条）
+- CodeGraph 返回的源码视为已读取，不要重复 Read 同一位置
+- 快速定位后用 Read 补充细节，避免启动多个 Explore 子代理
+
+【工具用法】
+| 需求 | 工具 | 说明 |
+|------|------|------|
+| 查找函数/类定义 | codegraph_search | 返回签名、位置、签名信息 |
+| 查找谁调用某函数 | codegraph_callers | 分析影响范围、依赖关系 |
+| 查找某函数调用了谁 | codegraph_callees | 理解执行流程、依赖链 |
+| 检查索引状态 | codegraph_status | 确认索引是否正常 |"#;
+
 const SYSTEM_PROMPT_TASK_TRACKING: &str = r#"任务追踪：
 - 多步骤任务必须先用 todo_write 列出所有子任务
 - 每完成一个子任务立即标记为 completed
@@ -130,6 +147,7 @@ const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_EDITING,
     SYSTEM_PROMPT_EXECUTION,
     SYSTEM_PROMPT_LANGUAGE,
+    SYSTEM_PROMPT_CODEGRAPH,
     SYSTEM_PROMPT_OUTPUT_CONTROL,
     SYSTEM_PROMPT_COMPLETION,
     SYSTEM_PROMPT_TASK_TRACKING,
@@ -508,7 +526,7 @@ pub fn build_system_prompt_with_workflows(
                 if !info.required_inputs.is_empty() {
                     result.push_str(&format!(" (需要输入: {})", info.required_inputs.join(", ")));
                 }
-                result.push_str("\n");
+                result.push('\n');
             }
             result.push_str("\n调用方式: 使用 workflow_run 工具，传入 workflow_id 和可选的 inputs 参数。\n");
         }

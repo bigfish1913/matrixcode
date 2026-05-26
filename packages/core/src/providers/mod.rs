@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use crate::constants::{ANTHROPIC_DEFAULT_BASE_URL, OPENAI_DEFAULT_BASE_URL};
 use crate::tools::ToolDefinition;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,7 +253,7 @@ pub fn create_provider_with_headers(
             let provider = anthropic::AnthropicProvider::with_headers(
                 api_key,
                 model,
-                base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string()),
+                base_url.unwrap_or_else(|| ANTHROPIC_DEFAULT_BASE_URL.to_string()),
                 extra_headers,
             );
             Ok(Box::new(provider))
@@ -261,7 +262,7 @@ pub fn create_provider_with_headers(
             let provider = openai::OpenAIProvider::with_headers(
                 api_key,
                 model,
-                base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+                base_url.unwrap_or_else(|| OPENAI_DEFAULT_BASE_URL.to_string()),
                 extra_headers,
             );
             Ok(Box::new(provider))

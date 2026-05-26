@@ -238,11 +238,10 @@ async fn handle_chat(
     let run_future = agent.run(msg);
     let event_task = tokio::spawn(async move {
         while let Some(event) = event_rx.recv().await {
-            if event.event_type == matrixcode_core::EventType::Error {
-                if let Some(data) = &event.data {
+            if event.event_type == matrixcode_core::EventType::Error
+                && let Some(data) = &event.data {
                     eprintln!("⚠️ Error event: {:?}", data);
                 }
-            }
         }
     });
 

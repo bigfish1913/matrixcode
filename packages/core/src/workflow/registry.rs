@@ -87,11 +87,10 @@ impl WorkflowRegistry {
         let user_path = self.user_path.clone();
 
         // Discover from project directory
-        if let Some(proj) = project_path {
-            if proj.exists() {
+        if let Some(proj) = project_path
+            && proj.exists() {
                 self.discover_from_dir(&proj, WorkflowSource::Project)?;
             }
-        }
 
         // Discover from user directory
         if user_path.exists() {
@@ -109,8 +108,8 @@ impl WorkflowRegistry {
             let path = entry.path();
 
             // Only process .yaml and .yml files
-            if path.extension().map_or(false, |ext| ext == "yaml" || ext == "yml") {
-                if let Ok(workflow) = parse_workflow_from_file(&path) {
+            if path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml")
+                && let Ok(workflow) = parse_workflow_from_file(&path) {
                     let info = WorkflowInfo {
                         id: workflow.id.clone(),
                         name: workflow.name.clone(),
@@ -126,7 +125,6 @@ impl WorkflowRegistry {
 
                     self.workflows.insert(workflow.id.clone(), info);
                 }
-            }
         }
 
         Ok(())

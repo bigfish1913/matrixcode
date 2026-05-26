@@ -445,7 +445,7 @@ impl TuiApp {
             }
 
             // Handle events - mark dirty on any user input
-            if event::poll(Duration::from_millis(ANIM_MS as u64))? {
+            if event::poll(Duration::from_millis(ANIM_MS))? {
                 match event::read()? {
                     Event::Key(k) => {
                         self.on_key(k);
@@ -540,16 +540,15 @@ impl TuiApp {
                 if should_update {
                     self.workflow_state.update_context(ctx.clone());
                     // Also reload workflow def if workflow_id changed
-                    if self.workflow_state.workflow_def.is_none() ||
+                    if (self.workflow_state.workflow_def.is_none() ||
                        self.workflow_state.workflow_def.as_ref().map(|d| &d.id) !=
-                       Some(&ctx.workflow_id) {
-                        if let Some(def) = crate::workflow::WorkflowViewState::load_workflow_def(
+                       Some(&ctx.workflow_id))
+                        && let Some(def) = crate::workflow::WorkflowViewState::load_workflow_def(
                             project_dir.as_ref(),
                             &ctx.workflow_id
                         ) {
                             self.workflow_state.set_workflow(def);
                         }
-                    }
                 }
             }
         } else if self.workflow_state.workflow_def.is_none() {

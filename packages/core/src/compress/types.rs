@@ -15,10 +15,12 @@ use super::config::format_tokens;
 /// Determines which weights to apply during scoring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ConversationPhase {
     /// User just made initial request - first message gets highest priority.
     InitialRequest,
     /// Agent is actively executing tools - tool results get higher priority.
+    #[default]
     ActiveDevelopment,
     /// Task is nearing completion - final decisions get higher priority.
     Finalizing,
@@ -56,11 +58,6 @@ impl ConversationPhase {
     }
 }
 
-impl Default for ConversationPhase {
-    fn default() -> Self {
-        Self::ActiveDevelopment
-    }
-}
 
 // ============================================================================
 // AI Compression Mode (NEW)
@@ -69,20 +66,17 @@ impl Default for ConversationPhase {
 /// Mode for AI-assisted compression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum AiCompressionMode {
     /// No AI assistance - pure rule-based scoring.
     None,
     /// Light AI assistance using fast_model for quick judgments.
+    #[default]
     Light,
     /// Deep AI analysis for complex content.
     Deep,
 }
 
-impl Default for AiCompressionMode {
-    fn default() -> Self {
-        Self::Light
-    }
-}
 
 // ============================================================================
 // Message Dependency (NEW)

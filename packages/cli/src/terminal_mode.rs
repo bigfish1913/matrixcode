@@ -353,6 +353,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
 }
 
 /// Run the agent task (async portion)
+#[allow(clippy::too_many_arguments)]
 async fn run_agent_task(
     cancel_token: CancellationToken,
     event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
@@ -484,7 +485,7 @@ async fn run_agent_task(
         use matrixcode_core::tools::codegraph::CodeGraphWatcher;
         let watcher = CodeGraphWatcher::new(pp.as_path());
         let watcher_cancel = cancel_token.clone();
-        if let Ok(_) = watcher.start(watcher_cancel) {
+        if watcher.start(watcher_cancel).is_ok() {
             log::info!("CodeGraph auto-sync watcher started for: {}", pp.display());
         }
     }
@@ -659,12 +660,7 @@ async fn run_agent_task(
             let is_simple_msg = matrixcode_core::memory::should_skip_simple_message(&msg);
             let has_few_memories = mem.entries.len() < MEMORY_MIN_ENTRIES_FOR_AI_SELECTION;
 
-            if is_first_turn || is_simple_msg {
-                let static_summary = mem.generate_prompt_summary(MEMORY_INITIAL_SUMMARY_SIZE);
-                if !static_summary.is_empty() {
-                    agent.update_memory_summary(Some(static_summary));
-                }
-            } else if has_few_memories {
+            if is_first_turn || is_simple_msg || has_few_memories {
                 let static_summary = mem.generate_prompt_summary(MEMORY_INITIAL_SUMMARY_SIZE);
                 if !static_summary.is_empty() {
                     agent.update_memory_summary(Some(static_summary));
@@ -760,6 +756,7 @@ async fn run_agent_task(
 
 // Helper functions for the agent task
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_init_in_task(
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
     msg: &str,
@@ -1075,11 +1072,10 @@ async fn handle_save_in_task(
 
     if let Some(mgr) = session_mgr {
         mgr.set_messages(messages.to_vec());
-        if let Some(n) = name {
-            if let Err(e) = mgr.rename_current(n) {
+        if let Some(n) = name
+            && let Err(e) = mgr.rename_current(n) {
                 let _ = event_tx.send(AgentEvent::error(format!("Failed to rename: {}", e), None, None)).await;
             }
-        }
         if let Err(e) = mgr.save_current() {
             let _ = event_tx.send(AgentEvent::error(format!("Failed to save: {}", e), None, None)).await;
         } else {

@@ -50,7 +50,7 @@ impl Session {
                 .enumerate()
                 .map(|(i, m)| MessageSummary::from_message(m, i))
                 .collect(),
-            messages: messages,
+            messages,
         }
     }
 

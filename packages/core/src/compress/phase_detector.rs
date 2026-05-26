@@ -23,7 +23,7 @@ impl PhaseDetector {
         let recent = &messages[recent_start..];
 
         // Check for tool activity
-        let has_tools = recent.iter().any(|m| has_tool_use(m));
+        let has_tools = recent.iter().any(has_tool_use);
 
         if has_tools {
             // Check for finalizing signals
@@ -46,7 +46,7 @@ impl PhaseDetector {
         let recent_start = messages.len().saturating_sub(window_size);
         let recent = &messages[recent_start..];
 
-        let has_tools = recent.iter().any(|m| has_tool_use(m));
+        let has_tools = recent.iter().any(has_tool_use);
 
         if has_tools {
             if has_finalizing_signals(recent) {

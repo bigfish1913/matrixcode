@@ -58,12 +58,11 @@ impl AnthropicProvider {
             .timeout(std::time::Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS)); // Total timeout for non-streaming
 
         // Add proxy from environment if available
-        if let Some(proxy_url) = Self::load_proxy_from_env() {
-            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+        if let Some(proxy_url) = Self::load_proxy_from_env()
+            && let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
                 log::info!("AnthropicProvider using proxy: {}", proxy_url);
                 client_builder = client_builder.proxy(proxy);
             }
-        }
 
         let client = client_builder
             .build()
@@ -141,11 +140,10 @@ impl AnthropicProvider {
                                 ContentBlock::Thinking { thinking, signature } => {
                                     let mut obj = json!({"type": "thinking", "thinking": thinking});
                                     // Only send non-empty signature
-                                    if let Some(sig) = signature {
-                                        if !sig.is_empty() {
+                                    if let Some(sig) = signature
+                                        && !sig.is_empty() {
                                             obj["signature"] = json!(sig);
                                         }
-                                    }
                                     obj
                                 }
                                 ContentBlock::ServerToolUse { id, name, input } => {

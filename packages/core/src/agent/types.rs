@@ -42,7 +42,7 @@ pub(crate) const MAX_ITERATIONS: usize = 200;
 /// - Simple task (edit file): ~5-10 iterations
 /// - Medium task (refactor module): ~15-30 iterations
 /// - Complex task (build system): ~40-50 iterations (may hit limit)
-
+///
 /// Full Agent with event output
 #[allow(dead_code)]
 pub struct Agent {

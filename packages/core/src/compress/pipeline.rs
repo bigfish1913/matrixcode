@@ -272,8 +272,8 @@ impl CompressionPipeline {
 
         // Check for orphaned tool results by scanning content
         for (idx, msg) in messages.iter().enumerate() {
-            if msg.role == Role::Tool {
-                if let MessageContent::Blocks(blocks) = &msg.content {
+            if msg.role == Role::Tool
+                && let MessageContent::Blocks(blocks) = &msg.content {
                     for block in blocks {
                         if let ContentBlock::ToolResult { tool_use_id, .. } = block {
                             // Find corresponding tool_use
@@ -300,7 +300,6 @@ impl CompressionPipeline {
                         }
                     }
                 }
-            }
         }
 
         // Check for orphaned tool use blocks (tool_use without tool_result)

@@ -55,11 +55,10 @@ impl WorkflowPersistence {
         if let Err(e) = fs::create_dir_all(&user_path) {
             log::warn!("Failed to create user workflow directory: {}", e);
         }
-        if let Some(ref proj) = project_path {
-            if let Err(e) = fs::create_dir_all(proj) {
+        if let Some(ref proj) = project_path
+            && let Err(e) = fs::create_dir_all(proj) {
                 log::warn!("Failed to create project workflow directory: {}", e);
             }
-        }
 
         Self {
             user_path,
@@ -182,7 +181,7 @@ impl WorkflowPersistence {
                 let entry = entry?;
                 let path = entry.path();
 
-                if path.extension().map_or(false, |ext| ext == "json") {
+                if path.extension().is_some_and(|ext| ext == "json") {
                     match fs::read_to_string(&path) {
                         Ok(content) => match serde_json::from_str::<WorkflowContext>(&content) {
                             Ok(ctx) => contexts.push(ctx),

@@ -391,7 +391,7 @@ fn sliding_window_compress(
     let recent_msgs = &messages[recent_start..];
 
     // Calculate tokens for first + recent
-    let first_tokens = first_msg.as_ref().map(|m| estimate_tokens(m)).unwrap_or(0);
+    let first_tokens = first_msg.as_ref().map(estimate_tokens).unwrap_or(0);
     let recent_tokens = estimate_total_tokens(recent_msgs);
     let current_total = estimate_total_tokens(messages);
     let target_tokens = (current_total as f64 * config.target_ratio) as u32;

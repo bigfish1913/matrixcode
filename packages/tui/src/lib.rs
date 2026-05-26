@@ -32,17 +32,16 @@ pub(crate) const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴"
 
 pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
-    // Enable mouse capture for scroll wheel support
-    // Note: This prevents normal text selection. To select text:
-    // - macOS: Hold Option (⌥) key
-    // - Windows/Linux: Hold Shift key
+    // Hybrid mode: mouse capture enabled but NO alternate screen
+    // This allows scroll events to be captured while potentially
+    // allowing text selection (depends on terminal behavior)
     execute!(
         std::io::stdout(),
         event::EnableMouseCapture,
         event::EnableBracketedPaste
     )?;
-    let mut t = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
-    t.clear()?;
+    let t = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
+    // Don't clear screen - append mode
     Ok(t)
 }
 
@@ -54,7 +53,6 @@ pub fn restore_terminal() -> Result<()> {
         event::DisableBracketedPaste,
         Show
     )?;
-    // Move cursor to new line for clean exit
     println!();
     Ok(())
 }

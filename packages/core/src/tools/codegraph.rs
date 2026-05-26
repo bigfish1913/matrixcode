@@ -30,6 +30,7 @@ use tokio::time::{sleep, timeout};
 use super::{Tool, ToolDefinition};
 use crate::approval::RiskLevel;
 use crate::cancel::CancellationToken;
+use crate::constants::{CODEGRAPH_CLI_TIMEOUT_SECS, CODEGRAPH_SYNC_INTERVAL_SECS};
 
 // ============================================================================
 // Data Structures
@@ -83,6 +84,111 @@ pub struct PendingChanges {
 }
 
 // ============================================================================
+// CodeGraph CLI Detection and Installation
+// ============================================================================
+
+/// Get CodeGraph installation directory (platform-specific).
+fn get_codegraph_install_dir() -> Option<PathBuf> {
+    // Use dirs crate to get platform-appropriate local data directory
+    dirs::data_local_dir()
+        .map(|p| p.join("codegraph").join("current").join("bin"))
+}
+
+/// Get CodeGraph CLI executable name (platform-specific).
+fn get_codegraph_exe_name() -> String {
+    if cfg!(windows) {
+        "codegraph.cmd".to_string()
+    } else {
+        "codegraph".to_string()
+    }
+}
+
+/// Check if CodeGraph CLI is installed.
+pub fn is_codegraph_installed() -> bool {
+    // Try direct command (in PATH)
+    if std::process::Command::new("codegraph")
+        .arg("--version")
+        .output()
+        .is_ok() {
+        return true;
+    }
+
+    // Try platform-specific installation path
+    if let Some(install_dir) = get_codegraph_install_dir() {
+        let exe_name = get_codegraph_exe_name();
+        let exe_path = install_dir.join(&exe_name);
+        if exe_path.exists()
+            && std::process::Command::new(&exe_path)
+                .arg("--version")
+                .output()
+                .is_ok() {
+                return true;
+            }
+    }
+
+    false
+}
+
+/// Get CodeGraph CLI path (returns the executable path or command name).
+pub fn get_codegraph_path() -> Option<String> {
+    // Try direct command first (in PATH)
+    if std::process::Command::new("codegraph")
+        .arg("--version")
+        .output()
+        .is_ok() {
+        return Some("codegraph".to_string());
+    }
+
+    // Try platform-specific installation path
+    if let Some(install_dir) = get_codegraph_install_dir() {
+        let exe_name = get_codegraph_exe_name();
+        let exe_path = install_dir.join(&exe_name);
+        if exe_path.exists() {
+            return Some(exe_path.to_string_lossy().to_string());
+        }
+    }
+
+    None
+}
+
+/// Auto-install CodeGraph CLI (Windows).
+pub async fn install_codegraph() -> Result<()> {
+    log::info!("Installing CodeGraph CLI...");
+
+    // Windows PowerShell installer
+    let result = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "irm https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.ps1 | iex"
+        ])
+        .output()
+        .await?;
+
+    if result.status.success() {
+        log::info!("CodeGraph CLI installed successfully");
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        Err(anyhow::anyhow!("CodeGraph installation failed: {}", stderr))
+    }
+}
+
+/// Ensure CodeGraph is available (check and auto-install if needed).
+pub async fn ensure_codegraph() -> Result<String> {
+    if let Some(path) = get_codegraph_path() {
+        return Ok(path);
+    }
+
+    // Auto-install
+    install_codegraph().await?;
+
+    // Check again after installation
+    get_codegraph_path()
+        .ok_or_else(|| anyhow::anyhow!("CodeGraph installation failed - please install manually"))
+}
+
+// ============================================================================
 // CodeGraph Manager
 // ============================================================================
 
@@ -129,18 +235,39 @@ impl CodeGraphManager {
 
     /// Run codegraph CLI command.
     async fn run_cli_command(&self, args: &[&str]) -> Result<()> {
-        let result = timeout(Duration::from_secs(60), async {
-            let mut cmd = Command::new("codegraph");
+        let codegraph_path = get_codegraph_path()
+            .ok_or_else(|| anyhow::anyhow!("CodeGraph CLI not installed. Run 'codegraph install' or use matrixcode to auto-install."))?;
+
+        
+
+        timeout(Duration::from_secs(CODEGRAPH_CLI_TIMEOUT_SECS), async {
+            let mut cmd = Command::new(&codegraph_path);
             cmd.args(args)
                 .current_dir(&self.project_path)
                 .output()
                 .await?;
+
+            if !cmd.status().await?.success() {
+                return Err(anyhow::anyhow!("CodeGraph command failed"));
+            }
             Ok::<_, anyhow::Error>(())
         })
         .await
-        .map_err(|_| anyhow::anyhow!("CodeGraph CLI timeout (60s)"))?;
+        .map_err(|_| anyhow::anyhow!(format!("CodeGraph CLI timeout ({})s", CODEGRAPH_CLI_TIMEOUT_SECS)))?
+    }
 
-        result
+    /// Initialize CodeGraph for this project (check CLI and auto-install if needed).
+    pub async fn ensure_initialized(&self) -> Result<()> {
+        // Ensure CLI is installed
+        ensure_codegraph().await?;
+
+        // Initialize if not already
+        if !self.is_initialized() {
+            log::info!("Initializing CodeGraph for: {}", self.project_path.display());
+            self.init().await?;
+        }
+
+        Ok(())
     }
 
     // ========================================================================
@@ -348,116 +475,140 @@ pub struct FileInfo {
 // ============================================================================
 
 /// Patterns to ignore for file watching (similar to CodeGraph defaults).
-const IGNORE_PATTERNS: &[&str] = &[
+const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
     // Build outputs
-    "target",
-    "dist",
-    "build",
-    "out",
-    "bin",
-    "obj",
-    ".output",
+    "target", "dist", "build", "out", "bin", "obj", ".output",
     // Dependencies
-    "node_modules",
-    "vendor",
-    "Pods",
-    ".venv",
-    "venv",
-    "__pycache__",
+    "node_modules", "vendor", "Pods", ".venv", "venv", "__pycache__",
     // Cache and temp
-    ".cache",
-    ".tmp",
-    ".temp",
-    "tmp",
-    "temp",
+    ".cache", ".tmp", ".temp", "tmp", "temp",
     // IDE and tools
-    ".idea",
-    ".vscode",
-    ".eclipse",
-    ".project",
-    ".classpath",
+    ".idea", ".vscode", ".eclipse", ".project", ".classpath",
     // Generated files
-    ".generated",
-    "generated",
-    ".codegraph",
-    // Lock files (often change but don't need sync)
-    "package-lock.json",
-    "yarn.lock",
-    "Cargo.lock",
-    "pnpm-lock.yaml",
+    ".generated", "generated", ".codegraph",
+    // Lock files
+    "package-lock.json", "yarn.lock", "Cargo.lock", "pnpm-lock.yaml",
     // Test outputs
-    "coverage",
-    ".nyc_output",
-    "test-results",
+    "coverage", ".nyc_output", "test-results",
     // Logs
     "logs",
-    "*.log",
 ];
 
 /// Extensions to watch (source files only).
 const WATCH_EXTENSIONS: &[&str] = &[
-    // Rust
-    "rs",
-    // TypeScript/JavaScript
-    "ts", "tsx", "js", "jsx", "mjs",
-    // Python
-    "py",
-    // Go
-    "go",
-    // Java/Kotlin
-    "java", "kt", "kts",
-    // C/C++
-    "c", "cpp", "cc", "h", "hpp",
-    // Ruby
-    "rb",
-    // PHP
-    "php",
-    // Swift
-    "swift",
-    // C#
-    "cs",
-    // Other common
-    "scala", "lua", "sh", "yaml", "yml", "toml", "json", "md",
+    "rs", "ts", "tsx", "js", "jsx", "mjs", "py", "go",
+    "java", "kt", "kts", "c", "cpp", "cc", "h", "hpp",
+    "rb", "php", "swift", "cs", "scala", "lua", "sh",
 ];
 
-/// Check if a path should be ignored.
-fn should_ignore(path: &Path) -> bool {
-    let path_str = path.to_string_lossy();
+/// Gitignore patterns loaded from file.
+pub struct IgnoreMatcher {
+    patterns: Vec<String>,
+    negation_patterns: Vec<String>,
+}
 
-    // Check ignore patterns
-    for pattern in IGNORE_PATTERNS {
-        if path_str.contains(pattern) {
-            return true;
+impl IgnoreMatcher {
+    /// Load ignore patterns from .gitignore and defaults.
+    pub fn load(project_path: &Path) -> Self {
+        let mut patterns = Vec::new();
+        let mut negation_patterns = Vec::new();
+
+        // Add default patterns
+        for p in DEFAULT_IGNORE_PATTERNS {
+            patterns.push(p.to_string());
         }
+
+        // Load .gitignore
+        let gitignore_path = project_path.join(".gitignore");
+        if gitignore_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&gitignore_path) {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    if let Some(stripped) = line.strip_prefix('!') {
+                        // Negation pattern (include this)
+                        negation_patterns.push(stripped.to_string());
+                    } else {
+                        patterns.push(line.to_string());
+                    }
+                }
+            }
+
+        Self { patterns, negation_patterns }
     }
 
-    // Check if hidden file/directory
-    for component in path.components() {
-        if let std::path::Component::Normal(name) = component {
-            if name.to_string_lossy().starts_with('.') {
-                // Allow .codegraph (it's our index)
-                if !name.to_string_lossy().starts_with(".codegraph") {
+    /// Check if a path should be ignored.
+    pub fn should_ignore(&self, path: &Path, project_path: &Path) -> bool {
+        let path_str = path.to_string_lossy();
+        let relative_path = path.strip_prefix(project_path)
+            .unwrap_or(path)
+            .to_string_lossy();
+
+        // Check negation patterns first (explicit inclusion)
+        for pattern in &self.negation_patterns {
+            if Self::matches_pattern(&relative_path, pattern) {
+                return false; // Explicitly included
+            }
+        }
+
+        // Check ignore patterns
+        for pattern in &self.patterns {
+            if Self::matches_pattern(&relative_path, pattern)
+                || path_str.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Check hidden files (but allow .codegraph)
+        for component in path.components() {
+            if let std::path::Component::Normal(name) = component {
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with('.')
+                    && name_str != ".codegraph"
+                    && !WATCH_EXTENSIONS.contains(&name_str.split('.').next_back().unwrap_or("")) {
                     return true;
                 }
             }
         }
+
+        false
     }
 
-    false
+    /// Check if path matches a gitignore pattern.
+    fn matches_pattern(path: &str, pattern: &str) -> bool {
+        // Simple pattern matching (handles common gitignore patterns)
+        let pattern = pattern.trim_start_matches('/');
+
+        // Directory match (pattern ends with /)
+        if let Some(dir_pattern) = pattern.strip_suffix('/') {
+            return path.contains(dir_pattern) || path.starts_with(dir_pattern);
+        }
+
+        // Wildcard match
+        if pattern.contains('*') {
+            let parts = pattern.split('*').collect::<Vec<_>>();
+            if parts.len() == 2 {
+                let prefix = parts[0];
+                let suffix = parts[1];
+                return (prefix.is_empty() || path.starts_with(prefix))
+                    && (suffix.is_empty() || path.ends_with(suffix));
+            }
+        }
+
+        // Exact match or contains
+        path == pattern || path.contains(pattern) || path.starts_with(&format!("{}/", pattern))
+    }
 }
 
 /// Check if a path is a source file worth watching.
 fn is_source_file(path: &Path) -> bool {
-    if should_ignore(path) {
-        return false;
-    }
-
     // Check extension
     if let Some(ext) = path.extension() {
         let ext_str = ext.to_string_lossy().to_lowercase();
         return WATCH_EXTENSIONS.contains(&ext_str.as_str());
     }
-
     false
 }
 
@@ -475,7 +626,7 @@ impl CodeGraphWatcher {
         Self {
             project_path: project_path.to_path_buf(),
             stop_tx,
-            sync_interval: Duration::from_secs(2), // Debounce interval
+            sync_interval: Duration::from_secs(CODEGRAPH_SYNC_INTERVAL_SECS), // Debounce interval
         }
     }
 
@@ -505,6 +656,26 @@ impl CodeGraphWatcher {
         sync_interval: Duration,
         cancel_token: CancellationToken,
     ) {
+        // Ensure CodeGraph CLI is available
+        if get_codegraph_path().is_none() {
+            log::warn!("CodeGraph CLI not found, watcher will not auto-sync");
+            // Try to install
+            if let Err(e) = install_codegraph().await {
+                log::warn!("CodeGraph auto-install failed: {}", e);
+                return;
+            }
+        }
+
+        // Initialize CodeGraph if not already
+        let manager = CodeGraphManager::new(&project_path);
+        if !manager.is_initialized() {
+            log::info!("Initializing CodeGraph for: {}", project_path.display());
+            if let Err(e) = manager.init().await {
+                log::warn!("CodeGraph init failed: {}", e);
+                return;
+            }
+        }
+
         // Channel for file change events
         let (change_tx, mut change_rx) = mpsc::channel::<PathBuf>(100);
 
@@ -517,6 +688,9 @@ impl CodeGraphWatcher {
         }
 
         let _watcher = watcher_result.unwrap();
+
+        // Load ignore matcher with .gitignore support
+        let ignore_matcher = IgnoreMatcher::load(&project_path);
 
         // Track last sync time for debouncing
         let mut last_sync = Instant::now();
@@ -534,7 +708,9 @@ impl CodeGraphWatcher {
             tokio::select! {
                 // Check for file changes
                 Some(path) = change_rx.recv() => {
-                    if is_source_file(&path) {
+                    // Check if it's a source file and not ignored
+                    if is_source_file(&path)
+                        && !ignore_matcher.should_ignore(&path, &project_path) {
                         pending_changes = true;
                         log::debug!("CodeGraph: source file changed: {}", path.display());
                     }

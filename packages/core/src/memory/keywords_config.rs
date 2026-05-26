@@ -76,13 +76,11 @@ impl KeywordsConfig {
         // Try ~/.matrix/keywords.json
         if let Some(home) = home_dir() {
             let path = home.join(".matrix").join("keywords.json");
-            if path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(config) = serde_json::from_str::<Self>(&content) {
+            if path.exists()
+                && let Ok(content) = std::fs::read_to_string(&path)
+                    && let Ok(config) = serde_json::from_str::<Self>(&content) {
                         return config;
                     }
-                }
-            }
         }
         get_default_keywords()
     }
