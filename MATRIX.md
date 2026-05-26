@@ -566,4 +566,4 @@ impl Tool for MyTool {
 - **发布渠道**: 
   - GitHub Releases（预编译二进制）
   - crates.io（cargo install）
-  - npm（npm install -g matrixcode）
+  - npm（npm install -g @bigfishnpm/matrixcode）

@@ -29,6 +29,8 @@ pub use ratatui::crossterm;
 
 pub(crate) const ANIM_MS: u64 = 80;
 pub(crate) const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/// Border/padding width for message rendering
+pub(crate) const BORDER_PADDING: usize = 4;
 
 pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;

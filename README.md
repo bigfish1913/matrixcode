@@ -58,7 +58,7 @@ VSCode 扩展，侧边栏 AI 助手：
 
 ```bash
 # 通过 npm（推荐）
-npm install -g matrixcode
+npm install -g @bigfishnpm/matrixcode
 
 # 通过 Cargo
 cargo install matrixcode
@@ -115,7 +115,7 @@ cd packages/vscode && npm run compile
 cd packages/cli && cargo test
 
 # 发布 CLI
-cargo publish && cd npm && npm publish
+cargo publish && cd npm && npm publish --access public
 
 # 发布 VSCode 扩展
 cd packages/vscode && npm run publish

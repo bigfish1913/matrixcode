@@ -377,7 +377,7 @@ cargo publish
 cargo install matrixcode
 
 # 或 npm
-npm install -g matrixcode
+npm install -g @bigfishnpm/matrixcode
 ```
 
 ### VSCode 插件

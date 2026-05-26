@@ -130,7 +130,7 @@ claude "帮我写一个 React 组件"
 
 ```bash
 # 安装（多种方式）
-npm install -g matrixcode     # npm
+npm install -g @bigfishnpm/matrixcode     # npm
 cargo install matrixcode      # Rust
 # 或下载预编译二进制
 
@@ -169,7 +169,7 @@ matrixcode --provider openai "帮我写一个 React 组件"
 
 ```bash
 # 安装
-npm install -g matrixcode
+npm install -g @bigfishnpm/matrixcode
 
 # 配置
 cp .env.example .env

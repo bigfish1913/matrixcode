@@ -443,7 +443,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const available = await client.checkAvailability();
     if (!available) {
         vscode.window.showWarningMessage(
-            'MatrixCode CLI not found. Please install it: npm install -g matrixcode',
+            'MatrixCode CLI not found. Please install it: npm install -g @bigfishnpm/matrixcode',
             'Install'
         ).then(selection => {
             if (selection === 'Install') {

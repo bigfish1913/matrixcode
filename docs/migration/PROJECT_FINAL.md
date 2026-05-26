@@ -122,7 +122,7 @@ npm publish
 
 # 本地安装
 cargo install --path .
-npm install -g matrixcode
+npm install -g @bigfishnpm/matrixcode
 ```
 
 ---

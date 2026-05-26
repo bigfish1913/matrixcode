@@ -8,6 +8,7 @@ use ratatui::{
 };
 
 use crate::app::TuiApp;
+use crate::BORDER_PADDING;
 use crate::types::Activity;
 use crate::utils::{truncate, truncate_visual, truncate_visual_end};
 
@@ -45,7 +46,7 @@ impl TuiApp {
             _ => ("⏳ ", Color::Gray),
         };
 
-        let max_w = (area.width as usize).saturating_sub(4);
+        let max_w = (area.width as usize).saturating_sub(BORDER_PADDING);
 
         // History mode indicator
         let history_indicator = if self.history_index.is_some() {

@@ -9,6 +9,7 @@ use ratatui::{
 use serde_json::Value;
 
 use crate::SPINNER;
+use crate::BORDER_PADDING;
 use crate::app::TuiApp;
 use crate::draw::helpers::estimate_message_tokens;
 use crate::markdown::render_markdown;
@@ -80,7 +81,7 @@ fn extract_full_detail(tool_name: &str, input: &Value) -> Vec<String> {
 impl TuiApp {
     pub(crate) fn draw_messages(&self, f: &mut ratatui::Frame, area: Rect) {
         let mut lines: Vec<Line> = Vec::new();
-        let max_w = area.width.saturating_sub(4) as usize;
+        let max_w = area.width.saturating_sub(BORDER_PADDING as u16) as usize;
 
         // Welcome (responsive) - adapt to screen height
         if self.show_welcome && self.messages.is_empty() {
@@ -251,7 +252,7 @@ impl TuiApp {
                                 Span::raw("")
                             },
                         ]));
-                        let md_lines = render_markdown(&msg.content, max_w.saturating_sub(4));
+                        let md_lines = render_markdown(&msg.content, max_w.saturating_sub(BORDER_PADDING));
                         // Show all lines without limit
                         for line in md_lines.iter() {
                             let text = line
@@ -383,7 +384,7 @@ impl TuiApp {
                                 Color::DarkGray
                             };
                             lines.push(Line::styled(
-                                format!("    {}", truncate(trimmed, max_w.saturating_sub(4))),
+                                format!("    {}", truncate(trimmed, max_w.saturating_sub(BORDER_PADDING))),
                                 Style::default().fg(line_color),
                             ));
                         }
@@ -417,7 +418,7 @@ impl TuiApp {
                             // Read: show first lines directly (no header to skip)
                             for line in msg.content.lines().take(preview_count) {
                                 lines.push(Line::styled(
-                                    format!("    {}", truncate(line, max_w.saturating_sub(4))),
+                                    format!("    {}", truncate(line, max_w.saturating_sub(BORDER_PADDING))),
                                     Style::default().fg(Color::Gray),
                                 ));
                             }
@@ -457,7 +458,7 @@ impl TuiApp {
                         } else {
                             // Other tools: skip first line (summary header), normal styling
                             for line in msg.content.lines().skip(1).take(preview_count) {
-                                let truncated = truncate(line, max_w.saturating_sub(4));
+                                let truncated = truncate(line, max_w.saturating_sub(BORDER_PADDING));
                                 lines.push(Line::styled(
                                     format!("    {}", truncated),
                                     Style::default().fg(Color::DarkGray),
@@ -832,7 +833,7 @@ impl TuiApp {
                     ),
                 ]));
             } else {
-                let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(4));
+                let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(BORDER_PADDING));
                 for line in md_lines.iter() {
                     let text = line
                         .spans

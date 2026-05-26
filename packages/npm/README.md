@@ -6,7 +6,7 @@ AI coding assistant with multi-model support, context compression, and cross-ses
 
 ### npm
 ```bash
-npm install -g matrixcode-cli
+npm install -g @bigfishnpm/matrixcode
 ```
 
 ### cargo

@@ -7,7 +7,7 @@
 ### 通过 npm 安装（推荐）
 
 ```bash
-npm install -g matrixcode
+npm install -g @bigfishnpm/matrixcode
 ```
 
 ### 通过 Cargo 安装
@@ -69,7 +69,7 @@ cargo build
 
 # 发布
 cargo publish
-cd npm && npm publish
+cd npm && npm publish --access public
 ```
 
 ## 文档
