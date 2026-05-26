@@ -1,6 +1,6 @@
 //! /init command handling
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use matrixcode_core::overview::{OVERVIEW_FILENAME, MATRIXCODE_DIR};
 

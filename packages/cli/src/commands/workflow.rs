@@ -5,15 +5,12 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use matrixcode_core::config::Config;
-use matrixcode_core::providers::ProviderType;
 use matrixcode_core::workflow::{
     parse_workflow_from_file, WorkflowEngine, WorkflowPersistence, WorkflowRegistry,
     WorkflowStatus, WorkflowSource,
 };
 use matrixcode_core::workflow::executors::ExecutorFactory;
 use matrixcode_core::{create_provider_with_headers, infer_provider_type};
-
-use crate::CliArgs;
 
 /// Workflow subcommands
 #[derive(clap::Subcommand, Debug)]
@@ -66,9 +63,9 @@ pub enum WorkflowCommands {
 }
 
 /// Handle workflow subcommands
-pub fn handle_workflow_command(command: WorkflowCommands, args: &CliArgs) {
+pub fn handle_workflow_command(command: WorkflowCommands) {
     match command {
-        WorkflowCommands::Run { file, inputs } => handle_run(file, inputs, args),
+        WorkflowCommands::Run { file, inputs } => handle_run(file, inputs),
         WorkflowCommands::Discover { query } => handle_discover(query),
         WorkflowCommands::List { status } => handle_list(status),
         WorkflowCommands::Status { id } => handle_status(id),
@@ -78,7 +75,7 @@ pub fn handle_workflow_command(command: WorkflowCommands, args: &CliArgs) {
     }
 }
 
-fn handle_run(file: String, inputs: Option<String>, args: &CliArgs) {
+fn handle_run(file: String, inputs: Option<String>) {
     println!("🔄 Running workflow from: {}", file);
 
     let workflow_def = match parse_workflow_from_file(&file) {
@@ -98,7 +95,7 @@ fn handle_run(file: String, inputs: Option<String>, args: &CliArgs) {
         .unwrap_or_default();
 
     let config = Config::load();
-    let provider = create_provider(&config, args);
+    let provider = create_provider(&config);
 
     let factory = if let Some(p) = provider {
         ExecutorFactory::new().with_provider(p)
@@ -328,7 +325,7 @@ fn handle_export(file: String, format: String, output: Option<String>) {
 
 // Helper functions
 
-fn create_provider(config: &Config, args: &CliArgs) -> Option<Arc<dyn matrixcode_core::providers::Provider>> {
+fn create_provider(config: &Config) -> Option<Arc<dyn matrixcode_core::providers::Provider>> {
     let api_key = config.api_key.clone()
         .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok());
 
@@ -337,9 +334,13 @@ fn create_provider(config: &Config, args: &CliArgs) -> Option<Arc<dyn matrixcode
         return None;
     }
 
-    let model = args.model.clone();
+    let model = config.model.clone()
+        .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+        .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
     let provider_type = infer_provider_type(&model);
-    let base_url = args.base_url.clone();
+    let base_url = config.base_url.clone()
+        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+        .unwrap_or_else(|| "https://api.anthropic.com".to_string());
 
     match create_provider_with_headers(provider_type, api_key.unwrap(), model, Some(base_url), config.extra_headers.clone()) {
         Ok(p) => Some(Arc::from(p)),
@@ -370,7 +371,7 @@ fn save_workflow_context(ctx: &matrixcode_core::workflow::WorkflowContext) {
 fn source_label(source: &WorkflowSource) -> &'static str {
     match source {
         WorkflowSource::Project => "project",
-        WorkflowSource::Global => "global",
+        WorkflowSource::User => "global",
     }
 }
 
