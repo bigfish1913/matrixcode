@@ -33,7 +33,7 @@ pub use providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, ProviderType, Role,
     create_provider, create_provider_with_headers, create_minimal_provider, infer_provider_type,
 };
-pub use session::{Session, SessionManager};
+pub use session::{Session, SessionFileLock, SessionManager, SessionMetadata, SessionIndex, MessageSummary};
 pub use truncate::{find_boundary, truncate_bytes, truncate_chars, truncate_with_suffix};
 
 // Workflow exports

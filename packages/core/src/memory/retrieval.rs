@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::keywords_config::KeywordsConfig;
-use super::entry::{MemoryEntry, MemoryCategory};
+use super::entry::MemoryEntry;
 use super::manager::AutoMemory;
 
 // ============================================================================
@@ -534,6 +534,7 @@ fn parse_selected_indices(text: &str) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::MemoryCategory;
 
     #[test]
     fn test_extract_keywords() {

@@ -14,6 +14,32 @@ use crate::providers::Message;
 use crate::truncate::truncate_with_suffix;
 
 // ============================================================================
+// Scoring Helper
+// ============================================================================
+
+/// Compare two scored entries for sorting.
+/// Manual entries always come first, then by combined score (descending).
+fn compare_scored_entries(
+    a: (&MemoryEntry, f64),
+    b: (&MemoryEntry, f64),
+    relevance_weight: f64,
+    importance_weight: f64,
+) -> std::cmp::Ordering {
+    // Manual entries always prioritized
+    if a.0.is_manual && !b.0.is_manual {
+        return std::cmp::Ordering::Less;
+    }
+    if !a.0.is_manual && b.0.is_manual {
+        return std::cmp::Ordering::Greater;
+    }
+
+    let score_a = a.1 * relevance_weight + (a.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
+    let score_b = b.1 * relevance_weight + (b.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
+
+    score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+}
+
+// ============================================================================
 // Search Index
 // ============================================================================
 
@@ -823,21 +849,7 @@ impl AutoMemory {
             })
             .collect();
 
-        scored.sort_by(|a, b| {
-            if a.0.is_manual && !b.0.is_manual {
-                return std::cmp::Ordering::Less;
-            }
-            if !a.0.is_manual && b.0.is_manual {
-                return std::cmp::Ordering::Greater;
-            }
-
-            let score_a =
-                a.1 * CONTEXT_RELEVANCE_WEIGHT + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
-            let score_b =
-                b.1 * CONTEXT_RELEVANCE_WEIGHT + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
-
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT));
 
         let selected: Vec<&MemoryEntry> = scored
             .iter()
@@ -898,19 +910,7 @@ impl AutoMemory {
             })
             .collect();
 
-        scored.sort_by(|a, b| {
-            if a.0.is_manual && !b.0.is_manual {
-                return std::cmp::Ordering::Less;
-            }
-            if !a.0.is_manual && b.0.is_manual {
-                return std::cmp::Ordering::Greater;
-            }
-
-            let score_a = a.1 + (a.0.importance / MAX_IMPORTANCE_CEILING);
-            let score_b = b.1 + (b.0.importance / MAX_IMPORTANCE_CEILING);
-
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| compare_scored_entries(*a, *b, 1.0, 1.0));
 
         scored
             .iter()
@@ -945,21 +945,7 @@ impl AutoMemory {
             })
             .collect();
 
-        scored.sort_by(|a, b| {
-            if a.0.is_manual && !b.0.is_manual {
-                return std::cmp::Ordering::Less;
-            }
-            if !a.0.is_manual && b.0.is_manual {
-                return std::cmp::Ordering::Greater;
-            }
-
-            let score_a =
-                a.1 * CONTEXT_RELEVANCE_WEIGHT + (a.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
-            let score_b =
-                b.1 * CONTEXT_RELEVANCE_WEIGHT + (b.0.importance / MAX_IMPORTANCE_CEILING) * CONTEXT_IMPORTANCE_WEIGHT;
-
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT));
 
         let selected: Vec<&MemoryEntry> = scored
             .iter()

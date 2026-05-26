@@ -3,7 +3,7 @@
 use matrixcode_core::{
     event::{AgentEvent, EventData, EventType},
     tools::{
-        proxy::{ProxyMetadata, ProxyTool, ProxyToolRequest, ProxyToolResponse},
+        toolproxy::{ProxyMetadata, ProxyTool, ProxyToolRequest, ProxyToolResponse},
         ToolDefinition,
         Tool,
     },
