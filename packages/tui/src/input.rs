@@ -570,7 +570,7 @@ impl TuiApp {
 
     /// Find the byte position of the previous character boundary.
     /// Returns 0 if cursor is at the start.
-    fn prev_char_boundary(&self) -> usize {
+    pub(crate) fn prev_char_boundary(&self) -> usize {
         self.input
             .char_indices()
             .rfind(|(i, _)| *i < self.cursor_pos)
@@ -580,7 +580,7 @@ impl TuiApp {
 
     /// Find the byte position of the next character boundary.
     /// Returns input.len() if cursor is at the end.
-    fn next_char_boundary(&self) -> usize {
+    pub(crate) fn next_char_boundary(&self) -> usize {
         self.input
             .char_indices()
             .find(|(i, _)| *i > self.cursor_pos)
@@ -663,7 +663,7 @@ impl TuiApp {
     }
 
     /// Handle Enter key in Ask mode - toggle selection in multi-select or confirm
-    fn handle_ask_enter(&mut self) {
+    pub(crate) fn handle_ask_enter(&mut self) {
         // If in "Other" input mode, send the custom text
         if self.ask_other_input_active {
             self.confirm_ask_selection();

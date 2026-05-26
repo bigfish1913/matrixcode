@@ -407,45 +407,61 @@ impl MatrixConfig {
             || env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some()
     }
 
-    /// Create a Provider instance from configuration.
-    /// Useful for tools that need AI capabilities but don't have an injected provider.
-    pub fn create_provider_from_env() -> anyhow::Result<std::sync::Arc<dyn crate::providers::Provider>> {
-        use crate::providers::ProviderType;
-
-        let config = Self::load();
-
-        // Get API key
-        let api_key = config.api_key.clone()
+    /// Get API key with fallback chain
+    fn resolve_api_key(&self) -> Option<String> {
+        self.api_key.clone()
             .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
             .or_else(|| env::var("API_KEY").ok())
-            .ok_or_else(|| anyhow::anyhow!("未配置 API key，无法执行 AI 任务"))?;
+    }
 
-        // Get model
-        let model = config.model.clone()
+    /// Get model with fallback chain
+    fn resolve_model(&self) -> String {
+        self.model.clone()
             .or_else(|| env::var("MODEL").ok())
             .or_else(|| env::var("ANTHROPIC_MODEL").ok())
-            .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+            .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string())
+    }
 
-        // Parse provider type
-        let provider_type = config.provider.clone()
+    /// Get base URL with fallback chain
+    fn resolve_base_url(&self) -> Option<String> {
+        self.base_url.clone()
+            .or_else(|| env::var("BASE_URL").ok())
+            .or_else(|| env::var("ANTHROPIC_BASE_URL").ok())
+    }
+
+    /// Infer provider type from model name
+    fn infer_provider_type(model: &str) -> crate::providers::ProviderType {
+        if model.starts_with("gpt") || model.starts_with("o1") {
+            crate::providers::ProviderType::OpenAI
+        } else {
+            crate::providers::ProviderType::Anthropic
+        }
+    }
+
+    /// Resolve provider type from config or infer from model
+    fn resolve_provider_type(&self, model: &str) -> crate::providers::ProviderType {
+        use crate::providers::ProviderType;
+
+        self.provider.clone()
             .or_else(|| env::var("PROVIDER").ok())
             .map(|p| match p.to_lowercase().as_str() {
                 "openai" => ProviderType::OpenAI,
                 _ => ProviderType::Anthropic,
             })
-            .unwrap_or_else(|| {
-                // Infer from model name
-                if model.starts_with("gpt") || model.starts_with("o1") {
-                    ProviderType::OpenAI
-                } else {
-                    ProviderType::Anthropic
-                }
-            });
+            .unwrap_or_else(|| Self::infer_provider_type(model))
+    }
 
-        // Get base URL
-        let base_url = config.base_url.clone()
-            .or_else(|| env::var("BASE_URL").ok())
-            .or_else(|| env::var("ANTHROPIC_BASE_URL").ok());
+    /// Create a Provider instance from configuration.
+    /// Useful for tools that need AI capabilities but don't have an injected provider.
+    pub fn create_provider_from_env() -> anyhow::Result<std::sync::Arc<dyn crate::providers::Provider>> {
+        let config = Self::load();
+
+        let api_key = config.resolve_api_key()
+            .ok_or_else(|| anyhow::anyhow!("未配置 API key，无法执行 AI 任务"))?;
+
+        let model = config.resolve_model();
+        let provider_type = config.resolve_provider_type(&model);
+        let base_url = config.resolve_base_url();
 
         crate::providers::create_provider_with_headers(
             provider_type,
@@ -453,7 +469,7 @@ impl MatrixConfig {
             model,
             base_url,
             config.extra_headers.clone()
-        ).map(|p| std::sync::Arc::from(p))
+        ).map(std::sync::Arc::from)
     }
 }
 
