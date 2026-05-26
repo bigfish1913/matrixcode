@@ -83,4 +83,4 @@ pub const CODEGRAPH_CLI_TIMEOUT_SECS: u64 = 120;
 
 /// CodeGraph auto-sync debounce interval (seconds)
 /// Increased to reduce Node.js process frequency
-pub const CODEGRAPH_SYNC_INTERVAL_SECS: u64 = 30;
+pub const CODEGRAPH_SYNC_INTERVAL_SECS: u64 = 10;

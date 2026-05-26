@@ -480,7 +480,7 @@ async fn run_agent_task(
     agent.set_cancel_token(cancel_token.clone());
     agent.set_ask_channel(ask_rx);
 
-    // Start CodeGraph watcher for auto-sync (optimized config)
+    // Start CodeGraph watcher for auto-sync
     if let Some(ref pp) = project_path {
         use matrixcode_core::tools::codegraph::CodeGraphWatcher;
         let watcher = CodeGraphWatcher::new(pp.as_path());

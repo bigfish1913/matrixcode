@@ -239,17 +239,16 @@ impl CodeGraphManager {
         let codegraph_path = get_codegraph_path()
             .ok_or_else(|| anyhow::anyhow!("CodeGraph CLI not installed. Run 'codegraph install' or use matrixcode to auto-install."))?;
 
-        
-
         timeout(Duration::from_secs(CODEGRAPH_CLI_TIMEOUT_SECS), async {
-            let mut cmd = Command::new(&codegraph_path);
-            cmd.args(args)
+            let result = Command::new(&codegraph_path)
+                .args(args)
                 .current_dir(&self.project_path)
                 .output()
                 .await?;
 
-            if !cmd.status().await?.success() {
-                return Err(anyhow::anyhow!("CodeGraph command failed"));
+            if !result.status.success() {
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                return Err(anyhow::anyhow!("CodeGraph command failed: {}", stderr));
             }
             Ok::<_, anyhow::Error>(())
         })
@@ -704,8 +703,8 @@ impl CodeGraphWatcher {
         let mut pending_count = 0;
         let syncing = Arc::new(AtomicBool::new(false));
         let syncing_clone = syncing.clone();
-        // Debounce: wait longer for changes to settle (reduce CPU usage)
-        let debounce_delay = Duration::from_secs(60); // Wait 60s after last change
+        // Debounce: wait for changes to settle before sync
+        let debounce_delay = Duration::from_secs(CODEGRAPH_SYNC_INTERVAL_SECS);
 
         log::info!("CodeGraph watcher started for: {}", project_path.display());
 
