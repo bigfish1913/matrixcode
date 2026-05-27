@@ -2,6 +2,9 @@
 //!
 //! Centralizes hardcoded values for easier maintenance.
 
+/// MatrixCode configuration directory name
+pub const MATRIX_DIR: &str = ".matrix";
+
 /// Default max tokens for responses
 pub const DEFAULT_MAX_TOKENS: u32 = 16384;
 

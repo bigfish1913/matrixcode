@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use matrixcode_core::{Config, infer_provider_type, providers::ProviderType, skills::discover_skills};
+use matrixcode_core::{Config, infer_provider_type, providers::ProviderType, skills::discover_skills, constants::MATRIX_DIR};
 
 use crate::constants::DEFAULT_MODEL;
 
@@ -78,12 +78,12 @@ pub fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill
 
     // 1. User's global skills directory (~/.matrix/skills)
     if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(".matrix").join("skills"));
+        roots.push(home.join(MATRIX_DIR).join("skills"));
     }
 
     // 2. Project-local skills directories
     if let Ok(cwd) = std::env::current_dir() {
-        roots.push(cwd.join(".matrix").join("skills"));
+        roots.push(cwd.join(MATRIX_DIR).join("skills"));
         roots.push(cwd.join("skills"));
     }
 

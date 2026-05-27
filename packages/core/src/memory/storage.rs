@@ -5,6 +5,7 @@ use chrono::Utc;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::constants::MATRIX_DIR;
 use super::config::MemoryConfig;
 use super::entry::MemoryEntry;
 use super::manager::AutoMemory;
@@ -201,7 +202,7 @@ impl MemoryStorage {
             .or_else(|| std::env::var_os("USERPROFILE"))
             .ok_or_else(|| anyhow::anyhow!("HOME or USERPROFILE not set"))?;
         let mut p = PathBuf::from(home);
-        p.push(".matrix");
+        p.push(MATRIX_DIR);
         Ok(p)
     }
 
@@ -226,7 +227,7 @@ impl MemoryStorage {
     fn ensure_dirs(&self) -> Result<()> {
         fs::create_dir_all(&self.base_dir)?;
         if let Some(root) = &self.project_root {
-            let memory_dir = root.join(".matrix");
+            let memory_dir = root.join(MATRIX_DIR);
             fs::create_dir_all(memory_dir)?;
         }
         Ok(())

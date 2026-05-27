@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
-use crate::constants::{DEFAULT_MAX_TOKENS, ANTHROPIC_DEFAULT_BASE_URL, OPENAI_DEFAULT_BASE_URL};
+use crate::constants::{DEFAULT_MAX_TOKENS, ANTHROPIC_DEFAULT_BASE_URL, OPENAI_DEFAULT_BASE_URL, MATRIX_DIR};
 use crate::models::DEFAULT_MAIN_MODEL;
 
 /// Matrixcode configuration file structure.
@@ -134,7 +134,7 @@ impl MatrixConfig {
 
     /// Path to matrixcode config file.
     pub fn matrix_config_path() -> Option<PathBuf> {
-        Self::home_dir().map(|h| h.join(".matrix").join("config.json"))
+        Self::home_dir().map(|h| h.join(MATRIX_DIR).join("config.json"))
     }
 
     /// Path to Claude Code settings file.
@@ -516,7 +516,7 @@ pub fn create_default_config() -> anyhow::Result<()> {
 pub fn create_example_config() -> anyhow::Result<()> {
     let home = MatrixConfig::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-    let path = home.join(".matrix").join("config.example.json");
+    let path = home.join(MATRIX_DIR).join("config.example.json");
 
     let example = r#"{
   "_comment": "MatrixCode Configuration Example - Copy this to config.json and fill in your values",

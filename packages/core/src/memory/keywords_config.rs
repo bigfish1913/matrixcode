@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::constants::MATRIX_DIR;
 use super::entry::MemoryCategory;
 
 fn home_dir() -> Option<PathBuf> {
@@ -75,7 +76,7 @@ impl KeywordsConfig {
     pub fn load() -> Self {
         // Try ~/.matrix/keywords.json
         if let Some(home) = home_dir() {
-            let path = home.join(".matrix").join("keywords.json");
+            let path = home.join(MATRIX_DIR).join("keywords.json");
             if path.exists()
                 && let Ok(content) = std::fs::read_to_string(&path)
                     && let Ok(config) = serde_json::from_str::<Self>(&content) {

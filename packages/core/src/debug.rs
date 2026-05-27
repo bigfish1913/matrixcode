@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::truncate::truncate_with_suffix;
 use crate::event::AgentEvent;
+use crate::constants::MATRIX_DIR;
 use tokio::sync::mpsc;
 
 static API_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -42,7 +43,7 @@ impl DebugLog {
             .or_else(|| std::env::var_os("USERPROFILE"))
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "HOME not set"))?;
         let mut path = PathBuf::from(home);
-        path.push(".matrix");
+        path.push(MATRIX_DIR);
         std::fs::create_dir_all(&path)?;
         path.push("debug.log");
         OpenOptions::new().create(true).append(true).open(path)
@@ -289,7 +290,7 @@ static DEBUG_LOG: once_cell::sync::Lazy<DebugLog> = once_cell::sync::Lazy::new(|
 
     // Also try project-level .matrix/.env
     if let Ok(cwd) = std::env::current_dir() {
-        let matrix_env = cwd.join(".matrix").join(".env");
+        let matrix_env = cwd.join(MATRIX_DIR).join(".env");
         if matrix_env.exists() {
             let _ = dotenvy::from_path(&matrix_env);
         }
