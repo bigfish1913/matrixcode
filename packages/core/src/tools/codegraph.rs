@@ -1513,7 +1513,7 @@ impl Tool for CodeGraphSearchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "code_search".to_string(),
-            description: "搜索代码符号（函数、类、方法等）。比 grep 更快，返回符号定义位置和签名信息。需要项目已初始化 CodeGraph (.codegraph/ 目录存在)。".to_string(),
+            description: "[优先工具] 搜索代码符号（函数、类、方法、变量）。查找代码定义时必须优先使用此工具，比 grep 快 10-100 倍。返回符号位置、签名、文档。grep 仅用于搜索字符串内容（如错误消息）。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1586,7 +1586,7 @@ impl Tool for CodeGraphCallersTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "code_callers".to_string(),
-            description: "查找调用指定符号的所有函数/方法。用于理解代码依赖关系，分析修改影响范围。".to_string(),
+            description: "[优先工具] 查找调用指定符号的所有函数/方法。分析调用关系时必须优先使用，比 grep 追溯更准确。grep 仅用于搜索字符串内容。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1602,7 +1602,7 @@ impl Tool for CodeGraphCallersTool {
                 },
                 "required": ["symbol"]
             }),
-            is_priority: false,
+            is_priority: true,
         }
     }
 
@@ -1668,7 +1668,7 @@ impl Tool for CodeGraphCalleesTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "code_callees".to_string(),
-            description: "查找指定符号调用的所有函数/方法。用于理解函数执行流程和依赖链。".to_string(),
+            description: "[优先工具] 查找指定符号调用的所有函数/方法。分析执行流程时必须优先使用，比 grep 追踪更准确。grep 仅用于搜索字符串内容。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1684,7 +1684,7 @@ impl Tool for CodeGraphCalleesTool {
                 },
                 "required": ["symbol"]
             }),
-            is_priority: false,
+            is_priority: true,
         }
     }
 

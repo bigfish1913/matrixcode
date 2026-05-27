@@ -820,18 +820,18 @@ async fn handle_init_in_task(
             )).await;
 
             if let Some(path) = project_path {
-                match matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), provider).await {
+                // Step 1: Generate project overview
+                let overview_result = matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), provider).await;
+
+                match overview_result {
                     Ok(overview) => {
                         let _ = event_tx.send(AgentEvent::with_data(
                             matrixcode_core::EventType::Progress,
                             matrixcode_core::EventData::Progress {
                                 message: format!("✓ Project overview generated: {}", overview.path.display()),
-                                percentage: Some(100),
+                                percentage: Some(50),
                             },
                         )).await;
-                        // Return true to signal that CodeGraph tools should be refreshed
-                        // (in case CodeGraph watcher initialized .codegraph during the process)
-                        true
                     }
                     Err(e) => {
                         let _ = event_tx.send(AgentEvent::error(
@@ -839,8 +839,76 @@ async fn handle_init_in_task(
                             Some("overview_error".into()),
                             None,
                         )).await;
-                        false
+                        return false;
                     }
+                }
+
+                // Step 2: Initialize CodeGraph if CLI is installed and db doesn't exist
+                use matrixcode_core::tools::codegraph::{
+                    get_codegraph_path, should_inject_codegraph_tools, CodeGraphManager
+                };
+
+                let cli_installed = get_codegraph_path().is_some();
+                let db_exists = should_inject_codegraph_tools(path);
+
+                if cli_installed && !db_exists {
+                    let _ = event_tx.send(AgentEvent::with_data(
+                        matrixcode_core::EventType::Progress,
+                        matrixcode_core::EventData::Progress {
+                            message: "🔄 Generating CodeGraph index...".into(),
+                            percentage: Some(60),
+                        },
+                    )).await;
+
+                    let manager = CodeGraphManager::new(path);
+                    match manager.init().await {
+                        Ok(_) => {
+                            // Sync after init
+                            if let Err(e) = manager.sync().await {
+                                log::warn!("CodeGraph sync failed: {}", e);
+                            }
+
+                            let _ = event_tx.send(AgentEvent::with_data(
+                                matrixcode_core::EventType::Progress,
+                                matrixcode_core::EventData::Progress {
+                                    message: "✓ CodeGraph index generated (code analysis tools now available)".into(),
+                                    percentage: Some(100),
+                                },
+                            )).await;
+
+                            // Return true to refresh tools (state changed)
+                            true
+                        }
+                        Err(e) => {
+                            let _ = event_tx.send(AgentEvent::with_data(
+                                matrixcode_core::EventType::Progress,
+                                matrixcode_core::EventData::Progress {
+                                    message: format!("⚠️ CodeGraph generation skipped: {}", e),
+                                    percentage: Some(100),
+                                },
+                            )).await;
+                            false
+                        }
+                    }
+                } else if !cli_installed {
+                    let _ = event_tx.send(AgentEvent::with_data(
+                        matrixcode_core::EventType::Progress,
+                        matrixcode_core::EventData::Progress {
+                            message: "⚠️ CodeGraph CLI not installed. Run 'codegraph install' to enable code analysis tools.".into(),
+                            percentage: Some(100),
+                        },
+                    )).await;
+                    false
+                } else {
+                    // db already exists
+                    let _ = event_tx.send(AgentEvent::with_data(
+                        matrixcode_core::EventType::Progress,
+                        matrixcode_core::EventData::Progress {
+                            message: "✓ CodeGraph index already exists".into(),
+                            percentage: Some(100),
+                        },
+                    )).await;
+                    false
                 }
             } else {
                 let _ = event_tx.send(AgentEvent::error(

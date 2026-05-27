@@ -11,6 +11,136 @@
       "importance": 45.0,
       "tags": [],
       "is_manual": false
+    },
+    {
+      "id": "bf86bee8-0e19-4af3-8bd1-ead4792e89a0",
+      "created_at": "2026-05-27T07:19:08.935958600Z",
+      "last_referenced": "2026-05-27T07:19:08.935961Z",
+      "category": "technical",
+      "content": "代码编辑工具集：read（读取文件）、write（创建/写入文件）、edit（精确替换代码片段）、multi_edit（一次修改多处代码）",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "read",
+        "write",
+        "edit",
+        "multi_edit",
+        "代码编辑",
+        "code editing",
+        "tools",
+        "development"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "3fbf9141-47a6-4cd1-951d-f59abdc70211",
+      "created_at": "2026-05-27T07:19:08.935992100Z",
+      "last_referenced": "2026-05-27T07:19:08.935992200Z",
+      "category": "technical",
+      "content": "代码搜索与分析工具：grep（支持正则、按文件类型过滤）、search（搜索文件内容）、glob（按模式查找文件如 **/*.ts）",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "grep",
+        "search",
+        "glob",
+        "代码搜索",
+        "code search",
+        "正则",
+        "tools",
+        "search"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "9fb91f30-bc48-4f31-b8c7-587011100e77",
+      "created_at": "2026-05-27T07:19:08.935994100Z",
+      "last_referenced": "2026-05-27T07:19:08.935994200Z",
+      "category": "technical",
+      "content": "智能辅助与任务管理工具：enter_plan_mode（规划复杂实现）、skill（加载专业技能）、ask（向用户确认）、todo_write（跟踪多步骤任务）、task（启动后台代理）",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "enter_plan_mode",
+        "skill",
+        "ask",
+        "todo_write",
+        "task",
+        "智能辅助",
+        "任务管理",
+        "tools",
+        "workflow"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "7b6b84a6-23f8-441d-bfc7-8a0e8f395ad0",
+      "created_at": "2026-05-27T07:19:08.935997Z",
+      "last_referenced": "2026-05-27T07:19:08.935997100Z",
+      "category": "solution",
+      "content": "典型开发流程：grep/glob 找代码 → read 读代码 → edit 修改 → bash 测试",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "开发流程",
+        "development workflow",
+        "grep",
+        "read",
+        "edit",
+        "bash",
+        "workflow",
+        "development"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "7642f92a-8e1e-4561-bb3d-9cb0fa7512aa",
+      "created_at": "2026-05-27T07:33:20.363356800Z",
+      "last_referenced": "2026-05-27T07:33:20.363359400Z",
+      "category": "technical",
+      "content": "代码操作工具集：搜索分析(grep/glob/code_search/code_callers/code_callees)、编辑(read/write/edit/multi_edit)、开发(bash/monitor)、智能辅助(skill/enter_plan_mode/ask)",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "grep",
+        "edit",
+        "bash",
+        "code_search",
+        "multi_edit",
+        "development",
+        "tools"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "3f6d9f4f-b602-41d0-980c-d942c597ea0c",
+      "created_at": "2026-05-27T07:33:20.363366500Z",
+      "last_referenced": "2026-05-27T07:33:20.363366500Z",
+      "category": "solution",
+      "content": "典型代码处理流程：grep 找代码 → read 读文件 → edit 修改 → bash 测试",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "grep",
+        "read",
+        "edit",
+        "bash",
+        "workflow",
+        "development"
+      ],
+      "is_manual": false
     }
   ],
   "config": {
