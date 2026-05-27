@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::process::Command;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::time::{sleep, timeout};
 
 use super::{Tool, ToolDefinition};
@@ -176,7 +176,24 @@ pub async fn install_codegraph() -> Result<()> {
     }
 }
 
-/// Ensure CodeGraph is available (check and auto-install if needed).
+/// CodeGraph installation status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodeGraphInstallStatus {
+    /// Already installed and available.
+    Installed(String),
+    /// Not installed, needs user approval to install.
+    NotInstalled,
+}
+
+/// Check CodeGraph installation status (no auto-install).
+pub fn check_codegraph_status() -> CodeGraphInstallStatus {
+    match get_codegraph_path() {
+        Some(path) => CodeGraphInstallStatus::Installed(path),
+        None => CodeGraphInstallStatus::NotInstalled,
+    }
+}
+
+/// Ensure CodeGraph is available with optional auto-install.
 pub async fn ensure_codegraph() -> Result<String> {
     if let Some(path) = get_codegraph_path() {
         return Ok(path);
@@ -188,6 +205,25 @@ pub async fn ensure_codegraph() -> Result<String> {
     // Check again after installation
     get_codegraph_path()
         .ok_or_else(|| anyhow::anyhow!("CodeGraph installation failed - please install manually"))
+}
+
+/// Ensure CodeGraph with user prompt support.
+/// Returns None if not installed and user declined installation.
+pub async fn ensure_codegraph_with_prompt(prompt_fn: impl FnOnce() -> bool) -> Result<Option<String>> {
+    match get_codegraph_path() {
+        Some(path) => Ok(Some(path)),
+        None => {
+            // Prompt user for installation
+            if prompt_fn() {
+                install_codegraph().await?;
+                get_codegraph_path()
+                    .ok_or_else(|| anyhow::anyhow!("CodeGraph installation failed - please install manually"))
+                    .map(Some)
+            } else {
+                Ok(None)
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -226,6 +262,43 @@ impl CodeGraphManager {
     /// Initialize CodeGraph index via CLI.
     pub async fn init(&self) -> Result<()> {
         self.run_cli_command(&["init", "-i"]).await?;
+        Ok(())
+    }
+
+    /// Reinitialize CodeGraph - delete old index, matrix.md and rebuild.
+    /// Returns error if CodeGraph CLI is not installed.
+    pub async fn reinit(&self) -> Result<()> {
+        // Check if CodeGraph CLI is available
+        if get_codegraph_path().is_none() {
+            return Err(anyhow::anyhow!(
+                "CodeGraph CLI not installed. Please install first or use init with --install flag."
+            ));
+        }
+
+        // Delete old .codegraph directory
+        let codegraph_dir = self.project_path.join(".codegraph");
+        if codegraph_dir.exists() {
+            log::info!("CodeGraph: deleting old index at {}", codegraph_dir.display());
+            std::fs::remove_dir_all(&codegraph_dir)?;
+        }
+
+        // Delete matrix.md overview file (if exists)
+        let matrix_md_path = self.project_path.join(".matrix").join("matrix.md");
+        if matrix_md_path.exists() {
+            log::info!("CodeGraph: deleting old matrix.md at {}", matrix_md_path.display());
+            std::fs::remove_file(&matrix_md_path)?;
+        }
+
+        // Rebuild fresh index
+        log::info!("CodeGraph: rebuilding index for {}", self.project_path.display());
+        self.init().await?;
+
+        // Sync to ensure everything is up to date
+        self.sync().await?;
+
+        // Save version after reinit
+        update_version_after_sync(&self.project_path);
+
         Ok(())
     }
 
@@ -511,6 +584,216 @@ const WATCH_EXTENSIONS: &[&str] = &[
     "rb", "php", "swift", "cs", "scala", "lua", "sh",
 ];
 
+/// Git status polling interval (for non-fsmonitor fallback)
+const GIT_STATUS_POLL_INTERVAL_SECS: u64 = 2;
+
+// ============================================================================
+// Git Environment Detection & Helpers
+// ============================================================================
+
+/// Check if directory is inside a Git work tree.
+fn is_git_repository(project_path: &Path) -> bool {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(project_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Get current Git HEAD commit SHA.
+fn get_git_head_sha(project_path: &Path) -> Option<String> {
+    std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(project_path)
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+}
+
+/// Get all Git tracked files (for efficient init).
+#[allow(dead_code)]
+fn get_git_tracked_files(project_path: &Path) -> Vec<PathBuf> {
+    std::process::Command::new("git")
+        .args(["ls-files"])
+        .current_dir(project_path)
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(
+                    String::from_utf8_lossy(&o.stdout)
+                        .lines()
+                        .filter_map(|line| {
+                            let path = project_path.join(line);
+                            if is_source_file(&path) {
+                                Some(path)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                )
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default()
+}
+
+/// Get changed files via git status --porcelain.
+/// Returns (modified, added, deleted) file lists.
+fn get_git_status_changes(project_path: &Path) -> GitStatusChanges {
+    let output = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(project_path)
+        .output();
+
+    let mut changes = GitStatusChanges::default();
+
+    if let Ok(o) = output
+        && o.status.success() {
+        for line in String::from_utf8_lossy(&o.stdout).lines() {
+            if line.len() < 2 {
+                continue;
+            }
+            let status = &line[..2];
+            let path = line[3..].trim();
+
+            // Handle rename format: "R100 old -> new"
+            let file_path = if path.contains(" -> ") {
+                path.split(" -> ").nth(1).unwrap_or(path)
+            } else {
+                path
+            };
+
+            let full_path = project_path.join(file_path);
+
+            // Check if it's a source file
+            if !is_source_file(&full_path) {
+                continue;
+            }
+
+            // Categorize by status code
+            match status.trim() {
+                "M" | "MM" | "AM" => changes.modified.push(full_path),
+                "A" | "??" => changes.added.push(full_path),
+                "D" | "AD" | "MD" => changes.deleted.push(full_path),
+                "R" => {
+                    // Rename: treat as delete old + add new
+                    if let Some(old_path) = path.split(" -> ").next() {
+                        changes.deleted.push(project_path.join(old_path));
+                    }
+                    changes.added.push(full_path);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    changes
+}
+
+/// Start Git fsmonitor daemon (if available).
+fn start_git_fsmonitor(project_path: &Path) -> bool {
+    std::process::Command::new("git")
+        .args(["fsmonitor--daemon", "start"])
+        .current_dir(project_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Check if Git fsmonitor daemon is running.
+fn is_git_fsmonitor_running(project_path: &Path) -> bool {
+    std::process::Command::new("git")
+        .args(["fsmonitor--daemon", "status"])
+        .current_dir(project_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Git status changes result.
+#[derive(Debug, Default)]
+struct GitStatusChanges {
+    modified: Vec<PathBuf>,
+    added: Vec<PathBuf>,
+    deleted: Vec<PathBuf>,
+}
+
+impl GitStatusChanges {
+    fn has_changes(&self) -> bool {
+        !self.modified.is_empty() || !self.added.is_empty() || !self.deleted.is_empty()
+    }
+
+    #[allow(dead_code)]
+    fn total_count(&self) -> usize {
+        self.modified.len() + self.added.len() + self.deleted.len()
+    }
+}
+
+// ============================================================================
+// Version Tracking (Git SHA Persistence)
+// ============================================================================
+
+/// Version file name for storing Git HEAD SHA.
+const VERSION_FILE: &str = "version.txt";
+
+/// Save current Git HEAD SHA to version file.
+fn save_version_sha(project_path: &Path, sha: &str) {
+    let version_path = project_path.join(".codegraph").join(VERSION_FILE);
+    if let Some(parent) = version_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&version_path, sha);
+}
+
+/// Load stored Git HEAD SHA from version file.
+fn load_version_sha(project_path: &Path) -> Option<String> {
+    let version_path = project_path.join(".codegraph").join(VERSION_FILE);
+    std::fs::read_to_string(&version_path)
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+/// Check if version has changed (current SHA != stored SHA).
+fn has_version_changed(project_path: &Path) -> bool {
+    let current_sha = get_git_head_sha(project_path);
+    let stored_sha = load_version_sha(project_path);
+    current_sha != stored_sha
+}
+
+/// Update version after successful sync.
+fn update_version_after_sync(project_path: &Path) {
+    if let Some(sha) = get_git_head_sha(project_path) {
+        save_version_sha(project_path, &sha);
+        log::debug!("CodeGraph: version updated to SHA {}", sha);
+    }
+}
+
+/// Environment type for CodeGraph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CodeGraphEnv {
+    Git,
+    NonGit,
+}
+
+/// Detect environment type at startup.
+fn detect_env_type(project_path: &Path) -> CodeGraphEnv {
+    if is_git_repository(project_path) {
+        CodeGraphEnv::Git
+    } else {
+        CodeGraphEnv::NonGit
+    }
+}
+
 /// Gitignore patterns loaded from file.
 pub struct IgnoreMatcher {
     patterns: Vec<String>,
@@ -660,23 +943,19 @@ impl CodeGraphWatcher {
         let _ = self.stop_tx.send(());
     }
 
-    /// Run the watcher loop.
+    /// Run the watcher loop with dual-path monitoring.
     async fn run_watcher_loop(
         project_path: PathBuf,
-        _sync_interval: Duration, // Kept for API compatibility, actual debounce is fixed
+        _sync_interval: Duration,
         cancel_token: CancellationToken,
     ) {
-        // Ensure CodeGraph CLI is available
+        // Check if CodeGraph CLI is available (no auto-install)
         if get_codegraph_path().is_none() {
-            log::warn!("CodeGraph CLI not found, watcher will not auto-sync");
-            // Try to install
-            if let Err(e) = install_codegraph().await {
-                log::warn!("CodeGraph auto-install failed: {}", e);
-                return;
-            }
+            log::warn!("CodeGraph CLI not found, watcher disabled. Please install CodeGraph manually.");
+            return;
         }
 
-        // Check if this is a code project (has detectable project files)
+        // Check if this is a code project
         let analyzer = ProjectStructureAnalyzer::new(project_path.clone());
         if analyzer.detect_project_type().is_none() {
             log::info!(
@@ -686,6 +965,17 @@ impl CodeGraphWatcher {
             return;
         }
 
+        // Detect environment type
+        let env_type = detect_env_type(&project_path);
+        log::info!(
+            "CodeGraph: environment detected as {} for: {}",
+            match env_type {
+                CodeGraphEnv::Git => "Git repository",
+                CodeGraphEnv::NonGit => "non-Git directory",
+            },
+            project_path.display()
+        );
+
         // Initialize CodeGraph if not already
         let manager = CodeGraphManager::new(&project_path);
         if !manager.is_initialized() {
@@ -694,91 +984,180 @@ impl CodeGraphWatcher {
                 log::warn!("CodeGraph init failed: {}", e);
                 return;
             }
+            // Initial sync after init
+            if let Err(e) = manager.sync().await {
+                log::warn!("CodeGraph post-init sync failed: {}", e);
+            }
+            // Save version after init
+            update_version_after_sync(&project_path);
         }
 
-        // Initial sync on startup to ensure index is fresh
+        // Check version consistency before starting
+        if env_type == CodeGraphEnv::Git && has_version_changed(&project_path) {
+            log::info!("CodeGraph: version changed, performing sync before starting watcher");
+            if let Err(e) = manager.sync().await {
+                log::warn!("CodeGraph version sync failed: {}", e);
+            }
+            update_version_after_sync(&project_path);
+        }
+
+        // Initial sync on startup
         log::info!("CodeGraph: performing initial sync on startup");
         if let Err(e) = manager.sync().await {
             log::warn!("CodeGraph initial sync failed: {}", e);
         }
+        update_version_after_sync(&project_path);
 
-        // Channel for file change events
+        // Channel for file change events (from notify)
         let (change_tx, mut change_rx) = mpsc::channel::<PathBuf>(100);
 
-        // Create file watcher
-        let watcher_result = Self::create_file_watcher(&project_path, change_tx);
-
+        // Create notify file watcher (always running as fallback)
+        let watcher_result = Self::create_file_watcher(&project_path, change_tx.clone());
         if watcher_result.is_err() {
-            log::warn!("CodeGraph watcher failed to start: {}", watcher_result.err().unwrap());
+            log::warn!("CodeGraph notify watcher failed to start: {}", watcher_result.err().unwrap());
             return;
         }
-
         let _watcher = watcher_result.unwrap();
 
-        // Load ignore matcher with .gitignore support
+        // Load ignore matcher
         let ignore_matcher = IgnoreMatcher::load(&project_path);
 
-        // Track sync state
-        let mut last_sync = Instant::now();
-        let mut pending_count = 0;
+        // Track sync state with deduplication (async-safe)
         let syncing = Arc::new(AtomicBool::new(false));
         let syncing_clone = syncing.clone();
-        // Debounce: wait for changes to settle before sync
+        let changed_files = Arc::new(RwLock::new(std::collections::HashSet::<PathBuf>::new()));
+        let last_change = Arc::new(std::sync::Mutex::new(Instant::now()));
+
+        // Debounce settings
         let debounce_delay = Duration::from_secs(CODEGRAPH_SYNC_INTERVAL_SECS);
+        let git_poll_interval = Duration::from_secs(GIT_STATUS_POLL_INTERVAL_SECS);
 
-        log::info!("CodeGraph watcher started for: {}", project_path.display());
+        // Start Git monitoring if in Git environment
+        let git_monitoring = if env_type == CodeGraphEnv::Git {
+            // Try to start Git fsmonitor daemon
+            if start_git_fsmonitor(&project_path) {
+                log::info!("CodeGraph: Git fsmonitor daemon started");
+                true
+            } else if is_git_fsmonitor_running(&project_path) {
+                log::info!("CodeGraph: Git fsmonitor daemon already running");
+                true
+            } else {
+                log::info!("CodeGraph: Git fsmonitor not available, using git status polling");
+                false
+            }
+        } else {
+            false
+        };
 
-        // Check interval for cancellation (responsive but not too frequent)
-        let check_interval = Duration::from_secs(2);
+        log::info!(
+            "CodeGraph watcher started (Git monitoring: {}, notify fallback: always)",
+            git_monitoring
+        );
+
+        // Check interval
+        let check_interval = Duration::from_secs(1);
 
         loop {
-            // Check cancellation at the start of each iteration
             if cancel_token.is_cancelled() {
-                // Final sync before exit if there are pending changes
-                if pending_count > 0 && !syncing.load(Ordering::SeqCst) {
-                    log::info!("CodeGraph: final sync before exit ({} pending changes)", pending_count);
+                // Final sync before exit
+                let pending_count = changed_files.read().await.len();
+                if pending_count > 0 {
+                    log::info!(
+                        "CodeGraph: final sync before exit ({} unique files)",
+                        pending_count
+                    );
                     let manager = CodeGraphManager::new(&project_path);
                     if manager.is_initialized() {
                         let _ = manager.sync().await;
+                        update_version_after_sync(&project_path);
                     }
                 }
-                log::info!("CodeGraph watcher stopped (cancelled)");
+                log::info!("CodeGraph watcher stopped");
                 break;
             }
 
             tokio::select! {
-                // Check for file changes
+                // Notify file changes (fallback path - always running)
                 Some(path) = change_rx.recv() => {
                     if cancel_token.is_cancelled() {
                         break;
                     }
-                    // Check if it's a source file and not ignored
                     if is_source_file(&path)
                         && !ignore_matcher.should_ignore(&path, &project_path) {
-                        pending_count += 1;
-                        last_sync = Instant::now(); // Reset debounce timer
-                        log::debug!("CodeGraph: file changed {} (total pending: {})", path.display(), pending_count);
+                        // Add to set (deduplicated, async-safe)
+                        {
+                            let mut files = changed_files.write().await;
+                            if files.insert(path.clone()) {
+                                *last_change.lock().unwrap() = Instant::now();
+                                log::debug!(
+                                    "CodeGraph [notify]: new file {} (total unique: {})",
+                                    path.display(),
+                                    files.len()
+                                );
+                            }
+                        }
                     }
                 }
 
-                // Periodic check: sync when changes settle (debounce)
+                // Git status polling (Git environment only)
+                _ = sleep(git_poll_interval), if git_monitoring => {
+                    if cancel_token.is_cancelled() {
+                        break;
+                    }
+                    // Check Git status for changes
+                    let changes = get_git_status_changes(&project_path);
+                    if changes.has_changes() {
+                        let mut new_count = 0;
+                        {
+                            let mut files = changed_files.write().await;
+                            // Add all changed files to set (deduplicated)
+                            for path in changes.modified.iter().chain(&changes.added).chain(&changes.deleted) {
+                                if files.insert(path.clone()) {
+                                    new_count += 1;
+                                }
+                            }
+                            if new_count > 0 {
+                                log::debug!(
+                                    "CodeGraph [git]: {} new changes (modified: {}, added: {}, deleted: {}, total unique: {})",
+                                    new_count,
+                                    changes.modified.len(),
+                                    changes.added.len(),
+                                    changes.deleted.len(),
+                                    files.len()
+                                );
+                            }
+                        }
+                        if new_count > 0 {
+                            *last_change.lock().unwrap() = Instant::now();
+                        }
+                    }
+                }
+
+                // Periodic sync check (debounced)
                 _ = sleep(check_interval) => {
                     if cancel_token.is_cancelled() {
                         break;
                     }
 
-                    // Only sync when: not already syncing + have pending changes + debounce elapsed
+                    let files_count = changed_files.read().await.len();
+                    let elapsed = last_change.lock().unwrap().elapsed();
+
+                    // Sync when: not syncing + have pending + debounce elapsed
                     if !syncing_clone.load(Ordering::SeqCst)
-                        && pending_count > 0
-                        && last_sync.elapsed() >= debounce_delay {
+                        && files_count > 0
+                        && elapsed >= debounce_delay {
                         syncing_clone.store(true, Ordering::SeqCst);
+                        log::info!("CodeGraph: auto-sync triggered ({} unique files changed)", files_count);
+
                         let manager = CodeGraphManager::new(&project_path);
                         if manager.is_initialized() {
-                            log::info!("CodeGraph: auto-sync triggered ({} pending changes)", pending_count);
                             if let Err(e) = manager.sync().await {
                                 log::warn!("CodeGraph sync failed: {}", e);
+                            } else {
+                                update_version_after_sync(&project_path);
                             }
-                            pending_count = 0;
+                            // Clear the set after sync (async-safe)
+                            changed_files.write().await.clear();
                         }
                         syncing_clone.store(false, Ordering::SeqCst);
                     }
@@ -1086,10 +1465,15 @@ impl Tool for CodeGraphStatusTool {
     }
 
     async fn execute(&self, _params: Value) -> Result<String> {
+        // Check if CodeGraph CLI is installed first
+        if get_codegraph_path().is_none() {
+            return Ok("CodeGraph CLI 未安装。\n\n请先安装 CodeGraph CLI:\n- Windows: 运行 PowerShell 安装脚本\n- Linux/Mac: 运行安装脚本\n\n安装后运行 'codegraph init -i' 来构建代码索引。".to_string());
+        }
+
         let status = self.manager.status()?;
 
         if !status.initialized {
-            return Ok("CodeGraph 未初始化。\n\n运行 'codegraph init -i' 来构建代码索引。".to_string());
+            return Ok("CodeGraph 未初始化。\n\n运行 'codegraph init -i' 来构建代码索引，或在 matrixcode 中使用 /init 命令。".to_string());
         }
 
         Ok(format!(
@@ -1161,6 +1545,9 @@ impl Tool for CodeGraphSyncTool {
 // ============================================================================
 
 /// Create all CodeGraph tools for a project.
+/// Create CodeGraph tools for a project path.
+/// Always returns tools - they will show appropriate error messages
+/// if CodeGraph is not installed or initialized.
 pub fn codegraph_tools(project_path: &Path) -> Vec<Box<dyn Tool>> {
     vec![
         Box::new(CodeGraphSearchTool::new(project_path)),
@@ -1169,6 +1556,22 @@ pub fn codegraph_tools(project_path: &Path) -> Vec<Box<dyn Tool>> {
         Box::new(CodeGraphStatusTool::new(project_path)),
         Box::new(CodeGraphSyncTool::new(project_path)),
     ]
+}
+
+/// Check if CodeGraph tools should be injected.
+/// Returns true if CodeGraph CLI is installed (even if not initialized).
+pub fn should_inject_codegraph_tools() -> bool {
+    get_codegraph_path().is_some()
+}
+
+/// Create CodeGraph tools only if installed.
+/// Returns empty vec if CodeGraph CLI is not available.
+pub fn codegraph_tools_if_installed(project_path: &Path) -> Vec<Box<dyn Tool>> {
+    if should_inject_codegraph_tools() {
+        codegraph_tools(project_path)
+    } else {
+        vec![]
+    }
 }
 
 #[cfg(test)]
