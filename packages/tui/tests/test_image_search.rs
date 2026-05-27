@@ -1,6 +1,6 @@
 //! Test real image search API calls
 
-use matrixcode_tui::image_search;
+use matrixcode_tui::image_utils;
 
 #[tokio::test]
 async fn test_real_unsplash_search() {
@@ -12,7 +12,7 @@ async fn test_real_unsplash_search() {
         return;
     }
 
-    let results = image_search::search_unsplash("sunset", 2).await;
+    let results = image_utils::search_unsplash("sunset", 2).await;
     match results {
         Ok(images) => {
             println!("Unsplash found {} images", images.len());
@@ -36,7 +36,7 @@ async fn test_real_pexels_search() {
         return;
     }
 
-    let results = image_search::search_pexels("nature", 2).await;
+    let results = image_utils::search_pexels("nature", 2).await;
     match results {
         Ok(images) => {
             println!("Pexels found {} images", images.len());
@@ -60,7 +60,7 @@ async fn test_real_pixabay_search() {
         return;
     }
 
-    let results = image_search::search_pixabay("forest", 2).await;
+    let results = image_utils::search_pixabay("forest", 2).await;
     match results {
         Ok(images) => {
             println!("Pixabay found {} images", images.len());
@@ -79,7 +79,7 @@ async fn test_real_pixabay_search() {
 async fn test_real_search_all() {
     let _ = dotenvy::from_path("../../.env");
 
-    let results = image_search::search_all("mountain", 3).await;
+    let results = image_utils::search_all("mountain", 3).await;
     match results {
         Ok(images) => {
             println!("Total found {} images from all platforms", images.len());

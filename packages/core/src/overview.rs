@@ -237,8 +237,8 @@ impl ProjectOverview {
 
         // Collect streaming response
         let mut content = String::new();
-        let mut input_tokens: u32 = 0;
-        let mut output_tokens: u32 = 0;
+        let mut input_tokens: u32;
+        let mut output_tokens: u32;
 
         while let Some(event) = rx.recv().await {
             match event {
@@ -257,8 +257,9 @@ impl ProjectOverview {
                 crate::providers::StreamEvent::ToolInputDelta { bytes_so_far } => {
                     log::debug!("Overview tool input delta: {} bytes", bytes_so_far);
                 }
-                crate::providers::StreamEvent::Usage { output_tokens: tokens } => {
-                    output_tokens = tokens;
+                crate::providers::StreamEvent::Usage { output_tokens: _ } => {
+                    // Usage events are sent during streaming, but we only need the final
+                    // token counts from the Done event
                 }
                 crate::providers::StreamEvent::Done(response) => {
                     input_tokens = response.usage.input_tokens;
@@ -632,6 +633,7 @@ pub fn truncate_content(content: &str, max_len: usize) -> String {
 }
 
 /// Extract content from AI response.
+#[allow(dead_code)]
 fn extract_response_content(response: &crate::providers::ChatResponse) -> String {
     let mut content = String::new();
     for block in &response.content {

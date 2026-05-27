@@ -144,10 +144,10 @@ pub fn generate_tools_prompt() -> String {
 pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String {
     let mut tools = base_tools(Arc::new(Vec::new()));
 
-    // Add CodeGraph tools only if CLI is installed and project path provided
+    // Add CodeGraph tools only if initialized (CLI installed + .codegraph exists)
     if let Some(path) = project_path
-        && codegraph::should_inject_codegraph_tools() {
-        tools.extend(codegraph::codegraph_tools_if_installed(path));
+        && codegraph::should_inject_codegraph_tools(path) {
+        tools.extend(codegraph::codegraph_tools_with_auto_detect(path));
     }
 
     // Add workflow tools

@@ -275,6 +275,18 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_skills = skills.clone();
     let agent_shared_approve_mode = shared_approve_mode.clone();
 
+    // Start CodeGraph watcher for auto-sync (before agent task)
+    let watcher_handle: Option<tokio::task::JoinHandle<()>> = if effective_project_path.is_some() {
+        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
+        let watcher = CodeGraphWatcher::new(effective_project_path.as_ref().unwrap().as_path());
+        let watcher_cancel = cancel_token.clone();
+        let handle = watcher.start(watcher_cancel);
+        log::info!("CodeGraph auto-sync watcher started");
+        Some(handle)
+    } else {
+        None
+    };
+
     // Spawn Agent task
     let agent_task = rt.spawn(async move {
         run_agent_task(
@@ -347,6 +359,14 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         agent_task.abort();
     } else {
         std::mem::drop(agent_task);
+    }
+
+    // Cleanup: abort CodeGraph watcher if still running
+    if let Some(handle) = watcher_handle {
+        if !handle.is_finished() {
+            log::info!("Aborting CodeGraph watcher...");
+            handle.abort();
+        }
     }
 
     result
@@ -480,15 +500,7 @@ async fn run_agent_task(
     agent.set_cancel_token(cancel_token.clone());
     agent.set_ask_channel(ask_rx);
 
-    // Start CodeGraph watcher for auto-sync
-    if let Some(ref pp) = project_path {
-        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
-        let watcher = CodeGraphWatcher::new(pp.as_path());
-        let watcher_cancel = cancel_token.clone();
-        if watcher.start(watcher_cancel).is_ok() {
-            log::info!("CodeGraph auto-sync watcher started for: {}", pp.display());
-        }
-    }
+    // CodeGraph watcher is started in main function, not here
 
     let mut turn_count: usize = 0;
 

@@ -498,9 +498,9 @@ pub fn build_system_prompt_with_workflows(
     // Combine: static prompt (before tools) + tools + CODEGRAPH rules (after tools) + sections
     let mut parts = vec![static_prompt, tools_prompt];
     
-    // Add CODEGRAPH usage rules AFTER tools list (only if CLI is installed)
-    if project_path.is_some()
-        && crate::tools::codegraph::should_inject_codegraph_tools() {
+    // Add CODEGRAPH usage rules AFTER tools list (only if initialized)
+    if let Some(path) = project_path
+        && crate::tools::codegraph::should_inject_codegraph_tools(path) {
         parts.push(SYSTEM_PROMPT_CODEGRAPH.to_string());
     }
     

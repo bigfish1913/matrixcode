@@ -321,17 +321,39 @@ impl CodeGraphManager {
             .ok_or_else(|| anyhow::anyhow!("CodeGraph CLI not installed. Run 'codegraph install' or use matrixcode to auto-install."))?;
 
         timeout(Duration::from_secs(CODEGRAPH_CLI_TIMEOUT_SECS), async {
-            let result = Command::new(&codegraph_path)
-                .args(args)
-                .current_dir(&self.project_path)
-                .output()
-                .await?;
+            // Create command with hidden window on Windows
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-            if !result.status.success() {
-                let stderr = String::from_utf8_lossy(&result.stderr);
-                return Err(anyhow::anyhow!("CodeGraph command failed: {}", stderr));
+                let mut std_cmd = std::process::Command::new(&codegraph_path);
+                std_cmd.args(args)
+                    .current_dir(&self.project_path)
+                    .creation_flags(CREATE_NO_WINDOW);
+
+                let result = std_cmd.output()?;
+                if !result.status.success() {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    return Err(anyhow::anyhow!("CodeGraph command failed: {}", stderr));
+                }
+                Ok::<_, anyhow::Error>(())
             }
-            Ok::<_, anyhow::Error>(())
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let result = Command::new(&codegraph_path)
+                    .args(args)
+                    .current_dir(&self.project_path)
+                    .output()
+                    .await?;
+
+                if !result.status.success() {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    return Err(anyhow::anyhow!("CodeGraph command failed: {}", stderr));
+                }
+                Ok::<_, anyhow::Error>(())
+            }
         })
         .await
         .map_err(|_| anyhow::anyhow!(format!("CodeGraph CLI timeout ({})s", CODEGRAPH_CLI_TIMEOUT_SECS)))?
@@ -873,7 +895,7 @@ impl WatcherLock {
         }
     }
 
-    fn to_string(&self) -> String {
+    fn encode(&self) -> String {
         format!("{}:{}:{}",
             self.instance_id,
             self.acquired_at,
@@ -881,7 +903,7 @@ impl WatcherLock {
         )
     }
 
-    fn from_string(s: &str) -> Option<Self> {
+    fn decode(s: &str) -> Option<Self> {
         let parts: Vec<&str> = s.split(':').collect();
         if parts.len() >= 3 {
             Some(Self {
@@ -919,7 +941,7 @@ pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
     if lock_path.exists() {
         let content = std::fs::read_to_string(&lock_path).ok();
         if let Some(s) = content
-            && let Some(lock) = WatcherLock::from_string(&s) {
+            && let Some(lock) = WatcherLock::decode(&s) {
             // Check if lock is stale
             if !lock.is_stale() {
                 log::info!(
@@ -940,7 +962,7 @@ pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
 
     // Acquire lock
     let lock = WatcherLock::new();
-    let _ = std::fs::write(&lock_path, lock.to_string());
+    let _ = std::fs::write(&lock_path, lock.encode());
     log::info!("CodeGraph: acquired watcher lock (instance {})", lock.instance_id);
     true
 }
@@ -959,7 +981,7 @@ fn update_watcher_heartbeat(project_path: &Path) {
     let lock_path = project_path.join(".codegraph").join(WATCHER_LOCK_FILE);
     if lock_path.exists() {
         let lock = WatcherLock::new();
-        let _ = std::fs::write(&lock_path, lock.to_string());
+        let _ = std::fs::write(&lock_path, lock.encode());
     }
 }
 
@@ -1183,21 +1205,18 @@ impl CodeGraphWatcher {
     }
 
     /// Start watching for file changes.
-    /// Returns a stop handle that can be used to stop the watcher.
-    pub fn start(&self, cancel_token: CancellationToken) -> Result<broadcast::Receiver<()>> {
-        let stop_rx = self.stop_tx.subscribe();
+    /// Returns a JoinHandle that can be used to wait for or abort the watcher.
+    pub fn start(&self, cancel_token: CancellationToken) -> tokio::task::JoinHandle<()> {
         let project_path = self.project_path.clone();
         let sync_interval = self.sync_interval;
 
-        // Spawn watcher task
+        // Spawn watcher task and return handle for proper cleanup
         tokio::spawn(async move {
             Self::run_watcher_loop(project_path, sync_interval, cancel_token).await;
-        });
-
-        Ok(stop_rx)
+        })
     }
 
-    /// Stop the watcher.
+    /// Stop the watcher via broadcast signal.
     pub fn stop(&self) {
         let _ = self.stop_tx.send(());
     }
@@ -1844,16 +1863,26 @@ pub fn codegraph_tools_with_auto_detect(start_path: &Path) -> Vec<Box<dyn Tool>>
 }
 
 /// Check if CodeGraph tools should be injected.
-/// Returns true if CodeGraph CLI is installed (even if not initialized).
-pub fn should_inject_codegraph_tools() -> bool {
-    get_codegraph_path().is_some()
+/// Returns true if:
+/// 1. CodeGraph CLI is installed
+/// 2. Project has .codegraph directory (initialized)
+///
+/// Uses automatic project root detection from start_path.
+pub fn should_inject_codegraph_tools(start_path: &Path) -> bool {
+    if get_codegraph_path().is_none() {
+        return false;
+    }
+
+    // Find project root and check for .codegraph directory
+    let project_root = find_project_root(start_path);
+    project_root.join(".codegraph").exists()
 }
 
-/// Create CodeGraph tools only if installed.
-/// Returns empty vec if CodeGraph CLI is not available.
+/// Create CodeGraph tools only if initialized.
+/// Returns empty vec if CodeGraph CLI is not available or project not initialized.
 /// Uses automatic project root detection.
 pub fn codegraph_tools_if_installed(start_path: &Path) -> Vec<Box<dyn Tool>> {
-    if should_inject_codegraph_tools() {
+    if should_inject_codegraph_tools(start_path) {
         codegraph_tools_with_auto_detect(start_path)
     } else {
         vec![]
