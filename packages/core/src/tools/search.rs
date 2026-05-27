@@ -12,7 +12,23 @@ impl Tool for SearchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "search".to_string(),
-            description: "在文件中搜索模式，类似 grep 功能".to_string(),
+            description: r#"在文件内容中搜索匹配的文本模式。
+
+适用场景：
+- 搜索文本内容（错误消息、日志、注释）
+- 搜索字符串常量
+- 不确定目标是否是代码符号
+
+【优先使用 code_search 的场景】
+如果 CodeGraph 可用（系统提示中有 CodeGraph 工具），以下场景应该用 code_search：
+- 查找函数/类/方法/变量的定义 → code_search（快 10-100 倍）
+- 查找符号的调用关系 → code_callers/callees
+- 查找谁调用了某函数 → code_callers
+
+【使用 search 的场景】
+- 搜索非代码文本（错误消息、日志文本）
+- CodeGraph 未初始化或不可用
+- 需要搜索特定文件类型的内容"#.to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

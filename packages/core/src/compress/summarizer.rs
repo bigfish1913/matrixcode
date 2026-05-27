@@ -164,7 +164,9 @@ fn count_chars(s: &str) -> (u32, u32) {
     (ascii, non_ascii)
 }
 
-const SUMMARY_SYSTEM_PROMPT: &str = r#"你是一个内容摘要助手。将长内容压缩为结构化摘要。
+const SUMMARY_SYSTEM_PROMPT: &str = r#"CRITICAL: 仅用文本响应。不要调用任何工具。
+
+你是一个内容摘要助手。将长内容压缩为结构化摘要。
 
 输出要求：
 - 结构化：使用关键信息列表格式
@@ -176,6 +178,7 @@ const SUMMARY_SYSTEM_PROMPT: &str = r#"你是一个内容摘要助手。将长�
 【结果】关键输出或结果
 【要点】重要发现或注意事项
 
+输出摘要后立即停止。
 请直接输出摘要内容。"#;
 
 #[cfg(test)]

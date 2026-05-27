@@ -47,22 +47,65 @@ impl AiMemoryExtractor {
     }
 }
 
-const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是一个记忆提取助手。从对话中提取值得长期记忆的关键信息。
+const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是记忆提取助手。从对话中提取值得长期记忆的关键信息。
 
-记忆类型：
-- decision: 项目或技术选型的决定
-- preference: 用户习惯或偏好
-- solution: 解决问题的具体方法
-- finding: 重要发现或信息
-- technical: 技术栈或框架信息
-- structure: 项目结构信息
+# 记忆类型
 
-输出格式（严格 JSON）：
+<types>
+<type>
+    <name>decision</name>
+    <description>项目或技术选型的决定</description>
+    <when_to_save>用户明确做出技术决策时</when_to_save>
+    <body_structure>先写决策内容，然后 **Why:** 决策原因，**Context:** 适用场景</body_structure>
+</type>
+<type>
+    <name>preference</name>
+    <description>用户习惯或偏好</description>
+    <when_to_save>用户表达"我喜欢/习惯/偏好"时</when_to_save>
+    <body_structure>先写偏好内容，然后 **Why:** 偏好原因（如有）</body_structure>
+</type>
+<type>
+    <name>solution</name>
+    <description>解决问题的具体方法</description>
+    <when_to_save>问题成功解决且方法可复用时</when_to_save>
+    <body_structure>先写解决方案，然后 **Problem:** 解决的问题，**Key:** 关键步骤</body_structure>
+</type>
+<type>
+    <name>finding</name>
+    <description>重要发现或信息</description>
+    <when_to_save>发现非显而易见的信息时</when_to_save>
+</type>
+<type>
+    <name>technical</name>
+    <description>技术栈或框架信息</description>
+    <when_to_save>确认项目使用的技术时</when_to_save>
+</type>
+<type>
+    <name>structure</name>
+    <description>项目结构信息</description>
+    <when_to_save>发现关键入口或核心文件时</when_to_save>
+</type>
+</types>
+
+# 不要保存什么到记忆中
+
+- 代码路径、文件名、目录结构 — 可从项目实时获取
+- Git 历史、最近更改 — git log/blame 是权威来源
+- 临时状态：进行中的任务、当前对话上下文
+- 已在 CLAUDE.md/MATRIX.md 中记录的内容
+- 错误信息和调试细节 — 问题解决后无需保留
+
+这些排除规则即使当用户要求保存时也适用。
+如果他们要求保存临时信息，问："有什么 surprising 或 non-obvious 的部分？"
+
+# 输出格式
+
+严格 JSON：
 {
   "memories": [
     {
       "category": "decision",
-      "content": "采用 PostgreSQL 作为主数据库",
+      "content": "采用 PostgreSQL 作为主数据库。**Why:** 性能要求和团队经验",
       "importance": 85,
       "keywords": ["PostgreSQL", "数据库", "database"],
       "tags": ["backend", "storage"]
@@ -70,14 +113,8 @@ const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是一个记忆提取助手。�
   ]
 }
 
-关键词提取要求：
-- 提取 3-5 个核心关键词（技术名词、项目名、关键概念）
-- 中英文关键词都提取
-- 用于后续记忆检索匹配
-
-标签提取要求：
-- 提取 1-3 个分类标签（如 backend、frontend、config、auth 等）
-- 用于记忆分类筛选
+关键词提取：3-5 个核心关键词（技术名词、项目名、关键概念）
+标签提取：1-3 个分类标签（backend、frontend、config、auth 等）
 
 只返回 JSON，不要其他解释。"#;
 

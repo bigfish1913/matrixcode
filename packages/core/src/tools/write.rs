@@ -13,7 +13,19 @@ impl Tool for WriteTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "write".to_string(),
-            description: "向文件写入内容，若文件不存在则创建。自动验证路径安全性，限制单次写入最大10MB".to_string(),
+            description: "向文件写入内容，若文件不存在则创建。
+
+【重要】写入现有文件前必须先读取：
+- 如果文件已存在，必须先用 read 工具读取当前内容
+- 如果没先读文件，此工具会失败
+- 了解现有内容可防止意外覆盖重要信息
+
+优先用 edit 工具修改现有文件（只发送 diff）
+只在以下情况使用此工具：
+- 创建新文件
+- 完整重写文件（用户明确要求）
+
+路径安全：自动验证路径安全性，阻止路径穿越和系统文件写入".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

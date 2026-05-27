@@ -25,8 +25,25 @@ impl Tool for BashTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "bash".to_string(),
-            description: "在当前工作目录执行 shell 命令，返回合并的 stdout + stderr。\
-                 用于构建、测试、git、包管理器等操作。命令通过 `sh -c` 执行并有超时限制。"
+            description: "在当前工作目录执行 shell 命令，返回合并的 stdout + stderr。
+
+IMPORTANT: 当有相关专用工具时，不要用此工具运行命令。使用专用工具更好：
+
+| 命令 | 替代工具 |
+|-----|---------|
+| cat/head/tail | read |
+| sed/awk | edit |
+| echo > file | write |
+| find/ls | glob |
+| grep/rg | search |
+
+将此工具保留用于：
+- 构建、测试、git、包管理器操作
+- 系统命令和终端操作
+- 需要 shell 执行的命令
+
+工作目录在命令间持久，但 shell 状态不持久。
+命令通过 `sh -c` 执行，有超时限制（默认 120s，最大 600s）。"
                 .to_string(),
             parameters: json!({
                 "type": "object",

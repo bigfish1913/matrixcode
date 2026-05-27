@@ -15,10 +15,24 @@ impl Tool for GlobTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "glob".to_string(),
-            description: "通过 glob 模式查找文件（如 '**/*.rs'、'src/*.toml'）。\
-                 返回匹配的文件路径，按修改时间排序（最新的在前）。\
-                 用于按名称定位文件；若要查找文件内容请使用 'search'。"
-                .to_string(),
+            description: r#"通过 glob 模式查找文件路径。
+
+适用场景：
+- 按文件名模式查找（如 '**/*.rs'、'src/*.toml'）
+- 查找特定扩展名的所有文件
+- 定位配置文件位置
+
+【优先使用 code_files 的场景】
+如果 CodeGraph 可用（系统提示中有 CodeGraph 工具），以下场景应该用 code_files：
+- 查看某个目录下有哪些代码文件 → code_files（更快）
+- 获取项目的文件结构概览 → code_files
+
+【使用 glob 的场景】
+- 查找非代码文件（配置文件、文档等）
+- 搜索特定命名模式的文件
+- CodeGraph 未初始化或不可用
+
+返回匹配路径，按修改时间排序（最新在前）。"#.to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
