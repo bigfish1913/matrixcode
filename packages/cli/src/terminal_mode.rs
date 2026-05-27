@@ -77,6 +77,8 @@ pub fn interactive_resume() -> Result<()> {
             skills_dir: None,
             think: Some(true),
             max_tokens: DEFAULT_MAX_TOKENS,
+            mcp: Vec::new(),
+            no_mcp: false,
             command: None,
         };
         return run_terminal_mode(cli);
@@ -99,6 +101,8 @@ pub fn interactive_resume() -> Result<()> {
                 skills_dir: None,
                 think: Some(true),
                 max_tokens: DEFAULT_MAX_TOKENS,
+                mcp: Vec::new(),
+                no_mcp: false,
                 command: None,
             };
             return run_terminal_mode(cli);
@@ -285,29 +289,30 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_skills = skills.clone();
     let agent_shared_approve_mode = shared_approve_mode.clone();
 
-    // Enter runtime context BEFORE spawning agent task (needed for watcher)
+    // Prepare MCP servers configuration
+    let agent_mcp_servers = crate::helpers::prepare_mcp_tools(
+        &cli.mcp,
+        cli.no_mcp,
+        effective_project_path.as_ref(),
+    );
+
+    // Enter runtime context BEFORE spawning agent task
     let _guard = rt.enter();
 
     // Create shared watcher handle for dynamic watcher management
-    // This allows /init to start watcher after CodeGraph initialization if no daemon conflict
     let watcher_handle_arc = Arc::new(Mutex::new(None::<tokio::task::JoinHandle<()>>));
-    let cancel_token_for_watcher = cancel_token.clone();
 
-    // Start CodeGraph watcher for auto-sync (after entering runtime context)
-    // Smart detection: if CodeGraph MCP daemon is running, skip our watcher to avoid conflict.
-    // If no daemon, start our watcher for auto-sync.
+    // Start CodeGraph watcher for auto-sync (with hidden window on Windows)
     if let Some(path) = &effective_project_path {
         use matrixcode_core::tools::codegraph::CodeGraphWatcher;
 
-        // Check if CodeGraph daemon is already running (has daemon.pid file and process exists)
+        // Check if CodeGraph daemon is already running
         let daemon_pid_path = path.join(".codegraph").join("daemon.pid");
-        let daemon_running = if daemon_pid_path.exists() {
-            // Read PID and check if process is alive
-            std::fs::read_to_string(&daemon_pid_path)
+        let daemon_running = daemon_pid_path.exists()
+            && std::fs::read_to_string(&daemon_pid_path)
                 .ok()
                 .and_then(|pid| pid.trim().parse::<u32>().ok())
                 .map(|pid| {
-                    // On Windows, check if process exists
                     #[cfg(target_os = "windows")]
                     {
                         use std::os::windows::process::CommandExt;
@@ -320,32 +325,21 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
                             .unwrap_or(false)
                     }
                     #[cfg(not(target_os = "windows"))]
-                    {
-                        std::path::Path::new("/proc").join(pid.to_string()).exists()
-                    }
+                    std::path::Path::new("/proc").join(pid.to_string()).exists()
                 })
-                .unwrap_or(false)
-        } else {
-            false
-        };
+                .unwrap_or(false);
 
         if daemon_running {
-            log::info!("CodeGraph MCP daemon detected (PID from daemon.pid), skipping our watcher to avoid conflict");
-            // Don't start watcher - daemon will handle auto-sync
-            // /init can later start watcher if daemon is no longer running
+            log::info!("CodeGraph MCP daemon running, skipping watcher");
         } else {
-            // No daemon running, start our watcher
             let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
-            let watcher_cancel = cancel_token_for_watcher.clone();
-            let handle = watcher.start(watcher_cancel);
-            log::info!("CodeGraph watcher started (no MCP daemon detected, using built-in auto-sync)");
+            let handle = watcher.start(cancel_token.clone());
+            log::info!("CodeGraph watcher started");
             *watcher_handle_arc.lock().unwrap() = Some(handle);
         }
     }
 
-    // Clone for passing to agent task
     let watcher_handle_for_agent = watcher_handle_arc.clone();
-    let cancel_token_for_agent_watcher = cancel_token.clone();
 
     // Spawn Agent task (after entering runtime context and creating watcher)
     let agent_task = rt.spawn(async move {
@@ -370,7 +364,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
             task_rx,
             ask_rx,
             watcher_handle_for_agent,
-            cancel_token_for_agent_watcher,
+            agent_mcp_servers,
         ).await;
     });
 
@@ -379,6 +373,13 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         .map(|v| v == "1" || v == "true" || v == "verbose")
         .unwrap_or(cfg!(debug_assertions));
 
+    // Enable debug logging if debug mode is on
+    // Use session ID if available, otherwise generate one
+    if debug_mode {
+        let session_id = session_metadata.as_ref().map(|m| m.id.as_str());
+        matrixcode_core::debug::enable_debug_logging(session_id);
+        log::info!("Debug logging enabled for session: {:?}", session_id);
+    }
     // Setup terminal for TUI
     let mut terminal = setup_terminal()?;
 
@@ -456,7 +457,7 @@ async fn run_agent_task(
     mut task_rx: tokio::sync::mpsc::Receiver<String>,
     ask_rx: tokio::sync::mpsc::Receiver<String>,
     watcher_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    cancel_token_for_watcher: CancellationToken,
+    mcp_servers: Vec<(String, matrixcode_core::mcp::McpServerConfig)>,
 ) {
     log::info!("Agent task: starting");
 
@@ -530,18 +531,53 @@ async fn run_agent_task(
         project_path.as_ref(),
     );
 
+    // Connect MCP servers and collect tools
+    let mut mcp_tools: Vec<Box<dyn matrixcode_core::tools::Tool>> = Vec::new();
+    for (name, server_config) in mcp_servers {
+        match server_config.to_transport_config() {
+            Ok(transport) => {
+                log::info!("Connecting to MCP server: {}", name);
+                match matrixcode_core::mcp::connect_mcp_server(&name, transport).await {
+                    Ok(tools) => {
+                        log::info!("Connected to '{}' with {} tools", name, tools.len());
+                        let _ = event_tx.send(AgentEvent::progress(
+                            format!("🔗 MCP '{}' 已连接，{} 个工具", name, tools.len()),
+                            None,
+                        )).await;
+                        mcp_tools.extend(tools);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to connect to MCP server '{}': {}", name, e);
+                        let _ = event_tx.send(AgentEvent::error(
+                            format!("MCP '{}' 连接失败: {}", name, e),
+                            Some("mcp_error".to_string()),
+                            None,
+                        )).await;
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Invalid MCP config for server '{}': {}", name, e);
+            }
+        }
+    }
+
     // Build agent with CodeGraph tools
     let project_path_for_tools = project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let mut base_tools = all_tools_full(
+        Arc::new(skills.clone()),
+        provider.clone_arc(),
+        project_path_for_tools.clone(),
+    );
+    // Add MCP tools
+    base_tools.extend(mcp_tools);
+
     let mut agent = AgentBuilder::new(provider.clone_box())
         .system_prompt(system_prompt)
         .model_name(model.clone())
         .max_tokens(max_tokens)
         .think(think)
-        .tools(all_tools_full(
-            Arc::new(skills.clone()),
-            provider.clone_arc(),
-            project_path_for_tools.clone(),
-        ))
+        .tools(base_tools)
         .project_path(project_path_for_tools)
         .event_tx(event_tx.clone())
         .approve_mode(approve_mode)
@@ -619,7 +655,7 @@ async fn run_agent_task(
                 &project_path,
                 provider.as_ref(),
                 &watcher_handle,
-                &cancel_token_for_watcher,
+                &cancel_token,
             ).await;
             if should_refresh {
                 agent.refresh_codegraph_tools();
@@ -860,7 +896,7 @@ async fn handle_init_in_task(
     project_path: &Option<PathBuf>,
     provider: &dyn matrixcode_core::providers::Provider,
     watcher_handle: &Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    cancel_token_for_watcher: &CancellationToken,
+    cancel_token: &CancellationToken,
 ) -> bool {
     let result = handle_init_command(msg, project_path.as_deref());
     match result {
@@ -972,7 +1008,7 @@ async fn handle_init_in_task(
                                     if !daemon_running {
                                         // No daemon, start our watcher
                                         let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
-                                        let handle = watcher.start(cancel_token_for_watcher.clone());
+                                        let handle = watcher.start(cancel_token.clone());
                                         log::info!("CodeGraph watcher started after /init (no MCP daemon detected)");
                                         *handle_guard = Some(handle);
                                     } else {

@@ -13,6 +13,7 @@ pub mod debug;
 pub mod event;
 pub mod memory;
 pub mod models;
+pub mod mcp;
 pub mod overview;
 pub mod path_validator;
 pub mod prompt;

@@ -44,6 +44,16 @@ pub struct Cli {
     #[arg(long, default_value_t = DEFAULT_MAX_TOKENS)]
     pub max_tokens: u32,
 
+    /// MCP server to connect (format: name=command,args)
+    /// Example: --mcp playwright=npx,-y,@playwright/mcp@latest
+    /// Multiple servers: --mcp playwright=... --mcp filesystem=...
+    #[arg(long, value_name = "SPEC")]
+    pub mcp: Vec<String>,
+
+    /// Disable loading MCP servers from config
+    #[arg(long)]
+    pub no_mcp: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

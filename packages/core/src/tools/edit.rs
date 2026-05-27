@@ -15,7 +15,19 @@ impl Tool for EditTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "edit".to_string(),
-            description: "在文件中查找精确匹配的字符串并替换为新内容".to_string(),
+            description: "在文件中查找精确匹配的字符串并替换为新内容。
+
+适用场景：
+- 单处代码修改（改一个函数名）
+- 精确替换（必须唯一匹配）
+- 小范围改动（<10行）
+
+不适用场景：
+- ❌ 同一文件多处修改 → 用 multi_edit（批量替换）
+- ❌ 大范围重构 → 先 enter_plan_mode 规划
+- ❌ 创建新文件 → 用 write
+
+优先级：[高] 小改动首选，精确且安全".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

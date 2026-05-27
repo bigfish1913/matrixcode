@@ -33,6 +33,10 @@ serde_yaml = "0.9"
 rusqlite = { workspace = true }
 notify = { workspace = true }
 
+# MCP dependencies
+tracing = "0.1"
+toml = "0.8"
+
 [dev-dependencies]
 mockito = { workspace = true }
 tempfile = { workspace = true }

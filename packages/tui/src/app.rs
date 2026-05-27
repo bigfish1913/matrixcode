@@ -423,10 +423,9 @@ impl TuiApp {
 
     pub fn run(&mut self, term: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         loop {
-            // Animation frame - cycle through 10 frames for spinner
-            // Always render when animation frame updates (for spinner)
+            // Animation frame - only animate when NOT idle (avoid CPU waste when idle)
             let anim_update = self.last_anim.elapsed().as_millis() >= ANIM_MS as u128;
-            if anim_update {
+            if anim_update && self.activity != Activity::Idle {
                 self.frame = (self.frame + 1) % 10;
                 self.last_anim = Instant::now();
                 self.dirty.set(true);

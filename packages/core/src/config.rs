@@ -25,6 +25,7 @@ use std::path::PathBuf;
 
 use crate::constants::{DEFAULT_MAX_TOKENS, ANTHROPIC_DEFAULT_BASE_URL, OPENAI_DEFAULT_BASE_URL, MATRIX_DIR};
 use crate::models::DEFAULT_MAIN_MODEL;
+use crate::mcp::McpServerConfig;
 
 /// Matrixcode configuration file structure.
 /// Uses universal naming (no ANTHROPIC_ prefix).
@@ -86,6 +87,11 @@ pub struct MatrixConfig {
     /// Format: {"Header-Name": "header-value"}
     #[serde(default)]
     pub extra_headers: Option<HashMap<String, String>>,
+
+    /// MCP servers configuration
+    /// Format: {"server_name": McpServerConfig}
+    #[serde(default)]
+    pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
 }
 
 fn default_true() -> bool {
@@ -205,6 +211,7 @@ impl MatrixConfig {
             fast_model: None,
             approve_mode: Some("ask".to_string()),
             extra_headers: None,
+            mcp_servers: None,
         })
     }
 
@@ -245,6 +252,7 @@ impl MatrixConfig {
             approve_mode: env::var("APPROVE_MODE").ok()
                 .or(Some("ask".to_string())),
             extra_headers,
+            mcp_servers: None,
         }
     }
 
@@ -319,6 +327,8 @@ impl MatrixConfig {
             merged.fast_model = merged.fast_model.or(mx.fast_model);
             merged.approve_mode = merged.approve_mode.or(mx.approve_mode);
             merged.extra_headers = merged.extra_headers.or(mx.extra_headers);
+            // MCP servers from matrix config
+            merged.mcp_servers = mx.mcp_servers;
         }
 
         // Env config (highest priority, overrides everything)
@@ -493,6 +503,7 @@ pub fn create_default_config() -> anyhow::Result<()> {
         fast_model: None,
         approve_mode: Some("ask".to_string()),
         extra_headers: None,
+        mcp_servers: None,
     };
 
     config.save()?;
@@ -588,6 +599,7 @@ mod tests {
             fast_model: None,
             approve_mode: None,
             extra_headers: None,
+            mcp_servers: None,
         };
         assert!(config.api_key.is_none());
         assert!(config.model.is_none());

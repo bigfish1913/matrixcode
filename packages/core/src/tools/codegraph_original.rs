@@ -1513,7 +1513,20 @@ impl Tool for CodeGraphSearchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "code_search".to_string(),
-            description: "[优先工具] 搜索代码符号（函数、类、方法、变量）。查找代码定义时必须优先使用此工具，比 grep 快 10-100 倍。返回符号位置、签名、文档。grep 仅用于搜索字符串内容（如错误消息）。".to_string(),
+            description: "[优先工具] 搜索代码符号（函数、类、方法、变量）。
+
+适用场景：
+- 找函数定义（如 'handle_request'、'User::new'）
+- 查类定义、结构体、接口
+- 定位变量声明、常量定义
+- 查找方法签名、文档注释
+
+不适用场景：
+- ❌ 搜错误信息 → 用 grep（如 'failed to'、'panic'）
+- ❌ 搜注释内容 → 用 grep（如 'TODO'）
+- ❌ 搜字符串常量 → 用 grep
+
+优先级：[高] 比grep快10-100倍，语义搜索首选".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1586,7 +1599,18 @@ impl Tool for CodeGraphCallersTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "code_callers".to_string(),
-            description: "[优先工具] 查找调用指定符号的所有函数/方法。分析调用关系时必须优先使用，比 grep 追溯更准确。grep 仅用于搜索字符串内容。".to_string(),
+            description: "[优先工具] 查找调用指定符号的所有函数/方法（向上追溯）。
+
+适用场景：
+- 查谁调用了 'handle_error'？
+- 哪些地方使用了 'User::new'？
+- 分析函数被哪些模块引用
+
+不适用场景：
+- ❌ 查某函数调用了谁 → 用 code_callees
+- ❌ 搜字符串内容 → 用 grep
+
+优先级：[高] 分析调用关系首选".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -1668,7 +1692,18 @@ impl Tool for CodeGraphCalleesTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "code_callees".to_string(),
-            description: "[优先工具] 查找指定符号调用的所有函数/方法。分析执行流程时必须优先使用，比 grep 追踪更准确。grep 仅用于搜索字符串内容。".to_string(),
+            description: "[优先工具] 查找指定符号调用的所有函数/方法（向下追踪）。
+
+适用场景：
+- 查 'handle_request' 调用了哪些函数？
+- 分析函数内部的执行流程
+- 追踪代码依赖关系
+
+不适用场景：
+- ❌ 查谁调用了某函数 → 用 code_callers
+- ❌ 搜字符串内容 → 用 grep
+
+优先级：[高] 分析执行流程首选".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

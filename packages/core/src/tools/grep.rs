@@ -57,7 +57,20 @@ impl Tool for GrepTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "grep".to_string(),
-            description: "高性能内容搜索工具，适用于任意规模代码库。支持正则表达式、文件类型过滤和多种输出模式。".to_string(),
+            description: "搜索文本内容（错误消息、注释、字符串等）。
+
+适用场景：
+- 搜错误信息（如 'failed to connect'、'panic'）
+- 找注释内容（如 'TODO'、'FIXME'）
+- 搜字符串常量、日志文本
+- 搜索任意文本模式（正则表达式）
+
+不适用场景：
+- ❌ 找函数定义 → 用 code_search（快10-100倍）
+- ❌ 找类定义、变量声明 → 用 code_search
+- ❌ 查谁调用了某方法 → 用 code_callers
+
+优先级：[中] 文本搜索首选工具".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

@@ -11,6 +11,34 @@ const SYSTEM_PROMPT_THINKING: &str = r#"任务决策：
 Skill 工具：
 遇到需要专业方法的场景时，用 Skill 工具传入意图关键词（如调试、规划、重构），系统会匹配最适合的能力。不确定就求助。"#;
 
+const SYSTEM_PROMPT_TOOL_DECISION: &str = r#"工具选择决策链（必须执行）：
+
+第1步：判断意图
+问自己：用户想做什么？
+- 找代码定义？ → 查看工具描述中的符号搜索类工具
+- 搜文本内容？ → 文本搜索类工具
+- 改文件？ → 编辑类工具
+- 执行命令？ → bash工具
+- 不确定？ → 先用 ask 确认
+
+第2步：选择最优工具
+- 查看工具描述中的"适用场景"
+- 注意工具描述中的 [优先] 标记
+- 避免"不适用场景"中列出的错误
+
+第3步：验证选择
+检查：是否犯了常见错误？
+- ❌ 文本搜索工具找代码定义 → 应该用符号搜索工具
+- ❌ 符号搜索工具搜文本内容 → 应该用文本搜索工具
+- ❌ 单处改动用批量编辑工具 → 应该用单次编辑工具
+- ❌ 不确定时直接执行 → 应该先 ask
+
+关键原则：
+- 有 [优先] 标记的工具通常更优
+- 参考工具描述中的"适用场景"和"不适用场景"
+- 工具不存在时说明不可用，选择替代方案
+- 不确定时宁可用 ask 确认"#;
+
 const SYSTEM_PROMPT_MISSION: &str = r#"核心目标：
 - 安全正确完成编码任务
 - 依据仓库内容和工具输出，不猜测
@@ -115,6 +143,11 @@ CodeGraph 是预先索引的代码知识库，查询速度比 grep/read 快 10-1
 【使用优先级 - 必须遵守】
 1. 查找代码符号（函数、类、方法、变量）→ 必须先用 code_search
 2. 分析调用关系 → 必须用 code_callers/callees
+
+【常见错误】
+- ❌ 用 grep 找函数定义 → 应该用 code_search（快10-100倍）
+- ❌ 用 grep 查调用关系 → 应该用 code_callers/callees
+- ❌ 用 code_search 搜错误信息 → 应该用 grep
 3. CodeGraph 返回的位置和源码片段视为已读取，不要重复 Read
 4. 只在以下情况使用 grep/search/Read：
    - 搜索字符串内容（如错误消息、日志文本）
@@ -147,6 +180,7 @@ const SYSTEM_PROMPT_TASK_TRACKING: &str = r#"任务追踪：
 const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
     SYSTEM_PROMPT_THINKING,
+    SYSTEM_PROMPT_TOOL_DECISION,  // 工具选择决策链
     SYSTEM_PROMPT_MISSION,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_AMBIGUITY,
@@ -167,6 +201,7 @@ const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
 const SAFE_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
     SYSTEM_PROMPT_THINKING,
+    SYSTEM_PROMPT_TOOL_DECISION,  // 工具选择决策链
     SYSTEM_PROMPT_MISSION,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_AMBIGUITY,
@@ -192,6 +227,7 @@ const FAST_SYSTEM_PROMPT_MODULES: &[&str] = &[
 const REVIEW_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
     SYSTEM_PROMPT_THINKING,
+    SYSTEM_PROMPT_TOOL_DECISION,  // 工具选择决策链
     SYSTEM_PROMPT_MISSION,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_AMBIGUITY,

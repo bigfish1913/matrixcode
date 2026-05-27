@@ -1,10 +1,13 @@
 //! CLI helper functions
 //!
-//! Shared utilities for model resolution, skills loading, and prompt building.
+//! Shared utilities for model resolution, skills loading, MCP integration, and prompt building.
 
 use std::path::PathBuf;
 
-use matrixcode_core::{Config, infer_provider_type, providers::ProviderType, skills::discover_skills, constants::MATRIX_DIR};
+use matrixcode_core::{
+    Config, infer_provider_type, providers::ProviderType, skills::discover_skills,
+    constants::MATRIX_DIR,
+};
 
 use crate::constants::DEFAULT_MODEL;
 
@@ -91,6 +94,74 @@ pub fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill
     roots.extend(extra_dirs.iter().cloned());
 
     discover_skills(&roots)
+}
+
+/// Parse MCP server spec from CLI --mcp parameter.
+/// Format: name=command,args (e.g., playwright=npx,-y,@playwright/mcp@latest)
+fn parse_mcp_spec(spec: &str) -> Option<(String, String, Vec<String>)> {
+    let parts: Vec<&str> = spec.splitn(2, '=').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let name = parts[0].trim();
+    let cmd_parts: Vec<&str> = parts[1].split(',').collect();
+
+    if cmd_parts.is_empty() {
+        return None;
+    }
+
+    let command = cmd_parts[0].trim().to_string();
+    let args: Vec<String> = cmd_parts[1..].iter().map(|s| s.trim().to_string()).collect();
+
+    Some((name.to_string(), command, args))
+}
+
+/// Load MCP tools from CLI params and config files.
+///
+/// Priority order:
+/// 1. CLI --mcp params (highest)
+/// 2. Project .matrix/mcp.toml or mcp.json
+/// 3. Global ~/.matrix/mcp.toml or mcp.json
+///
+/// Returns async function to be called in tokio runtime.
+pub fn prepare_mcp_tools(
+    cli_mcp_specs: &[String],
+    no_mcp: bool,
+    project_path: Option<&PathBuf>,
+) -> Vec<(String, matrixcode_core::mcp::McpServerConfig)> {
+    if no_mcp {
+        return Vec::new();
+    }
+
+    let mut servers: Vec<(String, matrixcode_core::mcp::McpServerConfig)> = Vec::new();
+
+    // 1. Parse CLI --mcp params
+    for spec in cli_mcp_specs {
+        if let Some((name, command, args)) = parse_mcp_spec(spec) {
+            servers.push((
+                name.clone(),
+                matrixcode_core::mcp::McpServerConfig::stdio(command, args)
+                    .with_name(name),
+            ));
+        }
+    }
+
+    // 2. Load from config files (project + global)
+    if servers.is_empty() {
+        // Only load config files if no CLI params provided
+        let config = if let Some(path) = project_path {
+            matrixcode_core::mcp::load_mcp_config(path)
+        } else {
+            matrixcode_core::mcp::load_mcp_config(&std::env::current_dir().unwrap_or_default())
+        };
+
+        for (key, server_config) in config.enabled_servers() {
+            servers.push((key, server_config.clone()));
+        }
+    }
+
+    servers
 }
 
 /// Build quick action prompt from action type and file

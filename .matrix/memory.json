@@ -1,6 +1,40 @@
 {
   "entries": [
     {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "aabd9825-3f5e-4d08-890b-3261b21e9bb6",
       "created_at": "2026-05-22T12:06:32.289481400Z",
       "last_referenced": "2026-05-22T12:06:32.289482Z",
@@ -9,7 +43,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 45.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -30,7 +66,8 @@
         "代码编辑",
         "code editing",
         "tools",
-        "development"
+        "development",
+        "project"
       ],
       "is_manual": false
     },
@@ -52,7 +89,8 @@
         "code search",
         "正则",
         "tools",
-        "search"
+        "search",
+        "project"
       ],
       "is_manual": false
     },
@@ -75,7 +113,8 @@
         "智能辅助",
         "任务管理",
         "tools",
-        "workflow"
+        "workflow",
+        "project"
       ],
       "is_manual": false
     },
@@ -97,7 +136,8 @@
         "edit",
         "bash",
         "workflow",
-        "development"
+        "development",
+        "project"
       ],
       "is_manual": false
     },
@@ -118,7 +158,8 @@
         "code_search",
         "multi_edit",
         "development",
-        "tools"
+        "tools",
+        "project"
       ],
       "is_manual": false
     },
@@ -138,7 +179,8 @@
         "edit",
         "bash",
         "workflow",
-        "development"
+        "development",
+        "project"
       ],
       "is_manual": false
     },
@@ -159,7 +201,8 @@
         "clone",
         "巨型文件",
         "code-review",
-        "quality"
+        "quality",
+        "project"
       ],
       "is_manual": false
     },
@@ -178,7 +221,8 @@
         "代码审查报告",
         "问题分级",
         "documentation",
-        "report"
+        "report",
+        "project"
       ],
       "is_manual": false
     },
@@ -198,7 +242,8 @@
         "clone",
         "错误处理",
         "rust",
-        "backend"
+        "backend",
+        "project"
       ],
       "is_manual": false
     },
@@ -220,7 +265,8 @@
         "CodeGraphWatcher",
         "backend",
         "structure",
-        "rust"
+        "rust",
+        "project"
       ],
       "is_manual": false
     },
@@ -241,7 +287,104 @@
         "module export",
         "Rust",
         "rust",
-        "refactoring"
+        "refactoring",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "75a131f2-ba71-45ef-9216-5e1e6e15e27e",
+      "created_at": "2026-05-27T11:47:07.593406700Z",
+      "last_referenced": "2026-05-27T11:47:07.593406900Z",
+      "category": "finding",
+      "content": "直接接入mcp 协议就行了 就能满足了",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "fac34a19-a398-4237-b1f5-11e55a8cfb3e",
+      "created_at": "2026-05-27T11:54:07.898065200Z",
+      "last_referenced": "2026-05-27T11:54:07.898065500Z",
+      "category": "solution",
+      "content": "静态Prompt写死动态工具名的修复方案：静态Prompt改用通用原则（不提具体工具名），具体规则随工具动态注入。在工具描述中标注适用场景和不适用场景",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "Prompt",
+        "动态工具",
+        "静态Prompt",
+        "工具注入",
+        "LLM工具选择",
+        "prompt-engineering",
+        "architecture"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "eb73c1dc-9ce6-4c95-bf75-3bffc3b5dced",
+      "created_at": "2026-05-27T11:54:07.898066900Z",
+      "last_referenced": "2026-05-27T11:54:07.898067Z",
+      "category": "finding",
+      "content": "LLM工具系统设计原则：工具描述=说明书（静态一直存在），决策链Prompt=导航指南（通用原则），工具优先级规则=具体规则（动态注入）",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "工具系统",
+        "设计原则",
+        "动态注入",
+        "Prompt设计",
+        "LLM",
+        "architecture",
+        "design-pattern"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "8c587775-03f1-4c47-86b8-25ed31672232",
+      "created_at": "2026-05-27T11:54:07.898067900Z",
+      "last_referenced": "2026-05-27T11:54:07.898067900Z",
+      "category": "structure",
+      "content": "项目文件结构：core/src/prompt.rs 定义Prompt，tools/codegraph/tools.rs 包含CodeGraph工具逻辑和should_inject_codegraph_tools函数，tools/mod.rs 包含测试",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "prompt.rs",
+        "codegraph/tools.rs",
+        "项目结构",
+        "CodeGraph",
+        "Rust",
+        "structure",
+        "codebase"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "fae73f9a-7998-43ca-a046-c5187a92e165",
+      "created_at": "2026-05-27T11:54:07.898068500Z",
+      "last_referenced": "2026-05-27T11:54:07.898068800Z",
+      "category": "technical",
+      "content": "CodeGraph工具动态注入条件：1) is_codegraph_installed() CLI已安装 2) CodeGraphManager.is_initialized() 存在.codegraph目录。注入点在prompt.rs:538",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "CodeGraph",
+        "动态注入",
+        "should_inject_codegraph_tools",
+        "CodeGraphManager",
+        "条件注入",
+        "codegraph",
+        "config"
       ],
       "is_manual": false
     }

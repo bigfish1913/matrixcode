@@ -1,0 +1,43 @@
+# MCP Configuration Example
+# 
+# This file configures MCP (Model Context Protocol) servers.
+# MatrixCode will automatically discover and connect to these servers,
+# making their tools available to the agent.
+#
+# Place this file in:
+# - Project root: ./mcp.toml
+# - Home directory: ~/.mcp.toml
+
+[servers.playwright]
+# Playwright browser automation
+# Provides: browser_navigate, browser_click, browser_screenshot, etc.
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+enabled = true
+
+# [servers.filesystem]
+# # File system operations (optional)
+# # Provides: read_file, write_file, list_directory, etc.
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+# enabled = true
+
+# [servers.github]
+# # GitHub operations (optional)
+# # Provides: search_repositories, get_issue, create_pr, etc.
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = { GITHUB_TOKEN = "your-token-here" }
+# enabled = true
+
+# [servers.custom-sse]
+# # SSE-based MCP server (for remote servers)
+# url = "http://localhost:3000/mcp"
+# timeout_ms = 60000
+# enabled = false
+
+[settings]
+# Auto-discover MCP servers from config files
+auto_discover = true
+# Connection timeout in milliseconds
+connect_timeout_ms = 10000
