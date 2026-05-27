@@ -3,7 +3,7 @@ members = ["packages/core", "packages/tui", "packages/cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.17"
+version = "0.4.18"
 edition = "2024"
 authors = ["bigfish1913"]
 license = "MIT"
