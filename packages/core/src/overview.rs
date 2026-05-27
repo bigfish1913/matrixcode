@@ -222,27 +222,71 @@ impl ProjectOverview {
             MAX_OUTPUT_TOKENS
         );
 
-        let response = provider
-            .chat(request)
+        // Use streaming API (same as Agent) for better compatibility with DashScope
+        let mut rx = provider
+            .chat_stream(request)
             .await
             .map_err(|e| {
-                log::error!("Overview generation failed: {}", e);
+                log::error!("Overview generation failed to start stream: {}", e);
                 e
             })
             .with_context(|| format!(
-                "calling AI for overview generation (model: {}, base_url may differ from global config if .env file exists)",
+                "starting AI stream for overview generation (model: {})",
                 model_name
             ))?;
 
-        // Log usage for debugging
-        log::info!(
-            "Overview generation: input_tokens={}, output_tokens={}",
-            response.usage.input_tokens,
-            response.usage.output_tokens
-        );
+        // Collect streaming response
+        let mut content = String::new();
+        let mut input_tokens: u32 = 0;
+        let mut output_tokens: u32 = 0;
 
-        // Extract content from response
-        let content = extract_response_content(&response);
+        while let Some(event) = rx.recv().await {
+            match event {
+                crate::providers::StreamEvent::FirstByte => {
+                    log::debug!("Overview generation: received first byte");
+                }
+                crate::providers::StreamEvent::TextDelta { 0: delta } => {
+                    content.push_str(&delta);
+                }
+                crate::providers::StreamEvent::ThinkingDelta { 0: thinking } => {
+                    log::debug!("Overview thinking chunk: {} chars", thinking.len());
+                }
+                crate::providers::StreamEvent::ToolUseStart { id, name } => {
+                    log::debug!("Overview tool use start: {} ({})", name, id);
+                }
+                crate::providers::StreamEvent::ToolInputDelta { bytes_so_far } => {
+                    log::debug!("Overview tool input delta: {} bytes", bytes_so_far);
+                }
+                crate::providers::StreamEvent::Usage { output_tokens: tokens } => {
+                    output_tokens = tokens;
+                }
+                crate::providers::StreamEvent::Done(response) => {
+                    input_tokens = response.usage.input_tokens;
+                    output_tokens = response.usage.output_tokens;
+                    log::info!(
+                        "Overview generation complete: input_tokens={}, output_tokens={}",
+                        input_tokens,
+                        output_tokens
+                    );
+                    // Use final content from response if our accumulated content is empty
+                    if content.is_empty() {
+                        for block in &response.content {
+                            if let crate::providers::ContentBlock::Text { text } = block {
+                                content.push_str(text);
+                            }
+                        }
+                    }
+                }
+                crate::providers::StreamEvent::Error { 0: msg } => {
+                    log::error!("Overview stream error: {}", msg);
+                    return Err(anyhow::anyhow!("Stream error: {}", msg));
+                }
+            }
+        }
+
+        if content.is_empty() {
+            return Err(anyhow::anyhow!("Overview generation returned empty content"));
+        }
 
         // Save to file
         let path = overview_path(project_root);
