@@ -1,0 +1,130 @@
+# Conditional Workflow Example
+# Demonstrates condition branches and different paths
+
+id: conditional-example
+name: Conditional Processing Workflow
+version: "1.0.0"
+description: A workflow with condition branches for different processing paths
+
+inputs:
+  - name: input_type
+    type: string
+    required: true
+    description: Type of input (text, code, data)
+
+  - name: content
+    type: string
+    required: true
+    description: Content to process
+
+outputs:
+  - name: result
+    value: "{{processed_result}}"
+
+nodes:
+  - id: start
+    type: start
+    name: Start
+
+  - id: check_type
+    type: condition
+    name: Check Input Type
+    branches:
+      - condition: "{{input_type}} == 'text'"
+        target: process_text
+      - condition: "{{input_type}} == 'code'"
+        target: process_code
+      - condition: "{{input_type}} == 'data'"
+        target: process_data
+
+  - id: process_text
+    type: task
+    name: Process Text
+    task: ai_text_process
+    params:
+      content: "{{content}}"
+    on_failure:
+      type: goto
+      target: fallback
+
+  - id: process_code
+    type: task
+    name: Process Code
+    task: ai_code_process
+    params:
+      content: "{{content}}"
+    on_failure:
+      type: goto
+      target: fallback
+
+  - id: process_data
+    type: task
+    name: Process Data
+    task: ai_data_process
+    params:
+      content: "{{content}}"
+    on_failure:
+      type: goto
+      target: fallback
+
+  - id: fallback
+    type: task
+    name: Fallback Processing
+    task: simple_process
+    params:
+      content: "{{content}}"
+
+  - id: validate
+    type: validate
+    name: Validate Result
+    params:
+      rules:
+        - type: contains
+          field: "result"
+          value: "processed"
+      ai_validation:
+        prompt: "Check if the result looks properly processed"
+
+  - id: end
+    type: end
+    name: End
+
+edges:
+  - id: e1
+    from: start
+    to: check_type
+
+  - id: e2
+    from: check_type
+    to: process_text
+    condition: "{{input_type}} == 'text'"
+
+  - id: e3
+    from: check_type
+    to: process_code
+    condition: "{{input_type}} == 'code'"
+
+  - id: e4
+    from: check_type
+    to: process_data
+    condition: "{{input_type}} == 'data'"
+
+  - id: e5
+    from: process_text
+    to: validate
+
+  - id: e6
+    from: process_code
+    to: validate
+
+  - id: e7
+    from: process_data
+    to: validate
+
+  - id: e8
+    from: fallback
+    to: validate
+
+  - id: e9
+    from: validate
+    to: end

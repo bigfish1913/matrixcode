@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop, release ]
+    paths:
+      - 'packages/cli/**'
+      - 'packages/vscode/**'
+  pull_request:
+    branches: [ main, master, develop, release ]
+    paths:
+      - 'packages/cli/**'
+      - 'packages/vscode/**'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test-cli:
+    name: Test CLI
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable]
+        include:
+          - os: ubuntu-latest
+            rust: stable
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            rust: stable
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            rust: stable
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/cli/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/cli/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build
+        working-directory: packages/cli
+        run: cargo build --verbose --release
+
+      - name: Run tests
+        working-directory: packages/cli
+        run: cargo test --verbose
+
+  lint-cli:
+    name: Lint CLI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/cli/target
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('packages/cli/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-lint-
+
+      - name: Check formatting
+        working-directory: packages/cli
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        working-directory: packages/cli
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  lint-vscode:
+    name: Lint VSCode Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: packages/vscode
+        run: npm ci
+
+      - name: Build
+        working-directory: packages/vscode
+        run: npm run compile
+
+      - name: Lint
+        working-directory: packages/vscode
+        run: npm run lint

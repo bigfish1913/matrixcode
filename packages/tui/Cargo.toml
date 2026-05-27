@@ -1,0 +1,33 @@
+[package]
+name = "matrixcode-tui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MatrixCode TUI - Terminal UI library for AI Code Agent"
+publish = true
+
+[lib]
+name = "matrixcode_tui"
+
+[dependencies]
+matrixcode-core = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+arboard = { workspace = true }
+pulldown-cmark = { workspace = true }
+syntect = { workspace = true }
+unicode-width = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+futures-util = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+dotenvy = { workspace = true }

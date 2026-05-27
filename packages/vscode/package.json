@@ -1,0 +1,258 @@
+{
+  "name": "matrixcode",
+  "displayName": "MatrixCode - AI Code Agent",
+  "description": "Intelligent code agent with multi-model support, context compression, and cross-session memory",
+  "version": "0.4.17",
+  "publisher": "bigfish1913",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigfish1913/matrixcode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "code assistant",
+    "llm",
+    "anthropic",
+    "claude",
+    "openai",
+    "gpt"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "matrixcode.openChat",
+        "title": "MatrixCode: Open AI Chat",
+        "icon": "$(comments-view-icon)"
+      },
+      {
+        "command": "matrixcode.quickAction",
+        "title": "MatrixCode: Quick Action"
+      },
+      {
+        "command": "matrixcode.explain",
+        "title": "MatrixCode: Explain Code",
+        "icon": "$(info)"
+      },
+      {
+        "command": "matrixcode.fix",
+        "title": "MatrixCode: Fix Code",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "matrixcode.generateTests",
+        "title": "MatrixCode: Generate Tests",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "matrixcode.refactor",
+        "title": "MatrixCode: Refactor Selection",
+        "icon": "$(symbol-refactor)"
+      },
+      {
+        "command": "matrixcode.improve",
+        "title": "MatrixCode: Improve Code",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "matrixcode.newSession",
+        "title": "MatrixCode: New Session",
+        "icon": "$(add)"
+      },
+      {
+        "command": "matrixcode.openSettings",
+        "title": "MatrixCode: Open Settings",
+        "icon": "$(gear)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "matrixcode.openChat",
+          "group": "navigation@0",
+          "when": "true"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "matrixcode.submenu",
+          "group": "matrixcode@0"
+        }
+      ],
+      "matrixcode.submenu": [
+        {
+          "command": "matrixcode.explain",
+          "when": "editorHasSelection",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "matrixcode.fix",
+          "when": "editorHasSelection",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "matrixcode.refactor",
+          "when": "editorHasSelection",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "matrixcode.generateTests",
+          "when": "editorHasSelection",
+          "group": "2_generate@1"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "matrixcode.submenu",
+        "label": "MatrixCode"
+      }
+    ],
+    "configuration": {
+      "title": "MatrixCode",
+      "properties": {
+        "matrixcode.cliPath": {
+          "type": "string",
+          "default": "matrixcode",
+          "description": "Path to the MatrixCode CLI binary. Use 'matrixcode' if it's in PATH, or provide the full path."
+        },
+        "matrixcode.provider": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "openai"
+          ],
+          "enumDescriptions": [
+            "Anthropic Claude models",
+            "OpenAI GPT models"
+          ],
+          "default": "anthropic",
+          "description": "LLM provider to use"
+        },
+        "matrixcode.model": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Model name. Examples:\n- Anthropic: `claude-sonnet-4-20250514`, `claude-opus-4-20250514`, `claude-3-5-haiku-20241022`\n- OpenAI: `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo`"
+        },
+        "matrixcode.autoContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically include current file and selection as context"
+        },
+        "matrixcode.think": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable extended thinking mode (Anthropic only)"
+        },
+        "matrixcode.markdown": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render responses as Markdown"
+        },
+        "matrixcode.maxTokens": {
+          "type": "number",
+          "default": 16384,
+          "description": "Maximum output tokens per response"
+        },
+        "matrixcode.compressModel": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Model for context compression. Leave empty to use the main model. Recommended: `claude-3-5-haiku-20241022`"
+        },
+        "matrixcode.daemonMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use daemon mode for persistent CLI process (recommended)"
+        },
+        "matrixcode.showThinking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show thinking process in chat view"
+        },
+        "matrixcode.showToolUse": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show tool usage (file reads, bash commands, etc.) in chat view"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "matrixcode.openChat",
+        "key": "ctrl+k",
+        "mac": "cmd+k"
+      },
+      {
+        "command": "matrixcode.quickAction",
+        "key": "ctrl+shift+k",
+        "mac": "cmd+shift+k",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "matrixcode.explain",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "matrixcode.fix",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "matrixcode.generateTests",
+        "key": "ctrl+shift+t",
+        "mac": "cmd+shift+t",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "matrixcode.refactor",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorTextFocus && editorHasSelection"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "compile-dev": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "lint": "eslint src --ext ts",
+    "convert-icon": "node scripts/convert-icon.js",
+    "package": "npm run convert-icon && vsce package",
+    "publish": "vsce publish",
+    "debugCompile": "esbuild ./src/extension.ts --bundle --outfile=dist/extension-debug.js --external:vscode --format=cjs --platform=node"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.54.0",
+    "sharp": "^0.34.5",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@vscode/webview-ui-toolkit": "^1.4.0",
+    "highlight.js": "^11.11.1",
+    "marked": "^18.0.4"
+  }
+}

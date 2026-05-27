@@ -1,0 +1,4 @@
+# Ignore source files, only include built assets
+scripts/download.js.map
+*.ts
+!*.d.ts

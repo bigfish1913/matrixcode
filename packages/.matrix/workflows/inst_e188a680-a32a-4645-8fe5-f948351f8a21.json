@@ -1,0 +1,81 @@
+{
+  "instance_id": "inst_e188a680-a32a-4645-8fe5-f948351f8a21",
+  "workflow_id": "image-article",
+  "status": "completed",
+  "current_node_id": "end",
+  "inputs": {
+    "topic": "太和板面"
+  },
+  "variables": {
+    "content_style": "informative",
+    "max_images": 3
+  },
+  "node_executions": {
+    "generate_output": {
+      "node_id": "generate_output",
+      "status": "completed",
+      "started_at": "2026-05-25T07:25:36.625267200Z",
+      "finished_at": "2026-05-25T07:25:36.626793300Z",
+      "retry_count": 0,
+      "error": null,
+      "output": {
+        "status": "completed",
+        "task": "content_generation"
+      }
+    },
+    "end": {
+      "node_id": "end",
+      "status": "completed",
+      "started_at": "2026-05-25T07:25:36.626795200Z",
+      "finished_at": "2026-05-25T07:25:36.626796200Z",
+      "retry_count": 0,
+      "error": null,
+      "output": null
+    },
+    "search_images": {
+      "node_id": "search_images",
+      "status": "completed",
+      "started_at": "2026-05-25T07:25:36.625112600Z",
+      "finished_at": "2026-05-25T07:25:36.625264500Z",
+      "retry_count": 0,
+      "error": null,
+      "output": {
+        "status": "completed",
+        "task": "image_search"
+      }
+    },
+    "start": {
+      "node_id": "start",
+      "status": "completed",
+      "started_at": "2026-05-25T07:25:36.624373300Z",
+      "finished_at": "2026-05-25T07:25:36.624375Z",
+      "retry_count": 0,
+      "error": null,
+      "output": null
+    },
+    "research": {
+      "node_id": "research",
+      "status": "completed",
+      "started_at": "2026-05-25T07:25:36.624378500Z",
+      "finished_at": "2026-05-25T07:25:36.625110400Z",
+      "retry_count": 0,
+      "error": null,
+      "output": {
+        "status": "completed",
+        "task": "web_search"
+      }
+    }
+  },
+  "execution_path": [
+    "start",
+    "research",
+    "search_images",
+    "generate_output",
+    "end"
+  ],
+  "created_at": "2026-05-25T07:25:36.624359600Z",
+  "updated_at": "2026-05-25T07:25:36.626796600Z",
+  "started_at": "2026-05-25T07:25:36.624369800Z",
+  "finished_at": "2026-05-25T07:25:36.626796600Z",
+  "error": null
+}

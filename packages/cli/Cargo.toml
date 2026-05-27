@@ -1,0 +1,30 @@
+[package]
+name = "matrixcode"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MatrixCode - AI Code Agent CLI"
+publish = true
+
+[[bin]]
+name = "matrixcode"
+path = "src/main.rs"
+
+[dependencies]
+matrixcode-core = { workspace = true }
+matrixcode-tui = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+is-terminal = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+uuid = { workspace = true }
+termimad = { workspace = true }

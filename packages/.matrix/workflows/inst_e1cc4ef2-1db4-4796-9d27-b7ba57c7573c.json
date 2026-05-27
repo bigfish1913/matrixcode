@@ -1,0 +1,44 @@
+{
+  "instance_id": "inst_e1cc4ef2-1db4-4796-9d27-b7ba57c7573c",
+  "workflow_id": "image-article",
+  "status": "failed",
+  "current_node_id": "research",
+  "inputs": {
+    "topic": "美女图片"
+  },
+  "variables": {
+    "max_images": 3,
+    "content_style": "informative"
+  },
+  "node_executions": {
+    "start": {
+      "node_id": "start",
+      "status": "completed",
+      "started_at": "2026-05-25T09:20:12.233855900Z",
+      "finished_at": "2026-05-25T09:20:12.233859200Z",
+      "retry_count": 0,
+      "error": null,
+      "output": null
+    },
+    "research": {
+      "node_id": "research",
+      "status": "failed",
+      "started_at": "2026-05-25T09:20:16.283448200Z",
+      "finished_at": "2026-05-25T09:20:16.300374500Z",
+      "retry_count": 2,
+      "error": "Tool 'web_search' not found",
+      "output": null
+    }
+  },
+  "execution_path": [
+    "start",
+    "research",
+    "research",
+    "research"
+  ],
+  "created_at": "2026-05-25T09:20:12.233834Z",
+  "updated_at": "2026-05-25T09:20:16.300376900Z",
+  "started_at": "2026-05-25T09:20:12.233846600Z",
+  "finished_at": "2026-05-25T09:20:16.300376800Z",
+  "error": "Tool 'web_search' not found"
+}

@@ -1,0 +1,37 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="200" height="200" fill="#0A1628" rx="24"/>
+
+  <!-- Matrix Grid -->
+  <g transform="translate(40, 50)">
+    <!-- Row 1 -->
+    <rect x="0" y="0" width="32" height="32" rx="6" fill="#1E3A5F" stroke="#00D26A" stroke-width="2"/>
+    <rect x="40" y="0" width="32" height="32" rx="6" fill="#1E3A5F" stroke="#3B82F6" stroke-width="2"/>
+    <rect x="80" y="0" width="32" height="32" rx="6" fill="#00D26A"/>
+
+    <!-- Row 2 -->
+    <rect x="0" y="40" width="32" height="32" rx="6" fill="#1E3A5F" stroke="#3B82F6" stroke-width="2"/>
+    <rect x="40" y="40" width="32" height="32" rx="6" fill="#00D26A"/>
+    <rect x="80" y="40" width="32" height="32" rx="6" fill="#1E3A5F" stroke="#F59E0B" stroke-width="2"/>
+
+    <!-- Row 3 -->
+    <rect x="0" y="80" width="32" height="32" rx="6" fill="#1E3A5F" stroke="#3B82F6" stroke-width="2"/>
+    <rect x="40" y="80" width="32" height="32" rx="6" fill="#1E3A5F" stroke="#3B82F6" stroke-width="2"/>
+    <rect x="80" y="80" width="32" height="32" rx="6" fill="#F59E0B"/>
+
+    <!-- Progress indicator dots -->
+    <circle cx="16" cy="16" r="4" fill="#00D26A" opacity="0.5"/>
+    <circle cx="56" cy="56" r="4" fill="#00D26A"/>
+    <circle cx="96" cy="96" r="4" fill="#F59E0B"/>
+  </g>
+
+  <!-- Connection Lines -->
+  <g stroke="#00D26A" stroke-width="1.5" opacity="0.4">
+    <path d="M56 82 L56 90 L96 90 L96 90" fill="none"/>
+    <path d="M96 82 L96 90 L136 90 L136 90" fill="none"/>
+    <path d="M56 122 L56 130 L96 130 L96 130" fill="none"/>
+  </g>
+
+  <!-- "O" letterform hint -->
+  <circle cx="100" cy="100" r="85" fill="none" stroke="#00D26A" stroke-width="1" opacity="0.1"/>
+</svg>

@@ -1,0 +1,50 @@
+# Simple Hello World Workflow
+# Demonstrates basic workflow structure with start -> task -> end
+
+id: hello-world
+name: Hello World Workflow
+version: "1.0.0"
+description: A simple workflow that greets the user
+
+inputs:
+  - name: user_name
+    type: string
+    required: true
+    description: Name of the user to greet
+
+outputs:
+  - name: greeting
+    value: "{{greeting_result}}"
+
+variables:
+  greeting_prefix: "Hello"
+
+nodes:
+  - id: start
+    type: start
+    name: Start
+
+  - id: greet
+    type: task
+    name: Generate Greeting
+    task: ai_greet
+    params:
+      prompt: "{{greeting_prefix}}, {{user_name}}! How can I help you today?"
+    on_failure:
+      type: retry
+      max_attempts: 3
+      interval_ms: 1000
+    timeout_ms: 30000
+
+  - id: end
+    type: end
+    name: End
+
+edges:
+  - id: e1
+    from: start
+    to: greet
+
+  - id: e2
+    from: greet
+    to: end

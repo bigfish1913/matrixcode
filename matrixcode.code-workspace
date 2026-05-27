@@ -1,0 +1,45 @@
+{
+    "folders": [
+        {
+            "name": "CLI",
+            "path": "packages/cli"
+        },
+        {
+            "name": "VSCode Extension",
+            "path": "packages/vscode"
+        },
+        {
+            "name": "Root",
+            "path": "."
+        }
+    ],
+    "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "[rust]": {
+            "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        },
+        "[typescript]": {
+            "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "rust-analyzer.checkOnSave.command": "clippy",
+        "files.exclude": {
+            "**/node_modules": true,
+            "**/target": true,
+            "**/.git": true
+        },
+        "search.exclude": {
+            "**/node_modules": true,
+            "**/target": true,
+            "**/dist": true
+        }
+    },
+    "extensions": {
+        "recommendations": [
+            "rust-lang.rust-analyzer",
+            "dbaeumer.vscode-eslint",
+            "esbenp.prettier-vscode",
+            "ms-vscode.vscode-typescript-next"
+        ]
+    }
+}
