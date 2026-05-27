@@ -141,6 +141,109 @@
         "development"
       ],
       "is_manual": false
+    },
+    {
+      "id": "9aaa9c59-56dc-4acf-a5e4-416d397ecba5",
+      "created_at": "2026-05-27T10:01:32.944351200Z",
+      "last_referenced": "2026-05-27T10:01:32.944351500Z",
+      "category": "finding",
+      "content": "项目代码审查发现：4个巨型文件、多个超1000行的大方法和长方法、144处硬编码、144处unwrap()调用、255处clone调用",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "代码审查",
+        "硬编码",
+        "unwrap",
+        "clone",
+        "巨型文件",
+        "code-review",
+        "quality"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "57f0aa34-195b-4ae5-9321-91d4f89b625b",
+      "created_at": "2026-05-27T10:01:32.944354800Z",
+      "last_referenced": "2026-05-27T10:01:32.944354800Z",
+      "category": "structure",
+      "content": "生成代码审查报告 CODE_REVIEW_REPORT.md (13.56 KB)，包含P0/P1/P2问题分级、重构示例和最佳实践建议",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "CODE_REVIEW_REPORT",
+        "代码审查报告",
+        "问题分级",
+        "documentation",
+        "report"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "e890ebef-9f45-4f71-80dd-644d4a473f5c",
+      "created_at": "2026-05-27T10:01:32.944355300Z",
+      "last_referenced": "2026-05-27T10:01:32.944355300Z",
+      "category": "technical",
+      "content": "项目使用 Rust 语言开发，代码中存在大量 unwrap() 和 clone() 调用需要优化",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "Rust",
+        "unwrap",
+        "clone",
+        "错误处理",
+        "rust",
+        "backend"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "6b568c9b-d3a8-4217-95bd-fc469faaed8b",
+      "created_at": "2026-05-27T10:55:17.628149Z",
+      "last_referenced": "2026-05-27T10:55:17.628149300Z",
+      "category": "structure",
+      "content": "codegraph模块最终结构（1712行）：mod.rs(公共API导出)、types.rs(Node/Edge/IndexStatus/FileInfo/CodeGraphEnv)、manager.rs(CodeGraphManager索引管理查询)、watcher.rs(CodeGraphWatcher文件监控自动同步)、tools.rs(5个Tool实现)、install.rs(CLI安装检测)、project.rs(项目根目录检测)、git.rs(Git集成锁管理版本追踪)、ignore.rs(gitignore模式匹配WATCH_EXTENSIONS)",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "codegraph",
+        "模块结构",
+        "module structure",
+        "CodeGraphManager",
+        "CodeGraphWatcher",
+        "backend",
+        "structure",
+        "rust"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "147b2729-c52b-4198-99f0-900b578316af",
+      "created_at": "2026-05-27T10:55:17.628151800Z",
+      "last_referenced": "2026-05-27T10:55:17.628151900Z",
+      "category": "solution",
+      "content": "解决Rust模块重复定义问题：WATCH_EXTENSIONS统一到ignore.rs通过mod.rs导出，is_source_file统一到git.rs由其他模块import使用，删除多余的pub use",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "重复定义",
+        "duplicate definition",
+        "模块导出",
+        "module export",
+        "Rust",
+        "rust",
+        "refactoring"
+      ],
+      "is_manual": false
     }
   ],
   "config": {

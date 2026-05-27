@@ -109,7 +109,8 @@ impl SessionManager {
         let session = Session::new(project_path);
         self.current_session = Some(session);
         self.save_current()?;
-        Ok(self.current_session.as_ref().unwrap())
+        self.current_session.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("session not found after creation"))
     }
 
     pub fn continue_last(&mut self) -> Result<Option<&Session>> {

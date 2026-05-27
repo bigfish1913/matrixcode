@@ -10,7 +10,7 @@ use matrixcode_core::{
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::commands::{handle_init_command, InitCommandResult};
 use crate::constants::{
@@ -285,7 +285,69 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_skills = skills.clone();
     let agent_shared_approve_mode = shared_approve_mode.clone();
 
-    // Spawn Agent task
+    // Enter runtime context BEFORE spawning agent task (needed for watcher)
+    let _guard = rt.enter();
+
+    // Create shared watcher handle for dynamic watcher management
+    // This allows /init to start watcher after CodeGraph initialization if no daemon conflict
+    let watcher_handle_arc = Arc::new(Mutex::new(None::<tokio::task::JoinHandle<()>>));
+    let cancel_token_for_watcher = cancel_token.clone();
+
+    // Start CodeGraph watcher for auto-sync (after entering runtime context)
+    // Smart detection: if CodeGraph MCP daemon is running, skip our watcher to avoid conflict.
+    // If no daemon, start our watcher for auto-sync.
+    if let Some(path) = &effective_project_path {
+        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
+
+        // Check if CodeGraph daemon is already running (has daemon.pid file and process exists)
+        let daemon_pid_path = path.join(".codegraph").join("daemon.pid");
+        let daemon_running = if daemon_pid_path.exists() {
+            // Read PID and check if process is alive
+            std::fs::read_to_string(&daemon_pid_path)
+                .ok()
+                .and_then(|pid| pid.trim().parse::<u32>().ok())
+                .map(|pid| {
+                    // On Windows, check if process exists
+                    #[cfg(target_os = "windows")]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        const CREATE_NO_WINDOW: u32 = 0x08000000;
+                        std::process::Command::new("tasklist")
+                            .args(["/FI", &format!("PID eq {}", pid)])
+                            .creation_flags(CREATE_NO_WINDOW)
+                            .output()
+                            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+                            .unwrap_or(false)
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        std::path::Path::new("/proc").join(pid.to_string()).exists()
+                    }
+                })
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        if daemon_running {
+            log::info!("CodeGraph MCP daemon detected (PID from daemon.pid), skipping our watcher to avoid conflict");
+            // Don't start watcher - daemon will handle auto-sync
+            // /init can later start watcher if daemon is no longer running
+        } else {
+            // No daemon running, start our watcher
+            let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
+            let watcher_cancel = cancel_token_for_watcher.clone();
+            let handle = watcher.start(watcher_cancel);
+            log::info!("CodeGraph watcher started (no MCP daemon detected, using built-in auto-sync)");
+            *watcher_handle_arc.lock().unwrap() = Some(handle);
+        }
+    }
+
+    // Clone for passing to agent task
+    let watcher_handle_for_agent = watcher_handle_arc.clone();
+    let cancel_token_for_agent_watcher = cancel_token.clone();
+
+    // Spawn Agent task (after entering runtime context and creating watcher)
     let agent_task = rt.spawn(async move {
         run_agent_task(
             agent_cancel,
@@ -307,24 +369,10 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
             session_mgr_state,
             task_rx,
             ask_rx,
+            watcher_handle_for_agent,
+            cancel_token_for_agent_watcher,
         ).await;
     });
-
-    // Enter runtime context
-    let _guard = rt.enter();
-
-    // Start CodeGraph watcher for auto-sync (after entering runtime context)
-    // Use with_auto_detect to find the true project root (git root or Cargo.toml directory)
-    let watcher_handle: Option<tokio::task::JoinHandle<()>> = if let Some(path) = &effective_project_path {
-        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
-        let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
-        let watcher_cancel = cancel_token.clone();
-        let handle = watcher.start(watcher_cancel);
-        log::info!("CodeGraph auto-sync watcher started (auto-detected root)");
-        Some(handle)
-    } else {
-        None
-    };
 
     // Debug mode
     let debug_mode = std::env::var("MATRIXCODE_DEBUG")
@@ -373,10 +421,13 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     }
 
     // Cleanup: abort CodeGraph watcher if still running
-    if let Some(handle) = watcher_handle
-        && !handle.is_finished() {
-        log::info!("Aborting CodeGraph watcher...");
-        handle.abort();
+    {
+        let handle = watcher_handle_arc.lock().unwrap();
+        if let Some(ref h) = *handle
+            && !h.is_finished() {
+            log::info!("Aborting CodeGraph watcher...");
+            h.abort();
+        }
     }
 
     result
@@ -404,6 +455,8 @@ async fn run_agent_task(
     mut session_mgr: Option<SessionManager>,
     mut task_rx: tokio::sync::mpsc::Receiver<String>,
     ask_rx: tokio::sync::mpsc::Receiver<String>,
+    watcher_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    cancel_token_for_watcher: CancellationToken,
 ) {
     log::info!("Agent task: starting");
 
@@ -560,7 +613,14 @@ async fn run_agent_task(
             } else {
                 msg.clone()
             };
-            let should_refresh = handle_init_in_task(&event_tx, &normalized_msg, &project_path, provider.as_ref()).await;
+            let should_refresh = handle_init_in_task(
+                &event_tx,
+                &normalized_msg,
+                &project_path,
+                provider.as_ref(),
+                &watcher_handle,
+                &cancel_token_for_watcher,
+            ).await;
             if should_refresh {
                 agent.refresh_codegraph_tools();
             }
@@ -792,11 +852,15 @@ async fn run_agent_task(
 
 /// Handle /init command. Returns true if overview was generated successfully
 /// (indicating CodeGraph may need refresh if it was initialized during the process).
+/// Also starts CodeGraph watcher if daemon is no longer running after init.
+#[allow(clippy::too_many_arguments)]
 async fn handle_init_in_task(
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
     msg: &str,
     project_path: &Option<PathBuf>,
     provider: &dyn matrixcode_core::providers::Provider,
+    watcher_handle: &Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    cancel_token_for_watcher: &CancellationToken,
 ) -> bool {
     let result = handle_init_command(msg, project_path.as_deref());
     match result {
@@ -845,7 +909,7 @@ async fn handle_init_in_task(
 
                 // Step 2: Initialize CodeGraph if CLI is installed and db doesn't exist
                 use matrixcode_core::tools::codegraph::{
-                    get_codegraph_path, should_inject_codegraph_tools, CodeGraphManager
+                    get_codegraph_path, should_inject_codegraph_tools, CodeGraphManager, CodeGraphWatcher
                 };
 
                 let cli_installed = get_codegraph_path().is_some();
@@ -866,6 +930,55 @@ async fn handle_init_in_task(
                             // Sync after init
                             if let Err(e) = manager.sync().await {
                                 log::warn!("CodeGraph sync failed: {}", e);
+                            }
+
+                            // Step 3: Check daemon status and start watcher if no conflict
+                            // Re-check after init - daemon might have stopped or we can start our watcher
+                            {
+                                let mut handle_guard = watcher_handle.lock().unwrap();
+                                let watcher_running = handle_guard.is_some() &&
+                                    handle_guard.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
+
+                                if !watcher_running {
+                                    // Check if daemon is running
+                                    let daemon_pid_path = path.join(".codegraph").join("daemon.pid");
+                                    let daemon_running = if daemon_pid_path.exists() {
+                                        std::fs::read_to_string(&daemon_pid_path)
+                                            .ok()
+                                            .and_then(|pid| pid.trim().parse::<u32>().ok())
+                                            .map(|pid| {
+                                                // On Windows, check if process exists
+                                                #[cfg(target_os = "windows")]
+                                                {
+                                                    use std::os::windows::process::CommandExt;
+                                                    const CREATE_NO_WINDOW: u32 = 0x08000000;
+                                                    std::process::Command::new("tasklist")
+                                                        .args(["/FI", &format!("PID eq {}", pid)])
+                                                        .creation_flags(CREATE_NO_WINDOW)
+                                                        .output()
+                                                        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+                                                        .unwrap_or(false)
+                                                }
+                                                #[cfg(not(target_os = "windows"))]
+                                                {
+                                                    std::path::Path::new("/proc").join(pid.to_string()).exists()
+                                                }
+                                            })
+                                            .unwrap_or(false)
+                                    } else {
+                                        false
+                                    };
+
+                                    if !daemon_running {
+                                        // No daemon, start our watcher
+                                        let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
+                                        let handle = watcher.start(cancel_token_for_watcher.clone());
+                                        log::info!("CodeGraph watcher started after /init (no MCP daemon detected)");
+                                        *handle_guard = Some(handle);
+                                    } else {
+                                        log::info!("CodeGraph MCP daemon still running after /init, skipping watcher");
+                                    }
+                                }
                             }
 
                             let _ = event_tx.send(AgentEvent::with_data(
