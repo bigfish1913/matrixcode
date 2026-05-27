@@ -246,6 +246,13 @@ impl CodeGraphManager {
         }
     }
 
+    /// Create manager with automatic project root detection.
+    /// Uses find_project_root() to locate the correct directory.
+    pub fn with_auto_detect(start_path: &Path) -> Self {
+        let project_path = find_project_root(start_path);
+        Self::new(&project_path)
+    }
+
     /// Check if CodeGraph is initialized for this project.
     pub fn is_initialized(&self) -> bool {
         self.db_path.exists()
@@ -740,8 +747,252 @@ impl GitStatusChanges {
 }
 
 // ============================================================================
-// Version Tracking (Git SHA Persistence)
+// Project Root Detection
 // ============================================================================
+
+/// Project root marker files (used to detect project root).
+const PROJECT_ROOT_MARKERS: &[&str] = &[
+    // Git
+    ".git",
+    // Rust
+    "Cargo.toml",
+    // Node.js
+    "package.json",
+    // TypeScript
+    "tsconfig.json",
+    // Go
+    "go.mod",
+    // Python
+    "pyproject.toml",
+    "setup.py",
+    "requirements.txt",
+    // Java
+    "pom.xml",
+    "build.gradle",
+    // PHP
+    "composer.json",
+    // Ruby
+    "Gemfile",
+];
+
+/// Find project root directory from a given starting path.
+/// Priority:
+/// 1. .git directory (Git root)
+/// 2. Project marker files (Cargo.toml, package.json, etc.)
+/// 3. Fallback to starting path
+pub fn find_project_root(start_path: &Path) -> PathBuf {
+    // First, try to find Git root (highest priority)
+    if let Some(git_root) = find_git_root(start_path) {
+        return git_root;
+    }
+
+    // Then, look for project marker files going up the directory tree
+    if let Some(project_root) = find_by_markers(start_path) {
+        return project_root;
+    }
+
+    // Fallback to starting path
+    start_path.to_path_buf()
+}
+
+/// Find Git repository root by traversing up.
+fn find_git_root(start_path: &Path) -> Option<PathBuf> {
+    let mut current = start_path;
+
+    while let Some(parent) = current.parent() {
+        if current.join(".git").exists() {
+            return Some(current.to_path_buf());
+        }
+        current = parent;
+    }
+
+    // Check start_path itself
+    if start_path.join(".git").exists() {
+        return Some(start_path.to_path_buf());
+    }
+
+    None
+}
+
+/// Find project root by looking for marker files.
+fn find_by_markers(start_path: &Path) -> Option<PathBuf> {
+    let mut current = start_path;
+
+    loop {
+        // Check if any marker exists in current directory
+        for marker in PROJECT_ROOT_MARKERS {
+            if current.join(marker).exists() {
+                return Some(current.to_path_buf());
+            }
+        }
+
+        // Go up one level
+        if let Some(parent) = current.parent() {
+            current = parent;
+        } else {
+            break;
+        }
+    }
+
+    None
+}
+
+// ============================================================================
+// Multi-Instance Lock (防止多实例冲突)
+// ============================================================================
+
+/// Lock file name for preventing multiple watcher instances.
+const WATCHER_LOCK_FILE: &str = "watcher.lock";
+
+/// Sync lock file name for preventing concurrent syncs.
+const SYNC_LOCK_FILE: &str = "sync.lock";
+
+/// Lock timeout in seconds (auto-release if process dies).
+const LOCK_TIMEOUT_SECS: u64 = 30;
+
+/// Instance ID (unique per process).
+fn get_instance_id() -> String {
+    use std::process;
+    format!("{}-{}", process::id(), chrono::Utc::now().timestamp())
+}
+
+/// Watcher lock information.
+#[derive(Debug, Clone)]
+struct WatcherLock {
+    instance_id: String,
+    acquired_at: i64,
+    pid: u32,
+}
+
+impl WatcherLock {
+    fn new() -> Self {
+        Self {
+            instance_id: get_instance_id(),
+            acquired_at: chrono::Utc::now().timestamp(),
+            pid: std::process::id(),
+        }
+    }
+
+    fn to_string(&self) -> String {
+        format!("{}:{}:{}",
+            self.instance_id,
+            self.acquired_at,
+            self.pid
+        )
+    }
+
+    fn from_string(s: &str) -> Option<Self> {
+        let parts: Vec<&str> = s.split(':').collect();
+        if parts.len() >= 3 {
+            Some(Self {
+                instance_id: parts[0].to_string(),
+                acquired_at: parts[1].parse().ok()?,
+                pid: parts[2].parse().ok()?,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Check if lock is stale (process died or timeout).
+    fn is_stale(&self) -> bool {
+        let now = chrono::Utc::now().timestamp();
+        // Lock is stale if timeout exceeded
+        if now - self.acquired_at > LOCK_TIMEOUT_SECS as i64 {
+            return true;
+        }
+        false
+    }
+}
+
+/// Try to acquire watcher lock.
+/// Returns true if lock acquired (either fresh or stolen from stale holder).
+pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
+    let lock_path = project_path.join(".codegraph").join(WATCHER_LOCK_FILE);
+
+    // Ensure directory exists
+    if let Some(parent) = lock_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // Check existing lock
+    if lock_path.exists() {
+        let content = std::fs::read_to_string(&lock_path).ok();
+        if let Some(s) = content
+            && let Some(lock) = WatcherLock::from_string(&s) {
+            // Check if lock is stale
+            if !lock.is_stale() {
+                log::info!(
+                    "CodeGraph: watcher lock held by instance {} (PID {}), skipping",
+                    lock.instance_id,
+                    lock.pid
+                );
+                return false;
+            }
+            // Lock is stale, we can steal it
+            log::info!(
+                "CodeGraph: stealing stale watcher lock from instance {} (PID {})",
+                lock.instance_id,
+                lock.pid
+            );
+        }
+    }
+
+    // Acquire lock
+    let lock = WatcherLock::new();
+    let _ = std::fs::write(&lock_path, lock.to_string());
+    log::info!("CodeGraph: acquired watcher lock (instance {})", lock.instance_id);
+    true
+}
+
+/// Release watcher lock.
+pub fn release_watcher_lock(project_path: &Path) {
+    let lock_path = project_path.join(".codegraph").join(WATCHER_LOCK_FILE);
+    if lock_path.exists() {
+        let _ = std::fs::remove_file(&lock_path);
+        log::info!("CodeGraph: released watcher lock");
+    }
+}
+
+/// Update watcher lock heartbeat (keep alive).
+fn update_watcher_heartbeat(project_path: &Path) {
+    let lock_path = project_path.join(".codegraph").join(WATCHER_LOCK_FILE);
+    if lock_path.exists() {
+        let lock = WatcherLock::new();
+        let _ = std::fs::write(&lock_path, lock.to_string());
+    }
+}
+
+/// Try to acquire sync lock (short-lived, for preventing concurrent syncs).
+fn try_acquire_sync_lock(project_path: &Path) -> bool {
+    let lock_path = project_path.join(".codegraph").join(SYNC_LOCK_FILE);
+
+    if lock_path.exists() {
+        let content = std::fs::read_to_string(&lock_path).ok();
+        if let Some(s) = content {
+            let timestamp: i64 = s.parse().ok().unwrap_or(0);
+            let now = chrono::Utc::now().timestamp();
+            // Sync lock timeout is shorter (5 seconds)
+            if now - timestamp < 5 {
+                log::debug!("CodeGraph: sync in progress by another instance, skipping");
+                return false;
+            }
+        }
+    }
+
+    // Acquire sync lock
+    let timestamp = chrono::Utc::now().timestamp().to_string();
+    let _ = std::fs::write(&lock_path, timestamp);
+    true
+}
+
+/// Release sync lock.
+fn release_sync_lock(project_path: &Path) {
+    let lock_path = project_path.join(".codegraph").join(SYNC_LOCK_FILE);
+    if lock_path.exists() {
+        let _ = std::fs::remove_file(&lock_path);
+    }
+}
 
 /// Version file name for storing Git HEAD SHA.
 const VERSION_FILE: &str = "version.txt";
@@ -923,6 +1174,14 @@ impl CodeGraphWatcher {
         }
     }
 
+    /// Create watcher with automatic project root detection.
+    /// Uses find_project_root() to locate the correct directory.
+    pub fn with_auto_detect(start_path: &Path) -> Self {
+        let project_path = find_project_root(start_path);
+        log::info!("CodeGraph: detected project root at {}", project_path.display());
+        Self::new(&project_path)
+    }
+
     /// Start watching for file changes.
     /// Returns a stop handle that can be used to stop the watcher.
     pub fn start(&self, cancel_token: CancellationToken) -> Result<broadcast::Receiver<()>> {
@@ -952,6 +1211,12 @@ impl CodeGraphWatcher {
         // Check if CodeGraph CLI is available (no auto-install)
         if get_codegraph_path().is_none() {
             log::warn!("CodeGraph CLI not found, watcher disabled. Please install CodeGraph manually.");
+            return;
+        }
+
+        // Try to acquire watcher lock (prevent multiple instances)
+        if !try_acquire_watcher_lock(&project_path) {
+            log::info!("CodeGraph: another instance is watching this project, exiting");
             return;
         }
 
@@ -1015,6 +1280,7 @@ impl CodeGraphWatcher {
         let watcher_result = Self::create_file_watcher(&project_path, change_tx.clone());
         if watcher_result.is_err() {
             log::warn!("CodeGraph notify watcher failed to start: {}", watcher_result.err().unwrap());
+            release_watcher_lock(&project_path);
             return;
         }
         let _watcher = watcher_result.unwrap();
@@ -1072,9 +1338,14 @@ impl CodeGraphWatcher {
                         update_version_after_sync(&project_path);
                     }
                 }
+                // Release lock before exit
+                release_watcher_lock(&project_path);
                 log::info!("CodeGraph watcher stopped");
                 break;
             }
+
+            // Update heartbeat periodically (keep lock alive)
+            update_watcher_heartbeat(&project_path);
 
             tokio::select! {
                 // Notify file changes (fallback path - always running)
@@ -1149,15 +1420,23 @@ impl CodeGraphWatcher {
                         syncing_clone.store(true, Ordering::SeqCst);
                         log::info!("CodeGraph: auto-sync triggered ({} unique files changed)", files_count);
 
-                        let manager = CodeGraphManager::new(&project_path);
-                        if manager.is_initialized() {
-                            if let Err(e) = manager.sync().await {
-                                log::warn!("CodeGraph sync failed: {}", e);
-                            } else {
-                                update_version_after_sync(&project_path);
+                        // Try to acquire sync lock (prevent concurrent syncs)
+                        if try_acquire_sync_lock(&project_path) {
+                            let manager = CodeGraphManager::new(&project_path);
+                            if manager.is_initialized() {
+                                if let Err(e) = manager.sync().await {
+                                    log::warn!("CodeGraph sync failed: {}", e);
+                                } else {
+                                    update_version_after_sync(&project_path);
+                                }
+                                // Clear the set after sync (async-safe)
+                                changed_files.write().await.clear();
                             }
-                            // Clear the set after sync (async-safe)
-                            changed_files.write().await.clear();
+                            // Release sync lock
+                            release_sync_lock(&project_path);
+                        } else {
+                            // Another instance is syncing, skip but keep pending changes
+                            log::debug!("CodeGraph: skipping sync, another instance is syncing");
                         }
                         syncing_clone.store(false, Ordering::SeqCst);
                     }
@@ -1558,6 +1837,12 @@ pub fn codegraph_tools(project_path: &Path) -> Vec<Box<dyn Tool>> {
     ]
 }
 
+/// Create CodeGraph tools with automatic project root detection.
+pub fn codegraph_tools_with_auto_detect(start_path: &Path) -> Vec<Box<dyn Tool>> {
+    let project_root = find_project_root(start_path);
+    codegraph_tools(&project_root)
+}
+
 /// Check if CodeGraph tools should be injected.
 /// Returns true if CodeGraph CLI is installed (even if not initialized).
 pub fn should_inject_codegraph_tools() -> bool {
@@ -1566,9 +1851,10 @@ pub fn should_inject_codegraph_tools() -> bool {
 
 /// Create CodeGraph tools only if installed.
 /// Returns empty vec if CodeGraph CLI is not available.
-pub fn codegraph_tools_if_installed(project_path: &Path) -> Vec<Box<dyn Tool>> {
+/// Uses automatic project root detection.
+pub fn codegraph_tools_if_installed(start_path: &Path) -> Vec<Box<dyn Tool>> {
     if should_inject_codegraph_tools() {
-        codegraph_tools(project_path)
+        codegraph_tools_with_auto_detect(start_path)
     } else {
         vec![]
     }
@@ -1610,5 +1896,33 @@ mod tests {
                 assert!(def.is_priority);
             }
         }
+    }
+
+    #[test]
+    fn test_find_project_root_current_dir() {
+        // Current directory should find a project root (this repo has .git and Cargo.toml)
+        let start_path = PathBuf::from(".");
+        let root = find_project_root(&start_path);
+        // Should find either .git or Cargo.toml
+        assert!(root.join(".git").exists() || root.join("Cargo.toml").exists());
+    }
+
+    #[test]
+    fn test_find_project_root_subdirectory() {
+        // Starting from a subdirectory, should still find root
+        let start_path = PathBuf::from("./src");
+        let root = find_project_root(&start_path);
+        // Should find root with .git or Cargo.toml
+        assert!(root.join(".git").exists() || root.join("Cargo.toml").exists());
+    }
+
+    #[test]
+    fn test_manager_with_auto_detect() {
+        let start_path = PathBuf::from(".");
+        let manager = CodeGraphManager::with_auto_detect(&start_path);
+        // Should find a valid project root
+        assert!(manager.project_path.join(".git").exists()
+            || manager.project_path.join("Cargo.toml").exists()
+            || manager.project_path.join("package.json").exists());
     }
 }
