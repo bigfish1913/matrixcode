@@ -32,6 +32,7 @@ use super::{Tool, ToolDefinition};
 use crate::approval::RiskLevel;
 use crate::cancel::CancellationToken;
 use crate::constants::{CODEGRAPH_CLI_TIMEOUT_SECS, CODEGRAPH_SYNC_INTERVAL_SECS};
+use crate::memory::ProjectStructureAnalyzer;
 
 // ============================================================================
 // Data Structures
@@ -260,6 +261,15 @@ impl CodeGraphManager {
     pub async fn ensure_initialized(&self) -> Result<()> {
         // Ensure CLI is installed
         ensure_codegraph().await?;
+
+        // Check if this is a code project
+        let analyzer = ProjectStructureAnalyzer::new(self.project_path.clone());
+        if analyzer.detect_project_type().is_none() {
+            return Err(anyhow::anyhow!(
+                "Not a code project directory: {}. CodeGraph requires a project with Cargo.toml, package.json, go.mod, etc.",
+                self.project_path.display()
+            ));
+        }
 
         // Initialize if not already
         if !self.is_initialized() {
@@ -664,6 +674,16 @@ impl CodeGraphWatcher {
                 log::warn!("CodeGraph auto-install failed: {}", e);
                 return;
             }
+        }
+
+        // Check if this is a code project (has detectable project files)
+        let analyzer = ProjectStructureAnalyzer::new(project_path.clone());
+        if analyzer.detect_project_type().is_none() {
+            log::info!(
+                "CodeGraph: skipping non-code directory: {}",
+                project_path.display()
+            );
+            return;
         }
 
         // Initialize CodeGraph if not already
