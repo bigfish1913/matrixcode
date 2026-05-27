@@ -215,10 +215,24 @@ impl ProjectOverview {
             enable_caching: false, // No caching for overview generation
         };
 
+        let model_name = provider.model_name();
+        log::info!(
+            "Overview generation: sending request to AI (model: {}, max_tokens: {})",
+            model_name,
+            MAX_OUTPUT_TOKENS
+        );
+
         let response = provider
             .chat(request)
             .await
-            .with_context(|| "calling AI for overview generation")?;
+            .map_err(|e| {
+                log::error!("Overview generation failed: {}", e);
+                e
+            })
+            .with_context(|| format!(
+                "calling AI for overview generation (model: {}, base_url may differ from global config if .env file exists)",
+                model_name
+            ))?;
 
         // Log usage for debugging
         log::info!(

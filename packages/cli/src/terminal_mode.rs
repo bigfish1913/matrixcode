@@ -527,9 +527,17 @@ async fn run_agent_task(
             continue;
         }
 
-        // Handle /init
-        if msg.starts_with("/init") {
-            handle_init_in_task(&event_tx, &msg, &project_path, provider.as_ref()).await;
+        // Handle /init - check for both "/init" and Git Bash path conversion ("C:/Program Files/Git/init")
+        let is_init_cmd = msg.starts_with("/init")
+            || msg.contains("/init") && (msg.contains("Program Files/Git") || msg.contains("Git/init"));
+        if is_init_cmd {
+            // Normalize the command if it was converted by Git Bash
+            let normalized_msg = if msg.contains("Program Files/Git") || msg.contains("Git/init") {
+                "/init".to_string()
+            } else {
+                msg.clone()
+            };
+            handle_init_in_task(&event_tx, &normalized_msg, &project_path, provider.as_ref()).await;
             continue;
         }
 
