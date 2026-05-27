@@ -80,6 +80,7 @@ async fn test_codegraph_status_tool_execute() {
 #[test]
 fn test_generate_tools_prompt_with_codegraph() {
     use matrixcode_core::tools::generate_tools_prompt_with_path;
+    use matrixcode_core::tools::codegraph::should_inject_codegraph_tools;
 
     let project_path = get_project_path();
 
@@ -87,15 +88,22 @@ fn test_generate_tools_prompt_with_codegraph() {
 
     println!("Tools prompt:\n{}", prompt);
 
-    assert!(prompt.contains("code_search"), "Prompt should include code_search");
-    assert!(prompt.contains("code_callers"), "Prompt should include code_callers");
-    assert!(prompt.contains("code_callees"), "Prompt should include code_callees");
-    assert!(prompt.contains("code_status"), "Prompt should include code_status");
+    // CodeGraph tools are only included when conditions are met
+    if should_inject_codegraph_tools(&project_path) {
+        assert!(prompt.contains("code_search"), "Prompt should include code_search when conditions met");
+        assert!(prompt.contains("code_callers"), "Prompt should include code_callers when conditions met");
+        assert!(prompt.contains("code_callees"), "Prompt should include code_callees when conditions met");
+        assert!(prompt.contains("code_status"), "Prompt should include code_status when conditions met");
+    } else {
+        // When conditions not met, codegraph tools should NOT appear
+        assert!(!prompt.contains("code_search"), "Prompt should NOT include code_search without .codegraph");
+    }
 }
 
 #[test]
 fn test_build_system_prompt_with_codegraph() {
     use matrixcode_core::prompt::{build_system_prompt_with_workflows, PromptProfile};
+    use matrixcode_core::tools::codegraph::should_inject_codegraph_tools;
 
     let project_path = get_project_path();
 
@@ -107,7 +115,12 @@ fn test_build_system_prompt_with_codegraph() {
         Some(&project_path),
     );
 
-    // Check if codegraph tools are mentioned in the prompt
-    assert!(prompt.contains("code_search"), "System prompt should include code_search");
-    assert!(prompt.contains("code_callers"), "System prompt should include code_callers");
+    // CodeGraph tools are only included when conditions are met
+    if should_inject_codegraph_tools(&project_path) {
+        assert!(prompt.contains("code_search"), "System prompt should include code_search when conditions met");
+        assert!(prompt.contains("code_callers"), "System prompt should include code_callers when conditions met");
+    } else {
+        // When conditions not met, codegraph tools should NOT appear
+        assert!(!prompt.contains("code_search"), "System prompt should NOT include code_search without .codegraph");
+    }
 }

@@ -206,11 +206,17 @@ mod tests {
         let path = PathBuf::from(".");
         let prompt = generate_tools_prompt_with_path(Some(&path));
 
-        // Verify codegraph tools appear in prompt when path provided
-        assert!(prompt.contains("code_search"), "prompt should mention code_search");
-        assert!(prompt.contains("code_callers"), "prompt should mention code_callers");
-        assert!(prompt.contains("code_callees"), "prompt should mention code_callees");
-        assert!(prompt.contains("code_status"), "prompt should mention code_status");
+        // CodeGraph tools are only included when:
+        // 1. CodeGraph CLI is installed
+        // 2. Project has .codegraph directory
+        // So we check based on actual conditions
+        if codegraph::should_inject_codegraph_tools(&path) {
+            assert!(prompt.contains("code_search"), "prompt should mention code_search when conditions met");
+            assert!(prompt.contains("code_callers"), "prompt should mention code_callers when conditions met");
+        } else {
+            // When conditions not met, codegraph tools should NOT appear
+            assert!(!prompt.contains("code_search"), "prompt should NOT mention code_search without .codegraph");
+        }
     }
 
     #[test]
@@ -261,8 +267,10 @@ pub fn all_tools_full(
     project_path: PathBuf,
 ) -> Vec<Box<dyn Tool>> {
     let mut tools = base_tools(skills);
-    // Add CodeGraph tools
-    tools.extend(codegraph::codegraph_tools(&project_path));
+    // Add CodeGraph tools only if initialized (CLI installed + .codegraph exists)
+    if codegraph::should_inject_codegraph_tools(&project_path) {
+        tools.extend(codegraph::codegraph_tools(&project_path));
+    }
     // Add AI-powered workflow tools
     tools.extend(workflow::workflow_tools_with_provider(provider));
     tools

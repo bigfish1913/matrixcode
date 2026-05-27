@@ -1,5 +1,6 @@
 //! Agent builder implementation.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::approval::ApproveMode;
@@ -28,6 +29,7 @@ impl AgentBuilder {
             profile: PromptProfile::Default,
             project_overview: None,
             memory_summary: None,
+            project_path: None,
             proxy_tool_defs: Vec::new(),
             proxy_executor: None,
         }
@@ -105,10 +107,20 @@ impl AgentBuilder {
         self
     }
 
+    /// Set project path (for dynamic tool injection like CodeGraph)
+    pub fn project_path(mut self, path: PathBuf) -> Self {
+        self.project_path = Some(path);
+        self
+    }
+
     /// 设置代理工具执行器
     ///
     /// # Example
-    /// ```rust
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use serde_json::json;
+    /// use matrixcode_core::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
+    ///
     /// let executor = Arc::new(MyProxyExecutor);
     /// let tool_def = ProxyToolDef::new("image_search", "搜索图片", json!({...}))
     ///     .with_priority(true);

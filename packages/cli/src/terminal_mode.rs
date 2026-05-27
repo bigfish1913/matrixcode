@@ -200,6 +200,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         let mut full = Vec::new();
         let mut api = Vec::new();
         let mut metadata = None;
+        // Start with current dir, then find project root
         let mut effective_path = current_dir.clone();
 
         if let Some(ref mut mgr) = mgr {
@@ -241,6 +242,15 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
                 let _ = mgr.start_new(current_dir.as_deref());
             }
         }
+
+        // Find the true project root (git root or project marker files)
+        if let Some(ref start_path) = effective_path {
+            use matrixcode_core::tools::codegraph::find_project_root;
+            let project_root = find_project_root(start_path);
+            log::info!("Project root detected: {} (from start path: {})", project_root.display(), start_path.display());
+            effective_path = Some(project_root);
+        }
+
         (full, api, mgr, metadata, effective_path)
     };
 
@@ -275,18 +285,6 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_skills = skills.clone();
     let agent_shared_approve_mode = shared_approve_mode.clone();
 
-    // Start CodeGraph watcher for auto-sync (before agent task)
-    let watcher_handle: Option<tokio::task::JoinHandle<()>> = if effective_project_path.is_some() {
-        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
-        let watcher = CodeGraphWatcher::new(effective_project_path.as_ref().unwrap().as_path());
-        let watcher_cancel = cancel_token.clone();
-        let handle = watcher.start(watcher_cancel);
-        log::info!("CodeGraph auto-sync watcher started");
-        Some(handle)
-    } else {
-        None
-    };
-
     // Spawn Agent task
     let agent_task = rt.spawn(async move {
         run_agent_task(
@@ -314,6 +312,19 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
 
     // Enter runtime context
     let _guard = rt.enter();
+
+    // Start CodeGraph watcher for auto-sync (after entering runtime context)
+    // Use with_auto_detect to find the true project root (git root or Cargo.toml directory)
+    let watcher_handle: Option<tokio::task::JoinHandle<()>> = if let Some(path) = &effective_project_path {
+        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
+        let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
+        let watcher_cancel = cancel_token.clone();
+        let handle = watcher.start(watcher_cancel);
+        log::info!("CodeGraph auto-sync watcher started (auto-detected root)");
+        Some(handle)
+    } else {
+        None
+    };
 
     // Debug mode
     let debug_mode = std::env::var("MATRIXCODE_DEBUG")
@@ -362,11 +373,10 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     }
 
     // Cleanup: abort CodeGraph watcher if still running
-    if let Some(handle) = watcher_handle {
-        if !handle.is_finished() {
-            log::info!("Aborting CodeGraph watcher...");
-            handle.abort();
-        }
+    if let Some(handle) = watcher_handle
+        && !handle.is_finished() {
+        log::info!("Aborting CodeGraph watcher...");
+        handle.abort();
     }
 
     result
@@ -477,8 +487,9 @@ async fn run_agent_task(
         .tools(all_tools_full(
             Arc::new(skills.clone()),
             provider.clone_arc(),
-            project_path_for_tools,
+            project_path_for_tools.clone(),
         ))
+        .project_path(project_path_for_tools)
         .event_tx(event_tx.clone())
         .approve_mode(approve_mode)
         .proxy_executor(
@@ -549,7 +560,10 @@ async fn run_agent_task(
             } else {
                 msg.clone()
             };
-            handle_init_in_task(&event_tx, &normalized_msg, &project_path, provider.as_ref()).await;
+            let should_refresh = handle_init_in_task(&event_tx, &normalized_msg, &project_path, provider.as_ref()).await;
+            if should_refresh {
+                agent.refresh_codegraph_tools();
+            }
             continue;
         }
 
@@ -776,12 +790,14 @@ async fn run_agent_task(
 
 // Helper functions for the agent task
 
+/// Handle /init command. Returns true if overview was generated successfully
+/// (indicating CodeGraph may need refresh if it was initialized during the process).
 async fn handle_init_in_task(
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
     msg: &str,
     project_path: &Option<PathBuf>,
     provider: &dyn matrixcode_core::providers::Provider,
-) {
+) -> bool {
     let result = handle_init_command(msg, project_path.as_deref());
     match result {
         InitCommandResult::Message(msg) => {
@@ -792,6 +808,7 @@ async fn handle_init_in_task(
                     percentage: None,
                 },
             )).await;
+            false
         }
         InitCommandResult::GenerateOverview => {
             let _ = event_tx.send(AgentEvent::with_data(
@@ -812,6 +829,9 @@ async fn handle_init_in_task(
                                 percentage: Some(100),
                             },
                         )).await;
+                        // Return true to signal that CodeGraph tools should be refreshed
+                        // (in case CodeGraph watcher initialized .codegraph during the process)
+                        true
                     }
                     Err(e) => {
                         let _ = event_tx.send(AgentEvent::error(
@@ -819,6 +839,7 @@ async fn handle_init_in_task(
                             Some("overview_error".into()),
                             None,
                         )).await;
+                        false
                     }
                 }
             } else {
@@ -827,6 +848,7 @@ async fn handle_init_in_task(
                     Some("no_project".into()),
                     None,
                 )).await;
+                false
             }
         }
     }

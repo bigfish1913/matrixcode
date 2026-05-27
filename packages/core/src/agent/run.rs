@@ -39,6 +39,7 @@ impl Agent {
             profile: builder.profile,
             project_overview: builder.project_overview,
             memory_summary: builder.memory_summary,
+            project_path: builder.project_path,
             total_input_tokens: std::sync::atomic::AtomicU64::new(0),
             total_output_tokens: std::sync::atomic::AtomicU64::new(0),
             last_input_tokens: std::sync::atomic::AtomicU64::new(0),
@@ -89,14 +90,65 @@ impl Agent {
     }
 
     /// Update memory summary and rebuild system prompt.
+    /// Note: Uses build_system_prompt (without project_path) to preserve cache.
     pub fn update_memory_summary(&mut self, summary: Option<String>) {
         self.memory_summary = summary;
+        // Preserve cache by using build_system_prompt (no dynamic CodeGraph injection)
         self.system_prompt = prompt::build_system_prompt(
             &self.profile,
             &self.skills,
             self.project_overview.as_deref(),
             self.memory_summary.as_deref(),
         );
+    }
+
+    /// Refresh CodeGraph tools after /init or codegraph init.
+    /// This rebuilds both tools and system prompt with project_path.
+    /// Call this only when CodeGraph state changes (not every request) to preserve cache.
+    pub fn refresh_codegraph_tools(&mut self) {
+        if let Some(path) = &self.project_path {
+            // Check if CodeGraph should be injected now
+            let should_have_codegraph = crate::tools::codegraph::should_inject_codegraph_tools(path);
+
+            // Check if we currently have CodeGraph tools
+            let has_codegraph = self.tools.iter().any(|t| {
+                let name = t.definition().name;
+                name.starts_with("code_") && name != "code_review"
+            });
+
+            // Only update if state changed
+            if should_have_codegraph != has_codegraph {
+                // Add or remove CodeGraph tools
+                if should_have_codegraph {
+                    let codegraph_tools = crate::tools::codegraph::codegraph_tools(path);
+                    for tool in codegraph_tools {
+                        self.tools.push(Arc::from(tool));
+                    }
+                    // Update system prompt to include CodeGraph rules
+                    self.system_prompt = prompt::build_system_prompt_with_workflows(
+                        &self.profile,
+                        &self.skills,
+                        self.project_overview.as_deref(),
+                        self.memory_summary.as_deref(),
+                        Some(path),
+                    );
+                } else {
+                    // Remove CodeGraph tools
+                    self.tools.retain(|t| {
+                        let name = t.definition().name;
+                        !name.starts_with("code_") || name == "code_review"
+                    });
+                    // Update system prompt to remove CodeGraph rules
+                    self.system_prompt = prompt::build_system_prompt_with_workflows(
+                        &self.profile,
+                        &self.skills,
+                        self.project_overview.as_deref(),
+                        self.memory_summary.as_deref(),
+                        Some(path),
+                    );
+                }
+            }
+        }
     }
 
     /// Run chat loop with tool execution (streaming version).

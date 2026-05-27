@@ -1,5 +1,6 @@
 //! Agent type definitions.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU64};
 use tokio::sync::mpsc;
@@ -59,6 +60,7 @@ pub struct Agent {
     pub(crate) profile: PromptProfile,
     pub(crate) project_overview: Option<String>,
     pub(crate) memory_summary: Option<String>,
+    pub(crate) project_path: Option<PathBuf>,
     pub(crate) total_input_tokens: AtomicU64,
     pub(crate) total_output_tokens: AtomicU64,
     pub(crate) last_input_tokens: AtomicU64,
@@ -85,6 +87,7 @@ pub struct AgentBuilder {
     pub(crate) profile: PromptProfile,
     pub(crate) project_overview: Option<String>,
     pub(crate) memory_summary: Option<String>,
+    pub(crate) project_path: Option<PathBuf>,
     /// 代理工具定义列表
     pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
     /// 代理工具执行器

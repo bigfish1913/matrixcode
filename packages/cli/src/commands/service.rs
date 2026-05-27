@@ -8,7 +8,7 @@ use matrixcode_core::{
     create_provider_with_headers,
     providers::{MessageContent, Role, ContentBlock},
     tools::all_tools_full,
-    prompt::{build_system_prompt, PromptProfile},
+    prompt::{build_system_prompt_with_workflows, PromptProfile},
     approval::ApproveMode,
     session::SessionManager,
     memory::MemoryStorage,
@@ -97,7 +97,8 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                 if let Some(msg) = message {
                     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
 
-                    let system_prompt = build_system_prompt(&PromptProfile::Default, &skills, None, None);
+                    let project_path = std::env::current_dir().unwrap_or_default();
+                    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Default, &skills, None, None, Some(&project_path));
 
                     let provider = match create_provider_with_headers(
                         resolve_provider(&config, &model),
@@ -109,7 +110,7 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                         Ok(p) => p,
                         Err(e) => {
                             println!("{}", AgentEvent::error(format!("Failed to create provider: {}", e), None, None).to_json()?);
-                            return Ok(());
+                            return Ok(())
                         }
                     };
 
@@ -120,7 +121,7 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                         .tools(all_tools_full(
                             Arc::new(skills.clone()),
                             provider.clone_arc(),
-                            std::env::current_dir().unwrap_or_default(),
+                            project_path,
                         ))
                         .approve_mode(ApproveMode::Auto)
                         .event_tx(event_tx)
@@ -208,7 +209,8 @@ async fn handle_chat(
     approve_mode: ApproveMode,
     msg: String,
 ) {
-    let system_prompt = build_system_prompt(&PromptProfile::Default, skills, None, None);
+    let project_path = std::env::current_dir().unwrap_or_default();
+    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Default, skills, None, None, Some(&project_path));
 
     let provider = match create_provider_with_headers(
         resolve_provider(config, model),
@@ -233,7 +235,7 @@ async fn handle_chat(
         .tools(all_tools_full(
             Arc::new(skills.to_vec()),
             provider.clone_arc(),
-            std::env::current_dir().unwrap_or_default(),
+            project_path,
         ))
         .approve_mode(approve_mode)
         .event_tx(event_tx)
@@ -281,8 +283,9 @@ async fn handle_quick_action(
         println!("  Target: {}", f);
     }
 
+    let project_path = std::env::current_dir().unwrap_or_default();
     let prompt = build_action_prompt(&action, &file);
-    let system_prompt = build_system_prompt(&PromptProfile::Fast, skills, None, None);
+    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Fast, skills, None, None, Some(&project_path));
 
     let provider = match create_provider_with_headers(
         resolve_provider(config, model),
@@ -305,7 +308,7 @@ async fn handle_quick_action(
         .tools(all_tools_full(
             Arc::new(skills.to_vec()),
             provider.clone_arc(),
-            std::env::current_dir().unwrap_or_default(),
+            project_path,
         ))
         .approve_mode(ApproveMode::Auto)
         .build();
@@ -477,8 +480,9 @@ async fn handle_quick_action_json(
     action: String,
     file: Option<String>,
 ) -> Result<()> {
+    let project_path = std::env::current_dir().unwrap_or_default();
     let prompt = build_action_prompt(&action, &file);
-    let system_prompt = build_system_prompt(&PromptProfile::Fast, skills, None, None);
+    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Fast, skills, None, None, Some(&project_path));
 
     let provider = create_provider_with_headers(
         resolve_provider(config, model),
@@ -495,7 +499,7 @@ async fn handle_quick_action_json(
         .tools(all_tools_full(
             Arc::new(skills.to_vec()),
             provider.clone_arc(),
-            std::env::current_dir().unwrap_or_default(),
+            project_path,
         ))
         .approve_mode(ApproveMode::Auto)
         .build();

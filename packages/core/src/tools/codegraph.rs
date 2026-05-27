@@ -1249,6 +1249,18 @@ impl CodeGraphWatcher {
             return;
         }
 
+        // Check if CodeGraph is initialized - DO NOT auto-initialize
+        // User must manually run `codegraph init -i` or `/init` to create the index
+        let manager = CodeGraphManager::new(&project_path);
+        if !manager.is_initialized() {
+            log::info!(
+                "CodeGraph: not initialized for {}, skipping watcher. Run 'codegraph init -i' to create index.",
+                project_path.display()
+            );
+            release_watcher_lock(&project_path);
+            return;
+        }
+
         // Detect environment type
         let env_type = detect_env_type(&project_path);
         log::info!(
@@ -1259,22 +1271,6 @@ impl CodeGraphWatcher {
             },
             project_path.display()
         );
-
-        // Initialize CodeGraph if not already
-        let manager = CodeGraphManager::new(&project_path);
-        if !manager.is_initialized() {
-            log::info!("Initializing CodeGraph for: {}", project_path.display());
-            if let Err(e) = manager.init().await {
-                log::warn!("CodeGraph init failed: {}", e);
-                return;
-            }
-            // Initial sync after init
-            if let Err(e) = manager.sync().await {
-                log::warn!("CodeGraph post-init sync failed: {}", e);
-            }
-            // Save version after init
-            update_version_after_sync(&project_path);
-        }
 
         // Check version consistency before starting
         if env_type == CodeGraphEnv::Git && has_version_changed(&project_path) {
@@ -1873,9 +1869,9 @@ pub fn should_inject_codegraph_tools(start_path: &Path) -> bool {
         return false;
     }
 
-    // Find project root and check for .codegraph directory
+    // Find project root and check for .codegraph/codegraph.db file (actual index)
     let project_root = find_project_root(start_path);
-    project_root.join(".codegraph").exists()
+    project_root.join(".codegraph").join("codegraph.db").exists()
 }
 
 /// Create CodeGraph tools only if initialized.
