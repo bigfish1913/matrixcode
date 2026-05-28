@@ -651,6 +651,84 @@
       "importance": 55.0,
       "tags": [],
       "is_manual": false
+    },
+    {
+      "id": "3f82ab4e-78f7-4744-b763-151bd15ed206",
+      "created_at": "2026-05-28T10:42:41.820541100Z",
+      "last_referenced": "2026-05-28T10:42:41.820541300Z",
+      "category": "decision",
+      "content": "CLI 命令系统采用与 TUI 统一的 Command trait 设计模式。**Why:** 与 TUI 架构统一便于维护、结构清晰、支持完整元数据（name/aliases/help）、每个命令独立文件符合单一职责。**Context:** CLI 的 handle_command 方法有 200+ 行 if-else 分支，添加新命令需修改核心函数，难以测试单个命令。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "Command trait",
+        "CLI",
+        "TUI",
+        "架构统一",
+        "architecture",
+        "refactor"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "9d3a18b9-03c5-4452-95fe-ecce7f6c8900",
+      "created_at": "2026-05-28T10:42:41.820543900Z",
+      "last_referenced": "2026-05-28T10:42:41.820544Z",
+      "category": "solution",
+      "content": "Command trait 设计模式：定义 name/aliases/help/execute 方法，配合 CommandContext 和 CommandRegistry 实现命令注册分发。**Problem:** 命令系统扩展性差、难以测试。**Key:** trait 定义接口 + Context 封装依赖 + Registry 管理注册。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "Command trait",
+        "CommandContext",
+        "CommandRegistry",
+        "设计模式",
+        "architecture",
+        "pattern"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "980d9dca-4e9b-47cd-bcc8-920ed7b7b74e",
+      "created_at": "2026-05-28T10:42:41.820544700Z",
+      "last_referenced": "2026-05-28T10:42:41.820544800Z",
+      "category": "finding",
+      "content": "TUI 已实现 Command trait 设计，CLI 可直接参考对齐。execute 方法返回 bool 表示是否继续处理（true=继续，false=已处理）。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "TUI",
+        "Command trait",
+        "已有实现",
+        "architecture"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "c2a60276-8561-4255-b850-054f5aef3fc0",
+      "created_at": "2026-05-28T10:42:41.820545200Z",
+      "last_referenced": "2026-05-28T10:42:41.820545300Z",
+      "category": "technical",
+      "content": "Command trait 需要 Send + Sync bounds 支持多线程。execute 为异步方法，接收可变 CommandContext。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "Command trait",
+        "Send",
+        "Sync",
+        "async",
+        "rust",
+        "concurrency"
+      ],
+      "is_manual": false
     }
   ],
   "config": {

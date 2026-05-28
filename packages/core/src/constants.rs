@@ -87,3 +87,6 @@ pub const CODEGRAPH_CLI_TIMEOUT_SECS: u64 = 120;
 /// CodeGraph auto-sync debounce interval (seconds)
 /// Increased to reduce Node.js process frequency
 pub const CODEGRAPH_SYNC_INTERVAL_SECS: u64 = 10;
+/// Display limits for UI
+pub const DISPLAY_MEMORY_SEARCH_LIMIT: usize = 10;
+pub const DISPLAY_OVERVIEW_CHARS_LIMIT: usize = 2000;

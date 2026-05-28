@@ -6,6 +6,7 @@
 pub mod agent;
 pub mod approval;
 pub mod cancel;
+pub mod command;
 pub mod compress;
 pub mod config;
 pub mod constants;
