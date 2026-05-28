@@ -45,6 +45,20 @@ pub struct McpServerConfig {
     pub enabled: bool,
 }
 
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            name: None,
+            command: None,
+            args: Vec::new(),
+            env: HashMap::new(),
+            url: None,
+            timeout_ms: default_timeout(),
+            enabled: default_enabled(),
+        }
+    }
+}
+
 fn default_timeout() -> u64 {
     30000
 }
@@ -229,6 +243,24 @@ impl McpConfig {
             .map(|(key, config)| (key.clone(), config))
             .collect()
     }
+    
+    /// 合并两个配置（other 覆盖 self）
+    pub fn merge(mut self, other: McpConfig) -> Self {
+        // 合并服务器配置（other 覆盖同名服务器）
+        for (key, config) in other.servers {
+            self.servers.insert(key, config);
+        }
+        
+        // 合并设置（other 的非默认值覆盖）
+        if !other.settings.auto_discover {
+            self.settings.auto_discover = false;
+        }
+        if other.settings.connect_timeout_ms != default_connect_timeout() {
+            self.settings.connect_timeout_ms = other.settings.connect_timeout_ms;
+        }
+        
+        self
+    }
 }
 
 // ============================================================================
@@ -273,6 +305,7 @@ pub const MCP_CONFIG_FILENAMES: &[&str] = &[
 
 /// 查找工作目录中的 MCP 配置文件
 pub fn find_mcp_config(start_dir: &Path) -> Option<std::path::PathBuf> {
+    // 1. 项目级配置（优先）
     for filename in MCP_CONFIG_FILENAMES {
         let path = start_dir.join(filename);
         if path.exists() {
@@ -280,8 +313,17 @@ pub fn find_mcp_config(start_dir: &Path) -> Option<std::path::PathBuf> {
         }
     }
     
-    // 检查用户主目录
+    // 2. 用户级配置目录 (~/.matrixcode/)
     if let Some(home) = dirs::home_dir() {
+        let matrixcode_dir = home.join(".matrixcode");
+        for filename in MCP_CONFIG_FILENAMES {
+            let path = matrixcode_dir.join(filename);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        
+        // 3. 用户主目录 (~/.mcp.toml)
         for filename in MCP_CONFIG_FILENAMES {
             let path = home.join(filename);
             if path.exists() {
@@ -293,23 +335,53 @@ pub fn find_mcp_config(start_dir: &Path) -> Option<std::path::PathBuf> {
     None
 }
 
-/// 加载 MCP 配置（自动发现）
+/// 加载 MCP 配置（合并项目级和用户级）
 pub fn load_mcp_config(start_dir: &Path) -> McpConfig {
-    // 尝试自动发现配置文件
-    if let Some(path) = find_mcp_config(start_dir) {
-        match McpConfig::from_file(&path) {
-            Ok(config) => {
-                tracing::info!("Loaded MCP config from {:?}", path);
-                return config;
+    let mut config = McpConfig::new();
+    
+    // 1. 加载用户级配置（基础）
+    if let Some(home) = dirs::home_dir() {
+        // ~/.matrixcode/ 目录
+        let matrixcode_dir = home.join(".matrixcode");
+        for filename in MCP_CONFIG_FILENAMES {
+            let path = matrixcode_dir.join(filename);
+            if path.exists() {
+                if let Ok(user_config) = McpConfig::from_file(&path) {
+                    tracing::info!("Loaded user-level MCP config from {:?}", path);
+                    config = config.merge(user_config);
+                    break;
+                }
             }
-            Err(e) => {
-                tracing::warn!("Failed to load MCP config from {:?}: {}", path, e);
+        }
+        
+        // ~/.mcp.toml（备选）
+        if config.servers.is_empty() {
+            for filename in MCP_CONFIG_FILENAMES {
+                let path = home.join(filename);
+                if path.exists() {
+                    if let Ok(user_config) = McpConfig::from_file(&path) {
+                        tracing::info!("Loaded user MCP config from {:?}", path);
+                        config = config.merge(user_config);
+                        break;
+                    }
+                }
             }
         }
     }
     
-    // 返回默认配置
-    McpConfig::new()
+    // 2. 加载项目级配置（覆盖）
+    for filename in MCP_CONFIG_FILENAMES {
+        let path = start_dir.join(filename);
+        if path.exists() {
+            if let Ok(project_config) = McpConfig::from_file(&path) {
+                tracing::info!("Loaded project-level MCP config from {:?}", path);
+                config = config.merge(project_config);
+                break;
+            }
+        }
+    }
+    
+    config
 }
 
 #[cfg(test)]

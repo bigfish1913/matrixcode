@@ -13,6 +13,7 @@ use crate::compress::{
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::prompt;
 use crate::providers::{ChatRequest, Message, MessageContent, Role};
+use crate::tools::Tool;
 use crate::tools::ToolDefinition;
 use crate::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
 
@@ -48,6 +49,7 @@ impl Agent {
             ask_rx: None,
             proxy_tool_defs: builder.proxy_tool_defs,
             proxy_executor: builder.proxy_executor,
+            mcp_registry: builder.mcp_registry,
         }
     }
 
@@ -178,16 +180,14 @@ impl Agent {
                 break;
             }
 
-            // Warn when approaching iteration limit
+            // Warn when approaching iteration limit (UI only, not in messages history)
             if iterations == ITERATION_WARNING_THRESHOLD {
-                self.messages.push(Message {
-                    role: Role::User,
-                    content: MessageContent::Text(
-                        prompt::MSG_ITERATION_WARNING
-                            .replace("{iterations}", &iterations.to_string())
-                            .replace("{max_iterations}", &MAX_ITERATIONS.to_string()),
-                    ),
-                });
+                self.emit(AgentEvent::progress(
+                    prompt::MSG_ITERATION_WARNING_UI
+                        .replace("{iterations}", &iterations.to_string())
+                        .replace("{max_iterations}", &MAX_ITERATIONS.to_string()),
+                    None,
+                ))?;
             }
 
             // Proactive compression: check context size BEFORE API call
@@ -391,6 +391,16 @@ impl Agent {
         &self.messages
     }
 
+    /// Get available tools
+    pub fn get_tools(&self) -> &[Arc<dyn Tool>] {
+        &self.tools
+    }
+
+    /// Get system prompt
+    pub fn get_system_prompt(&self) -> &str {
+        &self.system_prompt
+    }
+
     /// Get current token counts
     pub fn get_token_counts(&self) -> (u64, u64) {
         (
@@ -410,5 +420,65 @@ impl Agent {
     /// Get message count
     pub fn message_count(&self) -> usize {
         self.messages.len()
+    }
+
+    // ========================================================================
+    // MCP Runtime Management
+    // ========================================================================
+
+    /// 动态添加 MCP 服务器
+    /// 
+    /// # Example
+    /// ```ignore
+    /// use matrixcode_core::mcp::McpServerConfig;
+    /// 
+    /// let config = McpServerConfig::stdio("npx", vec!["-y", "@playwright/mcp@latest"]);
+    /// agent.add_mcp_server("playwright", config).await?;
+    /// ```
+    pub async fn add_mcp_server(&mut self, name: &str, config: crate::mcp::McpServerConfig) -> Result<()> {
+        if let Some(registry) = &self.mcp_registry {
+            let mut reg = registry.write().await;
+            reg.add_server(name.to_string(), config);
+            log::info!("MCP server '{}' added to registry", name);
+        } else {
+            log::warn!("MCP registry not initialized, cannot add server '{}'", name);
+        }
+        Ok(())
+    }
+
+    /// 移除 MCP 服务器
+    pub async fn remove_mcp_server(&mut self, name: &str) -> Result<()> {
+        if let Some(registry) = &self.mcp_registry {
+            let mut reg = registry.write().await;
+            reg.remove_server(name).await?;
+            log::info!("MCP server '{}' removed from registry", name);
+        }
+        Ok(())
+    }
+
+    /// 获取 MCP 服务器状态列表
+    pub async fn mcp_server_status(&self) -> Vec<crate::mcp::ServerStatus> {
+        if let Some(registry) = &self.mcp_registry {
+            let reg = registry.read().await;
+            reg.server_status().await.values().cloned().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// 启动指定的 MCP 服务器
+    pub async fn start_mcp_server(&self, name: &str) -> Result<Vec<Arc<crate::mcp::McpToolWrapper>>> {
+        if let Some(registry) = &self.mcp_registry {
+            let reg = registry.read().await;
+            if let Some(placeholder) = reg.get_server(name) {
+                let tools = placeholder.start().await?;
+                log::info!("MCP server '{}' started with {} tools", name, tools.len());
+                Ok(tools)
+            } else {
+                Err(anyhow::anyhow!("MCP server '{}' not found in registry", name))
+            }
+        } else {
+            Err(anyhow::anyhow!("MCP registry not initialized"))
+        }
     }
 }

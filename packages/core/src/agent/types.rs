@@ -71,6 +71,8 @@ pub struct Agent {
     pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
     /// 代理工具执行器
     pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
+    /// MCP 工具注册表（动态管理）
+    pub(crate) mcp_registry: Option<Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>>,
 }
 
 /// Agent builder
@@ -92,6 +94,8 @@ pub struct AgentBuilder {
     pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
     /// 代理工具执行器
     pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
+    /// MCP 工具注册表（动态管理）
+    pub(crate) mcp_registry: Option<Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>>,
 }
 
 // 注意：AgentBuilder 必须通过 AgentBuilder::new(provider) 创建
@@ -99,7 +103,7 @@ pub struct AgentBuilder {
 #[cfg(test)]
 impl Default for AgentBuilder {
     fn default() -> Self {
-        // 测试环境下使用 Mock Provider
+        // 测试��境下使用 Mock Provider
         Self::new(Box::new(MockTestProvider))
     }
 }

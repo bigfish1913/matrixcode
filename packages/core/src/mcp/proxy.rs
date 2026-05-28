@@ -19,6 +19,7 @@ use super::types::{CallToolResult, Content, Tool as McpTool};
 // ============================================================================
 
 /// MCP 工具包装器 - 将 MCP 工具映射为内置 Tool
+#[derive(Clone)]
 pub struct McpToolWrapper {
     /// MCP 客户端
     client: Arc<McpClient>,

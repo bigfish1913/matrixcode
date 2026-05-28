@@ -84,9 +84,12 @@ impl StdioTransport {
         }
         
         // 启动进程
+        tracing::debug!("Spawning MCP server '{}' with command: {} {:?}", server_name, actual_command, actual_args);
         let mut child = cmd.spawn()
             .map_err(|e| anyhow!("Failed to spawn MCP server '{}': {} (command: {} {:?})", 
                 server_name, e, actual_command, actual_args))?;
+        
+        tracing::debug!("MCP server '{}' process spawned successfully", server_name);
         
         // 获取 stdin/stdout (tokio 异步版本)
         let stdin: Box<dyn AsyncWrite + Unpin + Send> = Box::new(child.stdin.take()
@@ -113,10 +116,13 @@ impl StdioTransport {
         let mut line = String::new();
         
         // 添加 30 秒超时
+        tracing::debug!("Reading from '{}' (timeout: 30s)...", self.server_name);
         let read_result = tokio::time::timeout(
             Duration::from_secs(30),
             reader.read_line(&mut line)
         ).await;
+        
+        tracing::debug!("Read result from '{}': {:?}", self.server_name, read_result.is_ok());
         
         match read_result {
             Ok(Ok(_)) => {
@@ -135,6 +141,8 @@ impl StdioTransport {
 #[async_trait]
 impl Transport for StdioTransport {
     async fn send(&self, message: &str) -> Result<String> {
+        tracing::debug!("MCP send to '{}': {}", self.server_name, message.chars().take(200).collect::<String>());
+        
         let mut writer_lock = self.writer.lock().await;
         let writer = writer_lock.as_mut()
             .ok_or_else(|| anyhow!("Transport closed for server '{}'", self.server_name))?;
@@ -143,8 +151,11 @@ impl Transport for StdioTransport {
         writer.write_all(format!("{}\n", message).as_bytes()).await?;
         writer.flush().await?;
         
+        tracing::debug!("MCP sent, waiting for response from '{}'...", self.server_name);
+        
         // 等待响应
         let response = self.read_line().await?;
+        tracing::debug!("MCP received from '{}': {}", self.server_name, response.chars().take(200).collect::<String>());
         Ok(response)
     }
     

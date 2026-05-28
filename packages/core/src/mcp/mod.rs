@@ -97,6 +97,7 @@ pub mod transport;
 pub mod client;
 pub mod proxy;
 pub mod config;
+pub mod lazy;
 
 // Re-export main types
 pub use types::*;
@@ -104,6 +105,7 @@ pub use transport::{Transport, TransportConfig, StdioTransport, SseTransport};
 pub use client::{McpClient, McpClientBuilder};
 pub use proxy::{McpToolWrapper, McpToolManager, connect_mcp_server, connect_mcp_servers_from_config};
 pub use config::{McpConfig, McpServerConfig, McpSettings, load_mcp_config, find_mcp_config};
+pub use lazy::{McpToolPlaceholder, McpToolRegistry, ServerStatus};
 
 // ============================================================================
 // Convenience Functions

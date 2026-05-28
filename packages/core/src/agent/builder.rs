@@ -32,6 +32,7 @@ impl AgentBuilder {
             project_path: None,
             proxy_tool_defs: Vec::new(),
             proxy_executor: None,
+            mcp_registry: None,
         }
     }
 
@@ -135,5 +136,20 @@ impl AgentBuilder {
 
     pub fn build(self) -> Agent {
         Agent::new(self)
+    }
+
+    /// 设置 MCP 工具注册表
+    ///
+    /// # Example
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use matrixcode_core::mcp::McpToolRegistry;
+    ///
+    /// let registry = Arc::new(tokio::sync::RwLock::new(McpToolRegistry::new()));
+    /// builder.mcp_registry(registry)
+    /// ```
+    pub fn mcp_registry(mut self, registry: Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>) -> Self {
+        self.mcp_registry = Some(registry);
+        self
     }
 }

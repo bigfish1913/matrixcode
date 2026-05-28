@@ -197,8 +197,14 @@ pub trait Provider: Send + Sync {
         let response = self.chat(request).await?;
         let _ = tx.send(StreamEvent::FirstByte).await;
         for block in &response.content {
-            if let ContentBlock::Text { text } = block {
-                let _ = tx.send(StreamEvent::TextDelta(text.clone())).await;
+            match block {
+                ContentBlock::Thinking { thinking, .. } => {
+                    let _ = tx.send(StreamEvent::ThinkingDelta(thinking.clone())).await;
+                }
+                ContentBlock::Text { text } => {
+                    let _ = tx.send(StreamEvent::TextDelta(text.clone())).await;
+                }
+                _ => {}
             }
         }
         let _ = tx.send(StreamEvent::Done(response)).await;

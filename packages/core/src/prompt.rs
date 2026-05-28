@@ -725,12 +725,17 @@ pub fn build_system_prompt_with_workflows(
 // Runtime User Message Prompt Constants
 // =============================================================================
 
-/// Warning message when approaching iteration limit.
+/// Warning message when approaching iteration limit (sent to model as user message).
+/// This guides the model to prioritize and wrap up properly.
 pub const MSG_ITERATION_WARNING: &str = "⚠️ 接近最大迭代次数限制（当前 {iterations}/{max_iterations}）。\n\
     请检查任务进度：\n\
     1. 如果有未完成的子任务，优先完成最关键的项\n\
     2. 使用 todo_write 查看和更新任务状态\n\
     3. 确保在限制内完成或在最后输出剩余任务摘要";
+
+/// UI-only warning when approaching iteration limit (not sent to model).
+/// This is a brief notification for the user, doesn't affect model behavior.
+pub const MSG_ITERATION_WARNING_UI: &str = "⚠️ 接近迭代上限 ({iterations}/{max_iterations})，模型将优先完成关键任务";
 
 /// Message when pending todos detected.
 pub const MSG_PENDING_TODOS: &str = "📋 检测到未完成的待办任务。请继续执行剩余任务，或在 todo_write 中将已完成的任务标记为 completed。\n\

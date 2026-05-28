@@ -572,33 +572,54 @@ async fn run_agent_task(
         project_path.as_ref(),
     );
 
-    // Connect MCP servers and collect tools
+    // Create MCP Tool Registry for unified management
+    let mcp_registry = Arc::new(tokio::sync::RwLock::new(matrixcode_core::mcp::McpToolRegistry::new()));
+    
+    // Add MCP servers to registry
+    {
+        let mut registry = mcp_registry.write().await;
+        for (name, server_config) in mcp_servers {
+            registry.add_server(name.clone(), server_config);
+            log::info!("MCP server '{}' added to registry", name);
+        }
+    }
+    
+    // Start all MCP servers and collect tools
     let mut mcp_tools: Vec<Box<dyn matrixcode_core::tools::Tool>> = Vec::new();
-    for (name, server_config) in mcp_servers {
-        match server_config.to_transport_config() {
-            Ok(transport) => {
-                log::info!("Connecting to MCP server: {}", name);
-                match matrixcode_core::mcp::connect_mcp_server(&name, transport).await {
-                    Ok(tools) => {
-                        log::info!("Connected to '{}' with {} tools", name, tools.len());
-                        let _ = event_tx.send(AgentEvent::progress(
-                            format!("🔗 MCP '{}' 已连接，{} 个工具", name, tools.len()),
-                            None,
-                        )).await;
-                        mcp_tools.extend(tools);
-                    }
-                    Err(e) => {
-                        log::error!("Failed to connect to MCP server '{}': {}", name, e);
-                        let _ = event_tx.send(AgentEvent::error(
-                            format!("MCP '{}' 连接失败: {}", name, e),
-                            Some("mcp_error".to_string()),
-                            None,
-                        )).await;
+    {
+        let registry = mcp_registry.read().await;
+        match registry.start_all().await {
+            Ok(server_tools) => {
+                for (name, tools) in server_tools {
+                    log::info!("Connected to '{}' with {} tools", name, tools.len());
+                    
+                    // Send MCP server added event
+                    let _ = event_tx.send(AgentEvent::mcp_server_added(
+                        name.clone(),
+                        tools.len(),
+                    )).await;
+                    
+                    // Convert Arc<McpToolWrapper> to Box<dyn Tool>
+                    for tool in tools {
+                        mcp_tools.push(Box::new((*tool).clone()));
                     }
                 }
+                
+                // Send overall MCP status after all servers started
+                let statuses = registry.server_status().await;
+                let mcp_infos: Vec<matrixcode_core::event::McpServerInfo> = statuses
+                    .iter()
+                    .map(|(_, s)| matrixcode_core::event::McpServerInfo::from_status(s))
+                    .collect();
+                let _ = event_tx.send(AgentEvent::mcp_server_status(mcp_infos)).await;
             }
             Err(e) => {
-                log::error!("Invalid MCP config for server '{}': {}", name, e);
+                log::error!("Failed to start MCP servers: {}", e);
+                let _ = event_tx.send(AgentEvent::error(
+                    format!("MCP 服务器启动失败: {}", e),
+                    Some("mcp_error".to_string()),
+                    None,
+                )).await;
             }
         }
     }
@@ -626,6 +647,7 @@ async fn run_agent_task(
             matrixcode_tui::image_search::create_default_executor(),
             matrixcode_tui::image_search::get_default_proxy_tools()
         )
+        .mcp_registry(mcp_registry)
         .build();
 
     agent.set_approve_mode_shared(shared_approve_mode);
@@ -730,7 +752,8 @@ async fn run_agent_task(
            && !msg.starts_with("/load") && !msg.starts_with("/mode")
            && !msg.starts_with("/model") && !msg.starts_with("/retry")
            && !msg.starts_with("/history") && !msg.starts_with("/cron")
-           && !msg.starts_with("/config")
+           && !msg.starts_with("/config") && !msg.starts_with("/tools")
+           && !msg.starts_with("/system")
            && msg != "/" {
             let skill_name = msg.trim_start_matches('/');
             if let Some(skill) = skills.iter().find(|s| s.name == skill_name) {
@@ -822,6 +845,18 @@ async fn run_agent_task(
         // Handle /config
         if msg == "/config" {
             handle_config_in_task(&event_tx, &config, &model).await;
+            continue;
+        }
+
+        // Handle /tools
+        if msg == "/tools" {
+            handle_tools_in_task(&event_tx, &agent).await;
+            continue;
+        }
+
+        // Handle /system
+        if msg == "/system" {
+            handle_system_in_task(&event_tx, &agent, &config, &model).await;
             continue;
         }
 
@@ -1438,6 +1473,207 @@ async fn handle_config_in_task(
     info.push_str(&format!("Think: {}\n", config.think));
     info.push_str(&format!("Max Tokens: {}\n", config.max_tokens));
     let _ = event_tx.send(AgentEvent::progress(info, None)).await;
+}
+
+async fn handle_tools_in_task(
+    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    agent: &matrixcode_core::agent::Agent,
+) {
+    let tools = agent.get_tools();
+    let mut info = format!("🔧 Available Tools: {}\n\n", tools.len());
+
+    // Group tools dynamically by category
+    // Use prefix matching for dynamic tools (MCP, proxy, etc.)
+    let mut core_tools: Vec<_> = Vec::new();
+    let mut file_tools: Vec<_> = Vec::new();
+    let mut search_tools: Vec<_> = Vec::new();
+    let mut web_tools: Vec<_> = Vec::new();
+    let mut code_tools: Vec<_> = Vec::new();
+    let mut mcp_tools: Vec<_> = Vec::new();
+    let mut workflow_tools: Vec<_> = Vec::new();
+    let mut other_tools: Vec<_> = Vec::new();
+
+    for tool in tools.iter() {
+        let def = tool.definition();
+        let name = def.name.as_str();
+        let desc = def.description.as_str();
+
+        // Dynamic classification by name prefix or content
+        if name.starts_with("mcp_") || name.starts_with("mcp__") {
+            mcp_tools.push(tool);
+        } else if name.starts_with("workflow_") || name.contains("workflow") {
+            workflow_tools.push(tool);
+        } else if name.starts_with("code_") || desc.contains("CodeGraph") {
+            code_tools.push(tool);
+        } else if name.starts_with("proxy_") || desc.contains("代理") {
+            other_tools.push(tool);  // Proxy tools are special
+        } else {
+            // Static classification for built-in tools
+            match name {
+                "read" | "write" | "edit" | "multi_edit" | "ls" => file_tools.push(tool),
+                "grep" | "glob" | "search" => search_tools.push(tool),
+                "websearch" | "webfetch" => web_tools.push(tool),
+                "bash" | "task" | "todo_write" | "notebook_edit"
+                | "task_create" | "task_get" | "task_list" | "task_stop" => core_tools.push(tool),
+                "ask" | "enter_plan_mode" | "exit_plan_mode" | "monitor" => core_tools.push(tool),
+                _ => other_tools.push(tool),
+            }
+        }
+    }
+
+    if !core_tools.is_empty() {
+        info.push_str("📁 Core:\n");
+        for tool in core_tools.iter().take(12) {
+            let def = tool.definition();
+            info.push_str(&format!("  {} - {}\n", def.name,
+                truncate_description(&def.description, 35)));
+        }
+    }
+
+    if !file_tools.is_empty() {
+        info.push_str("\n📄 File:\n");
+        for tool in file_tools.iter() {
+            let def = tool.definition();
+            info.push_str(&format!("  {} - {}\n", def.name,
+                truncate_description(&def.description, 35)));
+        }
+    }
+
+    if !search_tools.is_empty() {
+        info.push_str("\n🔍 Search:\n");
+        for tool in search_tools.iter() {
+            let def = tool.definition();
+            info.push_str(&format!("  {} - {}\n", def.name,
+                truncate_description(&def.description, 35)));
+        }
+    }
+
+    if !code_tools.is_empty() {
+        info.push_str("\n📊 CodeGraph:\n");
+        for tool in code_tools.iter() {
+            let def = tool.definition();
+            info.push_str(&format!("  {} - {}\n", def.name,
+                truncate_description(&def.description, 35)));
+        }
+    }
+
+    if !web_tools.is_empty() {
+        info.push_str("\n🌐 Web:\n");
+        for tool in web_tools.iter() {
+            let def = tool.definition();
+            info.push_str(&format!("  {} - {}\n", def.name,
+                truncate_description(&def.description, 35)));
+        }
+    }
+
+    if !workflow_tools.is_empty() {
+        info.push_str("\n🔄 Workflow:\n");
+        for tool in workflow_tools.iter().take(10) {
+            let def = tool.definition();
+            info.push_str(&format!("  {} - {}\n", def.name,
+                truncate_description(&def.description, 35)));
+        }
+    }
+
+    if !mcp_tools.is_empty() {
+        info.push_str("\n🔌 MCP:\n");
+        for tool in mcp_tools.iter().take(15) {
+            let def = tool.definition();
+            info.push_str(&format!("  {} - {}\n", def.name,
+                truncate_description(&def.description, 35)));
+        }
+        if mcp_tools.len() > 15 {
+            info.push_str(&format!("  (+ {} more)\n", mcp_tools.len() - 15));
+        }
+    }
+
+    if !other_tools.is_empty() {
+        info.push_str("\n🔧 Other:\n");
+        for tool in other_tools.iter().take(10) {
+            let def = tool.definition();
+            info.push_str(&format!("  {} - {}\n", def.name,
+                truncate_description(&def.description, 35)));
+        }
+        if other_tools.len() > 10 {
+            info.push_str(&format!("  (+ {} more)\n", other_tools.len() - 10));
+        }
+    }
+
+    let _ = event_tx.send(AgentEvent::progress(info, None)).await;
+}
+
+async fn handle_system_in_task(
+    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    agent: &matrixcode_core::agent::Agent,
+    config: &Config,
+    model: &str,
+) {
+    let mut info = "📋 System Information:\n\n".to_string();
+
+    // Configuration
+    info.push_str("⚙️ Configuration:\n");
+    info.push_str(&format!("  Provider: {}\n", config.provider.as_deref().unwrap_or("auto")));
+    info.push_str(&format!("  Model: {}\n", model));
+    info.push_str(&format!("  Think: {}\n", config.think));
+    info.push_str(&format!("  Max Tokens: {}\n", config.max_tokens));
+    info.push_str(&format!("  Context Size: {}\n", config.context_size.unwrap_or(0)));
+    info.push_str(&format!("  Approve Mode: {}\n", config.approve_mode.as_deref().unwrap_or("ask")));
+
+    // System prompt summary (clean up markdown tables)
+    let system_prompt = agent.get_system_prompt();
+    let clean_prompt = clean_markdown_tables(system_prompt);
+    let prompt_preview = if clean_prompt.len() > 500 {
+        format!("{}... ({} chars total)",
+            &clean_prompt[..500], clean_prompt.len())
+    } else {
+        clean_prompt
+    };
+    info.push_str(&format!("\n📝 System Prompt Preview:\n{}\n", prompt_preview));
+
+    // Tools count
+    let tools = agent.get_tools();
+    info.push_str(&format!("\n🔧 Tools: {} available\n", tools.len()));
+
+    // Message count
+    let messages = agent.get_messages();
+    info.push_str(&format!("💬 Messages: {} in history\n", messages.len()));
+
+    // Token stats
+    let (input_tokens, output_tokens) = agent.get_token_counts();
+    info.push_str(&format!("📊 Tokens: {} in, {} out\n", input_tokens, output_tokens));
+
+    let _ = event_tx.send(AgentEvent::progress(info, None)).await;
+}
+
+fn truncate_description(desc: &str, max_len: usize) -> String {
+    // Take only the first line as short description (avoid markdown tables etc.)
+    let first_line = desc.lines().next().unwrap_or(desc);
+
+    // Truncate by characters (not bytes) to avoid UTF-8 boundary issues
+    let chars: Vec<char> = first_line.chars().collect();
+    if chars.len() > max_len {
+        chars[..max_len.saturating_sub(3)].iter().collect::<String>() + "..."
+    } else {
+        first_line.to_string()
+    }
+}
+
+fn clean_markdown_tables(text: &str) -> String {
+    // Remove markdown table formatting to prevent display issues in TUI
+    text.lines()
+        .filter(|line| {
+            // Skip table header separator lines (|---|)
+            !line.trim().starts_with("|---")
+            // Skip lines that are mostly table separators
+            && line.trim().chars().filter(|c| *c == '|').count() <= 3
+        })
+        .map(|line| {
+            // Remove table column separators but keep content
+            line.replace("|", " ").trim().to_string()
+        })
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // Post-run handling functions

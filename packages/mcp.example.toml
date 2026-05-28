@@ -1,0 +1,32 @@
+# MCP Configuration Example
+# 
+# Place this file in:
+# - Project root: ./mcp.toml (project-level)
+# - User home: ~/.matrixcode/mcp.toml (user-level)
+#
+# Project config overrides user config for same servers.
+
+[servers.playwright]
+# Playwright browser automation (23 tools)
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+enabled = true
+
+# [servers.filesystem]
+# # File system access (optional)
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+# enabled = false
+
+# [servers.memory]
+# # Simple key-value memory store
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-memory"]
+# enabled = false
+
+[settings]
+# Auto discover MCP servers (default: true)
+auto_discover = true
+
+# Connection timeout in milliseconds (default: 10000)
+connect_timeout_ms = 30000

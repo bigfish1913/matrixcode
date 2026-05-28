@@ -14,14 +14,12 @@ use crate::utils::{fmt_tokens, progress_bar, truncate};
 
 impl TuiApp {
     pub(crate) fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
-        let actual_tokens = if self.tokens_in > 0 {
-            self.tokens_in
-        } else {
-            self.messages
-                .iter()
-                .map(|m| estimate_message_tokens(&m.content) as u64)
-                .sum::<u64>()
-        };
+        // Always estimate actual context size from messages (like debug panel)
+        // This gives accurate current context usage, not cumulative API tokens
+        let actual_tokens = self.messages
+            .iter()
+            .map(|m| estimate_message_tokens(&m.content) as u64)
+            .sum::<u64>();
 
         let context_pct = if self.context_size > 0 {
             (actual_tokens as f64 / self.context_size as f64 * 100.0).min(100.0)

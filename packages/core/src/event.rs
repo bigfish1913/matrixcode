@@ -45,6 +45,9 @@ pub enum EventType {
     DebugLog,    // Debug log entry for TUI debug panel
     SkillsLoaded,   // Skills loaded notification
     WorkflowsLoaded, // Workflows loaded notification
+    McpServerAdded,   // MCP server added
+    McpServerRemoved, // MCP server removed
+    McpServerStatus,  // MCP server status update
 }
 
 /// Event data
@@ -136,6 +139,16 @@ pub enum EventData {
     },
     WorkflowsLoaded {
         names: Vec<String>,
+    },
+    McpServerAdded {
+        name: String,
+        tool_count: usize,
+    },
+    McpServerRemoved {
+        name: String,
+    },
+    McpServerStatus {
+        servers: Vec<McpServerInfo>,
     },
 }
 
@@ -324,6 +337,35 @@ impl AgentEvent {
         )
     }
 
+    /// MCP server added event
+    pub fn mcp_server_added(name: impl Into<String>, tool_count: usize) -> Self {
+        Self::with_data(
+            EventType::McpServerAdded,
+            EventData::McpServerAdded {
+                name: name.into(),
+                tool_count,
+            },
+        )
+    }
+
+    /// MCP server removed event
+    pub fn mcp_server_removed(name: impl Into<String>) -> Self {
+        Self::with_data(
+            EventType::McpServerRemoved,
+            EventData::McpServerRemoved {
+                name: name.into(),
+            },
+        )
+    }
+
+    /// MCP server status update event
+    pub fn mcp_server_status(servers: Vec<McpServerInfo>) -> Self {
+        Self::with_data(
+            EventType::McpServerStatus,
+            EventData::McpServerStatus { servers },
+        )
+    }
+
     /// 创建代理工具请求事件
     pub fn proxy_tool_request(
         request_id: impl Into<String>,
@@ -371,6 +413,32 @@ fn current_timestamp() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+/// MCP server information for status display
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct McpServerInfo {
+    pub name: String,
+    pub is_started: bool,
+    pub tool_count: usize,
+}
+
+impl McpServerInfo {
+    pub fn new(name: impl Into<String>, is_started: bool, tool_count: usize) -> Self {
+        Self {
+            name: name.into(),
+            is_started,
+            tool_count,
+        }
+    }
+    
+    pub fn from_status(status: &crate::mcp::ServerStatus) -> Self {
+        Self {
+            name: status.name.clone(),
+            is_started: status.is_started,
+            tool_count: status.tool_count,
+        }
+    }
 }
 
 #[derive(Debug, Default)]

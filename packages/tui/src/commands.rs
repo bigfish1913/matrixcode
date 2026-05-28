@@ -211,6 +211,8 @@ impl TuiApp {
                         "  /mode     - Change approve mode (ask/auto/strict)\n",
                         "  /model    - Show/change model\n",
                         "  /config   - Show current configuration\n",
+                        "  /tools    - List available tools with descriptions\n",
+                        "  /system   - Show system prompt and all details\n",
                         "  /compact  - Compress context\n",
                         "  /retry    - Retry last queued message\n",
                         "  /new      - Start new session\n",
@@ -232,6 +234,16 @@ impl TuiApp {
                     )
                     .into(),
                 });
+                self.auto_scroll = true;
+            }
+            "/tools" => {
+                // Send to backend for processing
+                self.tx.try_send("/tools".to_string()).ok();
+                self.auto_scroll = true;
+            }
+            "/system" => {
+                // Send to backend for processing
+                self.tx.try_send("/system".to_string()).ok();
                 self.auto_scroll = true;
             }
             "/skills" => {

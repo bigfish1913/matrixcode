@@ -97,24 +97,44 @@ pub fn load_skills(extra_dirs: &[PathBuf]) -> Vec<matrixcode_core::skills::Skill
 }
 
 /// Parse MCP server spec from CLI --mcp parameter.
-/// Format: name=command,args (e.g., playwright=npx,-y,@playwright/mcp@latest)
+/// Format: name:command args (e.g., playwright:npx -y @playwright/mcp@latest)
+/// Or: command args (e.g., npx -y @modelcontextprotocol/server-filesystem)
 fn parse_mcp_spec(spec: &str) -> Option<(String, String, Vec<String>)> {
-    let parts: Vec<&str> = spec.splitn(2, '=').collect();
-    if parts.len() != 2 {
+    let spec = spec.trim();
+    if spec.is_empty() {
         return None;
     }
-
-    let name = parts[0].trim();
-    let cmd_parts: Vec<&str> = parts[1].split(',').collect();
-
-    if cmd_parts.is_empty() {
+    
+    // Try name:command args format
+    if let Some((name, rest)) = spec.split_once(':') {
+        let name = name.trim().to_string();
+        let rest = rest.trim();
+        
+        // Split by whitespace (works for simple cases)
+        let parts: Vec<String> = rest.split_whitespace().map(|s| s.to_string()).collect();
+        
+        if parts.is_empty() {
+            return None;
+        }
+        
+        let command = parts[0].clone();
+        let args = parts[1..].to_vec();
+        
+        return Some((name, command, args));
+    }
+    
+    // Try command args format (use command as name)
+    let parts: Vec<String> = spec.split_whitespace().map(|s| s.to_string()).collect();
+    
+    if parts.is_empty() {
         return None;
     }
-
-    let command = cmd_parts[0].trim().to_string();
-    let args: Vec<String> = cmd_parts[1..].iter().map(|s| s.trim().to_string()).collect();
-
-    Some((name.to_string(), command, args))
+    
+    let command = parts[0].clone();
+    let name = command.clone();
+    let args = parts[1..].to_vec();
+    
+    Some((name, command, args))
 }
 
 /// Load MCP tools from CLI params and config files.
