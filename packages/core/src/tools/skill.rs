@@ -127,6 +127,7 @@ mod tests {
         Skill {
             name: name.to_string(),
             description: "desc".to_string(),
+            trigger: None,
             dir: PathBuf::from("/nonexistent"),
             body: body.to_string(),
             source_file: PathBuf::from("/nonexistent/SKILL.md"),

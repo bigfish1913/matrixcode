@@ -92,6 +92,11 @@ pub struct MatrixConfig {
     /// Format: {"server_name": McpServerConfig}
     #[serde(default)]
     pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
+
+    /// LSP servers configuration
+    /// Format: {"server_name": LspServerConfig}
+    #[serde(default)]
+    pub lsp_servers: Option<HashMap<String, crate::lsp::LspServerConfig>>,
 }
 
 fn default_true() -> bool {
@@ -212,6 +217,7 @@ impl MatrixConfig {
             approve_mode: Some("ask".to_string()),
             extra_headers: None,
             mcp_servers: None,
+            lsp_servers: None,
         })
     }
 
@@ -253,6 +259,7 @@ impl MatrixConfig {
                 .or(Some("ask".to_string())),
             extra_headers,
             mcp_servers: None,
+            lsp_servers: None,
         }
     }
 
@@ -504,6 +511,7 @@ pub fn create_default_config() -> anyhow::Result<()> {
         approve_mode: Some("ask".to_string()),
         extra_headers: None,
         mcp_servers: None,
+        lsp_servers: None,
     };
 
     config.save()?;

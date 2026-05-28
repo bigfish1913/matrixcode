@@ -184,6 +184,68 @@ pub fn prepare_mcp_tools(
     servers
 }
 
+/// Auto-detect available LSP servers.
+///
+/// Checks common LSP servers and uses them if installed.
+/// No configuration needed - just detect and use.
+///
+/// Returns list of (name, config) pairs for available servers.
+pub fn prepare_lsp_servers(
+    _config: &Config,
+) -> Vec<(String, matrixcode_core::lsp::LspServerConfig)> {
+    use matrixcode_core::lsp::LspServerConfig;
+    
+    // Common LSP servers to check
+    let common_servers = [
+        // Rust
+        ("rust-analyzer", "rust", "rust-analyzer", vec![]),
+        // TypeScript/JavaScript
+        ("typescript-language-server", "typescript", "typescript-language-server", vec!["--stdio".to_string()]),
+        // Python
+        ("pylsp", "python", "pylsp", vec![]),
+        ("pyright", "python", "pyright", vec!["--stdio".to_string()]),
+        // Go
+        ("gopls", "go", "gopls", vec![]),
+        // C/C++
+        ("clangd", "cpp", "clangd", vec![]),
+        // Java
+        ("jdtls", "java", "jdtls", vec![]),
+    ];
+    
+    let mut servers: Vec<(String, LspServerConfig)> = Vec::new();
+    
+    for (name, language, command, args) in &common_servers {
+        if is_command_available(command) {
+            log::info!("LSP server '{}' detected and available", name);
+            servers.push((
+                name.to_string(),
+                LspServerConfig::new(command.to_string(), language.to_string())
+                    .with_args(args.clone()),
+            ));
+        }
+    }
+    
+    servers
+}
+
+/// Check if a command is available in the system.
+fn is_command_available(command: &str) -> bool {
+    // Try to find the command using 'which' on Unix or 'where' on Windows
+    let check_cmd = if cfg!(target_os = "windows") {
+        format!("where {}", command)
+    } else {
+        format!("which {}", command)
+    };
+    
+    // Execute and check if successful
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&check_cmd)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 /// Build quick action prompt from action type and file
 pub fn build_quick_action_prompt(action: &str, file: Option<&String>) -> String {
     match action {

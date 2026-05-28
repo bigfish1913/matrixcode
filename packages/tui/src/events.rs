@@ -494,6 +494,31 @@ impl TuiApp {
                     self.mcp_servers = servers;
                 }
             }
+            EventType::LspServerAdded => {
+                if let Some(EventData::LspServerAdded { name, language }) = e.data {
+                    self.push_message(Message {
+                        role: Role::System,
+                        content: format!("🔤 LSP '{}' ({}) 已添加", name, language),
+                    });
+                    self.lsp_servers.push(matrixcode_core::LspServerInfo::new(name, language));
+                    self.auto_scroll = true;
+                }
+            }
+            EventType::LspServerRemoved => {
+                if let Some(EventData::LspServerRemoved { name }) = e.data {
+                    self.lsp_servers.retain(|s| s.name != name);
+                    self.push_message(Message {
+                        role: Role::System,
+                        content: format!("🔤 LSP '{}' 已移除", name),
+                    });
+                    self.auto_scroll = true;
+                }
+            }
+            EventType::LspServerStatus => {
+                if let Some(EventData::LspServerStatus { servers }) = e.data {
+                    self.lsp_servers = servers;
+                }
+            }
             _ => {}
         }
     }

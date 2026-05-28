@@ -104,6 +104,8 @@ pub struct TuiApp {
     pub(crate) last_workflow_refresh: Instant,
     // MCP server status
     pub(crate) mcp_servers: Vec<matrixcode_core::event::McpServerInfo>,
+    // LSP server status
+    pub(crate) lsp_servers: Vec<matrixcode_core::LspServerInfo>,
 }
 
 /// Todo item for progress tracking
@@ -204,6 +206,7 @@ impl TuiApp {
             workflow_state: crate::workflow::WorkflowViewState::default(),
             last_workflow_refresh: Instant::now(),
             mcp_servers: Vec::new(),
+            lsp_servers: Vec::new(),
         }
     }
 

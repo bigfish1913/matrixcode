@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::lsp::LspServerInfo;
+
 /// Agent event
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentEvent {
@@ -48,6 +50,9 @@ pub enum EventType {
     McpServerAdded,   // MCP server added
     McpServerRemoved, // MCP server removed
     McpServerStatus,  // MCP server status update
+    LspServerAdded,   // LSP server added
+    LspServerRemoved, // LSP server removed
+    LspServerStatus,  // LSP server status update
 }
 
 /// Event data
@@ -149,6 +154,16 @@ pub enum EventData {
     },
     McpServerStatus {
         servers: Vec<McpServerInfo>,
+    },
+    LspServerAdded {
+        name: String,
+        language: String,
+    },
+    LspServerRemoved {
+        name: String,
+    },
+    LspServerStatus {
+        servers: Vec<LspServerInfo>,
     },
 }
 
@@ -363,6 +378,35 @@ impl AgentEvent {
         Self::with_data(
             EventType::McpServerStatus,
             EventData::McpServerStatus { servers },
+        )
+    }
+
+    /// LSP server added event
+    pub fn lsp_server_added(name: impl Into<String>, language: impl Into<String>) -> Self {
+        Self::with_data(
+            EventType::LspServerAdded,
+            EventData::LspServerAdded {
+                name: name.into(),
+                language: language.into(),
+            },
+        )
+    }
+
+    /// LSP server removed event
+    pub fn lsp_server_removed(name: impl Into<String>) -> Self {
+        Self::with_data(
+            EventType::LspServerRemoved,
+            EventData::LspServerRemoved {
+                name: name.into(),
+            },
+        )
+    }
+
+    /// LSP server status update event
+    pub fn lsp_server_status(servers: Vec<LspServerInfo>) -> Self {
+        Self::with_data(
+            EventType::LspServerStatus,
+            EventData::LspServerStatus { servers },
         )
     }
 

@@ -15,7 +15,7 @@ use crate::constants::{
     EVENT_CHANNEL_BUFFER, TASK_CHANNEL_BUFFER, ASK_CHANNEL_BUFFER,
     CLEANUP_TIMEOUT_MS,
 };
-use crate::helpers::{resolve_provider, resolve_model, resolve_base_url, load_skills, prepare_mcp_tools};
+use crate::helpers::{resolve_provider, resolve_model, resolve_base_url, load_skills, prepare_mcp_tools, prepare_lsp_servers};
 use crate::types::Cli;
 
 use super::watcher::{start_watcher_if_needed, cleanup_watcher};
@@ -120,6 +120,9 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         effective_project_path.as_ref(),
     );
 
+    // Prepare LSP servers configuration
+    let agent_lsp_servers = prepare_lsp_servers(&config);
+
     // Enter runtime context BEFORE spawning agent task
     let _guard = rt.enter();
 
@@ -159,6 +162,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
             session_mgr: session_mgr_state,
             watcher_handle: watcher_handle_for_agent,
             mcp_servers: agent_mcp_servers,
+            lsp_servers: agent_lsp_servers,
         };
         run_agent_task(ctx).await;
     });

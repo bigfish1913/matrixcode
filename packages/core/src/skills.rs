@@ -41,6 +41,9 @@ pub struct Skill {
     pub name: String,
     /// Short one-line description shown in the system prompt.
     pub description: String,
+    /// Trigger conditions (optional). When to use this skill.
+    /// Example: "代码审查请求"、"用户说 'review'、"修改多个文件后"
+    pub trigger: Option<String>,
     /// Absolute path to the skill directory.
     pub dir: PathBuf,
     /// Full markdown body (without frontmatter).
@@ -211,9 +214,13 @@ pub fn load_skill_from_file(md_path: &Path, dir: &Path) -> Result<Skill> {
         .cloned()
         .unwrap_or_else(|| "(no description)".to_string());
 
+    // Extract trigger field (optional)
+    let trigger = front.get("trigger").cloned();
+
     Ok(Skill {
         name,
         description,
+        trigger,
         dir: dir.to_path_buf(),
         body: body.to_string(),
         source_file: md_path.to_path_buf(),
@@ -537,6 +544,7 @@ mod tests {
         let s = Skill {
             name: "demo".into(),
             description: "does stuff".into(),
+            trigger: None,
             dir: PathBuf::from("/tmp"),
             body: String::new(),
             source_file: PathBuf::from("/tmp/demo.md"),

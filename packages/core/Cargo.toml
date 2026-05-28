@@ -38,6 +38,9 @@ tracing = "0.1"
 shell-words = { workspace = true }
 toml = "0.8"
 
+# LSP dependencies
+lsp-types = "0.95"
+
 [dev-dependencies]
 mockito = { workspace = true }
 tempfile = { workspace = true }

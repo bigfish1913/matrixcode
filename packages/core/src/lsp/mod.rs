@@ -1,0 +1,60 @@
+//! LSP (Language Server Protocol) Integration
+//!
+//! 提供语言服务器连接状态跟踪，用于 TUI 工具栏显示。
+//!
+//! # 架构概览
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │  MatrixCode Agent                                           │
+//! │  ┌─────────────────────────────────────────────────────┐   │
+//! │  │  LSP Manager                                          │   │
+//! │  │  ┌──────────────┐ ┌──────────────┐                   │   │
+//! │  │  │ LspManager   │ │ LspServerInfo│                   │   │
+//! │  │  │ (manager.rs) │ │ (types.rs)   │                   │   │
+//! │  │  └──────────────┘ └──────────────┘                   │   │
+//! │  └─────────────────────────────────────────────────────┘   │
+//! └─────────────────────────────────────────────────────────────┘
+//!                                          │
+//! ┌───────────────────────────────────────────│─────────────────┐
+//! │  Language Servers                         │                 │
+//! │  ┌─────────────┐ ┌─────────────┐ ┌───────┴───┐            │
+//! │  │ rust-analyzer│ │ typescript  │ │  python   │            │
+//! │  │ LSP Server  │ │ LSP Server  │ │  LSP      │            │
+//! │  └─────────────┘ └─────────────┘ └───────────┘            │
+//! └─────────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! # 状态颜色
+//!
+//! - 灰色 (DarkGray)：未配置或未启动
+//! - 绿色 (Green)：已连接，正常工作
+//! - 红色 (Red)：连接错误
+//!
+//! # 使用示例
+//!
+//! ```ignore
+//! use matrixcode_core::lsp::{LspManager, LspServerInfo, LspServerStatus};
+//!
+//! // 创建管理器
+//! let manager = LspManager::new();
+//!
+//! // 添加服务器配置
+//! manager.add_server(LspServerConfig::new("rust-analyzer", "rust"));
+//!
+//! // 获取状态列表（用于 TUI 显示）
+//! let infos = manager.server_infos().await;
+//! for info in infos {
+//!     println!("{}: {}", info.name, info.status.label());
+//! }
+//! ```
+
+pub mod types;
+pub mod manager;
+
+// Re-export main types
+pub use types::{
+    LspServerInfo, LspServerStatus, LspServerConfig, LspConfig,
+    default_lsp_config, default_rust_analyzer_config, default_typescript_config, default_python_config,
+};
+pub use manager::{LspManager, find_lsp_config, load_lsp_config};

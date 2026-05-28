@@ -148,6 +148,17 @@ impl TuiApp {
             ));
         }
 
+        // LSP servers
+        if width >= 80 && !self.lsp_servers.is_empty() {
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            let running = self.lsp_servers.iter().filter(|s| s.status.is_ok()).count();
+            let lsp_text = format!(" LSP:{} ", running);
+            spans.push(Span::styled(
+                lsp_text,
+                Style::default().fg(Color::LightMagenta),
+            ));
+        }
+
         // Cache info
         if width >= 80 && (self.cache_read > 0 || self.cache_created > 0) {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));

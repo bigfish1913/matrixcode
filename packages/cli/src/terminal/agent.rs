@@ -15,6 +15,7 @@ use crate::constants::{
     MEMORY_TURN_CLEANUP_INTERVAL, MEMORY_MIN_ENTRIES_FOR_AI_SELECTION,
 };
 use super::mcp_handler::McpManager;
+use super::lsp_handler::LspHandler;
 use super::memory_handler::{load_memory, ai_select_memory, handle_feedback, periodic_cleanup, should_extract_memory, spawn_extraction_task};
 use super::commands::{handle_command, is_backend_command, CommandContext};
 use super::commands::skill_activation::activate_skill;
@@ -43,6 +44,7 @@ pub struct AgentContext {
     pub session_mgr: Option<SessionManager>,
     pub watcher_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub mcp_servers: Vec<(String, matrixcode_core::mcp::McpServerConfig)>,
+    pub lsp_servers: Vec<(String, matrixcode_core::lsp::LspServerConfig)>,
 }
 
 /// Run the agent task (async portion)
@@ -134,6 +136,11 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
     let mcp_manager = McpManager::new();
     mcp_manager.add_servers(ctx.mcp_servers).await;
     let mcp_tools = mcp_manager.start_all(&ctx.event_tx).await;
+
+    // Create LSP handler and start servers
+    let lsp_handler = LspHandler::new();
+    lsp_handler.add_servers(ctx.lsp_servers).await;
+    lsp_handler.start_all(&ctx.event_tx).await;
 
     // Build agent with tools
     let project_path_for_tools = ctx.project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());

@@ -237,6 +237,57 @@
       "is_manual": false
     },
     {
+      "id": "d3d05990-a658-4c11-bccd-fce71cddf6d8",
+      "created_at": "2026-05-28T10:07:33.306195300Z",
+      "last_referenced": "2026-05-28T10:07:33.306195400Z",
+      "category": "finding",
+      "content": "，应该是直接定时查询 server graphql 就行了把？",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "38d87b03-fe95-4143-bb6d-94303b087196",
       "created_at": "2026-05-25T16:02:08.631280300Z",
       "last_referenced": "2026-05-25T16:02:08.631280400Z",
@@ -932,26 +983,6 @@
       "is_manual": false
     },
     {
-      "id": "c7bbc9d7-d8dd-4d16-a01e-931326e6f552",
-      "created_at": "2026-05-28T12:15:38.917466600Z",
-      "last_referenced": "2026-05-28T12:15:38.917466800Z",
-      "category": "finding",
-      "content": "配置优先级：环境变量 > ~/.matrix/config.json > ~/.claude/settings.json > 默认值",
-      "source_session": null,
-      "project_path": "C:/Users/bigfish/Projects/matrixcode",
-      "reference_count": 0,
-      "importance": 75.0,
-      "tags": [
-        "配置优先级",
-        "config",
-        "环境变量",
-        "settings",
-        "config",
-        "project"
-      ],
-      "is_manual": false
-    },
-    {
       "id": "e7f51f7a-b8a9-41d2-94e7-47ba9e80a473",
       "created_at": "2026-05-28T12:15:38.917468900Z",
       "last_referenced": "2026-05-28T12:15:38.917468900Z",
@@ -973,27 +1004,6 @@
       "is_manual": false
     },
     {
-      "id": "466eaa07-97af-49d2-bfae-00b4d729d79e",
-      "created_at": "2026-05-28T12:15:38.917469400Z",
-      "last_referenced": "2026-05-28T12:15:38.917469400Z",
-      "category": "solution",
-      "content": "敏感信息展示：API Key 和敏感环境变量自动隐藏，PATH 自动截断。**Problem:** 需要展示配置信息但不应泄露敏感数据。**Key:** 检测敏感字段名（API_KEY、TOKEN 等），自动替换为已隐藏标记",
-      "source_session": null,
-      "project_path": "C:/Users/bigfish/Projects/matrixcode",
-      "reference_count": 0,
-      "importance": 80.0,
-      "tags": [
-        "敏感信息",
-        "安全",
-        "API Key",
-        "信息隐藏",
-        "security",
-        "config",
-        "project"
-      ],
-      "is_manual": false
-    },
-    {
       "id": "8066987d-e049-4238-8d90-67539920073f",
       "created_at": "2026-05-28T12:44:02.350355300Z",
       "last_referenced": "2026-05-28T12:44:02.350355800Z",
@@ -1002,7 +1012,93 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 55.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "73cf48b6-6392-408e-b59c-8006e013c3b4",
+      "created_at": "2026-05-28T14:35:38.600542Z",
+      "last_referenced": "2026-05-28T14:35:38.600542100Z",
+      "category": "decision",
+      "content": "LSP 服务器采用自动检测机制替代手动配置。**Why:** 简化用户体验，实现零配置。**Context:** Matrixcode 项目的 LSP 功能，用户只需安装 LSP 服务器即可使用，无需编辑配置文件",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "LSP",
+        "自动检测",
+        "零配置",
+        "Language Server Protocol",
+        "config",
+        "lsp",
+        "ux"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "4a7c0905-2d61-43b8-8700-69693be775c3",
+      "created_at": "2026-05-28T14:35:38.600543200Z",
+      "last_referenced": "2026-05-28T14:35:38.600543300Z",
+      "category": "solution",
+      "content": "使用 `which`/`where` 命令验证 LSP 服务器可用性实现自动检测。**Problem:** 之前需要在配置中手动指定 LSP 服务器列表。**Key:** `prepare_lsp_servers()` 函数扫描常见 LSP 服务器（rust-analyzer, typescript-language-server, pylsp/pyright, gopls, clangd, jdtls），通过系统命令验证是否安装",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "LSP",
+        "自动检测",
+        "which",
+        "服务器发现",
+        "lsp",
+        "detection"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "3ee8fb12-9bc3-4f95-bf49-632849a733c8",
+      "created_at": "2026-05-28T14:35:38.600544100Z",
+      "last_referenced": "2026-05-28T14:35:38.600544100Z",
+      "category": "finding",
+      "content": "LSP 与 MCP 配置方式对比：MCP 需要 `mcp.toml` 手动配置，LSP 采用自动检测（零配置）。工具栏显示差异：MCP 为 Cyan，LSP 为 LightMagenta",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 65.0,
+      "tags": [
+        "LSP",
+        "MCP",
+        "配置对比",
+        "工具栏",
+        "lsp",
+        "mcp",
+        "comparison"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "fc68d17d-62e4-49f0-aea3-c332fc729ecc",
+      "created_at": "2026-05-28T14:35:38.600544800Z",
+      "last_referenced": "2026-05-28T14:35:38.600544800Z",
+      "category": "technical",
+      "content": "Matrixcode 支持自动检测的 LSP 服务器：rust-analyzer (Rust), typescript-language-server (TypeScript), pylsp/pyright (Python), gopls (Go), clangd (C/C++), jdtls (Java)",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 60.0,
+      "tags": [
+        "LSP",
+        "rust-analyzer",
+        "gopls",
+        "clangd",
+        "jdtls",
+        "pyright",
+        "lsp",
+        "languages"
+      ],
       "is_manual": false
     }
   ],
