@@ -137,6 +137,17 @@ impl TuiApp {
             ));
         }
 
+        // MCP servers info
+        if width >= 75 && !self.mcp_servers.is_empty() {
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            let running = self.mcp_servers.iter().filter(|s| s.is_started).count();
+            let mcp_text = format!(" MCP:{} ", running);
+            spans.push(Span::styled(
+                mcp_text,
+                Style::default().fg(Color::Cyan),
+            ));
+        }
+
         // Cache info
         if width >= 80 && (self.cache_read > 0 || self.cache_created > 0) {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));

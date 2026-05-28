@@ -199,6 +199,28 @@ impl TuiApp {
                 }
                 self.auto_scroll = true;
             }
+            "/mcp" | "/mcp list" => {
+                if self.mcp_servers.is_empty() {
+                    self.push_message(Message {
+                        role: Role::System,
+                        content: "📋 未连接任何 MCP servers\n\n使用 --mcp 参数启动:\n  matrixcode-tui --mcp \"playwright:npx -y @playwright/mcp@latest\"".into(),
+                    });
+                } else {
+                    let mut content = "📋 MCP Servers:\n".to_string();
+                    for server in &self.mcp_servers {
+                        let status = if server.is_started { "✓ 运行中" } else { "✗ 未启动" };
+                        content.push_str(&format!(
+                            "  • {} {} ({} 工具)\n",
+                            server.name, status, server.tool_count
+                        ));
+                    }
+                    self.push_message(Message {
+                        role: Role::System,
+                        content,
+                    });
+                }
+                self.auto_scroll = true;
+            }
             "/help" => {
                 self.push_message(Message {
                     role: Role::System,

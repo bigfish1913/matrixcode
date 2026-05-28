@@ -6,27 +6,205 @@
 #
 # Project config overrides user config for same servers.
 
+# ============================================================================
+# Browser Automation
+# ============================================================================
+
 [servers.playwright]
 # Playwright browser automation (23 tools)
+# Tools: browser_navigate, browser_click, browser_type, browser_screenshot, etc.
 command = "npx"
 args = ["-y", "@playwright/mcp@latest"]
 enabled = true
 
+# [servers.puppeteer]
+# # Puppeteer browser automation
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-puppeteer"]
+# enabled = false
+
+# ============================================================================
+# File System & Storage
+# ============================================================================
+
 # [servers.filesystem]
-# # File system access (optional)
+# # File system access with directory restrictions
+# # IMPORTANT: Replace /path/to/allowed/dir with your actual directory
 # command = "npx"
 # args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
 # enabled = false
 
 # [servers.memory]
-# # Simple key-value memory store
+# # Simple key-value memory store (persistent across sessions)
 # command = "npx"
 # args = ["-y", "@modelcontextprotocol/server-memory"]
 # enabled = false
+
+# ============================================================================
+# Version Control
+# ============================================================================
+
+# [servers.github]
+# # GitHub API integration
+# # Requires GITHUB_TOKEN environment variable
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = { GITHUB_TOKEN = "your-github-token-here" }
+# enabled = false
+
+# [servers.gitlab]
+# # GitLab API integration
+# # Requires GITLAB_TOKEN environment variable
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-gitlab"]
+# env = { GITLAB_TOKEN = "your-gitlab-token-here" }
+# enabled = false
+
+# ============================================================================
+# Databases
+# ============================================================================
+
+# [servers.postgres]
+# # PostgreSQL database access
+# # IMPORTANT: Replace connection string with your actual database
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-postgres", "postgresql://user:pass@localhost/db"]
+# enabled = false
+
+# [servers.sqlite]
+# # SQLite database access
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-sqlite", "/path/to/database.db"]
+# enabled = false
+
+# ============================================================================
+# Cloud Services
+# ============================================================================
+
+# [servers.gdrive]
+# # Google Drive integration
+# # Requires Google Cloud credentials
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-gdrive"]
+# enabled = false
+
+# [servers.s3]
+# # Amazon S3 integration
+# # Requires AWS credentials
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-s3"]
+# enabled = false
+
+# ============================================================================
+# Communication
+# ============================================================================
+
+# [servers.slack]
+# # Slack integration
+# # Requires SLACK_BOT_TOKEN environment variable
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-slack"]
+# env = { SLACK_BOT_TOKEN = "xoxb-your-token-here" }
+# enabled = false
+
+# ============================================================================
+# Development Tools
+# ============================================================================
+
+# [servers.docker]
+# # Docker container management
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-docker"]
+# enabled = false
+
+# [servers.kubernetes]
+# # Kubernetes cluster management
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-kubernetes"]
+# enabled = false
+
+# ============================================================================
+# AI & ML
+# ============================================================================
+
+# [servers.brave-search]
+# # Brave Search API for web search
+# # Requires BRAVE_API_KEY environment variable
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-brave-search"]
+# env = { BRAVE_API_KEY = "your-brave-api-key" }
+# enabled = false
+
+# [servers.fetch]
+# # Web fetching and scraping
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-fetch"]
+# enabled = false
+
+# ============================================================================
+# Settings
+# ============================================================================
 
 [settings]
 # Auto discover MCP servers (default: true)
 auto_discover = true
 
-# Connection timeout in milliseconds (default: 10000)
+# Connection timeout in milliseconds (default: 30000)
 connect_timeout_ms = 30000
+
+# ============================================================================
+# Usage Examples
+# ============================================================================
+
+# Example 1: Start TUI with Playwright
+#   matrixcode-tui
+#   
+#   Then in chat:
+#   User: 使用 Playwright 打开百度
+#   Agent: [调用 browser_navigate 打开 https://www.baidu.com]
+
+# Example 2: CLI with multiple servers
+#   matrixcode-tui \
+#     --mcp "playwright:npx -y @playwright/mcp@latest" \
+#     --mcp "filesystem:npx -y @modelcontextprotocol/server-filesystem /home/user/project"
+
+# Example 3: View MCP status in TUI
+#   User: /mcp
+#   System: 📋 MCP Servers:
+#     • playwright ✓ 运行中 (23 工具)
+#     • filesystem ✓ 运行中 (15 工具)
+
+# ============================================================================
+# Notes
+# ============================================================================
+
+# 1. Most MCP servers require Node.js and npx
+# 2. First run will download the MCP server package
+# 3. enabled = false means the server won't start automatically
+# 4. You can enable servers at runtime using Agent API
+# 5. For security, filesystem MCP only accesses specified directories
+# 6. API keys and tokens should be set via environment variables
+
+# ============================================================================
+# Official MCP Servers List
+# ============================================================================
+
+# https://github.com/modelcontextprotocol/servers
+# 
+# Available servers:
+# - playwright: Browser automation
+# - puppeteer: Browser automation
+# - filesystem: File system access
+# - memory: Key-value storage
+# - github: GitHub API
+# - gitlab: GitLab API
+# - postgres: PostgreSQL database
+# - sqlite: SQLite database
+# - gdrive: Google Drive
+# - s3: Amazon S3
+# - slack: Slack integration
+# - docker: Docker management
+# - kubernetes: K8s management
+# - brave-search: Web search
+# - fetch: Web scraping
+# - And more...

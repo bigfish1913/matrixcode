@@ -5,6 +5,7 @@ use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::time::sleep;
@@ -29,6 +30,79 @@ use crate::cancel::CancellationToken;
 /// Git status polling interval (for non-fsmonitor fallback).
 const GIT_STATUS_POLL_INTERVAL_SECS: u64 = 2;
 
+/// Handle to manage a running CodeGraph watcher.
+/// Provides lifecycle management: start, stop, status check.
+/// Internally uses Arc, so it can be cloned and shared across threads.
+#[derive(Clone)]
+pub struct WatcherHandle {
+    handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    project_path: PathBuf,
+}
+
+impl WatcherHandle {
+    /// Create a new handle (no watcher running yet).
+    pub fn new(project_path: &Path) -> Self {
+        Self {
+            handle: Arc::new(Mutex::new(None)),
+            project_path: project_path.to_path_buf(),
+        }
+    }
+
+    /// Create handle with automatic project root detection.
+    pub fn with_auto_detect(start_path: &Path) -> Self {
+        let project_path = find_project_root(start_path);
+        log::info!("CodeGraph: detected project root at {}", project_path.display());
+        Self::new(&project_path)
+    }
+
+    /// Check if watcher is currently running.
+    pub fn is_running(&self) -> bool {
+        let guard = self.handle.lock().unwrap();
+        guard.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
+    }
+
+    /// Start watcher if not running and no daemon conflict.
+    /// Returns true if watcher was started.
+    pub fn start_if_needed(&self, cancel_token: CancellationToken) -> bool {
+        if self.is_running() {
+            log::info!("CodeGraph watcher already running");
+            return false;
+        }
+
+        if CodeGraphWatcher::is_daemon_running(&self.project_path) {
+            log::info!("CodeGraph MCP daemon detected, skipping watcher to avoid conflict");
+            return false;
+        }
+
+        let watcher = CodeGraphWatcher::new(&self.project_path);
+        let handle = watcher.start(cancel_token);
+        log::info!("CodeGraph watcher started (no MCP daemon detected)");
+
+        *self.handle.lock().unwrap() = Some(handle);
+        true
+    }
+
+    /// Stop the watcher if running.
+    pub fn stop(&self) {
+        let guard = self.handle.lock().unwrap();
+        if let Some(ref h) = *guard
+            && !h.is_finished() {
+            log::info!("Aborting CodeGraph watcher...");
+            h.abort();
+        }
+    }
+
+    /// Get the underlying handle for passing to async contexts.
+    pub fn inner(&self) -> Arc<Mutex<Option<tokio::task::JoinHandle<()>>>> {
+        self.handle.clone()
+    }
+
+    /// Get the project path.
+    pub fn project_path(&self) -> &Path {
+        &self.project_path
+    }
+}
+
 /// CodeGraph file watcher for auto-sync.
 pub struct CodeGraphWatcher {
     project_path: PathBuf,
@@ -37,6 +111,54 @@ pub struct CodeGraphWatcher {
 }
 
 impl CodeGraphWatcher {
+    /// Check if CodeGraph MCP daemon is already running.
+    /// Returns true if daemon is active (skip watcher to avoid conflict).
+    pub fn is_daemon_running(project_path: &Path) -> bool {
+        // Method 1: Check daemon.pid file
+        let daemon_pid_path = project_path.join(".codegraph").join("daemon.pid");
+        if daemon_pid_path.exists() {
+            let pid_running = std::fs::read_to_string(&daemon_pid_path)
+                .ok()
+                .and_then(|pid| pid.trim().parse::<u32>().ok())
+                .map(|pid| {
+                    #[cfg(target_os = "windows")]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        const CREATE_NO_WINDOW: u32 = 0x08000000;
+                        std::process::Command::new("tasklist")
+                            .args(["/FI", &format!("PID eq {}", pid)])
+                            .creation_flags(CREATE_NO_WINDOW)
+                            .output()
+                            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+                            .unwrap_or(false)
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    std::path::Path::new("/proc").join(pid.to_string()).exists()
+                })
+                .unwrap_or(false);
+            if pid_running {
+                return true;
+            }
+        }
+
+        // Method 2: Check daemon.log for recent activity
+        let daemon_log_path = project_path.join(".codegraph").join("daemon.log");
+        if daemon_log_path.exists() {
+            if let Ok(metadata) = std::fs::metadata(&daemon_log_path) {
+                if let Ok(modified) = metadata.modified() {
+                    let now = std::time::SystemTime::now();
+                    let elapsed = now.duration_since(modified).unwrap_or(std::time::Duration::MAX);
+                    if elapsed < std::time::Duration::from_secs(60) {
+                        log::info!("CodeGraph: daemon.log recently modified, daemon likely active");
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
     /// Create a new watcher for the project.
     pub fn new(project_path: &Path) -> Self {
         let (stop_tx, _) = broadcast::channel(1);

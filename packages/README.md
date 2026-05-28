@@ -17,6 +17,7 @@ MatrixCode是一个用Rust编写的AI代码助手，提供：
 - ✅ **会话管理**: 持久化、恢复、历史记录
 - ✅ **上下文压缩**: 自动压缩长对话，节省token
 - ✅ **记忆系统**: 项目概览、关键词记忆
+- ✅ **MCP扩展**: 浏览器自动化、文件系统、记忆存储、API集成等无限扩展
 
 ---
 
@@ -172,6 +173,82 @@ matrixcode --continue-session
 - 自动提取重要信息
 - 存储到 `~/.matrix/memory.json`
 - 在后续对话中使用
+
+### 7. MCP扩展（Model Context Protocol）
+
+MCP让Agent能够通过外部工具扩展能力，实现无限可能。
+
+**启动方式**：
+
+**方式 1：命令行参数**
+```bash
+# 启动 Playwright MCP（浏览器自动化）
+matrixcode-tui --mcp "playwright:npx -y @playwright/mcp@latest"
+
+# 启动多个 MCP servers
+matrixcode-tui \
+  --mcp "playwright:npx -y @playwright/mcp@latest" \
+  --mcp "filesystem:npx -y @modelcontextprotocol/server-filesystem /path/to/dir"
+```
+
+**方式 2：配置文件**
+```bash
+# 复制配置文件
+cp mcp.example.toml mcp.toml
+
+# 编辑配置文件
+[servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+enabled = true
+
+# 启动 TUI（自动加载配置）
+matrixcode-tui
+```
+
+**查看状态**：
+```
+# 状态栏显示已连接的 MCP 数量
+MCP:1  # 已连接 1 个 MCP server
+
+# 输入命令查看详细信息
+/mcp
+
+📋 MCP Servers:
+  • playwright ✓ 运行中 (23 工具)
+  • filesystem ✓ 运行中 (15 工具)
+```
+
+**常用 MCP Servers**：
+
+| MCP Server | 功能 | 工具数 | 启动命令 |
+|------------|------|--------|----------|
+| **playwright** | 浏览器自动化 | 23 | `--mcp "playwright:npx -y @playwright/mcp@latest"` |
+| **filesystem** | 文件系统访问 | 多个 | `--mcp "filesystem:npx -y @modelcontextprotocol/server-filesystem /path"` |
+| **memory** | 键值存储 | 多个 | `--mcp "memory:npx -y @modelcontextprotocol/server-memory"` |
+| **github** | GitHub API | 多个 | `--mcp "github:npx -y @modelcontextprotocol/server-github"` |
+| **postgres** | PostgreSQL | 多个 | `--mcp "postgres:npx -y @modelcontextprotocol/server-postgres <url>"` |
+
+**使用示例**：
+```
+# 浏览器自动化
+User: 使用 Playwright 打开百度并搜索 "MatrixCode"
+Agent: [调用 browser_navigate、browser_click、browser_type]
+
+# 文件系统访问
+User: 列出项目根目录的所有文件
+Agent: [调用 filesystem list_directory]
+
+# 运行时管理
+User: 添加一个新的 memory MCP server
+Agent: [调用 add_mcp_server() API]
+System: 🔗 MCP 'memory' 已连接
+```
+
+**详细文档**：
+- [MCP 快速入门](docs/mcp-quickstart.md)
+- [MCP 使用指南](docs/mcp-guide.md)
+- [MCP 配置示例](mcp.example.toml)
 
 ---
 
@@ -497,6 +574,7 @@ git merge feature/new-feature
 - ✅ 会话管理和恢复
 - ✅ 上下文压缩
 - ✅ 记忆系统
+- ✅ MCP扩展（浏览器自动化、文件系统、数据库等）
 - ✅ 基本配置系统
 
 ### 待改进项

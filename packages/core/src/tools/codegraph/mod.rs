@@ -17,7 +17,7 @@
 // Public API
 pub use self::types::{Node, Edge, IndexStatus, PendingChanges, FileInfo, CodeGraphEnv};
 pub use self::manager::CodeGraphManager;
-pub use self::watcher::CodeGraphWatcher;
+pub use self::watcher::{CodeGraphWatcher, WatcherHandle};
 pub use self::ignore::WATCH_EXTENSIONS;
 pub use self::tools::{
     codegraph_tools, codegraph_tools_with_auto_detect, codegraph_tools_if_installed,

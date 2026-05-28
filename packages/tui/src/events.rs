@@ -1,4 +1,5 @@
 use matrixcode_core::{AgentEvent, EventData, EventType};
+use matrixcode_core::event::McpServerInfo;
 use serde_json::Value;
 
 use crate::app::{TuiApp, TodoItem};
@@ -466,6 +467,31 @@ impl TuiApp {
                         });
                         self.auto_scroll = true;
                     }
+                }
+            }
+            EventType::McpServerAdded => {
+                if let Some(EventData::McpServerAdded { name, tool_count }) = e.data {
+                    self.push_message(Message {
+                        role: Role::System,
+                        content: format!("🔗 MCP '{}' 已连接 ({} 工具)", name, tool_count),
+                    });
+                    self.mcp_servers.push(McpServerInfo::new(name, true, tool_count));
+                    self.auto_scroll = true;
+                }
+            }
+            EventType::McpServerRemoved => {
+                if let Some(EventData::McpServerRemoved { name }) = e.data {
+                    self.mcp_servers.retain(|s| s.name != name);
+                    self.push_message(Message {
+                        role: Role::System,
+                        content: format!("🔌 MCP '{}' 已移除", name),
+                    });
+                    self.auto_scroll = true;
+                }
+            }
+            EventType::McpServerStatus => {
+                if let Some(EventData::McpServerStatus { servers }) = e.data {
+                    self.mcp_servers = servers;
                 }
             }
             _ => {}

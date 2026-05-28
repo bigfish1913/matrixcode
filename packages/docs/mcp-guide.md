@@ -1,198 +1,336 @@
-# MCP (Model Context Protocol) 配置指南
+# MCP (Model Context Protocol) 使用指南
 
-## 概述
+MatrixCode 支持 MCP (Model Context Protocol)，可以通过 MCP servers 扩展 Agent 的能力，例如浏览器自动化、文件系统访问、记忆存储等。
 
-MatrixCode 支持通过 MCP 协议集成外部工具，允许使用 Playwright 等第三方工具扩展功能。
+---
 
-## 配置文件位置
+## 🚀 快速开始
 
-MCP 配置支持两个层级，自动合并：
+### 方式 1：命令行参数启动
 
-| 位置 | 优先级 | 用途 |
-|------|--------|------|
-| **项目级** `./mcp.toml` | 高 | 项目特定工具配置 |
-| **用户级** `~/.matrixcode/mcp.toml` | 低 | 全局共享配置 |
+```bash
+# 启动 TUI 并加载 Playwright MCP
+matrixcode-tui --mcp "playwright:npx -y @playwright/mcp@latest"
 
-项目配置会覆盖用户配置中的同名服务器。
+# 加载多个 MCP servers
+matrixcode-tui \
+  --mcp "playwright:npx -y @playwright/mcp@latest" \
+  --mcp "filesystem:npx -y @modelcontextprotocol/server-filesystem /path/to/dir"
+```
 
-## 配置文件格式
+### 方式 2：配置文件启动
 
-### TOML 格式 (推荐)
+```bash
+# 复制示例配置文件到项目根目录
+cp mcp.example.toml mcp.toml
+
+# 启动 TUI（自动加载配置）
+matrixcode-tui
+```
+
+---
+
+## 📋 CLI 参数格式
+
+MatrixCode 支持两种 MCP 参数格式：
+
+### 格式 1：自定义名称
+
+```bash
+--mcp "name:command args"
+```
+
+示例：
+```bash
+--mcp "playwright:npx -y @playwright/mcp@latest"
+--mcp "my-server:node server.js --port 3000"
+```
+
+### 格式 2：自动推断名称
+
+```bash
+--mcp "command args"
+```
+
+名称会自动取命令的第一部分：
+```bash
+--mcp "npx -y @playwright/mcp@latest"  # 自动命名为 "npx"
+```
+
+---
+
+## 🗂️ 配置文件格式
+
+在项目根目录创建 `mcp.toml` 文件：
 
 ```toml
-# MCP 服务器配置
 [servers.playwright]
+# Playwright 浏览器自动化（23 个工具）
 command = "npx"
 args = ["-y", "@playwright/mcp@latest"]
 enabled = true
 
 [servers.filesystem]
+# 文件系统访问
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+enabled = true
+
+[servers.memory]
+# 简单的键值记忆存储
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
 enabled = false
 
-# 全局设置
 [settings]
-auto_discover = true          # 自动发现配置文件 (默认: true)
-connect_timeout_ms = 30000    # 连接超时 (默认: 10000)
+# 自动发现 MCP servers（默认：true）
+auto_discover = true
+
+# 连接超时（毫秒，默认：30000）
+connect_timeout_ms = 30000
 ```
 
-### JSON 格式 (兼容 VS Code)
+---
 
-```json
-{
-  "servers": {
-    "playwright": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"],
-      "enabled": true
-    }
-  },
-  "settings": {
-    "auto_discover": true,
-    "connect_timeout_ms": 30000
-  }
-}
+## 🔧 常用 MCP Servers
+
+### 1. Playwright（浏览器自动化）
+
+**工具数量**：23 个工具
+
+**主要功能**：
+- `browser_navigate` - 打开网页
+- `browser_click` - 点击元素
+- `browser_type` - 输入文本
+- `browser_screenshot` - 截图
+- `browser_scroll` - 滚动页面
+- 等等...
+
+**示例用法**：
+```
+User: 使用 Playwright 打开百度
+Agent: [调用 browser_navigate 打开 https://www.baidu.com]
+
+User: 点击搜索框并输入 "MatrixCode"
+Agent: [调用 browser_click + browser_type]
 ```
 
-## 服务器配置字段
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `command` | string | 是* | Stdio 模式的启动命令 |
-| `args` | array | 否 | 命令参数 |
-| `env` | object | 否 | 环境变量 `{"KEY": "value"}` |
-| `url` | string | 是* | SSE 模式的 HTTP URL |
-| `timeout_ms` | number | 否 | 请求超时（毫秒），默认 30000 |
-| `enabled` | boolean | 否 | 是否启用，默认 true |
-
-\* `command` 和 `url` 二选一
-
-## 常用 MCP 服务器
-
-### Playwright (浏览器自动化)
-
+**配置**：
 ```toml
 [servers.playwright]
 command = "npx"
 args = ["-y", "@playwright/mcp@latest"]
+enabled = true
 ```
 
-**提供 23 个工具**：
-- 导航: `navigate`, `navigate_back`, `tabs`
-- 交互: `click`, `hover`, `drag`, `type`, `press_key`
-- 表单: `fill_form`, `select_option`, `file_upload`
-- 信息: `screenshot`, `snapshot`, `console_messages`
-- 执行: `evaluate`, `run_code_unsafe`
+**启动命令**：
+```bash
+matrixcode-tui --mcp "playwright:npx -y @playwright/mcp@latest"
+```
 
-### Filesystem (文件系统访问)
+---
 
+### 2. Filesystem（文件系统访问）
+
+**工具数量**：多个文件操作工具
+
+**主要功能**：
+- 读写文件
+- 创建/删除目录
+- 搜索文件
+- 等等...
+
+**配置**：
 ```toml
 [servers.filesystem]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/allowed/path"]
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+enabled = true
 ```
 
-### Memory (简单记忆存储)
+**启动命令**：
+```bash
+matrixcode-tui --mcp "filesystem:npx -y @modelcontextprotocol/server-filesystem /path/to/dir"
+```
 
+---
+
+### 3. Memory（记忆存储）
+
+**工具数量**：键值存储工具
+
+**主要功能**：
+- 存储和检索记忆
+- 简单的键值数据库
+
+**配置**：
 ```toml
 [servers.memory]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-memory"]
+enabled = true
 ```
-
-## 使用方式
-
-### 方式一：代码调用
-
-```rust
-use matrixcode_core::mcp::{McpToolRegistry, load_mcp_config};
-use std::path::Path;
-
-// 加载配置
-let config = load_mcp_config(Path::new("."));
-
-// 创建懒加载注册表
-let registry = McpToolRegistry::from_config(&config);
-
-// 按需启动服务器
-if let Some(placeholder) = registry.get_server("playwright") {
-    let tools = placeholder.start().await?;
-    
-    // 使用工具
-    for tool in &tools {
-        println!("Tool: {}", tool.definition().name);
-    }
-}
-
-// 关闭
-registry.shutdown_all().await;
-```
-
-### 方式二：快速连接
-
-```rust
-use matrixcode_core::mcp::connect_playwright;
-
-// 直接连接 Playwright
-let tools = connect_playwright().await?;
-println!("Playwright tools: {}", tools.len());
-```
-
-## 懒加载机制
-
-MCP 服务器采用懒加载策略：
-
-1. **注册阶段**：解析配置，创建占位符（不启动进程）
-2. **启动阶段**：首次调用时启动服务器
-3. **执行阶段**：使用已启动的服务器执行工具
-4. **关闭阶段**：会话结束时关闭所有服务器
-
-**优点**：
-- 初始化无延迟
-- 按需使用资源
-- 不使用的服务器不会启动
-
-## Windows 特殊处理
-
-在 Windows 上，`npx`/`npm`/`node` 命令会自动通过 `cmd.exe` 执行：
-
-```
-实际命令: cmd.exe /c npx -y @playwright/mcp@latest
-```
-
-无需手动配置。
-
-## 故障排查
-
-### 连接超时
-
-如果首次启动超时（Playwright 需下载依赖）：
-
-```toml
-[settings]
-connect_timeout_ms = 60000  # 增加到 60 秒
-```
-
-### 进程未关闭
-
-确保调用 `shutdown_all()` 或让程序正常退出（会自动清理）。
-
-### 工具未发现
-
-检查：
-1. 配置文件位置是否正确
-2. `enabled = true` 是否设置
-3. 命令是否可执行（手动测试：`npx -y @playwright/mcp@latest`）
-
-## 下一步
-
-当前 MCP 工具需要手动调用。后续版本将提供：
-
-1. 自动集成到工具系统
-2. 工具提示中显示 MCP 工具
-3. Agent 自动选择 MCP 工具
 
 ---
 
-**示例配置文件**: `mcp.example.toml`
+## 💻 TUI MCP 功能
+
+### 状态栏显示
+
+状态栏会显示已连接的 MCP servers 数量：
+
+```
+ claude-sonnet-4 │ Ask │ ███ 45% 120k/200k │ out 15k │ MCP:1 │ Ready
+```
+
+- `MCP:1` 表示已连接 1 个 MCP server
+- `MCP:2` 表示已连接 2 个 MCP servers
+
+### 查看详细状态
+
+输入 `/mcp` 命令查看详细信息：
+
+```
+User: /mcp
+
+System: 📋 MCP Servers:
+  • playwright ✓ 运行中 (23 工具)
+  • filesystem ✓ 运行中 (15 工具)
+```
+
+### 查看帮助
+
+输入 `/help` 查看 MCP 命令：
+
+```
+/mcp      - List MCP servers status
+```
+
+---
+
+## 🎯 使用示例
+
+### 示例 1：打开百度并搜索
+
+**启动**：
+```bash
+matrixcode-tui --mcp "playwright:npx -y @playwright/mcp@latest"
+```
+
+**对话**：
+```
+User: 使用 Playwright 打开百度并搜索 "MatrixCode"
+
+Agent: 
+[调用 browser_navigate 打开 https://www.baidu.com]
+[调用 browser_click 点击搜索框]
+[调用 browser_type 输入 "MatrixCode"]
+[调用 browser_click 点击搜索按钮]
+```
+
+---
+
+### 示例 2：管理项目文件
+
+**启动**：
+```bash
+matrixcode-tui --mcp "filesystem:npx -y @modelcontextprotocol/server-filesystem /home/user/project"
+```
+
+**对话**：
+```
+User: 列出项目根目录的所有文件
+
+Agent: [调用 filesystem list_directory 工具]
+```
+
+---
+
+### 示例 3：多 MCP 协同
+
+**启动**：
+```bash
+matrixcode-tui \
+  --mcp "playwright:npx -y @playwright/mcp@latest" \
+  --mcp "filesystem:npx -y @modelcontextprotocol/server-filesystem /home/user/project"
+```
+
+**对话**：
+```
+User: 打开百度，截图并保存到项目目录
+
+Agent: 
+[调用 playwright browser_navigate 打开百度]
+[调用 playwright browser_screenshot 截图]
+[调用 filesystem write_file 保存截图]
+```
+
+---
+
+## 🔍 运行时 API
+
+MatrixCode Agent 拥有运行时 MCP 管理能力：
+
+### 添加 MCP Server
+
+```
+User: 添加一个新的 MCP server "memory"
+
+Agent: [调用 add_mcp_server() API]
+System: 🔗 MCP 'memory' 已连接
+```
+
+### 移除 MCP Server
+
+```
+User: 移除 "filesystem" MCP server
+
+Agent: [调用 remove_mcp_server() API]
+System: 🔌 MCP 'filesystem' 已移除
+```
+
+### 查看状态
+
+```
+User: 列出当前所有的 MCP servers
+
+Agent: [调用 mcp_server_status() API]
+System: 📋 MCP Servers:
+  • playwright ✓ 运行中 (23 工具)
+  • memory ✓ 运行中 (5 工具)
+```
+
+---
+
+## ⚠️ 注意事项
+
+1. **Node.js 环境**：大多数 MCP servers 需要 Node.js 和 npx
+2. **网络连接**：首次启动时需要下载 MCP server 包
+3. **超时设置**：默认超时 30 秒，可在配置文件中调整
+4. **安全性**：filesystem MCP 只能访问指定的目录
+
+---
+
+## 📖 更多 MCP Servers
+
+官方 MCP servers 列表：
+- [Playwright](https://github.com/modelcontextprotocol/servers/tree/main/src/playwright)
+- [Filesystem](https://github.com/modelcontextprotocol/servers/tree/main/src filesystem)
+- [Memory](https://github.com/modelcontextprotocol/servers/tree/main/src/memory)
+- [GitHub](https://github.com/modelcontextprotocol/servers/tree/main/src/github)
+- [GitLab](https://github.com/modelcontextprotocol/servers/tree/main/src/gitlab)
+- [PostgreSQL](https://github.com/modelcontextprotocol/servers/tree/main/src/postgres)
+- [Slack](https://github.com/modelcontextprotocol/servers/tree/main/src/slack)
+- [Google Drive](https://github.com/modelcontextprotocol/servers/tree/main/src/gdrive)
+
+---
+
+## 🔗 相关链接
+
+- [MCP 官方文档](https://modelcontextprotocol.io/)
+- [MCP Servers 列表](https://github.com/modelcontextprotocol/servers)
+- [MatrixCode GitHub](https://github.com/your-org/matrixcode)
+
+---
+
+**MCP 功能让 MatrixCode Agent 具备无限扩展能力！** 🚀
