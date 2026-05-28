@@ -288,6 +288,108 @@
       "is_manual": false
     },
     {
+      "id": "d3d05990-a658-4c11-bccd-fce71cddf6d8",
+      "created_at": "2026-05-28T10:07:33.306195300Z",
+      "last_referenced": "2026-05-28T10:07:33.306195400Z",
+      "category": "finding",
+      "content": "，应该是直接定时查询 server graphql 就行了把？",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "d3d05990-a658-4c11-bccd-fce71cddf6d8",
+      "created_at": "2026-05-28T10:07:33.306195300Z",
+      "last_referenced": "2026-05-28T10:07:33.306195400Z",
+      "category": "finding",
+      "content": "，应该是直接定时查询 server graphql 就行了把？",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "38d87b03-fe95-4143-bb6d-94303b087196",
       "created_at": "2026-05-25T16:02:08.631280300Z",
       "last_referenced": "2026-05-25T16:02:08.631280400Z",
@@ -762,7 +864,7 @@
       "created_at": "2026-05-27T15:31:06.217507200Z",
       "last_referenced": "2026-05-27T15:31:06.217507200Z",
       "category": "solution",
-      "content": "TUI 状态栏通过事件驱动更新：Agent 任务发送 SkillsLoaded/WorkflowsLoaded 事件，TuiApp 接收后更新本地字段并重绘",
+      "content": "要动态注入 skills 列表 这个有吗",
       "source_session": null,
       "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
       "reference_count": 0,
@@ -784,11 +886,11 @@
       "created_at": "2026-05-27T15:31:06.217508100Z",
       "last_referenced": "2026-05-27T15:31:06.217508100Z",
       "category": "decision",
-      "content": "状态栏采用响应式设计：Skills 指示器在宽度 >= 60 显示，Workflows 指示器在宽度 >= 75 显示，名称超长截断为10字符",
+      "content": "要动态注入 skills 列表 这个有吗",
       "source_session": null,
       "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
       "reference_count": 0,
-      "importance": 70.0,
+      "importance": 80.0,
       "tags": [
         "响应式设计",
         "responsive",
@@ -806,11 +908,11 @@
       "created_at": "2026-05-27T15:31:06.217508500Z",
       "last_referenced": "2026-05-27T15:31:06.217508600Z",
       "category": "technical",
-      "content": "使用 WorkflowRegistry 获取可用 workflows 列表",
+      "content": "要动态注入 skills 列表 这个有吗",
       "source_session": null,
       "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
       "reference_count": 0,
-      "importance": 65.0,
+      "importance": 80.0,
       "tags": [
         "WorkflowRegistry",
         "workflow",
@@ -1034,7 +1136,8 @@
         "Language Server Protocol",
         "config",
         "lsp",
-        "ux"
+        "ux",
+        "project"
       ],
       "is_manual": false
     },
@@ -1043,18 +1146,19 @@
       "created_at": "2026-05-28T14:35:38.600543200Z",
       "last_referenced": "2026-05-28T14:35:38.600543300Z",
       "category": "solution",
-      "content": "使用 `which`/`where` 命令验证 LSP 服务器可用性实现自动检测。**Problem:** 之前需要在配置中手动指定 LSP 服务器列表。**Key:** `prepare_lsp_servers()` 函数扫描常见 LSP 服务器（rust-analyzer, typescript-language-server, pylsp/pyright, gopls, clangd, jdtls），通过系统命令验证是否安装",
+      "content": "要动态注入 skills 列表 这个有吗",
       "source_session": null,
       "project_path": "C:/Users/bigfish/Projects/matrixcode",
       "reference_count": 0,
-      "importance": 70.0,
+      "importance": 80.0,
       "tags": [
         "LSP",
         "自动检测",
         "which",
         "服务器发现",
         "lsp",
-        "detection"
+        "detection",
+        "project"
       ],
       "is_manual": false
     },
@@ -1075,7 +1179,8 @@
         "工具栏",
         "lsp",
         "mcp",
-        "comparison"
+        "comparison",
+        "project"
       ],
       "is_manual": false
     },
@@ -1097,7 +1202,146 @@
         "jdtls",
         "pyright",
         "lsp",
-        "languages"
+        "languages",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "982f2f9a-47ff-41f2-87ac-80d81edbb24f",
+      "created_at": "2026-05-28T14:48:06.188411700Z",
+      "last_referenced": "2026-05-28T14:48:06.188413900Z",
+      "category": "technical",
+      "content": "Prompt 构建采用静态模块 + 动态注入的架构模式。静态模块（如 SYSTEM_PROMPT_SKILLS, SYSTEM_PROMPT_WORKFLOWS）提供使用说明，动态注入部分通过扫描 skills/workflows 目录提供实际可用列表。两者配合：静态说明如何使用，动态列出当前可用项。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "Prompt",
+        "动态注入",
+        "Skills",
+        "Workflows",
+        "架构模式",
+        "architecture",
+        "prompt",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "fd93b01f-8840-4d3f-905d-16d31f6cba10",
+      "created_at": "2026-05-28T14:48:06.188421400Z",
+      "last_referenced": "2026-05-28T14:48:06.188421400Z",
+      "category": "structure",
+      "content": "最终 Prompt 结构组成：[静态模块] → [工具列表] → [CODEGRAPH 规则] → [PROJECT CONTEXT] → [ACCUMULATED MEMORY] → [AVAILABLE SKILLS] → [AVAILABLE WORKFLOWS]。其中后两项为动态扫描注入。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "Prompt结构",
+        "模块组装",
+        "CONTEXT",
+        "MEMORY",
+        "prompt",
+        "architecture",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "852bf436-da2b-4ec9-85f1-61a89132ea02",
+      "created_at": "2026-05-28T14:54:59.971582100Z",
+      "last_referenced": "2026-05-28T14:54:59.971582300Z",
+      "category": "decision",
+      "content": "LSP 采用动态注入机制而非硬编码到 system prompt。**Why:** Token 节省（无 LSP 时 0 token vs 静态 ~500 token）、准确性（反映实时服务器状态）、灵活性（支持多语言动态组合）、维护性（单点更新）。**Context:** 参考 CodeGraph 已有的动态注入模式",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "LSP",
+        "动态注入",
+        "system prompt",
+        "CodeGraph",
+        "architecture",
+        "LSP",
+        "design-pattern",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "11474859-5613-46b9-a165-b49d4a5ec37c",
+      "created_at": "2026-05-28T14:54:59.971583900Z",
+      "last_referenced": "2026-05-28T14:54:59.971583900Z",
+      "category": "solution",
+      "content": "动态注入三阶段模式：条件检测 → 工具动态生成 → 提示词动态注入。**Problem:** 如何高效集成可选功能（如 LSP）到 AI 助手。**Key:** 1) should_inject 检测活跃状态 2) tools_if_active 仅在需要时添加工具 3) parts.push() 动态组装提示词",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "动态注入",
+        "条件检测",
+        "工具生成",
+        "提示词",
+        "architecture",
+        "design-pattern",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "25b362dc-01c6-4f05-9995-086426dc07b1",
+      "created_at": "2026-05-28T14:54:59.971584400Z",
+      "last_referenced": "2026-05-28T14:54:59.971584500Z",
+      "category": "technical",
+      "content": "MatrixCode 项目使用 Rust 开发，LSP 工具集包括 goto_definition、find_references、get_diagnostics、hover。CodeGraph 是项目中已有的类似功能模块。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "Rust",
+        "MatrixCode",
+        "LSP",
+        "CodeGraph",
+        "technical",
+        "LSP",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "e118c12b-9869-44a7-b36c-7666b93396cf",
+      "created_at": "2026-05-28T15:06:39.643368900Z",
+      "last_referenced": "2026-05-28T15:06:39.643369Z",
+      "category": "finding",
+      "content": "我是想让你读取 package 中的项目 然后详细的做一个官网",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "67683035-cf00-4c34-8f89-93b7e9da7e71",
+      "created_at": "2026-05-28T15:22:04.550328400Z",
+      "last_referenced": "2026-05-28T15:22:04.550328600Z",
+      "category": "technical",
+      "content": "服务器使用 Caddy 作为 Web Server 和反向代理。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "Caddy",
+        "Web Server",
+        "反向代理",
+        "server",
+        "infrastructure"
       ],
       "is_manual": false
     }

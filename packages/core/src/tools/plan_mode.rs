@@ -88,7 +88,7 @@ impl Tool for ExitPlanModeTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "exit_plan_mode".to_string(),
-            description: "退出规划模式。若计划被批准，代理将执行计划的变更；若被拒绝，计划将被丢弃且不做任何修改。".to_string(),
+            description: "退出规划模式。若计划被批准，代理将执行计划的变更；若被拒绝，计划将被丢弃且不做任何修改。注意：用户批准工具执行即视为批准计划。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -100,12 +100,9 @@ impl Tool for ExitPlanModeTool {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "将要修改的文件列表（可选）"
-                    },
-                    "approved": {
-                        "type": "boolean",
-                        "default": true,
-                        "description": "是否批准执行计划"
                     }
+                    // NOTE: 'approved' parameter removed - user approval of tool execution = plan approval
+                    // This prevents AI from setting approved=false while user approves execution
                 }
             }),
             ..Default::default()
@@ -123,7 +120,9 @@ impl Tool for ExitPlanModeTool {
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
                 .collect::<Vec<_>>()
         });
-        let approved = params["approved"].as_bool().unwrap_or(true);
+        // User approval of tool execution = plan approval
+        // If this tool is executed, it means user approved the plan
+        let approved = true;
 
         let plan = get_plan_state();
         let mut state = plan.lock().await;

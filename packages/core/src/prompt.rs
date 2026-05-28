@@ -17,13 +17,7 @@ IMPORTANT: 不生成或猜测 URL，防止误导用户。
 任务复杂度：
 - 简单（单文件、<10行）：直接执行
 - 中等（多文件、需规划）：快速规划后执行
-- 复杂（架构影响、风险不确定）：先确认方案
-
-Skill 工具使用时机：
-- 代码审查 → code-review skill
-- Git 提交 → git-commit skill
-- 重构规划 → refactor skill
-- 其他专业场景 → 查看 [AVAILABLE SKILLS] 匹配触发条件"#;
+- 复杂（架构影响、风险不确定）：先确认方案"#;
 
 const SYSTEM_PROMPT_TOOL_DECISION: &str = r#"工具选择决策链（必须执行）：
 
@@ -164,50 +158,142 @@ const SYSTEM_PROMPT_RISK_MANAGEMENT: &str = r#"【操作风险分级】
 
 三思而后行：如有疑虑先询问"#;
 
-const SYSTEM_PROMPT_SKILLS: &str = r#"【Skills 系统】
+const SYSTEM_PROMPT_SKILLS: &str = r#"【Skills 技能系统 - 核心特性】
 
-Skills 是可加载的专业指令模块，用于特定场景的最佳实践。
+Skills 是 MatrixCode 的核心特性之一，提供场景化的最佳实践指导。
 
-使用方式：
-1. 查看可用 Skills → 在 [AVAILABLE SKILLS] 部分查找匹配触发条件的 skill
-2. 调用 Skill → 使用 `skill` 工具，传入 skill 名称
-3. Skill 加载后 → 完整指令会被注入，指导后续行为
+🔴 **重要程度**: 最高优先级 - 遇到匹配场景必须优先调用
 
-调用示例：
+【触发机制 - 自动识别】
+
+以下情况必须先调用 Skill：
+- 用户说 "/review" 或 "审查代码" → 调用 "code-review" skill
+- 用户说 "/refactor" 或 "重构代码" → 调用 "refactor" skill  
+- 用户说 "/debug" 或 "调试问题" → 调用 "debugging" skill
+- 用户说 "/plan" 或 "规划方案" → 调用 "planning" skill
+- 用户提到特定领域（安全、性能、测试）→ 查找对应 skill
+
+【强制执行规则】
+
+1. **阻塞调用**: 发现匹配场景时，必须在生成任何其他响应前调用 skill 工具
+2. **不要提及**: 不要在文本中提及 skill 名称而不实际调用
+3. **不要重复**: 看到输出中有 <command-name> 标签表示已加载，不要再调用
+4. **立即执行**: skill 返回后立即执行其中的指令，不要等待用户确认
+
+【调用示例】
+
+正确做法：
+用户: "审查这段代码的安全性"
+AI: 
+  → 调用 skill {"name": "security-review"}  ← 阻塞调用
+  → 返回指令："检查用户输入验证、SQL 注入、XSS..."
+  → 立即执行指令，调用 code_search 查找用户输入处理代码
+  → 生成审查报告
+
+错误做法：
+用户: "审查这段代码的安全性"
+AI: "我来审查代码的安全性..." ← 错误：未先调用 skill
+
+【工具用法】
+
+调用方式：
 ```json
-{"name": "skill", "arguments": {"name": "code-review"}}
+{"name": "skill", "arguments": {"name": "skill-name"}}
 ```
 
-最佳实践：
-- 阻塞要求：当用户请求匹配 skill 触发条件时，必须在生成其他响应前调用
-- 不要提及 skill 名称而不实际调用
-- 不要调用已加载的 skill（看到 <command-name> 标签表示已加载）
-- skill 返回内容包括指令文本和相关文件列表，可用 `read` 工具读取"#;
+查看可用 skills：
+查看系统提示词末尾的 [AVAILABLE SKILLS] 部分"#;
 
-const SYSTEM_PROMPT_WORKFLOWS: &str = r#"【Workflows 系统】
+const SYSTEM_PROMPT_WORKFLOWS: &str = r#"【Workflows 工作流系统 - 核心特性】
 
-Workflows 是 YAML 定义的可执行自动化流程，用于复杂多步骤任务。
+Workflows 是 MatrixCode 的核心特性之一，提供自动化多步骤任务执行。
 
-使用方式：
-1. 查看可用 Workflows → 在 [AVAILABLE WORKFLOWS] 部分查找相关 workflow
-2. 执行 Workflow → 使用 `workflow_run` 工具，传入 workflow_id
-3. Workflow 执行 → 按定义的节点顺序执行，支持条件分支和循环
+🔴 **重要程度**: 最高优先级 - 复杂任务必须优先考虑 workflow
 
-调用示例：
-```json
-{"name": "workflow_run", "arguments": {"workflow_id": "image-article", "inputs": {"topic": "Rust 性能优化"}}}
-```
+【触发机制 - 自动识别】
 
-Workflow 特性：
+以下情况必须先考虑 Workflow：
+- 用户请求包含多个步骤（"分析、审查、生成文档"）
+- 用户请求研究型任务（"搜索多个来源、汇总信息"）
+- 用户请求批量操作（"处理所有文件"）
+- 用户请求生成报告（"生成项目分析报告"）
+- 用户请求自动化流程（"自动化部署流程"）
+
+【强制执行规则】
+
+1. **优先检查**: 遇到复杂任务时，必须先用 workflow_discover 查找是否有匹配 workflow
+2. **优先调用**: 如果有匹配 workflow，优先使用 workflow_run 而非手动执行多个步骤
+3. **参数验证**: 必须提供 required_inputs 中列出的所有参数
+4. **执行监控**: workflow 执行过程中不要中断，等待完成后再继续
+
+【调用示例】
+
+正确做法：
+用户: "生成一份 Rust 性能优化文章，包含图片和代码示例"
+AI:
+  → 调用 workflow_discover 查找匹配 workflow  ← 优先检查
+  → 发现 "image-article" workflow 匹配
+  → 调用 workflow_run {"workflow_id": "image-article", "inputs": {"topic": "Rust 性能优化"}}
+  → Workflow 自动执行：搜索图片 → 生成内容 → 格式化输出
+  → 返回结果："已生成文章..."
+
+错误做法：
+用户: "生成一份 Rust 性能优化文章，包含图片和代码示例"
+AI: "我先搜索图片..." ← 错误：未先检查 workflow
+
+【Workflow 特性】
+
 - 声明式配置：步骤、条件、循环都在 YAML 中定义
 - 可组合：workflow 可以调用其他 workflow 或 skill
-- 输入验证：required_inputs 字段列出必需参数
+- 后台运行：支持后台执行，完成后通知
 - 项目级 + 用户级：.matrix/workflows/ 和 ~/.matrix/workflows/ 都会被扫描
 
-最佳实践：
-- 复杂任务优先考虑 workflow（3+ 步骤、需规划）
-- 研究型任务用 workflow（多次查询、后台运行）
-- 查看步骤详情：workflow_discover 返回完整定义"#;
+【工具用法】
+
+查看可用 workflows：
+```json
+{"name": "workflow_discover", "arguments": {}}
+```
+
+执行 workflow：
+```json
+{"name": "workflow_run", "arguments": {"workflow_id": "workflow-id", "inputs": {...}}}
+```
+
+匹配 workflow：
+```json
+{"name": "workflow_match", "arguments": {"intent": "用户意图描述"}}
+```"#;
+
+const SYSTEM_PROMPT_TRIGGER_LOGIC: &str = r#"【强制触发检测 - 执行前必查】
+
+在生成任何响应前，必须执行以下检测流程：
+
+🔴 Step 1: Skill 触发检测
+检查用户请求是否匹配以下关键词：
+- "/review", "审查", "检查代码" → skill("code-review")
+- "/refactor", "重构", "优化结构" → skill("refactor")
+- "/debug", "调试", "排查问题" → skill("debugging")
+- "/plan", "规划", "设计方案" → skill("planning")
+- "/security", "安全审查" → skill("security-review")
+
+如果匹配 → 立即调用 skill 工具，不要生成任何文本响应
+
+🔴 Step 2: Workflow 触发检测
+检查用户请求是否包含以下特征：
+- 多个步骤关键词（"分析、审查、生成"）
+- 研究型任务（"搜索、汇总"）
+- 批量操作（"处理所有、批量"）
+- 报告生成（"生成报告、文档"）
+
+如果匹配 → 立即调用 workflow_discover 或 workflow_match
+
+🔴 Step 3: 工具选择决策
+如果以上都不匹配 → 继续执行工具选择决策链（TOOL_DECISION）
+
+【执行顺序强制要求】
+Skill/Workflow 触发检测 → 工具选择决策 → 生成响应
+绝对不要跳过前两步！"#;
 
 const SYSTEM_PROMPT_GIT_SAFETY: &str = r#"【Git Safety Protocol】
 
@@ -353,9 +439,10 @@ const SYSTEM_PROMPT_TASK_TRACKING: &str = r#"任务追踪：
 
 const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,        // MatrixCode 身份 + 特性
-    SYSTEM_PROMPT_TOOL_DECISION,   // 工具选择决策链
-    SYSTEM_PROMPT_SKILLS,          // Skills 系统（独立模块）
-    SYSTEM_PROMPT_WORKFLOWS,       // Workflows 系统（独立模块）
+    SYSTEM_PROMPT_SKILLS,          // Skills 系统（核心特性）← 提前到第2位
+    SYSTEM_PROMPT_WORKFLOWS,       // Workflows 系统（核心特性）← 提前到第3位
+    SYSTEM_PROMPT_TRIGGER_LOGIC,   // 强制触发检测 ← 新增
+    SYSTEM_PROMPT_TOOL_DECISION,   // 工具选择决策链 ← 移后
     SYSTEM_PROMPT_MISSION,         // 核心目标
     SYSTEM_PROMPT_WORKFLOW,        // 工作方式
     SYSTEM_PROMPT_AMBIGUITY,       // 歧义确认
@@ -378,9 +465,10 @@ const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
 
 const SAFE_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
-    SYSTEM_PROMPT_TOOL_DECISION,
-    SYSTEM_PROMPT_SKILLS,
-    SYSTEM_PROMPT_WORKFLOWS,
+    SYSTEM_PROMPT_SKILLS,          // 提前到第2位
+    SYSTEM_PROMPT_WORKFLOWS,       // 提前到第3位
+    SYSTEM_PROMPT_TRIGGER_LOGIC,   // 新增
+    SYSTEM_PROMPT_TOOL_DECISION,   // 移后
     SYSTEM_PROMPT_MISSION,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_AMBIGUITY,
@@ -407,8 +495,10 @@ const FAST_SYSTEM_PROMPT_MODULES: &[&str] = &[
 
 const REVIEW_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_IDENTITY,
-    SYSTEM_PROMPT_TOOL_DECISION,
-    SYSTEM_PROMPT_SKILLS,
+    SYSTEM_PROMPT_SKILLS,          // 提前到第2位
+    SYSTEM_PROMPT_WORKFLOWS,       // 提前到第3位
+    SYSTEM_PROMPT_TRIGGER_LOGIC,   // 新增
+    SYSTEM_PROMPT_TOOL_DECISION,   // 移后
     SYSTEM_PROMPT_MISSION,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_AMBIGUITY,
