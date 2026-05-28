@@ -58,29 +58,38 @@ impl Agent {
         }
     }
 
-    /// Check if there are pending (uncompleted) todos in recent messages
-    pub(crate) fn has_pending_todos(&self) -> bool {
-        // Look for todo_write tool_use in recent messages (last 10)
+    /// Get pending (uncompleted) todos from the most recent todo_write
+    /// Returns list of (status, content) for non-completed tasks
+    /// Note: todo_write replaces the entire list each time, so only the last one matters
+    pub(crate) fn get_pending_todos(&self) -> Vec<(String, String)> {
+        // Find the most recent todo_write (current state)
         for msg in self.messages.iter().rev().take(10) {
             if let MessageContent::Blocks(blocks) = &msg.content {
                 for block in blocks {
                     if let ContentBlock::ToolUse { name, input, .. } = block
                         && name == "todo_write"
                     {
-                        // Check if there are non-completed todos
+                        // Extract non-completed todos from this todo_write
                         if let Some(todos) = input.get("todos").and_then(|t| t.as_array()) {
-                            for todo in todos {
-                                if let Some(status) = todo.get("status").and_then(|s| s.as_str())
-                                    && status != "completed" {
-                                        return true;
+                            let pending: Vec<(String, String)> = todos
+                                .iter()
+                                .filter_map(|todo| {
+                                    let status = todo.get("status").and_then(|s| s.as_str())?;
+                                    let content = todo.get("content").and_then(|c| c.as_str())?;
+                                    if status != "completed" {
+                                        Some((status.to_string(), content.to_string()))
+                                    } else {
+                                        None
                                     }
-                            }
+                                })
+                                .collect();
+                            return pending; // Return immediately - this is the current state
                         }
                     }
                 }
             }
         }
-        false
+        Vec::new()
     }
 }
 

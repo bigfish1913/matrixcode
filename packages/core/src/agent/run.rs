@@ -269,14 +269,34 @@ impl Agent {
             should_continue = self.process_response(&response).await?;
 
             // If model wants to stop (no tool calls), check for pending todos
-            if !should_continue && iterations < MAX_ITERATIONS - 1
-                && self.has_pending_todos() {
+            if !should_continue && iterations < MAX_ITERATIONS - 1 {
+                let pending = self.get_pending_todos();
+                if !pending.is_empty() {
+                    // Generate specific reminder with pending tasks
+                    let pending_list = pending.iter()
+                        .map(|(status, content)| {
+                            let marker = match status.as_str() {
+                                "in_progress" => "[~]",
+                                "pending" => "[ ]",
+                                _ => "[?]"
+                            };
+                            format!("  {} {}", marker, content)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    
+                    let reminder = format!(
+                        "📋 任务尚未完成。以下待办项需要处理：\n{}\n\n请继续执行，或在 todo_write 中标记为 completed。如遇阻塞请说明原因。",
+                        pending_list
+                    );
+                    
                     self.messages.push(Message {
                         role: Role::User,
-                        content: MessageContent::Text(prompt::MSG_PENDING_TODOS.to_string()),
+                        content: MessageContent::Text(reminder),
                     });
                     should_continue = true;
                 }
+            }
 
             let context_size = self.provider.context_size();
             let api_tokens = self.last_input_tokens.load(Ordering::Relaxed) as u32;

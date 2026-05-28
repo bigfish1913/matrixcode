@@ -754,10 +754,6 @@ pub const MSG_ITERATION_WARNING: &str = "⚠️ 接近最大迭代次数限制�
 /// This is a brief notification for the user, doesn't affect model behavior.
 pub const MSG_ITERATION_WARNING_UI: &str = "⚠️ 接近迭代上限 ({iterations}/{max_iterations})，模型将优先完成关键任务";
 
-/// Message when pending todos detected.
-pub const MSG_PENDING_TODOS: &str = "📋 检测到未完成的待办任务。请继续执行剩余任务，或在 todo_write 中将已完成的任务标记为 completed。\n\
-    注意：只有所有任务都完成后才能结束。如果遇到阻塞，请说明原因。";
-
 /// Error message when operation is cancelled.
 pub const MSG_OPERATION_CANCELLED: &str = "操作已取消";
 
