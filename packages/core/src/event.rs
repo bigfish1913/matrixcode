@@ -43,6 +43,8 @@ pub enum EventType {
     ProxyToolRequest, // Proxy tool: request external execution
     ProxyToolResponse, // Proxy tool: external execution result
     DebugLog,    // Debug log entry for TUI debug panel
+    SkillsLoaded,   // Skills loaded notification
+    WorkflowsLoaded, // Workflows loaded notification
 }
 
 /// Event data
@@ -129,6 +131,12 @@ pub enum EventData {
         category: String,
         message: String,
     }, // Debug log entry
+    SkillsLoaded {
+        names: Vec<String>,
+    },
+    WorkflowsLoaded {
+        names: Vec<String>,
+    },
 }
 
 impl AgentEvent {
@@ -301,7 +309,21 @@ impl AgentEvent {
             },
         )
     }
-    
+
+    pub fn skills_loaded(names: Vec<String>) -> Self {
+        Self::with_data(
+            EventType::SkillsLoaded,
+            EventData::SkillsLoaded { names },
+        )
+    }
+
+    pub fn workflows_loaded(names: Vec<String>) -> Self {
+        Self::with_data(
+            EventType::WorkflowsLoaded,
+            EventData::WorkflowsLoaded { names },
+        )
+    }
+
     /// 创建代理工具请求事件
     pub fn proxy_tool_request(
         request_id: impl Into<String>,

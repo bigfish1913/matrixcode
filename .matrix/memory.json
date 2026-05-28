@@ -72,6 +72,43 @@
       "is_manual": false
     },
     {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "aabd9825-3f5e-4d08-890b-3261b21e9bb6",
       "created_at": "2026-05-22T12:06:32.289481400Z",
       "last_referenced": "2026-05-22T12:06:32.289482Z",
@@ -436,11 +473,117 @@
       "created_at": "2026-05-27T15:23:40.430883100Z",
       "last_referenced": "2026-05-27T15:23:40.430883200Z",
       "category": "finding",
-      "content": "日志 我说的是ui 上面加上",
+      "content": "日志 我说的是tui 上面加上",
       "source_session": null,
       "reference_count": 0,
-      "importance": 55.0,
-      "tags": [],
+      "importance": 80.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "9080e559-12c7-4d88-82fa-c3d6e69a3e11",
+      "created_at": "2026-05-27T15:31:06.217198500Z",
+      "last_referenced": "2026-05-27T15:31:06.217198800Z",
+      "category": "structure",
+      "content": "项目采用多模块架构：core（核心事件系统）、tui（终端UI界面）、cli（命令行终端模式）",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "core",
+        "tui",
+        "cli",
+        "模块架构",
+        "module",
+        "structure",
+        "architecture"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "67e304a9-d833-4b8e-8ed7-a563663fcf69",
+      "created_at": "2026-05-27T15:31:06.217506300Z",
+      "last_referenced": "2026-05-27T15:31:06.217506300Z",
+      "category": "technical",
+      "content": "事件系统使用 EventType 枚举定义事件类型，EventData 枚举携带事件数据，AgentEvent 提供事件构造方法",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "EventType",
+        "EventData",
+        "AgentEvent",
+        "事件系统",
+        "event",
+        "core",
+        "event-system"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "8ed1e30b-b26f-4b5b-8e2a-90a38e630bb5",
+      "created_at": "2026-05-27T15:31:06.217507200Z",
+      "last_referenced": "2026-05-27T15:31:06.217507200Z",
+      "category": "solution",
+      "content": "TUI 状态栏通过事件驱动更新：Agent 任务发送 SkillsLoaded/WorkflowsLoaded 事件，TuiApp 接收后更新本地字段并重绘",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "SkillsLoaded",
+        "WorkflowsLoaded",
+        "状态栏",
+        "status bar",
+        "事件驱动",
+        "tui",
+        "architecture"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "eb0da46a-81de-427d-ae15-2aed1d24cc76",
+      "created_at": "2026-05-27T15:31:06.217508100Z",
+      "last_referenced": "2026-05-27T15:31:06.217508100Z",
+      "category": "decision",
+      "content": "状态栏采用响应式设计：Skills 指示器在宽度 >= 60 显示，Workflows 指示器在宽度 >= 75 显示，名称超长截断为10字符",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "响应式设计",
+        "responsive",
+        "状态栏",
+        "status bar",
+        "截断",
+        "tui",
+        "ui-design"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "4a50b027-68a6-4216-a6f2-e2c84c740326",
+      "created_at": "2026-05-27T15:31:06.217508500Z",
+      "last_referenced": "2026-05-27T15:31:06.217508600Z",
+      "category": "technical",
+      "content": "使用 WorkflowRegistry 获取可用 workflows 列表",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
+      "reference_count": 0,
+      "importance": 65.0,
+      "tags": [
+        "WorkflowRegistry",
+        "workflow",
+        "注册表",
+        "registry",
+        "workflow",
+        "core"
+      ],
       "is_manual": false
     }
   ],

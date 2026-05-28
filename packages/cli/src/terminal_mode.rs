@@ -306,35 +306,62 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     if let Some(path) = &effective_project_path {
         use matrixcode_core::tools::codegraph::CodeGraphWatcher;
 
-        // Check if CodeGraph daemon is already running
-        let daemon_pid_path = path.join(".codegraph").join("daemon.pid");
-        let daemon_running = daemon_pid_path.exists()
-            && std::fs::read_to_string(&daemon_pid_path)
-                .ok()
-                .and_then(|pid| pid.trim().parse::<u32>().ok())
-                .map(|pid| {
-                    #[cfg(target_os = "windows")]
-                    {
-                        use std::os::windows::process::CommandExt;
-                        const CREATE_NO_WINDOW: u32 = 0x08000000;
-                        std::process::Command::new("tasklist")
-                            .args(["/FI", &format!("PID eq {}", pid)])
-                            .creation_flags(CREATE_NO_WINDOW)
-                            .output()
-                            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
-                            .unwrap_or(false)
+        // Check if CodeGraph MCP daemon is already running
+        // Multiple detection methods: daemon.pid, daemon.log active, or named pipe
+        let daemon_running = {
+            let mut running = false;
+
+            // Method 1: Check daemon.pid file
+            let daemon_pid_path = path.join(".codegraph").join("daemon.pid");
+            if daemon_pid_path.exists() {
+                running = std::fs::read_to_string(&daemon_pid_path)
+                    .ok()
+                    .and_then(|pid| pid.trim().parse::<u32>().ok())
+                    .map(|pid| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            use std::os::windows::process::CommandExt;
+                            const CREATE_NO_WINDOW: u32 = 0x08000000;
+                            std::process::Command::new("tasklist")
+                                .args(["/FI", &format!("PID eq {}", pid)])
+                                .creation_flags(CREATE_NO_WINDOW)
+                                .output()
+                                .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+                                .unwrap_or(false)
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        std::path::Path::new("/proc").join(pid.to_string()).exists()
+                    })
+                    .unwrap_or(false);
+            }
+
+            // Method 2: Check daemon.log for recent activity (last 30 seconds)
+            if !running {
+                let daemon_log_path = path.join(".codegraph").join("daemon.log");
+                if daemon_log_path.exists() {
+                    // Check if log was modified recently (daemon is active)
+                    if let Ok(metadata) = std::fs::metadata(&daemon_log_path) {
+                        if let Ok(modified) = metadata.modified() {
+                            let now = std::time::SystemTime::now();
+                            let elapsed = now.duration_since(modified).unwrap_or(std::time::Duration::MAX);
+                            if elapsed < std::time::Duration::from_secs(60) {
+                                log::info!("CodeGraph: daemon.log recently modified, daemon likely active");
+                                running = true;
+                            }
+                        }
                     }
-                    #[cfg(not(target_os = "windows"))]
-                    std::path::Path::new("/proc").join(pid.to_string()).exists()
-                })
-                .unwrap_or(false);
+                }
+            }
+
+            running
+        };
 
         if daemon_running {
-            log::info!("CodeGraph MCP daemon running, skipping watcher");
+            log::info!("CodeGraph MCP daemon detected, skipping our watcher to avoid conflict");
         } else {
             let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
             let handle = watcher.start(cancel_token.clone());
-            log::info!("CodeGraph watcher started");
+            log::info!("CodeGraph watcher started (no MCP daemon detected)");
             *watcher_handle_arc.lock().unwrap() = Some(handle);
         }
     }
@@ -460,6 +487,20 @@ async fn run_agent_task(
     mcp_servers: Vec<(String, matrixcode_core::mcp::McpServerConfig)>,
 ) {
     log::info!("Agent task: starting");
+
+    // Send skills loaded event
+    let skill_names: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
+    if !skill_names.is_empty() {
+        let _ = event_tx.send(AgentEvent::skills_loaded(skill_names)).await;
+    }
+
+    // Send workflows loaded event
+    use matrixcode_core::workflow::WorkflowRegistry;
+    let registry = WorkflowRegistry::new(project_path.as_ref());
+    let workflow_names: Vec<String> = registry.list().iter().map(|w| w.name.clone()).collect();
+    if !workflow_names.is_empty() {
+        let _ = event_tx.send(AgentEvent::workflows_loaded(workflow_names)).await;
+    }
 
     // Create provider
     let provider = match create_provider_with_headers(

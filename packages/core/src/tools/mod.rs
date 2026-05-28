@@ -1,5 +1,6 @@
 pub mod ask;
 pub mod bash;
+pub mod browser;
 pub mod codegraph;
 pub mod edit;
 pub mod glob;
@@ -101,6 +102,7 @@ fn base_tools(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(glob::GlobTool),
         Box::new(ls::LsTool),
         Box::new(bash::BashTool),
+        Box::new(browser::BrowserOpenTool),
         Box::new(todo_write::TodoWriteTool),
         Box::new(websearch::WebSearchTool::new()),
         Box::new(webfetch::WebFetchTool),

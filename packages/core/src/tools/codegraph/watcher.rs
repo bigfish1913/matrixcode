@@ -14,7 +14,7 @@ use super::git::{
     is_git_repository, get_git_status_changes, is_git_fsmonitor_running, start_git_fsmonitor,
     has_version_changed, update_version_after_sync,
     try_acquire_watcher_lock, release_watcher_lock,
-    try_acquire_sync_lock, release_sync_lock,
+    try_acquire_sync_lock, release_sync_lock, check_sync_lock_owner,
     update_watcher_heartbeat,
     is_source_file,
 };
@@ -277,15 +277,24 @@ impl CodeGraphWatcher {
                         syncing_clone.store(true, Ordering::SeqCst);
                         log::info!("CodeGraph: auto-sync triggered ({} unique files changed)", files_count);
 
-                        if try_acquire_sync_lock(&project_path) {
+                        let our_timestamp = try_acquire_sync_lock(&project_path);
+                        if our_timestamp > 0 {
                             let manager = CodeGraphManager::new(&project_path);
                             if manager.is_initialized() {
                                 if let Err(e) = manager.sync().await {
                                     log::warn!("CodeGraph sync failed: {}", e);
                                 } else {
-                                    update_version_after_sync(&project_path);
+                                    // Check if lock still belongs to us before updating
+                                    if check_sync_lock_owner(&project_path, our_timestamp) {
+                                        update_version_after_sync(&project_path);
+                                        changed_files.write().await.clear();
+                                        log::debug!("CodeGraph: sync completed, lock verified");
+                                    } else {
+                                        // Lock was stolen by another process, abandon this sync
+                                        log::info!("CodeGraph: sync abandoned, another process took over");
+                                        // Don't clear changed_files, let next sync handle them
+                                    }
                                 }
-                                changed_files.write().await.clear();
                             }
                             release_sync_lock(&project_path);
                         } else {

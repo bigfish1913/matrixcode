@@ -104,22 +104,31 @@ impl StdioTransport {
         })
     }
     
-    /// 读取一行响应
+    /// 读取一行响应（带超时）
     async fn read_line(&self) -> Result<String> {
         let mut reader_lock = self.reader.lock().await;
         let reader = reader_lock.as_mut()
             .ok_or_else(|| anyhow!("Transport closed for server '{}'", self.server_name))?;
         
         let mut line = String::new();
-        reader.read_line(&mut line).await?;
         
-        if line.is_empty() {
-            return Err(anyhow!("EOF reached for server '{}'", self.server_name));
+        // 添加 30 秒超时
+        let read_result = tokio::time::timeout(
+            Duration::from_secs(30),
+            reader.read_line(&mut line)
+        ).await;
+        
+        match read_result {
+            Ok(Ok(_)) => {
+                if line.is_empty() {
+                    return Err(anyhow!("EOF reached for server '{}'", self.server_name));
+                }
+                // 移除换行符
+                Ok(line.trim_end().to_string())
+            }
+            Ok(Err(e)) => Err(anyhow!("Read error for server '{}': {}", self.server_name, e)),
+            Err(_) => Err(anyhow!("Read timeout for server '{}' after 30s", self.server_name)),
         }
-        
-        // 移除换行符
-        let line = line.trim_end().to_string();
-        Ok(line)
     }
 }
 
@@ -144,13 +153,16 @@ impl Transport for StdioTransport {
         let writer = writer_lock.as_mut()
             .ok_or_else(|| anyhow!("Transport closed for server '{}'", self.server_name))?;
         
+        tracing::info!("MCP >> '{}' : {}", self.server_name, message.chars().take(100).collect::<String>());
         writer.write_all(format!("{}\n", message).as_bytes()).await?;
         writer.flush().await?;
         Ok(())
     }
     
     async fn receive(&self) -> Result<String> {
-        self.read_line().await
+        let line = self.read_line().await?;
+        tracing::info!("MCP << '{}' : {}", self.server_name, line.chars().take(100).collect::<String>());
+        Ok(line)
     }
     
     async fn close(&self) -> Result<()> {

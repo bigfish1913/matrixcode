@@ -442,6 +442,32 @@ impl TuiApp {
                     }
                 }
             }
+            EventType::SkillsLoaded => {
+                // Show loaded skills in message area (like tool calls)
+                if let Some(EventData::SkillsLoaded { names }) = e.data {
+                    if !names.is_empty() {
+                        let names_str = names.join(", ");
+                        self.push_message(Message {
+                            role: Role::System,
+                            content: format!("📚 skills[{}]", names_str),
+                        });
+                        self.auto_scroll = true;
+                    }
+                }
+            }
+            EventType::WorkflowsLoaded => {
+                // Show loaded workflows in message area (like tool calls)
+                if let Some(EventData::WorkflowsLoaded { names }) = e.data {
+                    if !names.is_empty() {
+                        let names_str = names.join(", ");
+                        self.push_message(Message {
+                            role: Role::System,
+                            content: format!("🔄 workflows[{}]", names_str),
+                        });
+                        self.auto_scroll = true;
+                    }
+                }
+            }
             _ => {}
         }
     }

@@ -273,7 +273,7 @@ pub fn update_watcher_heartbeat(project_path: &Path) {
 }
 
 /// Try to acquire sync lock.
-pub fn try_acquire_sync_lock(project_path: &Path) -> bool {
+pub fn try_acquire_sync_lock(project_path: &Path) -> i64 {
     let lock_path = project_path.join(".codegraph").join(SYNC_LOCK_FILE);
 
     if lock_path.exists() {
@@ -283,17 +283,38 @@ pub fn try_acquire_sync_lock(project_path: &Path) -> bool {
             let now = chrono::Utc::now().timestamp();
             if now - timestamp < 5 {
                 log::debug!("CodeGraph: sync in progress by another instance, skipping");
-                return false;
+                return 0; // Failed to acquire
             }
         }
     }
 
-    let timestamp = chrono::Utc::now().timestamp().to_string();
-    let _ = std::fs::write(&lock_path, timestamp);
+    let timestamp = chrono::Utc::now().timestamp();
+    let _ = std::fs::write(&lock_path, timestamp.to_string());
+    timestamp // Return our timestamp for later verification
+}
+
+/// Check if sync lock still belongs to us (not stolen by another process).
+pub fn check_sync_lock_owner(project_path: &Path, our_timestamp: i64) -> bool {
+    let lock_path = project_path.join(".codegraph").join(SYNC_LOCK_FILE);
+
+    if !lock_path.exists() {
+        return false; // Lock was released, someone else might take it
+    }
+
+    let content = std::fs::read_to_string(&lock_path).ok();
+    if let Some(s) = content {
+        let current_timestamp: i64 = s.parse().ok().unwrap_or(0);
+        // If timestamp changed, another process stole the lock
+        if current_timestamp != our_timestamp {
+            log::debug!("CodeGraph: sync lock stolen by another process (ours: {}, current: {})", our_timestamp, current_timestamp);
+            return false;
+        }
+    }
+
     true
 }
 
-/// Release sync lock.
+/// Release sync lock (only if we still own it).
 pub fn release_sync_lock(project_path: &Path) {
     let lock_path = project_path.join(".codegraph").join(SYNC_LOCK_FILE);
     if lock_path.exists() {
