@@ -35,6 +35,55 @@
       "is_manual": false
     },
     {
+      "id": "d3d05990-a658-4c11-bccd-fce71cddf6d8",
+      "created_at": "2026-05-28T10:07:33.306195300Z",
+      "last_referenced": "2026-05-28T10:07:33.306195400Z",
+      "category": "finding",
+      "content": "，应该是直接定时查询 server graphql 就行了把？",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [],
+      "is_manual": false
+    },
+    {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "38d87b03-fe95-4143-bb6d-94303b087196",
       "created_at": "2026-05-25T16:02:08.631280300Z",
       "last_referenced": "2026-05-25T16:02:08.631280400Z",
@@ -499,7 +548,8 @@
         "模块架构",
         "module",
         "structure",
-        "architecture"
+        "architecture",
+        "project"
       ],
       "is_manual": false
     },
@@ -520,7 +570,8 @@
         "事件系统",
         "event",
         "core",
-        "event-system"
+        "event-system",
+        "project"
       ],
       "is_manual": false
     },
@@ -541,7 +592,8 @@
         "status bar",
         "事件驱动",
         "tui",
-        "architecture"
+        "architecture",
+        "project"
       ],
       "is_manual": false
     },
@@ -562,7 +614,8 @@
         "status bar",
         "截断",
         "tui",
-        "ui-design"
+        "ui-design",
+        "project"
       ],
       "is_manual": false
     },
@@ -582,8 +635,21 @@
         "注册表",
         "registry",
         "workflow",
-        "core"
+        "core",
+        "project"
       ],
+      "is_manual": false
+    },
+    {
+      "id": "2ae97657-6caa-43eb-a950-2c8ffc0360a1",
+      "created_at": "2026-05-28T10:10:57.322593300Z",
+      "last_referenced": "2026-05-28T10:10:57.322593400Z",
+      "category": "finding",
+      "content": "就可以了 我们先讨论下",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [],
       "is_manual": false
     }
   ],
