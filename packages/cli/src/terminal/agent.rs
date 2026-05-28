@@ -11,12 +11,11 @@ use matrixcode_core::{
     memory::AutoMemory,
 };
 use crate::constants::{
-    MEMORY_MANIFEST_SIZE, MEMORY_SUMMARY_SIZE, MEMORY_INITIAL_SUMMARY_SIZE,
-    MEMORY_TURN_CLEANUP_INTERVAL, MEMORY_EXTRACTION_INTERVAL, MEMORY_MIN_ENTRIES_FOR_AI_SELECTION,
+    MEMORY_SUMMARY_SIZE, MEMORY_INITIAL_SUMMARY_SIZE,
+    MEMORY_TURN_CLEANUP_INTERVAL, MEMORY_MIN_ENTRIES_FOR_AI_SELECTION,
 };
 use super::mcp_handler::McpManager;
 use super::memory_handler::{load_memory, ai_select_memory, handle_feedback, periodic_cleanup, should_extract_memory, spawn_extraction_task};
-use super::watcher;
 use super::commands::{handle_command, is_backend_command, CommandContext};
 use super::commands::skill_activation::activate_skill;
 use super::session::save_after_turn;
@@ -132,7 +131,8 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
     );
 
     // Create MCP manager and start servers
-    let mcp_manager = McpManager::new(ctx.mcp_servers);
+    let mcp_manager = McpManager::new();
+    mcp_manager.add_servers(ctx.mcp_servers).await;
     let mcp_tools = mcp_manager.start_all(&ctx.event_tx).await;
 
     // Build agent with tools

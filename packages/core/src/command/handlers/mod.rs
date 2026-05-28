@@ -1,6 +1,6 @@
-//! Command handlers for backend commands
+//! 后端命令处理器
 //!
-//! Each handler implements the Command trait.
+//! 每个处理器实现 Command trait。
 
 mod config;
 mod overview;
@@ -14,23 +14,23 @@ mod memory;
 use std::sync::Arc;
 use super::registry::CommandRegistry;
 
-pub use config::ConfigCommand;
-pub use overview::OverviewCommand;
-pub use skills::SkillsCommand;
-pub use tools::ToolsCommand;
-pub use system::SystemCommand;
-pub use compact::CompactCommand;
-pub use workflow::WorkflowCommand;
-pub use memory::MemoryCommand;
+pub use config::Config;
+pub use overview::Overview;
+pub use skills::Skills;
+pub use tools::Tools;
+pub use system::System;
+pub use compact::Compact;
+pub use workflow::Workflow;
+pub use memory::Memory;
 
-/// Register all commands to the registry
+/// 注册所有命令到注册表
 pub fn register_commands(registry: &mut CommandRegistry) {
-    registry.register(Arc::new(ConfigCommand));
-    registry.register(Arc::new(OverviewCommand));
-    registry.register(Arc::new(SkillsCommand));
-    registry.register(Arc::new(ToolsCommand));
-    registry.register(Arc::new(SystemCommand));
-    registry.register(Arc::new(CompactCommand));
-    registry.register(Arc::new(WorkflowCommand));
-    registry.register(Arc::new(MemoryCommand));
+    registry.register(Arc::new(Config));
+    registry.register(Arc::new(Overview));
+    registry.register(Arc::new(Skills));
+    registry.register(Arc::new(Tools));
+    registry.register(Arc::new(System));
+    registry.register(Arc::new(Compact));
+    registry.register(Arc::new(Workflow));
+    registry.register(Arc::new(Memory));
 }

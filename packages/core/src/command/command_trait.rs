@@ -1,36 +1,35 @@
-//! Command trait definition for backend commands
+//! 命令 trait 定义
 //!
-//! Each command implements this trait and registers in CommandRegistry.
+//! 每个命令实现此 trait 并注册到 CommandRegistry。
 
 use std::future::Future;
 use std::pin::Pin;
 
 use super::backend_context::BackendContext;
 
-/// Command trait for implementing backend commands
+/// 命令 trait，用于实现后端命令
 ///
-/// Each command should implement this trait and register itself
-/// in the CommandRegistry.
+/// 每个命令需要实现此 trait 并注册到 CommandRegistry。
 pub trait Command: Send + Sync {
-    /// Primary command name (without leading /)
+    /// 命令名称（不含前导 /）
     fn name(&self) -> &'static str;
 
-    /// Aliases for the command (without leading /)
+    /// 命令别名（不含前导 /）
     fn aliases(&self) -> &[&'static str] {
         &[]
     }
 
-    /// Help text for the command
+    /// 命令帮助文本
     fn help(&self) -> Option<&'static str> {
         None
     }
 
-    /// Check if this command matches the given message
+    /// 检查命令是否匹配给定消息
     ///
-    /// Default implementation matches:
-    /// - Exact: `/name`
-    /// - With args: `/name ...`
-    /// - Aliases: `/alias` or `/alias ...`
+    /// 默认匹配：
+    /// - 精确匹配：`/name`
+    /// - 带参数：`/name ...`
+    /// - 别名：`/alias` 或 `/alias ...`
     fn matches(&self, msg: &str) -> bool {
         let name = self.name();
         if msg == format!("/{}", name) || msg.starts_with(&format!("/{} ", name)) {
@@ -46,11 +45,11 @@ pub trait Command: Send + Sync {
         false
     }
 
-    /// Execute the command asynchronously
+    /// 异步执行命令
     ///
-    /// Returns:
-    /// - `true` if the message should be forwarded to agent
-    /// - `false` if the command has been fully handled
+    /// 返回值：
+    /// - `true`：消息继续转发给 agent
+    /// - `false`：命令已处理完毕，不再转发
     fn execute<'a>(&'a self, ctx: &'a mut BackendContext<'_>) 
         -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
 }

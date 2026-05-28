@@ -1,58 +1,38 @@
-//! Backend command execution context
+//! 后端命令执行上下文
 //!
-//! Provides access to all shared dependencies needed by backend commands.
+//! 包含命令执行所需的共享依赖。
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::mpsc::Sender;
-use tokio::task::JoinHandle;
+use crate::{AgentEvent, Config, SessionManager, agent::Agent, providers::Provider, skills::Skill};
 
-use crate::{
-    AgentEvent, Agent, Config, SessionManager,
-    cancel::CancellationToken,
-    memory::MemoryStorage,
-    providers::Provider,
-    skills::Skill,
-};
-
-/// Backend command execution context
+/// 后端命令执行上下文
 ///
-/// Provides access to all shared dependencies needed by commands.
+/// 包含命令执行所需的所有共享依赖。
+/// 使用生命周期避免不必要的克隆。
 pub struct BackendContext<'a> {
-    /// The full command message (e.g., "/workflow run test")
+    /// 原始消息内容
     pub message: &'a str,
-    
-    /// Event sender for progress messages
-    pub event_tx: &'a Sender<AgentEvent>,
-    
-    /// Current project path
-    pub project_path: Option<&'a PathBuf>,
-    
-    /// Available skills
+    /// 事件发送通道
+    pub event_tx: &'a tokio::sync::mpsc::Sender<AgentEvent>,
+    /// 项目路径
+    pub project_path: Option<&'a std::path::PathBuf>,
+    /// 可用技能列表
     pub skills: &'a [Skill],
-    
-    /// Configuration
+    /// 配置
     pub config: &'a Config,
-    
-    /// Current model name
+    /// 当前模型
     pub model: &'a str,
-    
-    /// Session manager for /save, /load, /sessions
+    /// 会话管理器
     pub session_mgr: &'a mut Option<SessionManager>,
-    
-    /// Memory storage for /memory commands
-    pub memory_storage: &'a mut Option<MemoryStorage>,
-    
-    /// Agent instance for /compact, /tools
+    /// 记忆存储
+    pub memory_storage: &'a mut Option<crate::memory::MemoryStorage>,
+    /// Agent 实例
     pub agent: &'a mut Agent,
-    
-    /// Provider for AI calls
+    /// Provider 实例
     pub provider: &'a dyn Provider,
-    
-    /// CodeGraph watcher handle (for /init)
-    pub watcher_handle: Option<&'a Arc<Mutex<Option<JoinHandle<()>>>>>,
-    
-    /// Cancel token (for /init)
-    pub cancel_token: Option<&'a CancellationToken>,
+    /// 文件监控句柄（可选）
+    pub watcher_handle: Option<&'a Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>>,
+    /// 取消令牌（可选）
+    pub cancel_token: Option<&'a crate::cancel::CancellationToken>,
 }

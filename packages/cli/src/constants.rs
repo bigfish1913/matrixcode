@@ -31,7 +31,9 @@ pub const SESSION_CLEANUP_DAYS: u64 = 30;
 
 /// Display limits
 pub const DISPLAY_SESSIONS_LIMIT: usize = 10;
+#[allow(dead_code)]
 pub const DISPLAY_OVERVIEW_CHARS_LIMIT: usize = 2000;
+#[allow(dead_code)]
 pub const DISPLAY_MEMORY_SEARCH_LIMIT: usize = 10;
 pub const DISPLAY_ERROR_CHARS_LIMIT: usize = 50;
 

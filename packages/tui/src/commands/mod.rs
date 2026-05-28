@@ -84,6 +84,7 @@ pub trait Command: Send + Sync {
     }
 
     /// Help text for the command
+    #[allow(dead_code)]
     fn help(&self) -> Option<&'static str> {
         None
     }

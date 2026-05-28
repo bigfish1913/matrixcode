@@ -84,6 +84,57 @@
       "is_manual": false
     },
     {
+      "id": "d3d05990-a658-4c11-bccd-fce71cddf6d8",
+      "created_at": "2026-05-28T10:07:33.306195300Z",
+      "last_referenced": "2026-05-28T10:07:33.306195400Z",
+      "category": "finding",
+      "content": "，应该是直接定时查询 server graphql 就行了把？",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "38d87b03-fe95-4143-bb6d-94303b087196",
       "created_at": "2026-05-25T16:02:08.631280300Z",
       "last_referenced": "2026-05-25T16:02:08.631280400Z",
@@ -554,28 +605,6 @@
       "is_manual": false
     },
     {
-      "id": "67e304a9-d833-4b8e-8ed7-a563663fcf69",
-      "created_at": "2026-05-27T15:31:06.217506300Z",
-      "last_referenced": "2026-05-27T15:31:06.217506300Z",
-      "category": "technical",
-      "content": "事件系统使用 EventType 枚举定义事件类型，EventData 枚举携带事件数据，AgentEvent 提供事件构造方法",
-      "source_session": null,
-      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode",
-      "reference_count": 0,
-      "importance": 75.0,
-      "tags": [
-        "EventType",
-        "EventData",
-        "AgentEvent",
-        "事件系统",
-        "event",
-        "core",
-        "event-system",
-        "project"
-      ],
-      "is_manual": false
-    },
-    {
       "id": "8ed1e30b-b26f-4b5b-8e2a-90a38e630bb5",
       "created_at": "2026-05-27T15:31:06.217507200Z",
       "last_referenced": "2026-05-27T15:31:06.217507200Z",
@@ -649,7 +678,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 55.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -668,7 +699,8 @@
         "TUI",
         "架构统一",
         "architecture",
-        "refactor"
+        "refactor",
+        "project"
       ],
       "is_manual": false
     },
@@ -688,7 +720,8 @@
         "CommandRegistry",
         "设计模式",
         "architecture",
-        "pattern"
+        "pattern",
+        "project"
       ],
       "is_manual": false
     },
@@ -706,7 +739,8 @@
         "TUI",
         "Command trait",
         "已有实现",
-        "architecture"
+        "architecture",
+        "project"
       ],
       "is_manual": false
     },
@@ -726,7 +760,128 @@
         "Sync",
         "async",
         "rust",
-        "concurrency"
+        "concurrency",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "df580999-f564-4cb7-9a17-7ebd205c1a93",
+      "created_at": "2026-05-28T12:05:50.097906400Z",
+      "last_referenced": "2026-05-28T12:05:50.097906700Z",
+      "category": "decision",
+      "content": "采用策略模式重构命令处理系统，将大型 match 语句拆分为独立命令处理器。**Why:** 300+ 行的单一 match 语句导致代码难以维护、测试和扩展。**Context:** 命令处理场景，需要更好的扩展性、测试性和维护性",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "策略模式",
+        "命令处理",
+        "重构",
+        "Strategy Pattern",
+        "Command Trait",
+        "architecture",
+        "refactoring"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "75084fdf-3925-4ffb-a59a-6612ad7161b1",
+      "created_at": "2026-05-28T12:05:50.097908400Z",
+      "last_referenced": "2026-05-28T12:05:50.097908500Z",
+      "category": "solution",
+      "content": "策略模式 + 命令注册机制实现解耦。通过 registry.register() 注册命令，registry.execute() 统一分发。**Problem:** 大型 match 语句导致单一函数过长、逻辑耦合、难以独立测试。**Key:** 每个 Command 实现 trait，独立模块，注册后自动分发",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "Command Registry",
+        "策略模式",
+        "解耦",
+        "统一分发",
+        "architecture",
+        "design-pattern"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "68e4002d-0aa1-4b55-8c53-2c18c0571933",
+      "created_at": "2026-05-28T12:05:50.097909300Z",
+      "last_referenced": "2026-05-28T12:05:50.097909300Z",
+      "category": "finding",
+      "content": "策略模式下扩展新命令只需 3 步：创建新文件实现 Command trait → 添加 mod 声明 → 注册命令。无需修改现有代码，符合开闭原则",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "扩展命令",
+        "开闭原则",
+        "Command trait",
+        "零修改扩展",
+        "architecture",
+        "best-practice"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "c7bbc9d7-d8dd-4d16-a01e-931326e6f552",
+      "created_at": "2026-05-28T12:15:38.917466600Z",
+      "last_referenced": "2026-05-28T12:15:38.917466800Z",
+      "category": "finding",
+      "content": "配置优先级：环境变量 > ~/.matrix/config.json > ~/.claude/settings.json > 默认值",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "配置优先级",
+        "config",
+        "环境变量",
+        "settings",
+        "config"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "e7f51f7a-b8a9-41d2-94e7-47ba9e80a473",
+      "created_at": "2026-05-28T12:15:38.917468900Z",
+      "last_referenced": "2026-05-28T12:15:38.917468900Z",
+      "category": "structure",
+      "content": "自定义工作流文件位置：项目 .matrix/workflows/ 目录下创建 workflow.yaml 文件",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "workflows",
+        "workflow.yaml",
+        ".matrix",
+        "工作流",
+        "config",
+        "structure"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "466eaa07-97af-49d2-bfae-00b4d729d79e",
+      "created_at": "2026-05-28T12:15:38.917469400Z",
+      "last_referenced": "2026-05-28T12:15:38.917469400Z",
+      "category": "solution",
+      "content": "敏感信息展示：API Key 和敏感环境变量自动隐藏，PATH 自动截断。**Problem:** 需要展示配置信息但不应泄露敏感数据。**Key:** 检测敏感字段名（API_KEY、TOKEN 等），自动替换为已隐藏标记",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "敏感信息",
+        "安全",
+        "API Key",
+        "信息隐藏",
+        "security",
+        "config"
       ],
       "is_manual": false
     }

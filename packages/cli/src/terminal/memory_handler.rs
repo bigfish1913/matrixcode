@@ -1,6 +1,6 @@
-//! Memory handling for terminal mode
+//! 终端模式记忆处理
 //!
-//! Handles memory retrieval, feedback detection, periodic cleanup, and AI extraction.
+//! 处理记忆检索、反馈检测、定期清理和 AI 提取。
 
 use std::path::PathBuf;
 use matrixcode_core::{
@@ -14,13 +14,14 @@ use crate::constants::{
 
 use matrixcode_core::memory::extract_context_keywords;
 
-/// Handle dynamic memory retrieval based on message content
+/// 根据消息内容动态检索记忆
+#[allow(dead_code)]
 pub fn update_memory_for_message(
     memory: Option<&AutoMemory>,
     msg: &str,
-    fast_provider: Option<&dyn Provider>,
+    _fast_provider: Option<&dyn Provider>,
     turn_count: usize,
-    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
+    _event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
     agent: &mut matrixcode_core::agent::Agent,
 ) {
     if let Some(mem) = memory {
@@ -34,20 +35,8 @@ pub fn update_memory_for_message(
             if !static_summary.is_empty() {
                 agent.update_memory_summary(Some(static_summary));
             }
-        } else if let Some(fp) = fast_provider {
-            // Use AI selection for complex queries
-            let manifest = mem.generate_manifest(MEMORY_MANIFEST_SIZE);
-            if !manifest.is_empty() {
-                // Note: This needs async, so we handle it differently in the agent task
-                // For now, fall back to keyword-based retrieval
-                let keywords = extract_context_keywords(msg);
-                let contextual_summary = mem.generate_contextual_summary_with_keywords(&keywords, 10);
-                if !contextual_summary.is_empty() {
-                    agent.update_memory_summary(Some(contextual_summary));
-                }
-            }
         } else {
-            // Fallback to keyword-based retrieval
+            // Use keyword-based retrieval as fallback
             let keywords = extract_context_keywords(msg);
             let contextual_summary = mem.generate_contextual_summary_with_keywords(&keywords, 10);
             if !contextual_summary.is_empty() {

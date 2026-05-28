@@ -12,14 +12,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::constants::{
-    DEFAULT_MAX_TOKENS, EVENT_CHANNEL_BUFFER, TASK_CHANNEL_BUFFER, ASK_CHANNEL_BUFFER,
+    EVENT_CHANNEL_BUFFER, TASK_CHANNEL_BUFFER, ASK_CHANNEL_BUFFER,
     CLEANUP_TIMEOUT_MS,
 };
 use crate::helpers::{resolve_provider, resolve_model, resolve_base_url, load_skills, prepare_mcp_tools};
 use crate::types::Cli;
 
-use super::session;
-use super::watcher::{start_watcher_if_needed, cleanup_watcher, is_daemon_running};
+use super::watcher::{start_watcher_if_needed, cleanup_watcher};
 use super::agent::{run_agent_task, AgentContext};
 
 /// Terminal mode with TUI

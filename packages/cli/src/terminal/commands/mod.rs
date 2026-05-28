@@ -1,7 +1,7 @@
-//! Backend command handlers for terminal mode
+//! 终端模式后端命令处理器
 //!
-//! Uses strategy pattern with metadata for extensible command handling.
-//! Core commands are handled by matrixcode_core::command module.
+//! 使用策略模式实现可扩展的命令处理。
+//! 核心命令由 matrixcode_core::command 模块处理。
 
 mod init;
 mod new;
@@ -93,23 +93,27 @@ pub async fn handle_command(
     
     // Try core command registry first
     let registry = get_registry();
-    let mut backend_ctx = BackendContext {
-        message: msg,
-        event_tx: ctx.event_tx,
-        project_path: ctx.project_path.as_ref(),
-        skills: ctx.skills,
-        config: ctx.config,
-        model: ctx.model,
-        session_mgr: ctx.session_mgr,
-        memory_storage: ctx.memory_storage,
-        agent: agent,
-        provider: provider,
-        watcher_handle: None,
-        cancel_token: None,
+    let cmd = {
+        let registry_guard = registry.lock().unwrap();
+        registry_guard.find(msg)
     };
     
-    if let Some(result) = registry.dispatch(msg, &mut backend_ctx).await {
-        return result;
+    if let Some(cmd) = cmd {
+        let mut backend_ctx = BackendContext {
+            message: msg,
+            event_tx: ctx.event_tx,
+            project_path: ctx.project_path.as_ref(),
+            skills: ctx.skills,
+            config: ctx.config,
+            model: ctx.model,
+            session_mgr: ctx.session_mgr,
+            memory_storage: ctx.memory_storage,
+            agent: agent,
+            provider: provider,
+            watcher_handle: None,
+            cancel_token: None,
+        };
+        return cmd.execute(&mut backend_ctx).await;
     }
     
     // Fallback: commands not in core registry

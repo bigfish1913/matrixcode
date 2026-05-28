@@ -13,19 +13,19 @@ pub struct McpManager {
 
 impl McpManager {
     /// Create new MCP manager with servers config
-    pub fn new(mcp_servers: Vec<(String, matrixcode_core::mcp::McpServerConfig)>) -> Self {
-        let registry = Arc::new(tokio::sync::RwLock::new(McpToolRegistry::new()));
-        
-        // Add servers to registry (blocking, done before async)
-        {
-            let mut reg = registry.blocking_write();
-            for (name, server_config) in mcp_servers {
-                reg.add_server(name.clone(), server_config);
-                log::info!("MCP server '{}' added to registry", name);
-            }
+    pub fn new() -> Self {
+        Self {
+            registry: Arc::new(tokio::sync::RwLock::new(McpToolRegistry::new())),
         }
-        
-        Self { registry }
+    }
+    
+    /// Add servers to registry (async)
+    pub async fn add_servers(&self, mcp_servers: Vec<(String, matrixcode_core::mcp::McpServerConfig)>) {
+        let mut reg = self.registry.write().await;
+        for (name, server_config) in mcp_servers {
+            reg.add_server(name.clone(), server_config);
+            log::info!("MCP server '{}' added to registry", name);
+        }
     }
     
     /// Get registry reference for Agent

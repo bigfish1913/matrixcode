@@ -1,8 +1,8 @@
 //! Skill activation handler
 
-use matrixcode_core::{AgentEvent, skills::Skill};
+use matrixcode_core::skills::Skill;
 
-/// Check if message is a skill activation and return transformed message
+/// 检查消息是否为技能激活，返回转换后的消息
 pub fn activate_skill(msg: &str, skills: &[Skill]) -> Option<(String, String)> {
     if !msg.starts_with('/') {
         return None;

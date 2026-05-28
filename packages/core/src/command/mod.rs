@@ -1,7 +1,6 @@
-//! Backend command system
+//! 后端命令系统
 //!
-//! This module implements a strategy pattern for backend commands.
-//! Commands are defined in core and shared between TUI and CLI.
+//! 使用策略模式实现后端命令，命令定义在 core 中供 TUI 和 CLI 共享。
 
 mod command_trait;
 mod backend_context;
