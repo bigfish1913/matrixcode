@@ -236,7 +236,11 @@ impl MarkdownRenderer {
                     if self.in_code_block {
                         self.code_block_content.push_str(&text);
                     } else if self.in_table_cell {
-                        self.current_cell_content.push_str(&text);
+                        // Skip separator line text (like |---|---|)
+                        let trimmed = text.trim();
+                        if !trimmed.contains('|') || !trimmed.chars().all(|c| c == '|' || c == '-' || c == ' ' || c == ':') {
+                            self.current_cell_content.push_str(&text);
+                        }
                     } else {
                         self.add_text(&text);
                     }
@@ -329,21 +333,24 @@ impl MarkdownRenderer {
             }
             Tag::Strong => {
                 if self.in_table_cell {
-                    // In table: just collect text, no styling
+                    // In table: collect marker for rendering
+                    self.current_cell_content.push_str("**");
                 } else {
                     self.push_style(bold_style());
                 }
             }
             Tag::Emphasis => {
                 if self.in_table_cell {
-                    // In table: just collect text, no styling
+                    // In table: collect marker for rendering
+                    self.current_cell_content.push_str("*");
                 } else {
                     self.push_style(italic_style());
                 }
             }
             Tag::Strikethrough => {
                 if self.in_table_cell {
-                    // In table: just collect text, no styling
+                    // In table: collect marker for rendering
+                    self.current_cell_content.push_str("~~");
                 } else {
                     self.push_style(strikethrough_style());
                 }
@@ -844,6 +851,60 @@ mod tests {
     }
 
     #[test]
+    fn test_table_with_bold() {
+        let md = "| **Bold** | Normal |\n|----------|--------|\n| **1** | 2 |";
+        let result = render_markdown(md, 80);
+        assert!(!result.is_empty());
+        
+        // Check that bold markers are preserved in table cells
+        let all_text = result
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<String>();
+        
+        assert!(all_text.contains("**Bold**"), "Bold markers should be preserved in table header");
+        assert!(all_text.contains("**1**"), "Bold markers should be preserved in table cells");
+    }
+
+    #[test]
+    fn test_table_no_duplicate_borders() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+        let result = render_markdown(md, 80);
+        
+        // Collect all text
+        let all_text = result
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        
+        // Count separator lines (should be exactly 3: top, header sep, bottom)
+        let separator_count = all_text
+            .iter()
+            .filter(|text| text.contains("├") || text.contains("┼"))
+            .count();
+        
+        assert_eq!(separator_count, 1, "Should have exactly 1 header separator line, not duplicates");
+        
+        // Should not contain raw markdown separator |---|---|
+        let raw_separator_count = all_text
+            .iter()
+            .filter(|text| text.contains("---"))
+            .count();
+        
+        assert_eq!(raw_separator_count, 0, "Should not contain raw markdown separator |---|---|");
+    }
+
+    #[test]
     fn test_math() {
         let md = "Inline: $E=mc^2$";
         let result = render_markdown(md, 80);
@@ -877,9 +938,24 @@ mod debug_tests {
     }
 
     #[test]
-    fn debug_table_chinese() {
-        let md = "| 名称 | 数值 |\n|------|------|\n| 测试 | 123 |\n| 数据 | 456 |";
-        println!("\n=== Chinese Table ===");
+    fn debug_table_with_bold() {
+        let md = "| **Bold** | Normal |\n|----------|--------|\n| **1** | 2 |";
+        println!("\n=== Table with Bold ===");
+        let lines = render_markdown(md, 80);
+        for (i, line) in lines.iter().enumerate() {
+            let text = line
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>();
+            println!("[{}] '{}'", i, text);
+        }
+    }
+
+    #[test]
+    fn debug_table_separator() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+        println!("\n=== Table Separator Check ===");
         let lines = render_markdown(md, 80);
         for (i, line) in lines.iter().enumerate() {
             let text = line

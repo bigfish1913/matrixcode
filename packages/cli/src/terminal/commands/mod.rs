@@ -1,16 +1,12 @@
 //! 终端模式后端命令处理器
 //!
 //! 使用策略模式实现可扩展的命令处理。
-//! 核心命令由 matrixcode_core::command 模块处理。
+//! 所有命令通过 matrixcode_core::command 模块统一处理。
 
 mod init;
-mod new;
-mod mode;
 pub mod skill_activation;
 
 pub use init::handle_init;
-pub use new::handle_new;
-pub use mode::handle_mode;
 
 use matrixcode_core::AgentEvent;
 use matrixcode_core::command::{get_registry, BackendContext};
@@ -91,7 +87,7 @@ pub async fn handle_command(
         }
     }
     
-    // Try core command registry first
+    // Try core command registry (all commands registered)
     let registry = get_registry();
     let cmd = {
         let registry_guard = registry.lock().unwrap();
@@ -110,43 +106,12 @@ pub async fn handle_command(
             memory_storage: ctx.memory_storage,
             agent: agent,
             provider: provider,
-            watcher_handle: None,
-            cancel_token: None,
+            watcher_handle: Some(watcher_handle),
+            cancel_token: Some(cancel_token),
         };
         return cmd.execute(&mut backend_ctx).await;
     }
     
-    // Fallback: commands not in core registry
-    
-    // Handle /save
-    if msg == "/save" || msg.starts_with("/save ") {
-        super::session::handle_save(ctx.event_tx, msg, ctx.session_mgr, agent.get_messages()).await;
-        return false;
-    }
-    
-    // Handle /sessions
-    if msg == "/sessions" || msg == "/resume" || msg.starts_with("/sessions ") {
-        super::session::handle_sessions(ctx.event_tx, msg, ctx.session_mgr).await;
-        return false;
-    }
-    
-    // Handle /load
-    if msg.starts_with("/load ") {
-        super::session::handle_load(ctx.event_tx, msg, ctx.session_mgr, agent).await;
-        return false;
-    }
-    
-    // Handle /new
-    if msg == "/new" {
-        handle_new(ctx.event_tx, ctx.session_mgr, agent).await;
-        return false;
-    }
-    
-    // Handle /mode:
-    if msg.starts_with("/mode:") {
-        handle_mode(msg, agent);
-        return false;
-    }
-    
+    // Command not found
     false
 }

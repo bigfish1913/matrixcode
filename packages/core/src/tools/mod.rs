@@ -159,18 +159,27 @@ pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String
 
     for tool in tools {
         let def = tool.definition();
-        // Extract brief description (first sentence or up to 50 chars)
-        let brief = def
-            .description
-            .split('.')
-            .next()
-            .or_else(|| def.description.split('\n').next())
-            .unwrap_or(&def.description);
-        let brief = if brief.len() > 60 {
-            format!("{}...", brief.chars().take(57).collect::<String>())
+        
+        // 对于优先工具，保留更完整的描述（前150字符）
+        let brief = if def.is_priority {
+            let desc = def.description.split('\n').next().unwrap_or(&def.description);
+            if desc.len() > 150 {
+                format!("{}...", desc.chars().take(147).collect::<String>())
+            } else {
+                desc.to_string()
+            }
         } else {
-            brief.to_string()
+            // 其他工具保持原有截断逻辑（前60字符）
+            let desc = def.description.split('.').next()
+                .or_else(|| def.description.split('\n').next())
+                .unwrap_or(&def.description);
+            if desc.len() > 60 {
+                format!("{}...", desc.chars().take(57).collect::<String>())
+            } else {
+                desc.to_string()
+            }
         };
+        
         lines.push(format!("- {}: {}", def.name, brief));
     }
 

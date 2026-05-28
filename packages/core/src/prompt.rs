@@ -20,34 +20,31 @@ const SYSTEM_PROMPT_TOOL_DECISION: &str = r#"工具选择决策链（必须执�
 
 第1步：判断意图
 问自己：用户想做什么？
-- 找代码定义？ → 查看工具描述中的符号搜索类工具
-- 搜文本内容？ → 文本搜索类工具
-- 改文件？ → 编辑类工具
-- 执行命令？ → bash工具
+- 找代码定义？ → code_search（优先，比 grep 快 10-100 倍）
+- 搜文本内容？ → grep（错误消息、日志、注释）
+- 查调用关系？ → code_callers/callees（优先，比 grep 更准确）
+- 改文件？ → edit/write
+- 执行命令？ → bash
 - 不确定？ → 先用 ask 确认
 
-第2步：选择最优工具
-- 查看工具描述中的"适用场景"
-- 注意工具描述中的 [优先] 标记
-- 避免"不适用场景"中列出的错误
+第2步：验证工具可用性
+- 如果工具不在列表中 → 说明不可用，选择替代方案
+- 如果 CodeGraph 未初始化 → 用 grep/search 替代 code_*
 
 第3步：验证选择
 检查：是否犯了常见错误？
-- ❌ 文本搜索工具找代码定义 → 应该用符号搜索工具
-- ❌ 符号搜索工具搜文本内容 → 应该用文本搜索工具
-- ❌ 单处改动用批量编辑工具 → 应该用单次编辑工具
-- ❌ 不确定时直接执行 → 应该先 ask
+- ❌ 用 grep 找函数定义 → 应该用 code_search
+- ❌ 用 code_search 搜错误信息 → 应该用 grep
+- ❌ 单处改动用批量编辑 → 应该用 edit
 
 并行调用规则：
 - 多个独立工具调用可在单次响应中并行发出
 - 依赖其他调用结果的工具必须顺序调用
 - 最大化并行以提高效率
 
-关键原则：
-- 有 [优先] 标记的工具通常更优
-- 参考工具描述中的"适用场景"和"不适用场景"
-- 工具不存在时说明不可用，选择替代方案
-- 不确定时宁可用 ask 确认"#;
+优先级规则：
+- 有 [优先] 标记的工具必须优先考虑
+- 根据工具描述中的"适用场景"选择合适工具"#;
 
 const SYSTEM_PROMPT_MISSION: &str = r#"核心目标：
 - 安全正确完成编码任务
@@ -104,7 +101,11 @@ const SYSTEM_PROMPT_TESTING: &str = r#"测试验证：
 
 const SYSTEM_PROMPT_DEBUGGING: &str = r#"调试策略：
 - 先复现：理解错误信息、失败场景、触发条件
-- 定位代码：grep/read 查找相关文件，分析逻辑流程
+- 定位代码：
+  * 找符号定义 → code_search（优先）
+  * 查调用关系 → code_callers/callees（优先）
+  * 搜文本内容 → grep/search
+  * 读完整文件 → read
 - 不猜测根因：用工具（日志、调试器）验证假设
 - 修复后确认：运行测试或验证步骤
 - 无法定位时：说明已尝试方法、排查范围、剩余可能性"#;
@@ -242,6 +243,21 @@ const SYSTEM_PROMPT_OUTPUT_CONTROL: &str = r#"输出控制：
   - 他们不知道你创建的代号、缩写
   - 使用完整句子，没有未解释的术语
   - 根据用户专业水平调整解释程度"#;
+
+const SYSTEM_PROMPT_CODEGRAPH_PRACTICE: &str = r#"【工具选择实践指南】
+
+当前项目已初始化 CodeGraph 索引，请遵循以下实践：
+
+查找代码符号（必须优先使用 CodeGraph）：
+- 函数/类/变量定义 → code_search（优先，快 10-100 倍）
+- 调用关系分析 → code_callers/callees（优先）
+- 错误消息/注释 → grep
+- 完整文件内容 → read
+
+常见错误纠正：
+❌ grep "function_name" → ✅ code_search "function_name"
+❌ grep "who calls this" → ✅ code_callers "symbol_id"
+❌ read 逐行查找 → ✅ code_search 直接定位"#;
 
 const SYSTEM_PROMPT_CODEGRAPH: &str = r#"CodeGraph 代码图谱：
 CodeGraph 是预先索引的代码知识库，查询速度比 grep/read 快 10-100 倍。
@@ -661,12 +677,13 @@ pub fn build_system_prompt_with_workflows(
     // Dynamically generate tools description (include CodeGraph if project_path available)
     let tools_prompt = crate::tools::generate_tools_prompt_with_path(project_path);
 
-    // Combine: static prompt (before tools) + tools + CODEGRAPH rules (after tools) + sections
+    // Combine: static prompt (before tools) + tools + practice guide + CODEGRAPH rules (after tools) + sections
     let mut parts = vec![static_prompt, tools_prompt];
     
-    // Add CODEGRAPH usage rules AFTER tools list (only if initialized)
+    // Add practice guide BEFORE CODEGRAPH rules (dynamic injection based on project state)
     if let Some(path) = project_path
         && crate::tools::codegraph::should_inject_codegraph_tools(path) {
+        parts.push(SYSTEM_PROMPT_CODEGRAPH_PRACTICE.to_string());
         parts.push(SYSTEM_PROMPT_CODEGRAPH.to_string());
     }
     
