@@ -1,6 +1,6 @@
 {
   "name": "@bigfishnpm/matrixcode",
-  "version": "0.4.23",
+  "version": "0.4.24",
   "description": "AI coding assistant CLI with multi-model support, context compression, and cross-session memory",
   "license": "MIT",
   "author": "bigfish1913",
