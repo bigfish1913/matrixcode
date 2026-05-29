@@ -33,10 +33,14 @@ fn compare_scored_entries(
         return std::cmp::Ordering::Greater;
     }
 
-    let score_a = a.1 * relevance_weight + (a.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
-    let score_b = b.1 * relevance_weight + (b.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
+    let score_a =
+        a.1 * relevance_weight + (a.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
+    let score_b =
+        b.1 * relevance_weight + (b.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
 
-    score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+    score_b
+        .partial_cmp(&score_a)
+        .unwrap_or(std::cmp::Ordering::Equal)
 }
 
 // ============================================================================
@@ -340,11 +344,15 @@ impl AutoMemory {
                     e.content,
                     content
                 );
-                crate::debug::debug_log().log("MEMORY_DUPLICATE",
-                    &format!("similarity={:.2}, existing='{}', new='{}'",
+                crate::debug::debug_log().log(
+                    "MEMORY_DUPLICATE",
+                    &format!(
+                        "similarity={:.2}, existing='{}', new='{}'",
                         similarity,
                         truncate_with_suffix(&e.content, 50),
-                        truncate_with_suffix(content, 50)));
+                        truncate_with_suffix(content, 50)
+                    ),
+                );
                 return true;
             }
         }
@@ -776,7 +784,10 @@ impl AutoMemory {
 
     /// Get entries by indices (from AI selection result).
     pub fn get_entries_by_indices(&self, indices: &[usize]) -> Vec<&MemoryEntry> {
-        indices.iter().filter_map(|i| self.entries.get(*i)).collect()
+        indices
+            .iter()
+            .filter_map(|i| self.entries.get(*i))
+            .collect()
     }
 
     /// Generate summary for system prompt.
@@ -849,7 +860,9 @@ impl AutoMemory {
             })
             .collect();
 
-        scored.sort_by(|a, b| compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT));
+        scored.sort_by(|a, b| {
+            compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT)
+        });
 
         let selected: Vec<&MemoryEntry> = scored
             .iter()
@@ -942,7 +955,9 @@ impl AutoMemory {
             })
             .collect();
 
-        scored.sort_by(|a, b| compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT));
+        scored.sort_by(|a, b| {
+            compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT)
+        });
 
         let selected: Vec<&MemoryEntry> = scored
             .iter()
@@ -1013,10 +1028,22 @@ impl AutoMemory {
             0.0
         };
 
-        let oldest = self.entries.iter().min_by_key(|e| e.created_at).map(|e| e.created_at);
-        let newest = self.entries.iter().max_by_key(|e| e.created_at).map(|e| e.created_at);
+        let oldest = self
+            .entries
+            .iter()
+            .min_by_key(|e| e.created_at)
+            .map(|e| e.created_at);
+        let newest = self
+            .entries
+            .iter()
+            .max_by_key(|e| e.created_at)
+            .map(|e| e.created_at);
 
-        let highly_referenced = self.entries.iter().filter(|e| e.reference_count >= 3).count();
+        let highly_referenced = self
+            .entries
+            .iter()
+            .filter(|e| e.reference_count >= 3)
+            .count();
 
         MemoryStatistics {
             total,
@@ -1123,7 +1150,10 @@ impl MemoryStatistics {
 
         output.push_str("质量指标：\n");
         output.push_str(&format!("  平均重要性: {:.1} 分\n", self.avg_importance));
-        output.push_str(&format!("  高频引用: {} 条 (≥3次)\n", self.highly_referenced));
+        output.push_str(&format!(
+            "  高频引用: {} 条 (≥3次)\n",
+            self.highly_referenced
+        ));
 
         if let Some(oldest) = self.oldest {
             let days = (Utc::now() - oldest).num_days();

@@ -40,20 +40,20 @@ pub enum EventType {
     Error,
     Usage,
     Progress,
-    ContextSize, // Update context window size from provider
-    AskQuestion, // Ask tool: waiting for user input
-    ProxyToolRequest, // Proxy tool: request external execution
+    ContextSize,       // Update context window size from provider
+    AskQuestion,       // Ask tool: waiting for user input
+    ProxyToolRequest,  // Proxy tool: request external execution
     ProxyToolResponse, // Proxy tool: external execution result
-    DebugLog,    // Debug log entry for TUI debug panel
-    SkillsLoaded,   // Skills loaded notification
-    WorkflowsLoaded, // Workflows loaded notification
-    McpServerAdded,   // MCP server added
-    QueueProcessed,   // Pending messages processed by Agent
-    McpServerRemoved, // MCP server removed
-    McpServerStatus,  // MCP server status update
-    LspServerAdded,   // LSP server added
-    LspServerRemoved, // LSP server removed
-    LspServerStatus,  // LSP server status update
+    DebugLog,          // Debug log entry for TUI debug panel
+    SkillsLoaded,      // Skills loaded notification
+    WorkflowsLoaded,   // Workflows loaded notification
+    McpServerAdded,    // MCP server added
+    QueueProcessed,    // Pending messages processed by Agent
+    McpServerRemoved,  // MCP server removed
+    McpServerStatus,   // MCP server status update
+    LspServerAdded,    // LSP server added
+    LspServerRemoved,  // LSP server removed
+    LspServerStatus,   // LSP server status update
 }
 
 /// Event data
@@ -152,8 +152,8 @@ pub enum EventData {
     },
     QueueProcessed {
         count: usize,
-        messages: Vec<String>,  // Messages that were processed
-    },   // Pending messages processed by Agent
+        messages: Vec<String>, // Messages that were processed
+    }, // Pending messages processed by Agent
     McpServerRemoved {
         name: String,
     },
@@ -351,10 +351,7 @@ impl AgentEvent {
     }
 
     pub fn skills_loaded(names: Vec<String>) -> Self {
-        Self::with_data(
-            EventType::SkillsLoaded,
-            EventData::SkillsLoaded { names },
-        )
+        Self::with_data(EventType::SkillsLoaded, EventData::SkillsLoaded { names })
     }
 
     pub fn workflows_loaded(names: Vec<String>) -> Self {
@@ -379,9 +376,7 @@ impl AgentEvent {
     pub fn mcp_server_removed(name: impl Into<String>) -> Self {
         Self::with_data(
             EventType::McpServerRemoved,
-            EventData::McpServerRemoved {
-                name: name.into(),
-            },
+            EventData::McpServerRemoved { name: name.into() },
         )
     }
 
@@ -408,9 +403,7 @@ impl AgentEvent {
     pub fn lsp_server_removed(name: impl Into<String>) -> Self {
         Self::with_data(
             EventType::LspServerRemoved,
-            EventData::LspServerRemoved {
-                name: name.into(),
-            },
+            EventData::LspServerRemoved { name: name.into() },
         )
     }
 
@@ -439,7 +432,7 @@ impl AgentEvent {
             },
         )
     }
-    
+
     /// 创建代理工具响应事件
     pub fn proxy_tool_response(
         request_id: impl Into<String>,
@@ -487,7 +480,7 @@ impl McpServerInfo {
             tool_count,
         }
     }
-    
+
     pub fn from_status(status: &crate::mcp::ServerStatus) -> Self {
         Self {
             name: status.name.clone(),

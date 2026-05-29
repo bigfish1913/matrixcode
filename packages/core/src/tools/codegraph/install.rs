@@ -35,8 +35,7 @@ fn create_async_command(program: &str) -> Command {
 
 /// Get CodeGraph installation directory (platform-specific).
 fn get_codegraph_install_dir() -> Option<PathBuf> {
-    dirs::data_local_dir()
-        .map(|p| p.join("codegraph").join("current").join("bin"))
+    dirs::data_local_dir().map(|p| p.join("codegraph").join("current").join("bin"))
 }
 
 /// Get CodeGraph CLI executable name (platform-specific).

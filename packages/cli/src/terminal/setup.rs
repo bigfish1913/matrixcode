@@ -70,6 +70,8 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
     let (task_tx, task_rx) = tokio::sync::mpsc::channel::<String>(TASK_CHANNEL_BUFFER);
     let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(ASK_CHANNEL_BUFFER);
+    let (pending_input_tx, pending_input_rx) =
+        tokio::sync::mpsc::channel::<String>(TASK_CHANNEL_BUFFER);
 
     // Set debug event sender for TUI debug panel
     matrixcode_core::set_debug_event_sender(event_tx.clone());
@@ -145,6 +147,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
             event_tx: agent_event_tx,
             task_rx,
             ask_rx,
+            pending_input_rx,
             api_key: agent_api_key,
             model: agent_model,
             base_url: agent_base_url,
@@ -186,7 +189,13 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token.clone())
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
-        .with_config(&model, cli.think.unwrap_or(config.think), cli.max_tokens, None)
+        .with_pending_input_tx(pending_input_tx)
+        .with_config(
+            &model,
+            cli.think.unwrap_or(config.think),
+            cli.max_tokens,
+            config.context_size.map(u64::from),
+        )
         .with_debug_mode(debug_mode);
 
     // Load restored messages if any

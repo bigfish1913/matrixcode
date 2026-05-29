@@ -1,8 +1,8 @@
-use matrixcode_core::{AgentEvent, EventData, EventType};
 use matrixcode_core::event::McpServerInfo;
+use matrixcode_core::{AgentEvent, EventData, EventType};
 use serde_json::Value;
 
-use crate::app::{TuiApp, TodoItem};
+use crate::app::{TodoItem, TuiApp};
 use crate::types::{Activity, Message, Role, SubmitMode};
 use crate::utils::{extract_tool_detail, fmt_tokens};
 
@@ -22,11 +22,13 @@ impl TuiApp {
             self.todo_items = todos
                 .iter()
                 .map(|todo| TodoItem {
-                    content: todo.get("content")
+                    content: todo
+                        .get("content")
                         .and_then(|c| c.as_str())
                         .unwrap_or("")
                         .to_string(),
-                    status: todo.get("status")
+                    status: todo
+                        .get("status")
                         .and_then(|s| s.as_str())
                         .unwrap_or("pending")
                         .to_string(),
@@ -38,7 +40,9 @@ impl TuiApp {
     /// Get todo progress summary (completed/total)
     pub(crate) fn todo_progress(&self) -> (usize, usize) {
         let total = self.todo_items.len();
-        let completed = self.todo_items.iter()
+        let completed = self
+            .todo_items
+            .iter()
             .filter(|t| t.status == "completed")
             .count();
         (completed, total)
@@ -158,7 +162,9 @@ impl TuiApp {
                     }
 
                     // Track todo_write for progress display
-                    if name == "todo_write" && let Some(ref input) = input {
+                    if name == "todo_write"
+                        && let Some(ref input) = input
+                    {
                         self.update_todo_items(input);
                     }
 
@@ -183,10 +189,7 @@ impl TuiApp {
                     } else {
                         // No existing pending message, create new one
                         let detail = extract_tool_detail(&name, input.as_ref());
-                        let content = input
-                            .as_ref()
-                            .map(|v| v.to_string())
-                            .unwrap_or_default();
+                        let content = input.as_ref().map(|v| v.to_string()).unwrap_or_default();
                         self.push_message(Message {
                             role: Role::Tool {
                                 name,
@@ -396,7 +399,10 @@ impl TuiApp {
                         }
                     }
 
-                    log::info!("TUI: Remaining {} messages in waiting queue", self.pending_messages.len());
+                    log::info!(
+                        "TUI: Remaining {} messages in waiting queue",
+                        self.pending_messages.len()
+                    );
                 }
             }
             EventType::MemoryLoaded => {
@@ -411,8 +417,7 @@ impl TuiApp {
             EventType::MemoryDetected => {
                 // Only update counter, don't show in message area
                 // Debug info is already shown in debug panel via DebugLog events
-                if let Some(EventData::Memory { .. }) = e.data
-                {
+                if let Some(EventData::Memory { .. }) = e.data {
                     self.memory_saves += 1;
                 }
             }
@@ -464,23 +469,39 @@ impl TuiApp {
                     let secs = (timestamp / 1000) % 60;
                     let mins = (timestamp / 60000) % 60;
                     let hours = (timestamp / 3600000) % 24;
-                    let log = format!("[{:02}:{:02}:{:02}] {}: {}", hours, mins, secs, category, message);
+                    let log = format!(
+                        "[{:02}:{:02}:{:02}] {}: {}",
+                        hours, mins, secs, category, message
+                    );
                     self.add_debug_log(log);
                 }
             }
             EventType::ProxyToolRequest => {
                 // Handle proxy tool request - execute externally and send response
-                if let Some(EventData::ProxyToolRequest { request_id, tool_name, tool_input, metadata: _ }) = e.data {
+                if let Some(EventData::ProxyToolRequest {
+                    request_id,
+                    tool_name,
+                    tool_input,
+                    metadata: _,
+                }) = e.data
+                {
                     log::info!(
                         "TUI received proxy tool request: id={}, tool={}",
-                        request_id, tool_name
+                        request_id,
+                        tool_name
                     );
 
                     // For image_search, we need async execution
                     if tool_name == "image_search" {
                         // Extract query and max_results
-                        let query = tool_input.get("query").and_then(|q| q.as_str()).unwrap_or("");
-                        let max_results = tool_input.get("max_results").and_then(|m| m.as_u64()).unwrap_or(5) as u32;
+                        let query = tool_input
+                            .get("query")
+                            .and_then(|q| q.as_str())
+                            .unwrap_or("");
+                        let max_results = tool_input
+                            .get("max_results")
+                            .and_then(|m| m.as_u64())
+                            .unwrap_or(5) as u32;
 
                         if query.is_empty() {
                             // Send error response immediately
@@ -515,7 +536,10 @@ impl TuiApp {
                                             "total": images.len(),
                                             "images": images
                                         });
-                                        log::info!("Image search completed: {} results", images.len());
+                                        log::info!(
+                                            "Image search completed: {} results",
+                                            images.len()
+                                        );
                                         matrixcode_core::tools::ProxyToolResponse {
                                             request_id,
                                             result: json.to_string(),
@@ -529,7 +553,8 @@ impl TuiApp {
                                             result: serde_json::json!({
                                                 "success": false,
                                                 "error": e.to_string()
-                                            }).to_string(),
+                                            })
+                                            .to_string(),
                                             is_error: true,
                                         }
                                     }
@@ -549,7 +574,10 @@ impl TuiApp {
                         if let Some(tx) = &self.proxy_response_tx {
                             let response = matrixcode_core::tools::ProxyToolResponse {
                                 request_id,
-                                result: format!("{{\"error\": \"Unknown proxy tool: {}\"}}", tool_name),
+                                result: format!(
+                                    "{{\"error\": \"Unknown proxy tool: {}\"}}",
+                                    tool_name
+                                ),
                                 is_error: true,
                             };
                             if let Err(e) = tx.try_send(response) {
@@ -594,7 +622,8 @@ impl TuiApp {
                         content: format!("🔗 MCP '{}' 已连接 ({} 工具)", name, tool_count),
                         is_pending: false,
                     });
-                    self.mcp_servers.push(McpServerInfo::new(name, true, tool_count));
+                    self.mcp_servers
+                        .push(McpServerInfo::new(name, true, tool_count));
                     self.auto_scroll = true;
                 }
             }
@@ -621,7 +650,8 @@ impl TuiApp {
                         content: format!("🔤 LSP '{}' ({}) 已添加", name, language),
                         is_pending: false,
                     });
-                    self.lsp_servers.push(matrixcode_core::LspServerInfo::new(name, language));
+                    self.lsp_servers
+                        .push(matrixcode_core::LspServerInfo::new(name, language));
                     self.auto_scroll = true;
                 }
             }
@@ -940,8 +970,16 @@ impl TuiApp {
                     } else {
                         format!("[{}]", (b'A' + i as u8) as char)
                     };
+                    // For non-multi-select mode, show current selection indicator
+                    let selected_indicator =
+                        if !self.ask_multi_select && i == self.ask_selected_index {
+                            "● "
+                        } else {
+                            "  "
+                        };
                     content.push_str(&format!(
-                        "  {} {}{}\n",
+                        "{}{} {}{}\n",
+                        selected_indicator,
                         marker,
                         opt.label,
                         opt.format_description()

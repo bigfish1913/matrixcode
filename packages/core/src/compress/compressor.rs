@@ -143,8 +143,15 @@ fn parse_summary_response(text: &str) -> (String, Vec<String>) {
 
     // Parse 9-section structured format
     let sections = [
-        "【摘要】", "【已完成】", "【未完成】", "【关键决策】",
-        "【敏感指令】", "【技术栈】", "【文件变更】", "【问题记录】", "【下一步】"
+        "【摘要】",
+        "【已完成】",
+        "【未完成】",
+        "【关键决策】",
+        "【敏感指令】",
+        "【技术栈】",
+        "【文件变更】",
+        "【问题记录】",
+        "【下一步】",
     ];
 
     for line in text.lines() {
@@ -275,7 +282,7 @@ pub fn compress_with_bias(
 fn calculate_preservation_score(
     message: &Message,
     index: usize,
-    _total: usize,  // Reserved for future use (total message count)
+    _total: usize, // Reserved for future use (total message count)
     bias: &CompressionBias,
 ) -> f64 {
     let mut score: f64 = 10.0;
@@ -581,7 +588,9 @@ pub async fn compress_messages_with_ai(
         _ => CompressionPipeline::new_rule_only(config.clone()),
     };
 
-    let result = pipeline.execute(messages, ai_mode, token_usage, context_window).await?;
+    let result = pipeline
+        .execute(messages, ai_mode, token_usage, context_window)
+        .await?;
     Ok(result.messages)
 }
 
@@ -597,13 +606,12 @@ pub async fn compress_messages_with_full_ai(
     token_usage: u32,
     context_window: u32,
 ) -> Result<Vec<Message>> {
-    let mut pipeline = CompressionPipeline::new_with_full_ai(
-        config.clone(),
-        fast_model,
-        main_model,
-    );
+    let mut pipeline =
+        CompressionPipeline::new_with_full_ai(config.clone(), fast_model, main_model);
 
-    let result = pipeline.execute(messages, ai_mode, token_usage, context_window).await?;
+    let result = pipeline
+        .execute(messages, ai_mode, token_usage, context_window)
+        .await?;
     Ok(result.messages)
 }
 

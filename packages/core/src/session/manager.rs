@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 
-use super::metadata::{SessionMetadata, SessionIndex, MessageSummary};
+use super::metadata::{MessageSummary, SessionIndex, SessionMetadata};
 use super::session::{Session, SessionFileLock};
 use crate::compress::CompressionHistoryEntry;
 use crate::providers::{ContentBlock, Message, MessageContent, Role};
@@ -89,7 +89,8 @@ impl SessionManager {
 
     fn save_index_locked(&mut self) -> Result<()> {
         let path = self.index_path();
-        let json = serde_json::to_string_pretty(&self.index).context("serializing session index")?;
+        let json =
+            serde_json::to_string_pretty(&self.index).context("serializing session index")?;
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, json)
             .with_context(|| format!("writing index tmp file {}", tmp.display()))?;
@@ -109,7 +110,8 @@ impl SessionManager {
         let session = Session::new(project_path);
         self.current_session = Some(session);
         self.save_current()?;
-        self.current_session.as_ref()
+        self.current_session
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("session not found after creation"))
     }
 
@@ -219,10 +221,9 @@ impl SessionManager {
                 for (idx, full_msg) in session.full_messages.iter().enumerate() {
                     if session.message_summaries.get(idx).is_some() {
                         let same_role = compressed_msg.role == full_msg.role;
-                        if same_role
-                            && let Some(summary) = session.message_summaries.get_mut(idx) {
-                                summary.is_compressed = false;
-                            }
+                        if same_role && let Some(summary) = session.message_summaries.get_mut(idx) {
+                            summary.is_compressed = false;
+                        }
                     }
                 }
             }
@@ -232,7 +233,8 @@ impl SessionManager {
     }
 
     fn generate_name_from_messages(messages: &[Message]) -> Option<String> {
-        let user_messages: Vec<&Message> = messages.iter().filter(|m| m.role == Role::User).collect();
+        let user_messages: Vec<&Message> =
+            messages.iter().filter(|m| m.role == Role::User).collect();
 
         for msg in user_messages.iter().take(3) {
             let text = match &msg.content {
@@ -290,7 +292,9 @@ impl SessionManager {
     }
 
     pub fn current_id(&self) -> Option<&str> {
-        self.current_session.as_ref().map(|s| s.metadata.id.as_str())
+        self.current_session
+            .as_ref()
+            .map(|s| s.metadata.id.as_str())
     }
 
     pub fn current_name(&self) -> Option<&str> {

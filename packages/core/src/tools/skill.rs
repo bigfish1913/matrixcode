@@ -47,8 +47,7 @@ impl Tool for SkillTool {
 
         ToolDefinition {
             name: "skill".to_string(),
-            description:
-                "加载指定技能的完整指令。
+            description: "加载指定技能的完整指令。
 
 【阻塞要求】当技能匹配用户请求时，必须在生成任何其他响应前调用此工具。
 
@@ -60,7 +59,7 @@ impl Tool for SkillTool {
 - 如果看到 <command-name> 标签，技能已加载 — 直接遵循指令
 
 返回：包含技能内容和技能目录中的文件列表，可用 `read` 工具读取。"
-                    .to_string(),
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": props,

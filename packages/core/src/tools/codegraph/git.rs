@@ -172,7 +172,7 @@ impl GitStatusChanges {
 /// Check if path is a source file based on extension.
 pub fn is_source_file(path: &Path) -> bool {
     use super::ignore::WATCH_EXTENSIONS;
-    
+
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| WATCH_EXTENSIONS.contains(&ext))
@@ -236,13 +236,15 @@ pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
                 if !lock.is_stale() {
                     log::info!(
                         "CodeGraph: watcher lock held by instance {} (PID {}), skipping",
-                        lock.instance_id, lock.pid
+                        lock.instance_id,
+                        lock.pid
                     );
                     return false;
                 }
                 log::info!(
                     "CodeGraph: stealing stale watcher lock from instance {} (PID {})",
-                    lock.instance_id, lock.pid
+                    lock.instance_id,
+                    lock.pid
                 );
             }
         }
@@ -250,7 +252,10 @@ pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
 
     let lock = WatcherLock::new();
     let _ = std::fs::write(&lock_path, lock.encode());
-    log::info!("CodeGraph: acquired watcher lock (instance {})", lock.instance_id);
+    log::info!(
+        "CodeGraph: acquired watcher lock (instance {})",
+        lock.instance_id
+    );
     true
 }
 
@@ -306,7 +311,11 @@ pub fn check_sync_lock_owner(project_path: &Path, our_timestamp: i64) -> bool {
         let current_timestamp: i64 = s.parse().ok().unwrap_or(0);
         // If timestamp changed, another process stole the lock
         if current_timestamp != our_timestamp {
-            log::debug!("CodeGraph: sync lock stolen by another process (ours: {}, current: {})", our_timestamp, current_timestamp);
+            log::debug!(
+                "CodeGraph: sync lock stolen by another process (ours: {}, current: {})",
+                our_timestamp,
+                current_timestamp
+            );
             return false;
         }
     }
@@ -339,7 +348,9 @@ pub fn check_mcp_daemon_active(project_path: &Path) -> bool {
     if let Ok(metadata) = std::fs::metadata(&daemon_log_path) {
         if let Ok(modified) = metadata.modified() {
             let now = std::time::SystemTime::now();
-            let elapsed = now.duration_since(modified).unwrap_or(std::time::Duration::MAX);
+            let elapsed = now
+                .duration_since(modified)
+                .unwrap_or(std::time::Duration::MAX);
             if elapsed < std::time::Duration::from_secs(30) {
                 return true;
             }

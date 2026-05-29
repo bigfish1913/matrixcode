@@ -89,14 +89,20 @@ async fn test_real_search_all() {
             // At least one platform should return results if keys are configured
             if std::env::var("UNSPLASH_ACCESS_KEY").is_ok()
                 || std::env::var("PEXELS_API_KEY").is_ok()
-                || std::env::var("PIXABAY_API_KEY").is_ok() {
-                assert!(!images.is_empty(), "Should find images from at least one platform");
+                || std::env::var("PIXABAY_API_KEY").is_ok()
+            {
+                assert!(
+                    !images.is_empty(),
+                    "Should find images from at least one platform"
+                );
             }
         }
         Err(e) => {
             println!("Search all error: {}", e);
             // If no keys configured, this is expected
-            if e.to_string().contains("No image search API keys configured") {
+            if e.to_string()
+                .contains("No image search API keys configured")
+            {
                 println!("Expected: no keys configured");
             } else {
                 panic!("Unexpected error: {}", e);

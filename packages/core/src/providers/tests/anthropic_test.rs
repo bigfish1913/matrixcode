@@ -1,7 +1,7 @@
 //! Unit tests for anthropic provider
 //! Testing filter_thinking and SSE handling for DashScope/glm-5
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Test that thinking blocks are filtered for non-official APIs
 #[test]
@@ -97,7 +97,12 @@ fn test_content_block_start_thinking() {
     });
 
     assert_eq!(event["content_block"]["type"], "thinking");
-    assert!(event["content_block"]["signature"].as_str().unwrap().is_empty());
+    assert!(
+        event["content_block"]["signature"]
+            .as_str()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 // Helper functions simulating anthropic.rs logic
@@ -124,7 +129,7 @@ fn filter_thinking_from_messages(messages: &Value, filter_thinking: bool) -> Val
                         } else if b["type"].as_str() == Some("thinking") {
                             build_thinking_object(
                                 b["thinking"].as_str().unwrap_or(""),
-                                b["signature"].as_str().unwrap_or("")
+                                b["signature"].as_str().unwrap_or(""),
                             )
                         } else {
                             b.clone()

@@ -145,18 +145,20 @@ impl TuiApp {
             // Shift+D: toggle debug panel (when debug_mode is on)
             KeyCode::Char('D') | KeyCode::Char('d')
                 if k.modifiers.contains(KeyModifiers::SHIFT)
-                && !k.modifiers.contains(KeyModifiers::ALT)
-                && !k.modifiers.contains(KeyModifiers::CONTROL)
-                && self.debug_mode => {
+                    && !k.modifiers.contains(KeyModifiers::ALT)
+                    && !k.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.debug_mode =>
+            {
                 self.toggle_debug_panel();
             }
 
             // Shift+C: clear debug logs (when debug panel is visible)
             KeyCode::Char('C') | KeyCode::Char('c')
                 if k.modifiers.contains(KeyModifiers::SHIFT)
-                && !k.modifiers.contains(KeyModifiers::ALT)
-                && !k.modifiers.contains(KeyModifiers::CONTROL)
-                && self.show_debug_panel => {
+                    && !k.modifiers.contains(KeyModifiers::ALT)
+                    && !k.modifiers.contains(KeyModifiers::CONTROL)
+                    && self.show_debug_panel =>
+            {
                 self.clear_debug_logs();
             }
 
@@ -176,8 +178,10 @@ impl TuiApp {
             }
 
             // Ctrl+V or Super+V (Mac Cmd+V): paste from clipboard
-            KeyCode::Char('v') if k.modifiers.contains(KeyModifiers::CONTROL)
-                || k.modifiers.contains(KeyModifiers::SUPER) => {
+            KeyCode::Char('v')
+                if k.modifiers.contains(KeyModifiers::CONTROL)
+                    || k.modifiers.contains(KeyModifiers::SUPER) =>
+            {
                 // Try to get text from clipboard
                 if let Ok(mut clipboard) = arboard::Clipboard::new()
                     && let Ok(text) = clipboard.get_text()
@@ -246,7 +250,8 @@ impl TuiApp {
             KeyCode::Up if !k.modifiers.contains(KeyModifiers::ALT) => {
                 // If in "Other" input mode or multiline input, allow navigation
                 if (self.ask_other_input_active || self.input.contains('\n'))
-                    && self.move_cursor_up_line() {
+                    && self.move_cursor_up_line()
+                {
                     // Cursor moved successfully
                 } else if self.activity == Activity::Asking
                     && self.waiting_for_ask
@@ -280,7 +285,8 @@ impl TuiApp {
             KeyCode::Down if !k.modifiers.contains(KeyModifiers::ALT) => {
                 // If in "Other" input mode or multiline input, allow navigation
                 if (self.ask_other_input_active || self.input.contains('\n'))
-                    && self.move_cursor_down_line() {
+                    && self.move_cursor_down_line()
+                {
                     // Cursor moved successfully
                 } else if self.activity == Activity::Asking
                     && self.waiting_for_ask
@@ -516,8 +522,7 @@ impl TuiApp {
 
         let char_pos = self.byte_pos_to_char_pos();
         let input_chars: Vec<char> = self.input.chars().collect();
-        let before_cursor_str: String = input_chars
-           [..char_pos.min(input_chars.len())]
+        let before_cursor_str: String = input_chars[..char_pos.min(input_chars.len())]
             .iter()
             .collect();
 
@@ -605,14 +610,21 @@ impl TuiApp {
             crate::commands::handle_command(self, &input);
         } else if self.activity == Activity::Idle {
             // Send immediately
-            log::info!("TUI send_input: sending message '{}' (len={})", input.chars().take(50).collect::<String>(), input.len());
+            log::info!(
+                "TUI send_input: sending message '{}' (len={})",
+                input.chars().take(50).collect::<String>(),
+                input.len()
+            );
             self.push_message(Message {
                 role: Role::User,
                 content: input.clone(),
                 is_pending: false,
             });
             let send_result = self.tx.try_send(input);
-            log::info!("TUI send_input: try_send result = {:?}", send_result.is_ok());
+            log::info!(
+                "TUI send_input: try_send result = {:?}",
+                send_result.is_ok()
+            );
             self.activity = Activity::Thinking;
             self.request_start = Some(Instant::now());
             self.auto_scroll = true;
@@ -622,10 +634,13 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::User,
                 content: input.clone(),
-                is_pending: true,  // Mark as pending (对接中)
+                is_pending: true, // Mark as pending (对接中)
             });
             self.pending_messages.push(input.clone());
-            log::info!("TUI: real-time message added to waiting queue (len={})", input.len());
+            log::info!(
+                "TUI: real-time message added to waiting queue (len={})",
+                input.len()
+            );
 
             // Push to Agent immediately via pending_input channel
             if let Some(pending_tx) = &self.pending_input_tx {
@@ -635,7 +650,7 @@ impl TuiApp {
                     log::warn!("TUI: pending_input channel full, message stays in local queue");
                 }
             }
-            self.auto_scroll = true;  // Ensure new message is visible
+            self.auto_scroll = true; // Ensure new message is visible
         }
     }
 
@@ -802,8 +817,15 @@ impl TuiApp {
                 } else {
                     format!("[{}]", (b'A' + i as u8) as char)
                 };
+                // For non-multi-select mode, show current selection indicator using question's own selected_index
+                let selected_indicator = if !q.multi_select && i == q.selected_index {
+                    "● "
+                } else {
+                    "  "
+                };
                 content.push_str(&format!(
-                    "  {} {}{}\n",
+                    "{}{} {}{}\n",
+                    selected_indicator,
                     marker,
                     opt.label,
                     opt.format_description()

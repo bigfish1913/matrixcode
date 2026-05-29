@@ -13,9 +13,9 @@ use super::manager::AutoMemory;
 fn get_stop_words() -> HashSet<&'static str> {
     HashSet::from([
         // Chinese
-        "的", "了", "是", "在", "我", "有", "和", "就", "不", "都", "一", "也", "很", "到", "要", "去",
-        "你", "会", "着", "没有", "看", "好", "这", "那", "什么", "怎么", "请", "能", "可以", "需要",
-        // English
+        "的", "了", "是", "在", "我", "有", "和", "就", "不", "都", "一", "也", "很", "到", "要",
+        "去", "你", "会", "着", "没有", "看", "好", "这", "那", "什么", "怎么", "请", "能", "可以",
+        "需要", // English
         "the", "a", "an", "is", "are", "was", "were", "be", "have", "has", "do", "will", "would",
         "could", "should", "can", "to", "of", "in", "for", "on", "with", "at", "by", "from", "and",
         "but", "or", "not", "if", "then", "this", "that", "it", "i", "me", "my", "we", "you", "he",
@@ -35,7 +35,9 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
 
     // 1. Extract English words (must be meaningful - at least 3 chars)
     for word in lower.split_whitespace() {
-        let cleaned = word.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+        let cleaned = word
+            .trim_matches(|c: char| !c.is_alphanumeric())
+            .to_string();
         if cleaned.len() >= 3 && !stop_words.contains(cleaned.as_str()) {
             keywords.insert(cleaned);
         }
@@ -43,10 +45,10 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
 
     // 2. Extract tech patterns (camelCase, snake_case, file paths)
     let tech_regexes = [
-        r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z]{1,4}",       // file extensions
-        r"[A-Z][a-z]+[A-Z][a-zA-Z]*",                   // CamelCase
-        r"[a-z][a-z0-9]*_[a-z][a-z0-9_]*",              // snake_case
-        r"[0-9]+[kKmMgGtT][bB]?",                       // sizes like 4KB
+        r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z]{1,4}", // file extensions
+        r"[A-Z][a-z]+[A-Z][a-zA-Z]*",             // CamelCase
+        r"[a-z][a-z0-9]*_[a-z][a-z0-9_]*",        // snake_case
+        r"[0-9]+[kKmMgGtT][bB]?",                 // sizes like 4KB
     ];
 
     for pattern in tech_regexes {
@@ -73,10 +75,29 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
 
 /// Greeting patterns to skip keyword extraction.
 const GREETING_PATTERNS: &[&str] = &[
-    "你好", "您好", "hi", "hello", "hey", "嗨", "早上好", "下午好", "晚上好",
-    "good morning", "good afternoon", "good evening",
-    "请问", "帮忙", "帮我", "帮我看", "看看", "help", "请",
-    "开始", "start", "准备好了", "ready",
+    "你好",
+    "您好",
+    "hi",
+    "hello",
+    "hey",
+    "嗨",
+    "早上好",
+    "下午好",
+    "晚上好",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "请问",
+    "帮忙",
+    "帮我",
+    "帮我看",
+    "看看",
+    "help",
+    "请",
+    "开始",
+    "start",
+    "准备好了",
+    "ready",
 ];
 
 /// Check if message is simple (greeting/short) and should skip AI keyword extraction.
@@ -253,8 +274,6 @@ pub fn has_contradiction_signal(old: &str, new: &str) -> bool {
 
     false
 }
-
-
 
 // ============================================================================
 // TF-IDF Search

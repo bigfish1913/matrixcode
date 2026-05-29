@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 
 use crate::event::AgentEvent;
-use crate::providers::{ContentBlock, MessageContent, Usage};
+use crate::providers::{ContentBlock, MessageContent, Role, Usage};
 use crate::truncate::truncate_chars;
 
 use super::types::Agent;
@@ -46,11 +46,11 @@ impl Agent {
             Ok(_) => {
                 log::debug!("Agent emit: sent successfully");
                 Ok(())
-            },
+            }
             Err(mpsc::error::TrySendError::Full(_)) => {
                 log::warn!("Agent emit: channel full, skipping event");
                 Ok(())
-            },
+            }
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 log::error!("Agent emit: channel closed");
                 Err(anyhow::anyhow!("Event channel closed"))
@@ -58,9 +58,82 @@ impl Agent {
         }
     }
 
-    /// Get pending (uncompleted) todos from the most recent todo_write
-    /// Returns list of (status, content) for non-completed tasks
-    /// Note: todo_write replaces the entire list each time, so only the last one matters
+    /// Get pending (uncompleted) todos from the most recent todo_write.
+    /// Returns list of (status, content) for non-completed tasks that haven't exceeded reminder limit.
+    /// Note: todo_write replaces the entire list each time, so only the last one matters.
+    /// 
+    /// # Arguments
+    /// * `todo_reminder_count` - Reference to the reminder counter map (immutable, will be cloned inside)
+    /// * `max_reminders` - Maximum number of reminders allowed per todo (default: 2)
+    /// 
+    /// # Returns
+    /// Tuple of (pending todos, whether all todos are at reminder limit)
+    pub(crate) fn get_pending_todos_with_limit(
+        &self,
+        todo_reminder_count: &std::collections::HashMap<String, usize>,
+        max_reminders: usize,
+    ) -> (Vec<(String, String)>, bool) {
+        // Find the most recent todo_write (current state)
+        for msg in self.messages.iter().rev().take(10) {
+            if let MessageContent::Blocks(blocks) = &msg.content {
+                for block in blocks {
+                    if let ContentBlock::ToolUse { name, input, .. } = block
+                        && name == "todo_write"
+                    {
+                        // Extract non-completed todos from this todo_write
+                        if let Some(todos) = input.get("todos").and_then(|t| t.as_array()) {
+                            let pending: Vec<(String, String)> = todos
+                                .iter()
+                                .filter_map(|todo| {
+                                    let status = todo.get("status").and_then(|s| s.as_str())?;
+                                    let content = todo.get("content").and_then(|c| c.as_str())?;
+                                    if status != "completed" {
+                                        Some((status.to_string(), content.to_string()))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            
+                            // Check which todos are at the reminder limit
+                            let mut filtered_pending = Vec::new();
+                            let mut all_at_limit = true;
+                            
+                            for (status, content) in pending {
+                                let count = todo_reminder_count.get(&content).copied().unwrap_or(0);
+                                if count < max_reminders {
+                                    filtered_pending.push((status, content));
+                                    all_at_limit = false;
+                                }
+                            }
+                            
+                            return (filtered_pending, all_at_limit); // Return immediately - this is the current state
+                        }
+                    }
+                }
+            }
+        }
+        (Vec::new(), true)
+    }
+    
+    /// Check if the last user message was a todo reminder.
+    /// This prevents adding duplicate reminders in consecutive iterations.
+    pub(crate) fn last_message_was_todo_reminder(&self) -> bool {
+        // Check the last few messages for a todo reminder
+        for msg in self.messages.iter().rev().take(3) {
+            if msg.role == Role::User {
+                if let MessageContent::Text(text) = &msg.content {
+                    if text.contains("任务尚未完成") && text.contains("待办项需要处理") {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+    
+    /// Legacy method for backwards compatibility
+    #[allow(dead_code)]
     pub(crate) fn get_pending_todos(&self) -> Vec<(String, String)> {
         // Find the most recent todo_write (current state)
         for msg in self.messages.iter().rev().take(10) {

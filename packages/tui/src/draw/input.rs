@@ -7,8 +7,8 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::app::TuiApp;
 use crate::BORDER_PADDING;
+use crate::app::TuiApp;
 use crate::types::Activity;
 use crate::utils::{truncate, truncate_visual, truncate_visual_end};
 
@@ -40,6 +40,27 @@ impl TuiApp {
     }
 
     pub(crate) fn draw_input(&self, f: &mut ratatui::Frame, area: Rect) {
+        let frame_style = Style::default().fg(Color::DarkGray);
+        let border = "─".repeat(area.width as usize);
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(border.clone(), frame_style))),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(border, frame_style))),
+            Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1),
+        );
+
+        let area = Rect::new(
+            area.x,
+            area.y.saturating_add(1),
+            area.width,
+            area.height.saturating_sub(2),
+        );
+        if area.height == 0 {
+            return;
+        }
+
         let (prompt, prompt_color) = match self.activity {
             Activity::Idle => ("❯ ", Color::Yellow),
             Activity::Asking => ("⚡ ", Color::Red),
@@ -92,13 +113,21 @@ impl TuiApp {
                     // Selection arrow
                     opt_spans.push(Span::styled(
                         if is_selected { "▶ " } else { "  " },
-                        Style::default().fg(if is_selected { Color::Cyan } else { Color::DarkGray }),
+                        Style::default().fg(if is_selected {
+                            Color::Cyan
+                        } else {
+                            Color::DarkGray
+                        }),
                     ));
 
                     // Checkbox/radio indicator
                     if self.ask_multi_select {
                         let box_char = if is_checked { "◆" } else { "◇" };
-                        let box_color = if is_checked { Color::Green } else { Color::Gray };
+                        let box_color = if is_checked {
+                            Color::Green
+                        } else {
+                            Color::Gray
+                        };
                         opt_spans.push(Span::styled(
                             format!("{} ", box_char),
                             Style::default().fg(box_color),
@@ -116,7 +145,11 @@ impl TuiApp {
                     // Option label
                     let label_style = if is_submit {
                         Style::default()
-                            .fg(if is_checked { Color::Yellow } else { Color::White })
+                            .fg(if is_checked {
+                                Color::Yellow
+                            } else {
+                                Color::White
+                            })
                             .add_modifier(Modifier::BOLD)
                     } else if is_checked {
                         Style::default()
@@ -201,24 +234,6 @@ impl TuiApp {
 
         let is_multiline = self.input.contains('\n');
 
-        // Show queue indicator when AI is processing and user is typing
-        // Note: pending_messages only contains messages that failed to send via pending_input_tx
-        let queue_hint = if self.activity != Activity::Idle
-            && self.activity != Activity::Asking
-            && !self.input.is_empty()
-        {
-            let queue_count = self.pending_messages.len();
-            if queue_count > 0 {
-                format!(" [retry queue: {}]", queue_count)
-            } else if self.pending_input_tx.is_some() {
-                " [实时追加]".to_string()
-            } else {
-                " [等待发送]".to_string()
-            }
-        } else {
-            String::new()
-        };
-
         if !is_multiline {
             let mut spans: Vec<Span> = vec![Span::styled(
                 prompt,
@@ -277,9 +292,6 @@ impl TuiApp {
                         after_cursor.to_string(),
                         Style::default().fg(Color::White),
                     ));
-                    if !queue_hint.is_empty() {
-                        spans.push(Span::styled(queue_hint, Style::default().fg(Color::Yellow)));
-                    }
                 } else if before_vis_width < display_width {
                     spans.push(Span::styled(
                         before_cursor.to_string(),
@@ -323,7 +335,8 @@ impl TuiApp {
             let total_lines_count = input_lines.len();
             // Use area height minus 1 for char count line if needed
             let show_char_count = self.input.chars().count() > 50 || total_lines_count > 1;
-            let max_display_lines = (area.height as usize).saturating_sub(if show_char_count { 1 } else { 0 });
+            let max_display_lines =
+                (area.height as usize).saturating_sub(if show_char_count { 1 } else { 0 });
 
             for (i, line) in input_lines.iter().enumerate().take(max_display_lines) {
                 let line_prompt = if i == 0 { prompt } else { "  " };
@@ -379,7 +392,11 @@ impl TuiApp {
             // Show character count at the bottom for multiline input
             if show_char_count {
                 lines.push(Line::styled(
-                    format!("  {} chars, {} lines", self.input.chars().count(), total_lines_count),
+                    format!(
+                        "  {} chars, {} lines",
+                        self.input.chars().count(),
+                        total_lines_count
+                    ),
                     Style::default().fg(Color::DarkGray),
                 ));
             }

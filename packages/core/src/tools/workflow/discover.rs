@@ -16,7 +16,8 @@ impl Tool for WorkflowDiscoverTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "workflow_discover".to_string(),
-            description: "发现可执行的自动化流程。返回 workflow ID、描述和所需输入参数列表。".to_string(),
+            description: "发现可执行的自动化流程。返回 workflow ID、描述和所需输入参数列表。"
+                .to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {},

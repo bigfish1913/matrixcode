@@ -4,20 +4,46 @@ use std::path::Path;
 
 /// Default ignore patterns for file watching.
 pub const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
-    "target", "dist", "build", "out", "bin", "obj", ".output",
-    "node_modules", "vendor", "Pods", ".venv", "venv", "__pycache__",
-    ".cache", ".tmp", ".temp", "tmp", "temp",
-    ".idea", ".vscode", ".eclipse", ".project", ".classpath",
-    ".generated", "generated", ".codegraph",
-    "package-lock.json", "yarn.lock", "Cargo.lock", "pnpm-lock.yaml",
-    "coverage", ".nyc_output", "test-results", "logs",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "bin",
+    "obj",
+    ".output",
+    "node_modules",
+    "vendor",
+    "Pods",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".cache",
+    ".tmp",
+    ".temp",
+    "tmp",
+    "temp",
+    ".idea",
+    ".vscode",
+    ".eclipse",
+    ".project",
+    ".classpath",
+    ".generated",
+    "generated",
+    ".codegraph",
+    "package-lock.json",
+    "yarn.lock",
+    "Cargo.lock",
+    "pnpm-lock.yaml",
+    "coverage",
+    ".nyc_output",
+    "test-results",
+    "logs",
 ];
 
 /// Extensions to watch (source files only).
 pub const WATCH_EXTENSIONS: &[&str] = &[
-    "rs", "ts", "tsx", "js", "jsx", "mjs", "py", "go",
-    "java", "kt", "kts", "c", "cpp", "cc", "h", "hpp",
-    "rb", "php", "swift", "cs", "scala", "lua", "sh",
+    "rs", "ts", "tsx", "js", "jsx", "mjs", "py", "go", "java", "kt", "kts", "c", "cpp", "cc", "h",
+    "hpp", "rb", "php", "swift", "cs", "scala", "lua", "sh",
 ];
 
 /// Gitignore patterns loaded from file.
@@ -55,13 +81,17 @@ impl IgnoreMatcher {
             }
         }
 
-        Self { patterns, negation_patterns }
+        Self {
+            patterns,
+            negation_patterns,
+        }
     }
 
     /// Check if a path should be ignored.
     pub fn should_ignore(&self, path: &Path, project_path: &Path) -> bool {
         let path_str = path.to_string_lossy();
-        let relative_path = path.strip_prefix(project_path)
+        let relative_path = path
+            .strip_prefix(project_path)
             .unwrap_or(path)
             .to_string_lossy();
 
@@ -85,7 +115,8 @@ impl IgnoreMatcher {
                 let name_str = name.to_string_lossy();
                 if name_str.starts_with('.')
                     && name_str != ".codegraph"
-                    && !WATCH_EXTENSIONS.contains(&name_str.split('.').next_back().unwrap_or("")) {
+                    && !WATCH_EXTENSIONS.contains(&name_str.split('.').next_back().unwrap_or(""))
+                {
                     return true;
                 }
             }

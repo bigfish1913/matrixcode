@@ -322,7 +322,7 @@ pub mod error_codes {
     pub const METHOD_NOT_FOUND: i64 = -32601;
     pub const INVALID_PARAMS: i64 = -32602;
     pub const INTERNAL_ERROR: i64 = -32603;
-    
+
     // MCP specific errors
     pub const RESOURCE_NOT_FOUND: i64 = -32001;
     pub const PROMPT_NOT_FOUND: i64 = -32002;
@@ -347,7 +347,7 @@ impl RequestId {
     pub fn new() -> Self {
         Self::Number(rand_id())
     }
-    
+
     pub fn from_string(s: impl Into<String>) -> Self {
         Self::String(s.into())
     }
@@ -374,7 +374,7 @@ mod tests {
             method: "initialize".to_string(),
             params: Some(serde_json::json!({"capabilities": {}})),
         };
-        
+
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"jsonrpc\":\"2.0\""));
         assert!(json.contains("\"method\":\"initialize\""));
@@ -392,7 +392,7 @@ mod tests {
                 }
             }
         }"#;
-        
+
         let tool: Tool = serde_json::from_str(json).unwrap();
         assert_eq!(tool.name, "browser_navigate");
     }

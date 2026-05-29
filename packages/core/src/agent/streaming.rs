@@ -21,7 +21,10 @@ impl Agent {
     pub(crate) fn drain_pending_inputs(&mut self) {
         if let Some(rx) = &mut self.pending_input_rx {
             while let Ok(msg) = rx.try_recv() {
-                log::info!("Agent received pending input: {}", msg.chars().take(50).collect::<String>());
+                log::info!(
+                    "Agent received pending input: {}",
+                    msg.chars().take(50).collect::<String>()
+                );
                 self.pending_inputs.push(msg);
             }
         }
@@ -49,7 +52,11 @@ impl Agent {
 
         loop {
             attempt += 1;
-            log::info!("Agent: API call attempt {} with {} messages", attempt, request.messages.len());
+            log::info!(
+                "Agent: API call attempt {} with {} messages",
+                attempt,
+                request.messages.len()
+            );
 
             if let Some(token) = &self.cancel_token
                 && token.is_cancelled()
@@ -144,6 +151,10 @@ impl Agent {
                                 self.emit(AgentEvent::tool_use_start(&id, &name, None))?;
                             }
                             Some(StreamEvent::ToolInputDelta { bytes_so_far: _ }) => {}
+                            Some(StreamEvent::ToolInputComplete { id, name, input }) => {
+                                self.previewed_tool_inputs.insert(id.clone());
+                                self.emit(AgentEvent::tool_use_start(&id, &name, Some(input)))?;
+                            }
                             Some(StreamEvent::Usage { output_tokens }) => {
                                 self.emit(AgentEvent::usage_with_cache(
                                     0,
@@ -182,23 +193,31 @@ impl Agent {
                                     let is_duplicate = response_content.iter().any(|b| {
                                         match (b, block) {
                                             // For Thinking blocks, compare thinking content only (signature may differ)
-                                            (ContentBlock::Thinking { thinking: t1, .. }, ContentBlock::Thinking { thinking: t2, .. }) => {
-                                                t1 == t2
-                                            }
+                                            (
+                                                ContentBlock::Thinking { thinking: t1, .. },
+                                                ContentBlock::Thinking { thinking: t2, .. },
+                                            ) => t1 == t2,
                                             // For Text blocks, compare text content
-                                            (ContentBlock::Text { text: t1 }, ContentBlock::Text { text: t2 }) => {
-                                                t1 == t2
-                                            }
+                                            (
+                                                ContentBlock::Text { text: t1 },
+                                                ContentBlock::Text { text: t2 },
+                                            ) => t1 == t2,
                                             // For ToolUse, compare id
-                                            (ContentBlock::ToolUse { id: id1, .. }, ContentBlock::ToolUse { id: id2, .. }) => {
-                                                id1 == id2
-                                            }
+                                            (
+                                                ContentBlock::ToolUse { id: id1, .. },
+                                                ContentBlock::ToolUse { id: id2, .. },
+                                            ) => id1 == id2,
                                             // For ToolResult, compare tool_use_id
-                                            (ContentBlock::ToolResult { tool_use_id: id1, .. }, ContentBlock::ToolResult { tool_use_id: id2, .. }) => {
-                                                id1 == id2
-                                            }
+                                            (
+                                                ContentBlock::ToolResult {
+                                                    tool_use_id: id1, ..
+                                                },
+                                                ContentBlock::ToolResult {
+                                                    tool_use_id: id2, ..
+                                                },
+                                            ) => id1 == id2,
                                             // Default: exact comparison
-                                            _ => b == block
+                                            _ => b == block,
                                         }
                                     });
                                     if !is_duplicate {

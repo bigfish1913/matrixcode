@@ -4,8 +4,8 @@
 
 use crate::ApproveMode;
 
-use super::super::command_trait::Command;
 use super::super::backend_context::BackendContext;
+use super::super::command_trait::Command;
 
 /// Mode 命令
 ///
@@ -29,38 +29,45 @@ impl Command for Mode {
         msg.starts_with("/mode:")
     }
 
-    fn execute<'a>(&'a self, ctx: &'a mut BackendContext<'_>) 
-        -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> 
-    {
+    fn execute<'a>(
+        &'a self,
+        ctx: &'a mut BackendContext<'_>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             let mode_str = ctx.message.strip_prefix("/mode:").unwrap_or("");
-            
+
             let mode = match mode_str.to_lowercase().as_str() {
                 "ask" | "a" => ApproveMode::Ask,
                 "auto" => ApproveMode::Auto,
                 "strict" => ApproveMode::Strict,
                 _ => {
-                    let _ = ctx.event_tx.send(crate::AgentEvent::error(
-                        format!("Unknown mode: {}. Use ask/auto/strict", mode_str),
-                        None,
-                        None,
-                    )).await;
+                    let _ = ctx
+                        .event_tx
+                        .send(crate::AgentEvent::error(
+                            format!("Unknown mode: {}. Use ask/auto/strict", mode_str),
+                            None,
+                            None,
+                        ))
+                        .await;
                     return false;
                 }
             };
 
             ctx.agent.set_approve_mode(mode);
-            
+
             let mode_name = match mode {
                 ApproveMode::Ask => "ask (default)",
                 ApproveMode::Auto => "auto (no confirmation)",
                 ApproveMode::Strict => "strict (confirm all)",
             };
-            
-            let _ = ctx.event_tx.send(crate::AgentEvent::progress(
-                format!("✓ Mode set to: {}", mode_name),
-                None,
-            )).await;
+
+            let _ = ctx
+                .event_tx
+                .send(crate::AgentEvent::progress(
+                    format!("✓ Mode set to: {}", mode_name),
+                    None,
+                ))
+                .await;
 
             false // 不转发给 agent
         })

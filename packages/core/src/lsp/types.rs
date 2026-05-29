@@ -73,7 +73,11 @@ impl LspServerInfo {
     }
 
     /// 创建错误状态
-    pub fn error(name: impl Into<String>, language: impl Into<String>, msg: impl Into<String>) -> Self {
+    pub fn error(
+        name: impl Into<String>,
+        language: impl Into<String>,
+        msg: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into(),
             language: language.into(),
@@ -174,15 +178,12 @@ pub fn default_typescript_config() -> LspServerConfig {
 }
 
 pub fn default_python_config() -> LspServerConfig {
-    LspServerConfig::new("pyright-langserver", "python")
-        .with_args(vec!["--stdio".into()])
+    LspServerConfig::new("pyright-langserver", "python").with_args(vec!["--stdio".into()])
 }
 
 /// 默认 LSP 配置
 pub fn default_lsp_config() -> LspConfig {
     LspConfig {
-        servers: vec![
-            default_rust_analyzer_config(),
-        ],
+        servers: vec![default_rust_analyzer_config()],
     }
 }

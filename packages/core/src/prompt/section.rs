@@ -137,7 +137,10 @@ impl PromptSection {
     pub fn estimated_tokens(&self) -> usize {
         // Rough estimate: ~4 chars per token for Chinese, ~1 token per word for English
         let content = self.compute_content();
-        let chinese_chars = content.chars().filter(|c| c.is_alphabetic() && c.len_utf8() > 1).count();
+        let chinese_chars = content
+            .chars()
+            .filter(|c| c.is_alphabetic() && c.len_utf8() > 1)
+            .count();
         let english_words = content.split_whitespace().count();
         chinese_chars / 3 + english_words + (content.len() - chinese_chars) / 4
     }
@@ -150,7 +153,9 @@ pub struct SectionBuilder {
 
 impl SectionBuilder {
     pub fn new() -> Self {
-        Self { sections: Vec::new() }
+        Self {
+            sections: Vec::new(),
+        }
     }
 
     /// Add a static section
@@ -230,7 +235,7 @@ mod tests {
             .add_section(PromptSection::static_section("first", "a").with_order(1))
             .add_section(PromptSection::static_section("middle", "b").with_order(5))
             .build();
-        
+
         assert_eq!(sections[0].name, "first");
         assert_eq!(sections[1].name, "middle");
         assert_eq!(sections[2].name, "last");

@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 
-use super::{Tool, ToolDefinition, ToolContext};
+use super::{Tool, ToolContext, ToolDefinition};
 
 pub struct SearchTool;
 
@@ -21,16 +21,19 @@ impl Tool for SearchTool {
 - 搜索字符串常量
 - 需要搜索特定文件类型的内容"
         };
-        
-        let description = format!("在文件内容中搜索匹配的文本模式。
+
+        let description = format!(
+            "在文件内容中搜索匹配的文本模式。
 
 适用场景：
 - 搜索文本内容（错误消息、日志、注释）
 - 搜索字符串常量
 - 不确定目标是否是代码符号
 
-{}", prefer_section);
-        
+{}",
+            prefer_section
+        );
+
         ToolDefinition {
             name: "search".to_string(),
             description,
@@ -55,7 +58,7 @@ impl Tool for SearchTool {
             ..Default::default()
         }
     }
-    
+
     fn definition(&self) -> ToolDefinition {
         self.definition_with_context(&ToolContext::default())
     }

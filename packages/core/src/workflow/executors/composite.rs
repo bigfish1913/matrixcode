@@ -6,9 +6,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use super::node_executor::NodeExecutor;
 use crate::workflow::context::WorkflowContext;
 use crate::workflow::def::NodeDef;
-use super::node_executor::NodeExecutor;
 
 /// 组合执行模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

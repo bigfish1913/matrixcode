@@ -15,21 +15,28 @@
 //!
 //! The legacy functions are gradually being migrated to the new system.
 
-pub mod section;
 pub mod cache;
+pub mod constants;
 pub mod context;
+pub mod dump;
 pub mod orchestrator;
 pub mod preprocess;
-pub mod dump;
-pub mod constants;
+pub mod section;
 
 // Re-export main types
-pub use section::{PromptSection, SectionContent, SectionBuilder};
-pub use cache::{SectionCache, CacheKey, CachedEntry, CacheStats, global_cache, clear_global_cache, estimate_tokens};
-pub use context::{ContextInjector, UserContext, SystemContext, ProjectType};
-pub use orchestrator::{PromptOrchestrator, PromptProfile, PromptBuilder, AssembledPrompt, CACHE_BOUNDARY};
+pub use cache::{
+    CacheKey, CacheStats, CachedEntry, SectionCache, clear_global_cache, estimate_tokens,
+    global_cache,
+};
+pub use context::{ContextInjector, ProjectType, SystemContext, UserContext};
+pub use dump::{
+    DumpEntry, DumpFileAnalysis, PromptAnalysis, PromptDumper, analyze_dump_file, read_dump_file,
+};
+pub use orchestrator::{
+    AssembledPrompt, CACHE_BOUNDARY, PromptBuilder, PromptOrchestrator, PromptProfile,
+};
 pub use preprocess::{PreProcessHook, ProcessResult, SkillPattern, WorkflowTrigger, preprocess};
-pub use dump::{PromptDumper, DumpEntry, PromptAnalysis, DumpFileAnalysis, read_dump_file, analyze_dump_file};
+pub use section::{PromptSection, SectionBuilder, SectionContent};
 
 // Re-export constants (includes SECTION_*, MEMORY_*, MSG_*)
 pub use constants::*;
@@ -48,9 +55,9 @@ pub struct OverviewContext {
     pub project_name: String,
     pub project_type: String,
     pub directory_structure: String,
-    pub config_files: Vec<(String, String)>,  // (filename, content)
+    pub config_files: Vec<(String, String)>, // (filename, content)
     pub readme: Option<String>,
-    pub source_files: Vec<(String, String)>,  // (filename, content)
+    pub source_files: Vec<(String, String)>, // (filename, content)
 }
 
 impl Default for OverviewContext {
@@ -72,7 +79,8 @@ pub fn build_overview_prompt(context: &OverviewContext) -> String {
     let mut prompt = String::new();
 
     // Header
-    prompt.push_str("你是一个项目分析专家，请根据提供的项目信息生成项目概览文档（MATRIX.md）。\n\n");
+    prompt
+        .push_str("你是一个项目分析专家，请根据提供的项目信息生成项目概览文档（MATRIX.md）。\n\n");
     prompt.push_str("要求：\n");
     prompt.push_str("- 使用 Markdown 格式\n");
     prompt.push_str("- 简洁明了，突出重点\n");
@@ -140,11 +148,18 @@ pub fn build_system_prompt(
     project_overview: Option<&str>,
     memory_summary: Option<&str>,
 ) -> String {
-    build_system_prompt_with_workflows(profile, skills, project_overview, memory_summary, None, None)
+    build_system_prompt_with_workflows(
+        profile,
+        skills,
+        project_overview,
+        memory_summary,
+        None,
+        None,
+    )
 }
 
 /// Build system prompt with workflow support and LSP injection
-/// 
+///
 /// # Arguments
 /// - `lsp_servers`: Optional LSP server info list for dynamic injection
 pub fn build_system_prompt_with_workflows(
@@ -162,7 +177,9 @@ pub fn build_system_prompt_with_workflows(
 
     // Use orchestrator to build prompt
     let mut builder = PromptBuilder::new(
-        project_path.cloned().unwrap_or_else(|| std::env::current_dir().unwrap())
+        project_path
+            .cloned()
+            .unwrap_or_else(|| std::env::current_dir().unwrap()),
     )
     .profile(*profile)
     .no_context();
@@ -190,10 +207,14 @@ pub fn build_system_prompt_with_workflows(
 
     // Add Skills section if available
     if !skills.is_empty() {
-        let skills_lines: Vec<String> = skills.iter()
+        let skills_lines: Vec<String> = skills
+            .iter()
             .map(|s| {
                 if let Some(trigger) = &s.trigger {
-                    format!("  - {}: {}\n    触发场景: {}", s.name, s.description, trigger)
+                    format!(
+                        "  - {}: {}\n    触发场景: {}",
+                        s.name, s.description, trigger
+                    )
                 } else {
                     format!("  - {}: {}", s.name, s.description)
                 }
@@ -210,13 +231,20 @@ pub fn build_system_prompt_with_workflows(
     if let Some(path) = project_path {
         let registry = crate::workflow::WorkflowRegistry::new(Some(path));
         if !registry.is_empty() {
-            let workflows_lines: Vec<String> = registry.list().iter()
+            let workflows_lines: Vec<String> = registry
+                .list()
+                .iter()
                 .map(|w| {
                     let desc = w.description.as_deref().unwrap_or(&w.name);
                     if w.required_inputs.is_empty() {
                         format!("  - {}: {}", w.id, desc)
                     } else {
-                        format!("  - {}: {} (需要输入: {})", w.id, desc, w.required_inputs.join(", "))
+                        format!(
+                            "  - {}: {} (需要输入: {})",
+                            w.id,
+                            desc,
+                            w.required_inputs.join(", ")
+                        )
                     }
                 })
                 .collect();
@@ -237,9 +265,7 @@ pub fn build_system_prompt_with_workflows(
     if let Some(memory) = memory_summary {
         parts.push(format!(
             "{}\n{}\n\n{}",
-            MEMORY_SUMMARY_HEADER,
-            MEMORY_USAGE_INSTRUCTIONS,
-            memory
+            MEMORY_SUMMARY_HEADER, MEMORY_USAGE_INSTRUCTIONS, memory
         ));
     }
 

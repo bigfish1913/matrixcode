@@ -13,21 +13,21 @@
 
 mod compressor;
 mod config;
-mod types;
-mod phase_detector;
 mod dependency;
+mod phase_detector;
+mod pipeline;
 mod scorer;
 mod summarizer;
 mod tool_compressor;
-mod pipeline;
+mod types;
 
 // Re-export all public items
 pub use compressor::*;
 pub use config::*;
-pub use types::*;
-pub use phase_detector::*;
 pub use dependency::*;
+pub use phase_detector::*;
+pub use pipeline::*;
 pub use scorer::*;
 pub use summarizer::*;
 pub use tool_compressor::*;
-pub use pipeline::*;
+pub use types::*;

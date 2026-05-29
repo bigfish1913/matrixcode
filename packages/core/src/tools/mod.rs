@@ -9,20 +9,22 @@ pub mod ls;
 pub mod monitor;
 pub mod multi_edit;
 pub mod plan_mode;
-pub mod toolproxy;  // 代理工具模块
 pub mod read;
-pub mod registry;  // 工具注册中心
+pub mod registry; // 工具注册中心
 pub mod search;
 pub mod skill;
 pub mod task;
 pub mod todo_write;
+pub mod toolproxy; // 代理工具模块
 pub mod webfetch;
 pub mod websearch;
 pub mod workflow;
 pub mod write;
 
 // Re-export proxy types for convenience
-pub use toolproxy::{ProxyToolExecutor, ProxyToolDef, ProxyMetadata, ProxyTool, ProxyToolResponse, ProxyToolRequest};
+pub use toolproxy::{
+    ProxyMetadata, ProxyTool, ProxyToolDef, ProxyToolExecutor, ProxyToolRequest, ProxyToolResponse,
+};
 
 use std::sync::Arc;
 
@@ -83,16 +85,16 @@ impl ToolDefinition {
 pub trait Tool: Send + Sync {
     /// Get tool definition (must implement)
     fn definition(&self) -> ToolDefinition;
-    
+
     /// Get tool definition with context (for dynamic descriptions)
-    /// 
+    ///
     /// Default implementation calls definition(). Override this method
     /// if you need context-aware descriptions (e.g., different text
     /// when CodeGraph is available).
     fn definition_with_context(&self, _ctx: &ToolContext) -> ToolDefinition {
         self.definition()
     }
-    
+
     async fn execute(&self, params: Value) -> Result<String>;
 
     /// Risk level of this tool. Defaults to Safe (read-only).
@@ -169,7 +171,7 @@ pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String
             .map(|p| codegraph::should_inject_codegraph_tools(p))
             .unwrap_or(false),
     };
-    
+
     let mut tools = base_tools(Arc::new(Vec::new()));
 
     // Add CodeGraph tools only if initialized (CLI installed + .codegraph exists)
@@ -185,7 +187,7 @@ pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String
     // 🎯 分类显示：优先工具 + 其他工具
     let mut priority_tools = Vec::new();
     let mut normal_tools = Vec::new();
-    
+
     for tool in tools {
         // Use definition_with_context for dynamic descriptions
         let def = tool.definition_with_context(&ctx);
@@ -195,9 +197,9 @@ pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String
             normal_tools.push(def);
         }
     }
-    
+
     let mut lines = vec!["可用工具：".to_string()];
-    
+
     // 优先工具（完整描述，包含适用场景）
     if !priority_tools.is_empty() {
         lines.push("\n【优先工具 - 必须优先考虑】".to_string());
@@ -207,23 +209,34 @@ pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String
             // 优先工具保留完整描述（最多150字符）
             let desc = full_desc.split('\n').next().unwrap_or(&full_desc);
             if desc.len() > 150 {
-                lines.push(format!("  {}: {}...", def.name, desc.chars().take(147).collect::<String>()));
+                lines.push(format!(
+                    "  {}: {}...",
+                    def.name,
+                    desc.chars().take(147).collect::<String>()
+                ));
             } else {
                 lines.push(format!("  {}: {}", def.name, desc));
             }
         }
     }
-    
+
     // 其他工具（简要描述）
     if !normal_tools.is_empty() {
         lines.push("\n【其他工具】".to_string());
         for def in normal_tools {
             // 其他工具保持简要描述（前60字符）
-            let desc = def.description.split('.').next()
+            let desc = def
+                .description
+                .split('.')
+                .next()
                 .or_else(|| def.description.split('\n').next())
                 .unwrap_or(&def.description);
             if desc.len() > 60 {
-                lines.push(format!("  {}: {}...", def.name, desc.chars().take(57).collect::<String>()));
+                lines.push(format!(
+                    "  {}: {}...",
+                    def.name,
+                    desc.chars().take(57).collect::<String>()
+                ));
             } else {
                 lines.push(format!("  {}: {}", def.name, desc));
             }
@@ -244,9 +257,18 @@ mod tests {
         let tool_names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
 
         // Verify workflow tools are present
-        assert!(tool_names.contains(&"workflow_discover".to_string()), "workflow_discover should be in tools");
-        assert!(tool_names.contains(&"workflow_run".to_string()), "workflow_run should be in tools");
-        assert!(tool_names.contains(&"workflow_match".to_string()), "workflow_match should be in tools");
+        assert!(
+            tool_names.contains(&"workflow_discover".to_string()),
+            "workflow_discover should be in tools"
+        );
+        assert!(
+            tool_names.contains(&"workflow_run".to_string()),
+            "workflow_run should be in tools"
+        );
+        assert!(
+            tool_names.contains(&"workflow_match".to_string()),
+            "workflow_match should be in tools"
+        );
     }
 
     #[test]
@@ -254,9 +276,18 @@ mod tests {
         let prompt = generate_tools_prompt();
 
         // Verify workflow tools appear in prompt
-        assert!(prompt.contains("workflow_discover"), "prompt should mention workflow_discover");
-        assert!(prompt.contains("workflow_run"), "prompt should mention workflow_run");
-        assert!(prompt.contains("workflow_match"), "prompt should mention workflow_match");
+        assert!(
+            prompt.contains("workflow_discover"),
+            "prompt should mention workflow_discover"
+        );
+        assert!(
+            prompt.contains("workflow_run"),
+            "prompt should mention workflow_run"
+        );
+        assert!(
+            prompt.contains("workflow_match"),
+            "prompt should mention workflow_match"
+        );
     }
 
     #[test]
@@ -269,11 +300,20 @@ mod tests {
         // 2. Project has .codegraph directory
         // So we check based on actual conditions
         if codegraph::should_inject_codegraph_tools(&path) {
-            assert!(prompt.contains("code_search"), "prompt should mention code_search when conditions met");
-            assert!(prompt.contains("code_callers"), "prompt should mention code_callers when conditions met");
+            assert!(
+                prompt.contains("code_search"),
+                "prompt should mention code_search when conditions met"
+            );
+            assert!(
+                prompt.contains("code_callers"),
+                "prompt should mention code_callers when conditions met"
+            );
         } else {
             // When conditions not met, codegraph tools should NOT appear
-            assert!(!prompt.contains("code_search"), "prompt should NOT mention code_search without .codegraph");
+            assert!(
+                !prompt.contains("code_search"),
+                "prompt should NOT mention code_search without .codegraph"
+            );
         }
     }
 
@@ -282,15 +322,20 @@ mod tests {
         let prompt = generate_tools_prompt();
 
         // Verify codegraph tools NOT in prompt without path
-        assert!(!prompt.contains("code_search"), "prompt should NOT mention code_search without path");
+        assert!(
+            !prompt.contains("code_search"),
+            "prompt should NOT mention code_search without path"
+        );
     }
 
     #[test]
     fn test_tool_context_affects_grep_description() {
         use crate::tools::grep::GrepTool;
-        
+
         // Without CodeGraph - should suggest using grep for definitions
-        let ctx_no_codegraph = ToolContext { codegraph_available: false };
+        let ctx_no_codegraph = ToolContext {
+            codegraph_available: false,
+        };
         let def_no_cg = GrepTool.definition_with_context(&ctx_no_codegraph);
         assert!(
             def_no_cg.description.contains("用 grep 搜索"),
@@ -302,7 +347,9 @@ mod tests {
         );
 
         // With CodeGraph - should recommend code_search
-        let ctx_with_codegraph = ToolContext { codegraph_available: true };
+        let ctx_with_codegraph = ToolContext {
+            codegraph_available: true,
+        };
         let def_with_cg = GrepTool.definition_with_context(&ctx_with_codegraph);
         assert!(
             def_with_cg.description.contains("code_search"),
@@ -317,9 +364,11 @@ mod tests {
     #[test]
     fn test_tool_context_affects_search_description() {
         use crate::tools::search::SearchTool;
-        
+
         // Without CodeGraph
-        let ctx_no_codegraph = ToolContext { codegraph_available: false };
+        let ctx_no_codegraph = ToolContext {
+            codegraph_available: false,
+        };
         let def_no_cg = SearchTool.definition_with_context(&ctx_no_codegraph);
         assert!(
             def_no_cg.description.contains("search 的适用场景"),
@@ -327,7 +376,9 @@ mod tests {
         );
 
         // With CodeGraph
-        let ctx_with_codegraph = ToolContext { codegraph_available: true };
+        let ctx_with_codegraph = ToolContext {
+            codegraph_available: true,
+        };
         let def_with_cg = SearchTool.definition_with_context(&ctx_with_codegraph);
         assert!(
             def_with_cg.description.contains("优先使用 code_search"),
@@ -338,9 +389,11 @@ mod tests {
     #[test]
     fn test_tool_context_affects_glob_description() {
         use crate::tools::glob::GlobTool;
-        
+
         // Without CodeGraph
-        let ctx_no_codegraph = ToolContext { codegraph_available: false };
+        let ctx_no_codegraph = ToolContext {
+            codegraph_available: false,
+        };
         let def_no_cg = GlobTool.definition_with_context(&ctx_no_codegraph);
         assert!(
             def_no_cg.description.contains("glob 的适用场景"),
@@ -348,7 +401,9 @@ mod tests {
         );
 
         // With CodeGraph
-        let ctx_with_codegraph = ToolContext { codegraph_available: true };
+        let ctx_with_codegraph = ToolContext {
+            codegraph_available: true,
+        };
         let def_with_cg = GlobTool.definition_with_context(&ctx_with_codegraph);
         assert!(
             def_with_cg.description.contains("优先使用 code_files"),
@@ -360,7 +415,7 @@ mod tests {
     fn test_generate_tools_prompt_dynamic_descriptions() {
         let path = PathBuf::from(".");
         let prompt = generate_tools_prompt_with_path(Some(&path));
-        
+
         // Check based on actual CodeGraph availability
         if codegraph::should_inject_codegraph_tools(&path) {
             // When CodeGraph is available, grep should mention code_search
@@ -369,10 +424,13 @@ mod tests {
                 "Prompt should contain grep tool"
             );
         }
-        
+
         // Both grep and search should always be present
         assert!(prompt.contains("grep"), "Prompt should contain grep tool");
-        assert!(prompt.contains("search"), "Prompt should contain search tool");
+        assert!(
+            prompt.contains("search"),
+            "Prompt should contain search tool"
+        );
         assert!(prompt.contains("glob"), "Prompt should contain glob tool");
     }
 }

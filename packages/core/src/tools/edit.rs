@@ -32,7 +32,8 @@ impl Tool for EditTool {
 - ❌ 大范围重构 → 先 enter_plan_mode 规划
 - ❌ 创建新文件 → 用 write
 
-优先级：[高] 小改动首选，精确且安全".to_string(),
+优先级：[高] 小改动首选，精确且安全"
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

@@ -6,8 +6,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use crate::tools::{Tool, ToolDefinition};
 use crate::providers::Provider;
+use crate::tools::{Tool, ToolDefinition};
 use std::sync::Arc;
 
 /// AI 内容生成工具
@@ -22,17 +22,17 @@ impl ContentGenerationTool {
 
     /// 从参数中提取主题
     fn extract_topic<'a>(&self, params: &'a Value) -> Result<&'a str> {
-        params.get("topic")
+        params
+            .get("topic")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 topic 参数"))
     }
 
     /// 构建 AI prompt
     fn build_prompt(&self, params: &Value) -> String {
-        let topic = params.get("topic")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let style = params.get("style")
+        let topic = params.get("topic").and_then(|v| v.as_str()).unwrap_or("");
+        let style = params
+            .get("style")
             .and_then(|v| v.as_str())
             .unwrap_or("informative");
 
@@ -52,14 +52,17 @@ impl ContentGenerationTool {
     fn append_image_instructions(&self, prompt: &mut String, params: &Value) {
         if let Some(images) = params.get("image_urls")
             && let Some(arr) = images.as_array()
-                && !arr.is_empty() {
-                    prompt.push_str("\n**重要：请在文章中插入以下图片**（使用 Markdown 图片格式 `![描述](URL)`）：\n");
-                    for (idx, img) in arr.iter().enumerate() {
-                        let (url, desc) = self.extract_image_info(img, idx);
-                        prompt.push_str(&format!("{}. ![{}]({})\n", idx + 1, desc, url));
-                    }
-                    prompt.push_str("\n请将图片插入到文章的合适位置，使文章更加生动。\n");
-                }
+            && !arr.is_empty()
+        {
+            prompt.push_str(
+                "\n**重要：请在文章中插入以下图片**（使用 Markdown 图片格式 `![描述](URL)`）：\n",
+            );
+            for (idx, img) in arr.iter().enumerate() {
+                let (url, desc) = self.extract_image_info(img, idx);
+                prompt.push_str(&format!("{}. ![{}]({})\n", idx + 1, desc, url));
+            }
+            prompt.push_str("\n请将图片插入到文章的合适位置，使文章更加生动。\n");
+        }
     }
 
     /// 从图片参数中提取 URL 和描述
@@ -67,11 +70,13 @@ impl ContentGenerationTool {
         if let Some(url_str) = img.as_str() {
             (url_str.to_string(), format!("图片{}", idx + 1))
         } else if let Some(obj) = img.as_object() {
-            let url = obj.get("url")
+            let url = obj
+                .get("url")
                 .and_then(|u| u.as_str())
                 .unwrap_or("")
                 .to_string();
-            let desc = obj.get("description")
+            let desc = obj
+                .get("description")
                 .and_then(|d| d.as_str())
                 .unwrap_or("配图")
                 .to_string();
@@ -85,22 +90,26 @@ impl ContentGenerationTool {
     fn build_image_gallery(&self, params: &Value) -> String {
         if let Some(images) = params.get("image_urls")
             && let Some(arr) = images.as_array()
-                && !arr.is_empty() {
-                    let mut gallery = String::from("\n## 📷 配图\n\n");
-                    for (idx, img) in arr.iter().enumerate().take(5) {
-                        let (url, desc) = self.extract_image_info(img, idx);
-                        if !url.is_empty() {
-                            gallery.push_str(&format!("![{}]({})\n\n", desc, url));
-                        }
-                    }
-                    return gallery;
+            && !arr.is_empty()
+        {
+            let mut gallery = String::from("\n## 📷 配图\n\n");
+            for (idx, img) in arr.iter().enumerate().take(5) {
+                let (url, desc) = self.extract_image_info(img, idx);
+                if !url.is_empty() {
+                    gallery.push_str(&format!("![{}]({})\n\n", desc, url));
                 }
+            }
+            return gallery;
+        }
         String::new()
     }
 
     /// 调用 AI 生成内容
     async fn call_ai(&self, prompt: String) -> Result<String> {
-        log::info!("ContentGenerationTool: starting for model {}", self.provider.model_name());
+        log::info!(
+            "ContentGenerationTool: starting for model {}",
+            self.provider.model_name()
+        );
 
         let request = crate::providers::ChatRequest {
             messages: vec![crate::providers::Message {
@@ -129,12 +138,12 @@ impl ContentGenerationTool {
 
     /// 从响应中提取文本内容
     fn extract_text_content(&self, response: crate::providers::ChatResponse) -> String {
-        response.content.iter()
-            .filter_map(|block| {
-                match block {
-                    crate::providers::ContentBlock::Text { text } => Some(text.clone()),
-                    _ => None,
-                }
+        response
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                crate::providers::ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -154,7 +163,8 @@ impl ContentGenerationTool {
             "topic": topic,
             "style": style,
             "word_count": final_content.chars().count()
-        }).to_string()
+        })
+        .to_string()
     }
 
     /// 格式化错误响应
@@ -164,7 +174,8 @@ impl ContentGenerationTool {
             "topic": topic,
             "style": style,
             "error": true
-        }).to_string()
+        })
+        .to_string()
     }
 }
 
@@ -204,7 +215,8 @@ impl Tool for ContentGenerationTool {
 
     async fn execute(&self, params: Value) -> Result<String> {
         let topic = self.extract_topic(&params)?;
-        let style = params.get("style")
+        let style = params
+            .get("style")
             .and_then(|v| v.as_str())
             .unwrap_or("informative");
 

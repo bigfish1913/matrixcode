@@ -9,10 +9,11 @@ use super::def::WorkflowDef;
 
 /// 从字符串解析工作流定义
 pub fn parse_workflow(yaml: &str) -> Result<WorkflowDef> {
-    let workflow: WorkflowDef = serde_yaml::from_str(yaml)
-        .with_context(|| "Failed to parse workflow YAML")?;
+    let workflow: WorkflowDef =
+        serde_yaml::from_str(yaml).with_context(|| "Failed to parse workflow YAML")?;
 
-    workflow.validate()
+    workflow
+        .validate()
         .with_context(|| "Workflow validation failed")?;
 
     Ok(workflow)
@@ -20,16 +21,15 @@ pub fn parse_workflow(yaml: &str) -> Result<WorkflowDef> {
 
 /// 从文件解析工作流定义
 pub fn parse_workflow_from_file<P: AsRef<Path>>(path: P) -> Result<WorkflowDef> {
-    let content = std::fs::read_to_string(path.as_ref())
-        .with_context(|| "Failed to read workflow file")?;
+    let content =
+        std::fs::read_to_string(path.as_ref()).with_context(|| "Failed to read workflow file")?;
 
     parse_workflow(&content)
 }
 
 /// 将工作流定义序列化为 YAML
 pub fn to_yaml(workflow: &WorkflowDef) -> Result<String> {
-    serde_yaml::to_string(workflow)
-        .with_context(|| "Failed to serialize workflow to YAML")
+    serde_yaml::to_string(workflow).with_context(|| "Failed to serialize workflow to YAML")
 }
 
 #[cfg(test)]

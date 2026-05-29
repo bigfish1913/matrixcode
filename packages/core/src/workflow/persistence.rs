@@ -43,7 +43,8 @@ impl WorkflowPersistence {
         let project_path = project_dir.map(|p| p.join(".matrix").join("workflows"));
 
         // Save path: prefer project if available
-        let save_path = project_path.as_ref()
+        let save_path = project_path
+            .as_ref()
             .filter(|_p| {
                 // Only use project path if project directory exists
                 project_dir.as_ref().map(|pd| pd.exists()).unwrap_or(false)
@@ -56,9 +57,10 @@ impl WorkflowPersistence {
             log::warn!("Failed to create user workflow directory: {}", e);
         }
         if let Some(ref proj) = project_path
-            && let Err(e) = fs::create_dir_all(proj) {
-                log::warn!("Failed to create project workflow directory: {}", e);
-            }
+            && let Err(e) = fs::create_dir_all(proj)
+        {
+            log::warn!("Failed to create project workflow directory: {}", e);
+        }
 
         Self {
             user_path,
@@ -268,8 +270,8 @@ impl Default for WorkflowPersistence {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::context::WorkflowStatus;
+    use super::*;
     use std::collections::HashMap;
     use tempfile::tempdir;
 

@@ -92,7 +92,9 @@ pub trait ProxyToolExecutor: Send + Sync {
     async fn exec(&self, tool_name: &str, input: Value) -> Result<String>;
 
     /// 返回工具定义列表（必需 - LLM 看到的）
-    fn tool_definitions() -> Vec<ProxyToolDef> where Self: Sized;
+    fn tool_definitions() -> Vec<ProxyToolDef>
+    where
+        Self: Sized;
 }
 
 // ============================================================================
@@ -130,7 +132,10 @@ pub struct ProxyTool {
 
 impl ProxyTool {
     pub fn new(definition: ToolDefinition, metadata: ProxyMetadata) -> Self {
-        Self { definition, metadata }
+        Self {
+            definition,
+            metadata,
+        }
     }
 
     pub fn metadata(&self) -> &ProxyMetadata {

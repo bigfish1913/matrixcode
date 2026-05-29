@@ -17,7 +17,9 @@ pub fn create_client(proxy: Option<&str>, timeout_secs: u64) -> Result<Client> {
         builder = builder.proxy(proxy);
     }
 
-    builder.build().with_context(|| "Failed to create HTTP client")
+    builder
+        .build()
+        .with_context(|| "Failed to create HTTP client")
 }
 
 /// Load proxy from environment variables

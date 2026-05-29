@@ -8,13 +8,30 @@ use ratatui::{
 };
 use serde_json::Value;
 
-use crate::SPINNER;
 use crate::BORDER_PADDING;
+use crate::SPINNER;
 use crate::app::TuiApp;
 use crate::draw::helpers::estimate_message_tokens;
 use crate::markdown::render_markdown;
 use crate::types::{Activity, Role, SubmitMode};
 use crate::utils::{fmt_tokens, truncate, word_wrap};
+
+fn push_user_message_lines(lines: &mut Vec<Line<'_>>, content: &str, max_w: usize, is_pending: bool) {
+    let wrapped = word_wrap(content, max_w.saturating_sub(2));
+    for line in wrapped {
+        let status = if is_pending { " ⏳" } else { "" };
+        lines.push(Line::from(vec![
+            Span::styled("│ ", Style::default().fg(Color::Green)),
+            Span::styled(
+                format!("{}{}", line, status),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    }
+    lines.push(Line::raw(""));
+}
 
 /// Extract full detail lines from tool input for display
 fn extract_full_detail(tool_name: &str, input: &Value) -> Vec<String> {
@@ -170,43 +187,21 @@ impl TuiApp {
             match &msg.role {
                 Role::User => {
                     // User: green left border + bold white text
-                    // Skip pending messages - they are shown in input area already
-                    if msg.is_pending {
-                        continue;
+                    // Pending appended messages are rendered after the current live output below.
+                    if !msg.is_pending {
+                        push_user_message_lines(&mut lines, &msg.content, max_w, false);
                     }
-                    let wrapped = word_wrap(&msg.content, max_w.saturating_sub(2));
-                    for line in wrapped {
-                        lines.push(Line::from(vec![
-                            Span::styled("\u{2502} ", Style::default().fg(Color::Green)),
-                            Span::styled(
-                                line,
-                                Style::default()
-                                    .fg(Color::White)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                        ]));
-                    }
-                    lines.push(Line::raw(""));
                 }
                 Role::Assistant => {
                     // Assistant: separator with optional debug info
                     if self.debug_mode {
                         let token_info = format!("({}tok)", fmt_tokens(self.tokens_out));
                         lines.push(Line::from(vec![
-                            Span::styled(
-                                "  ─── 🤖 ",
-                                Style::default().fg(Color::DarkGray),
-                            ),
-                            Span::styled(
-                                token_info,
-                                Style::default().fg(Color::DarkGray),
-                            ),
+                            Span::styled("  ─── 🤖 ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(token_info, Style::default().fg(Color::DarkGray)),
                         ]));
                     } else {
-                        lines.push(Line::styled(
-                            "  ───",
-                            Style::default().fg(Color::DarkGray),
-                        ));
+                        lines.push(Line::styled("  ───", Style::default().fg(Color::DarkGray)));
                     }
                     let md_lines = render_markdown(&msg.content, max_w);
                     lines.extend(md_lines);
@@ -256,7 +251,8 @@ impl TuiApp {
                                 Span::raw("")
                             },
                         ]));
-                        let md_lines = render_markdown(&msg.content, max_w.saturating_sub(BORDER_PADDING));
+                        let md_lines =
+                            render_markdown(&msg.content, max_w.saturating_sub(BORDER_PADDING));
                         // Show all lines without limit
                         for line in md_lines.iter() {
                             let text = line
@@ -395,7 +391,10 @@ impl TuiApp {
                                 Color::DarkGray
                             };
                             lines.push(Line::styled(
-                                format!("    {}", truncate(trimmed, max_w.saturating_sub(BORDER_PADDING))),
+                                format!(
+                                    "    {}",
+                                    truncate(trimmed, max_w.saturating_sub(BORDER_PADDING))
+                                ),
                                 Style::default().fg(line_color),
                             ));
                         }
@@ -429,7 +428,10 @@ impl TuiApp {
                             // Read: show first lines directly (no header to skip)
                             for line in msg.content.lines().take(preview_count) {
                                 lines.push(Line::styled(
-                                    format!("    {}", truncate(line, max_w.saturating_sub(BORDER_PADDING))),
+                                    format!(
+                                        "    {}",
+                                        truncate(line, max_w.saturating_sub(BORDER_PADDING))
+                                    ),
                                     Style::default().fg(Color::Gray),
                                 ));
                             }
@@ -469,7 +471,8 @@ impl TuiApp {
                         } else {
                             // Other tools: skip first line (summary header), normal styling
                             for line in msg.content.lines().skip(1).take(preview_count) {
-                                let truncated = truncate(line, max_w.saturating_sub(BORDER_PADDING));
+                                let truncated =
+                                    truncate(line, max_w.saturating_sub(BORDER_PADDING));
                                 lines.push(Line::styled(
                                     format!("    {}", truncated),
                                     Style::default().fg(Color::DarkGray),
@@ -652,16 +655,13 @@ impl TuiApp {
                                 } else {
                                     ""
                                 };
-                                let desc_text = opt.description.as_ref()
+                                let desc_text = opt
+                                    .description
+                                    .as_ref()
                                     .map(|d| format!(" {}", truncate(d, 25)))
                                     .unwrap_or_default();
-                                let raw = format!(
-                                    "  {} {}{}{}",
-                                    marker,
-                                    opt.label,
-                                    desc_text,
-                                    hint
-                                );
+                                let raw =
+                                    format!("  {} {}{}{}", marker, opt.label, desc_text, hint);
                                 truncate(&raw, max_w.saturating_sub(2))
                             } else {
                                 truncate(line, max_w.saturating_sub(2))
@@ -676,7 +676,11 @@ impl TuiApp {
                                         format!("▶ {}", display_line.trim()),
                                         Style::default()
                                             .fg(Color::Black)
-                                            .bg(if actually_checked { Color::Yellow } else { Color::Cyan })
+                                            .bg(if actually_checked {
+                                                Color::Yellow
+                                            } else {
+                                                Color::Cyan
+                                            })
                                             .add_modifier(Modifier::BOLD),
                                     )
                                 } else if actually_checked {
@@ -844,7 +848,8 @@ impl TuiApp {
                     ),
                 ]));
             } else {
-                let md_lines = render_markdown(&self.thinking, max_w.saturating_sub(BORDER_PADDING));
+                let md_lines =
+                    render_markdown(&self.thinking, max_w.saturating_sub(BORDER_PADDING));
                 for line in md_lines.iter() {
                     let text = line
                         .spans
@@ -872,18 +877,20 @@ impl TuiApp {
                     "(0tok)".to_string()
                 };
                 lines.push(Line::from(vec![
-                    Span::styled(
-                        "  ─── 🤖 ",
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                    Span::styled(
-                        token_display,
-                        Style::default().fg(Color::DarkGray),
-                    ),
+                    Span::styled("  ─── 🤖 ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(token_display, Style::default().fg(Color::DarkGray)),
                 ]));
             }
             let md_lines = render_markdown(&self.streaming, max_w);
             lines.extend(md_lines);
+        }
+
+        for msg in self
+            .messages
+            .iter()
+            .filter(|msg| matches!(msg.role, Role::User) && msg.is_pending)
+        {
+            push_user_message_lines(&mut lines, &msg.content, max_w, true);
         }
 
         // Activity indicator

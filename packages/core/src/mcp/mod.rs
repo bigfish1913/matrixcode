@@ -92,20 +92,22 @@
 //! - `playwright_config()`: Playwright 浏览器自动化
 //! - `default_mcp_config()`: 常用配置组合
 
-pub mod types;
-pub mod transport;
 pub mod client;
-pub mod proxy;
 pub mod config;
 pub mod lazy;
+pub mod proxy;
+pub mod transport;
+pub mod types;
 
 // Re-export main types
-pub use types::*;
-pub use transport::{Transport, TransportConfig, StdioTransport, SseTransport};
 pub use client::{McpClient, McpClientBuilder};
-pub use proxy::{McpToolWrapper, McpToolManager, connect_mcp_server, connect_mcp_servers_from_config};
-pub use config::{McpConfig, McpServerConfig, McpSettings, load_mcp_config, find_mcp_config};
+pub use config::{McpConfig, McpServerConfig, McpSettings, find_mcp_config, load_mcp_config};
 pub use lazy::{McpToolPlaceholder, McpToolRegistry, ServerStatus};
+pub use proxy::{
+    McpToolManager, McpToolWrapper, connect_mcp_server, connect_mcp_servers_from_config,
+};
+pub use transport::{SseTransport, StdioTransport, Transport, TransportConfig};
+pub use types::*;
 
 // ============================================================================
 // Convenience Functions
@@ -127,11 +129,12 @@ pub use lazy::{McpToolPlaceholder, McpToolRegistry, ServerStatus};
 /// ```
 pub async fn connect_playwright() -> anyhow::Result<Vec<Box<dyn crate::tools::Tool>>> {
     let config = config::playwright_config();
-    let (key, server) = config.enabled_servers()
+    let (key, server) = config
+        .enabled_servers()
         .into_iter()
         .next()
         .ok_or_else(|| anyhow::anyhow!("No playwright config found"))?;
-    
+
     let transport = server.to_transport_config()?;
     connect_mcp_server(&server.get_name(&key), transport).await
 }
@@ -159,13 +162,13 @@ pub async fn connect_all_from_config(
 ) -> anyhow::Result<Vec<Box<dyn crate::tools::Tool>>> {
     let config = load_mcp_config(start_dir);
     let mut all_tools = Vec::new();
-    
+
     for (key, server_config) in config.enabled_servers() {
         match server_config.to_transport_config() {
             Ok(transport) => {
                 let name = server_config.get_name(&key);
                 tracing::info!("Connecting to MCP server: {}", name);
-                
+
                 match connect_mcp_server(&name, transport).await {
                     Ok(tools) => {
                         tracing::info!("Connected to '{}' with {} tools", name, tools.len());
@@ -181,6 +184,6 @@ pub async fn connect_all_from_config(
             }
         }
     }
-    
+
     Ok(all_tools)
 }

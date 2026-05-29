@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
-use matrixcode_core::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
+use matrixcode_core::tools::toolproxy::{ProxyToolDef, ProxyToolExecutor};
 
 use crate::image_utils;
 
@@ -23,11 +23,10 @@ impl ProxyToolExecutor for ImageSearchExecutor {
     /// 执行图片搜索
     async fn exec(&self, tool_name: &str, input: Value) -> Result<String> {
         if tool_name == "image_search" {
-            let query = input.get("query")
-                .and_then(|q| q.as_str())
-                .unwrap_or("");
+            let query = input.get("query").and_then(|q| q.as_str()).unwrap_or("");
 
-            let max_results = input.get("max_results")
+            let max_results = input
+                .get("max_results")
                 .and_then(|m| m.as_u64())
                 .unwrap_or(5) as u32;
 
@@ -35,7 +34,8 @@ impl ProxyToolExecutor for ImageSearchExecutor {
                 return Ok(serde_json::json!({
                     "success": false,
                     "error": "query is required"
-                }).to_string());
+                })
+                .to_string());
             }
 
             log::info!("Image search: query={}, max_results={}", query, max_results);
@@ -43,20 +43,18 @@ impl ProxyToolExecutor for ImageSearchExecutor {
             let results = image_utils::search_all(query, max_results).await;
 
             match results {
-                Ok(images) => {
-                    Ok(serde_json::json!({
-                        "success": true,
-                        "query": query,
-                        "total": images.len(),
-                        "images": images
-                    }).to_string())
-                }
-                Err(e) => {
-                    Ok(serde_json::json!({
-                        "success": false,
-                        "error": e.to_string()
-                    }).to_string())
-                }
+                Ok(images) => Ok(serde_json::json!({
+                    "success": true,
+                    "query": query,
+                    "total": images.len(),
+                    "images": images
+                })
+                .to_string()),
+                Err(e) => Ok(serde_json::json!({
+                    "success": false,
+                    "error": e.to_string()
+                })
+                .to_string()),
             }
         } else {
             Err(anyhow::anyhow!("Unknown proxy tool: {}", tool_name))

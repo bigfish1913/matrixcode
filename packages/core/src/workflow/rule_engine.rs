@@ -19,20 +19,11 @@ pub enum Rule {
         case_sensitive: bool,
     },
     /// 长度大于等于
-    LengthGte {
-        field: String,
-        min: usize,
-    },
+    LengthGte { field: String, min: usize },
     /// 长度小于等于
-    LengthLte {
-        field: String,
-        max: usize,
-    },
+    LengthLte { field: String, max: usize },
     /// 正则匹配
-    Matches {
-        field: String,
-        pattern: String,
-    },
+    Matches { field: String, pattern: String },
     /// 相等
     Equals {
         field: String,
@@ -44,35 +35,19 @@ pub enum Rule {
         value: serde_json::Value,
     },
     /// 大于
-    GreaterThan {
-        field: String,
-        value: f64,
-    },
+    GreaterThan { field: String, value: f64 },
     /// 小于
-    LessThan {
-        field: String,
-        value: f64,
-    },
+    LessThan { field: String, value: f64 },
     /// 存在
-    Exists {
-        field: String,
-    },
+    Exists { field: String },
     /// 不存在
-    NotExists {
-        field: String,
-    },
+    NotExists { field: String },
     /// 组合规则：全部满足
-    All {
-        rules: Vec<Rule>,
-    },
+    All { rules: Vec<Rule> },
     /// 组合规则：任一满足
-    Any {
-        rules: Vec<Rule>,
-    },
+    Any { rules: Vec<Rule> },
     /// 取反
-    Not {
-        rule: Box<Rule>,
-    },
+    Not { rule: Box<Rule> },
 }
 
 /// 验证结果
@@ -121,48 +96,36 @@ impl RuleEngine {
     }
 
     /// 验证单个规则
-    pub fn validate(&mut self, rule: &Rule, context: &HashMap<String, serde_json::Value>) -> Result<ValidationResult> {
+    pub fn validate(
+        &mut self,
+        rule: &Rule,
+        context: &HashMap<String, serde_json::Value>,
+    ) -> Result<ValidationResult> {
         match rule {
-            Rule::Contains { field, value, case_sensitive } => {
-                self.validate_contains(context, field, value, *case_sensitive)
-            }
-            Rule::LengthGte { field, min } => {
-                self.validate_length_gte(context, field, *min)
-            }
-            Rule::LengthLte { field, max } => {
-                self.validate_length_lte(context, field, *max)
-            }
-            Rule::Matches { field, pattern } => {
-                self.validate_matches(context, field, pattern)
-            }
-            Rule::Equals { field, value } => {
-                self.validate_equals(context, field, value)
-            }
-            Rule::NotEquals { field, value } => {
-                self.validate_not_equals(context, field, value)
-            }
+            Rule::Contains {
+                field,
+                value,
+                case_sensitive,
+            } => self.validate_contains(context, field, value, *case_sensitive),
+            Rule::LengthGte { field, min } => self.validate_length_gte(context, field, *min),
+            Rule::LengthLte { field, max } => self.validate_length_lte(context, field, *max),
+            Rule::Matches { field, pattern } => self.validate_matches(context, field, pattern),
+            Rule::Equals { field, value } => self.validate_equals(context, field, value),
+            Rule::NotEquals { field, value } => self.validate_not_equals(context, field, value),
             Rule::GreaterThan { field, value } => {
                 self.validate_greater_than(context, field, *value)
             }
-            Rule::LessThan { field, value } => {
-                self.validate_less_than(context, field, *value)
-            }
-            Rule::Exists { field } => {
-                self.validate_exists(context, field)
-            }
-            Rule::NotExists { field } => {
-                self.validate_not_exists(context, field)
-            }
-            Rule::All { rules } => {
-                self.validate_all(rules, context)
-            }
-            Rule::Any { rules } => {
-                self.validate_any(rules, context)
-            }
+            Rule::LessThan { field, value } => self.validate_less_than(context, field, *value),
+            Rule::Exists { field } => self.validate_exists(context, field),
+            Rule::NotExists { field } => self.validate_not_exists(context, field),
+            Rule::All { rules } => self.validate_all(rules, context),
+            Rule::Any { rules } => self.validate_any(rules, context),
             Rule::Not { rule } => {
                 let result = self.validate(rule, context)?;
                 if result.passed {
-                    Ok(ValidationResult::failure("Condition should not be met".to_string()))
+                    Ok(ValidationResult::failure(
+                        "Condition should not be met".to_string(),
+                    ))
                 } else {
                     Ok(ValidationResult::success())
                 }
@@ -294,7 +257,8 @@ impl RuleEngine {
         field: &str,
         pattern: &str,
     ) -> Result<ValidationResult> {
-        let regex = self.regex_cache
+        let regex = self
+            .regex_cache
             .entry(pattern.to_string())
             .or_insert_with(|| {
                 Regex::new(pattern).unwrap_or_else(|_| Regex::new("^(?:)$").unwrap())
@@ -500,7 +464,10 @@ impl RuleEngine {
 }
 
 /// 表达式求值（简单比较和逻辑运算）
-pub fn evaluate_expression(expr: &str, context: &HashMap<String, serde_json::Value>) -> Result<bool> {
+pub fn evaluate_expression(
+    expr: &str,
+    context: &HashMap<String, serde_json::Value>,
+) -> Result<bool> {
     let expr = expr.trim();
 
     // 处理 AND 逻辑
@@ -618,10 +585,15 @@ fn evaluate_numeric_comparison(
     Ok(result)
 }
 
-fn resolve_value(expr: &str, context: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value> {
+fn resolve_value(
+    expr: &str,
+    context: &HashMap<String, serde_json::Value>,
+) -> Result<serde_json::Value> {
     // 字符串字面量
     if expr.starts_with('"') && expr.ends_with('"') {
-        return Ok(serde_json::Value::String(expr[1..expr.len()-1].to_string()));
+        return Ok(serde_json::Value::String(
+            expr[1..expr.len() - 1].to_string(),
+        ));
     }
 
     // 数字字面量
@@ -629,9 +601,10 @@ fn resolve_value(expr: &str, context: &HashMap<String, serde_json::Value>) -> Re
         return Ok(serde_json::Value::Number(n.into()));
     }
     if let Ok(n) = expr.parse::<f64>()
-        && let Some(num) = serde_json::Number::from_f64(n) {
-            return Ok(serde_json::Value::Number(num));
-        }
+        && let Some(num) = serde_json::Number::from_f64(n)
+    {
+        return Ok(serde_json::Value::Number(num));
+    }
 
     // 布尔字面量
     if expr == "true" {
@@ -662,9 +635,10 @@ fn resolve_numeric(expr: &str, context: &HashMap<String, serde_json::Value>) -> 
 
     // 变量引用
     if let Some(value) = context.get(expr)
-        && let Some(n) = value.as_f64() {
-            return Ok(n);
-        }
+        && let Some(n) = value.as_f64()
+    {
+        return Ok(n);
+    }
 
     anyhow::bail!("Not a numeric value: {}", expr)
 }
@@ -729,8 +703,14 @@ mod tests {
 
         let rule = Rule::All {
             rules: vec![
-                Rule::LengthGte { field: "name".to_string(), min: 3 },
-                Rule::GreaterThan { field: "age".to_string(), value: 18.0 },
+                Rule::LengthGte {
+                    field: "name".to_string(),
+                    min: 3,
+                },
+                Rule::GreaterThan {
+                    field: "age".to_string(),
+                    value: 18.0,
+                },
             ],
         };
 

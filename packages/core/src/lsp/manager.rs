@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use super::types::{LspServerConfig, LspServerInfo, LspServerStatus, LspConfig};
+use super::types::{LspConfig, LspServerConfig, LspServerInfo, LspServerStatus};
 
 /// LSP 管理器
 ///
@@ -70,7 +70,10 @@ impl LspManager {
             self.configs
                 .iter()
                 .map(|(name, config)| {
-                    let status = statuses.get(name).cloned().unwrap_or(LspServerStatus::NotStarted);
+                    let status = statuses
+                        .get(name)
+                        .cloned()
+                        .unwrap_or(LspServerStatus::NotStarted);
                     LspServerInfo {
                         name: config.command.clone(),
                         language: config.language.clone(),
@@ -82,12 +85,10 @@ impl LspManager {
             // 返回默认状态
             self.configs
                 .iter()
-                .map(|(_name, config)| {
-                    LspServerInfo {
-                        name: config.command.clone(),
-                        language: config.language.clone(),
-                        status: LspServerStatus::NotStarted,
-                    }
+                .map(|(_name, config)| LspServerInfo {
+                    name: config.command.clone(),
+                    language: config.language.clone(),
+                    status: LspServerStatus::NotStarted,
                 })
                 .collect()
         }

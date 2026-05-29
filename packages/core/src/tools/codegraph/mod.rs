@@ -15,25 +15,24 @@
 //! the index up-to-date.
 
 // Public API
-pub use self::types::{Node, Edge, IndexStatus, PendingChanges, FileInfo, CodeGraphEnv};
-pub use self::manager::CodeGraphManager;
-pub use self::watcher::{CodeGraphWatcher, WatcherHandle};
 pub use self::ignore::WATCH_EXTENSIONS;
-pub use self::tools::{
-    codegraph_tools, codegraph_tools_with_auto_detect, codegraph_tools_if_installed,
-    should_inject_codegraph_tools,
-    CodeGraphSearchTool, CodeGraphCallersTool, CodeGraphCalleesTool, 
-    CodeGraphStatusTool, CodeGraphSyncTool,
-};
-pub use self::install::{get_codegraph_path, ensure_codegraph, is_codegraph_installed};
+pub use self::install::{ensure_codegraph, get_codegraph_path, is_codegraph_installed};
+pub use self::manager::CodeGraphManager;
 pub use self::project::find_project_root;
+pub use self::tools::{
+    CodeGraphCalleesTool, CodeGraphCallersTool, CodeGraphSearchTool, CodeGraphStatusTool,
+    CodeGraphSyncTool, codegraph_tools, codegraph_tools_if_installed,
+    codegraph_tools_with_auto_detect, should_inject_codegraph_tools,
+};
+pub use self::types::{CodeGraphEnv, Edge, FileInfo, IndexStatus, Node, PendingChanges};
+pub use self::watcher::{CodeGraphWatcher, WatcherHandle};
 
 // Internal modules
-mod types;
-mod manager;
-mod watcher;
-mod tools;
-mod install;
-mod project;
 mod git;
 mod ignore;
+mod install;
+mod manager;
+mod project;
+mod tools;
+mod types;
+mod watcher;

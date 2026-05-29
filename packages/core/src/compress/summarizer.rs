@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 
-use crate::providers::{ContentBlock, ChatRequest, Message, MessageContent, Provider, Role};
+use crate::providers::{ChatRequest, ContentBlock, Message, MessageContent, Provider, Role};
 use crate::truncate::truncate_with_suffix;
 
 /// Summarizer for large content.
@@ -120,7 +120,9 @@ fn build_summary_request(prompt: String) -> ChatRequest {
 
 /// Extract summary text from response.
 fn extract_summary_text(response: &crate::providers::ChatResponse) -> String {
-    response.content.iter()
+    response
+        .content
+        .iter()
         .filter_map(|b| {
             if let ContentBlock::Text { text } = b {
                 Some(text.clone())

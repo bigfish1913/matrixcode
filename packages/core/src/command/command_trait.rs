@@ -35,13 +35,13 @@ pub trait Command: Send + Sync {
         if msg == format!("/{}", name) || msg.starts_with(&format!("/{} ", name)) {
             return true;
         }
-        
+
         for alias in self.aliases() {
             if msg == format!("/{}", alias) || msg.starts_with(&format!("/{} ", alias)) {
                 return true;
             }
         }
-        
+
         false
     }
 
@@ -50,6 +50,8 @@ pub trait Command: Send + Sync {
     /// 返回值：
     /// - `true`：消息继续转发给 agent
     /// - `false`：命令已处理完毕，不再转发
-    fn execute<'a>(&'a self, ctx: &'a mut BackendContext<'_>) 
-        -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
+    fn execute<'a>(
+        &'a self,
+        ctx: &'a mut BackendContext<'_>,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
 }

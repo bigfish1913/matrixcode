@@ -2,17 +2,17 @@
 //!
 //! 工作流引擎，实现状态机的基础结构和主运行循环。
 
+use super::context::WorkflowContext;
+use super::def::{FailureStrategy, NodeDef, NodeType, WorkflowDef};
+use super::executors::{ExecutorFactory, NodeExecutor};
+use super::rule_engine::evaluate_expression;
+use super::template::TemplateRenderer;
+use crate::tools::toolproxy::{ProxyToolDef, ProxyToolExecutor};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
-use super::context::{WorkflowContext};
-use super::def::{FailureStrategy, NodeDef, NodeType, WorkflowDef};
-use super::rule_engine::evaluate_expression;
-use super::template::TemplateRenderer;
-use super::executors::{NodeExecutor, ExecutorFactory};
-use crate::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
 
 /// 任务执行器 trait
 #[async_trait::async_trait]
@@ -34,7 +34,10 @@ pub enum WorkflowEvent {
     /// 节点开始执行
     NodeStarted { node_id: String },
     /// 节点执行完成
-    NodeCompleted { node_id: String, output: Option<serde_json::Value> },
+    NodeCompleted {
+        node_id: String,
+        output: Option<serde_json::Value>,
+    },
     /// 节点执行失败
     NodeFailed { node_id: String, error: String },
     /// 节点跳过
@@ -77,7 +80,8 @@ pub struct WorkflowEngine {
 impl WorkflowEngine {
     /// 创建新的工作流引擎
     pub fn new(definition: WorkflowDef) -> Result<Self> {
-        definition.validate()
+        definition
+            .validate()
             .with_context(|| "Invalid workflow definition")?;
 
         Ok(Self {
@@ -105,14 +109,22 @@ impl WorkflowEngine {
     }
 
     /// 设置代理工具执行器
-    pub fn with_proxy_executor(mut self, executor: Arc<dyn ProxyToolExecutor>, tool_defs: Vec<ProxyToolDef>) -> Self {
+    pub fn with_proxy_executor(
+        mut self,
+        executor: Arc<dyn ProxyToolExecutor>,
+        tool_defs: Vec<ProxyToolDef>,
+    ) -> Self {
         self.proxy_executor = Some(executor);
         self.proxy_tool_defs = tool_defs;
         self
     }
 
     /// 注册节点执行器
-    pub fn register_node_executor(mut self, task_type: &str, executor: Arc<dyn NodeExecutor>) -> Self {
+    pub fn register_node_executor(
+        mut self,
+        task_type: &str,
+        executor: Arc<dyn NodeExecutor>,
+    ) -> Self {
         self.node_executors.insert(task_type.to_string(), executor);
         self
     }
@@ -133,35 +145,45 @@ impl WorkflowEngine {
     fn get_node_executor(&self, node: &NodeDef) -> Option<Arc<dyn NodeExecutor>> {
         // 优先从注册的执行器中查找
         if let Some(task) = &node.task
-            && let Some(executor) = self.node_executors.get(task) {
-                return Some(executor.clone());
-            }
+            && let Some(executor) = self.node_executors.get(task)
+        {
+            return Some(executor.clone());
+        }
 
         // 检查是否是代理工具
         if let Some(task) = &node.task
-            && self.proxy_tool_defs.iter().any(|t| t.definition.name == *task)
-                && let Some(executor) = &self.proxy_executor {
-                    return Some(Arc::new(super::executors::ProxyExecutor::new(
-                        executor.clone(),
-                        self.proxy_tool_defs.clone(),
-                    )));
-                }
+            && self
+                .proxy_tool_defs
+                .iter()
+                .any(|t| t.definition.name == *task)
+            && let Some(executor) = &self.proxy_executor
+        {
+            return Some(Arc::new(super::executors::ProxyExecutor::new(
+                executor.clone(),
+                self.proxy_tool_defs.clone(),
+            )));
+        }
 
         // 根据节点类型选择默认执行器
         match node.node_type {
             NodeType::Task => {
                 // 尝试从工厂创建
                 if let Some(factory) = &self.executor_factory
-                    && let Some(task) = &node.task {
-                        // 根据任务名称推断执行器类型
-                        // ai / ai_* / claude* / gpt* 使用 AI 执行器
-                        let task_lower = task.to_lowercase();
-                        if task_lower == "ai" || task_lower.starts_with("ai_") || task_lower.starts_with("claude") || task_lower.starts_with("gpt") {
-                            return factory.create_ai_executor().ok();
-                        }
-                        // 默认使用工具执行器
-                        return Some(factory.create_tool_executor());
+                    && let Some(task) = &node.task
+                {
+                    // 根据任务名称推断执行器类型
+                    // ai / ai_* / claude* / gpt* 使用 AI 执行器
+                    let task_lower = task.to_lowercase();
+                    if task_lower == "ai"
+                        || task_lower.starts_with("ai_")
+                        || task_lower.starts_with("claude")
+                        || task_lower.starts_with("gpt")
+                    {
+                        return factory.create_ai_executor().ok();
                     }
+                    // 默认使用工具执行器
+                    return Some(factory.create_tool_executor());
+                }
             }
             NodeType::Condition => {
                 if let Some(factory) = &self.executor_factory {
@@ -213,7 +235,9 @@ impl WorkflowEngine {
         self.emit_event(WorkflowEvent::Started);
 
         // 获取开始节点
-        let start_node = self.definition.get_start_node()
+        let start_node = self
+            .definition
+            .get_start_node()
             .ok_or_else(|| anyhow::anyhow!("No start node found"))?;
 
         // 执行工作流
@@ -224,7 +248,9 @@ impl WorkflowEngine {
             }
             Err(e) => {
                 context.fail(e.to_string());
-                self.emit_event(WorkflowEvent::Failed { error: e.to_string() });
+                self.emit_event(WorkflowEvent::Failed {
+                    error: e.to_string(),
+                });
             }
         }
 
@@ -232,11 +258,7 @@ impl WorkflowEngine {
     }
 
     /// 从指定节点开始执行
-    async fn execute_from_node(
-        &self,
-        node: &NodeDef,
-        context: &mut WorkflowContext,
-    ) -> Result<()> {
+    async fn execute_from_node(&self, node: &NodeDef, context: &mut WorkflowContext) -> Result<()> {
         let mut current_node = Some(node);
 
         while let Some(node) = current_node {
@@ -255,7 +277,10 @@ impl WorkflowEngine {
                 Err(e) => {
                     // 处理失败
                     match &node.on_failure {
-                        FailureStrategy::Retry { max_attempts, interval_ms } => {
+                        FailureStrategy::Retry {
+                            max_attempts,
+                            interval_ms,
+                        } => {
                             let exec = context.get_or_create_node_execution(&node.id);
                             if exec.retry_count < *max_attempts {
                                 exec.increment_retry();
@@ -276,9 +301,8 @@ impl WorkflowEngine {
                                 reason: e.to_string(),
                             });
                             let next = self.get_next_node(node, context)?;
-                            current_node = next
-                                .as_ref()
-                                .and_then(|id| self.definition.get_node(id));
+                            current_node =
+                                next.as_ref().and_then(|id| self.definition.get_node(id));
                         }
                         FailureStrategy::Abort => {
                             return Err(e);
@@ -303,7 +327,9 @@ impl WorkflowEngine {
         // 创建执行记录
         let execution = context.get_or_create_node_execution(&node.id);
         execution.start();
-        self.emit_event(WorkflowEvent::NodeStarted { node_id: node.id.clone() });
+        self.emit_event(WorkflowEvent::NodeStarted {
+            node_id: node.id.clone(),
+        });
 
         // 设置当前节点
         context.set_current_node(node.id.clone());
@@ -351,30 +377,14 @@ impl WorkflowEngine {
         context: &mut WorkflowContext,
     ) -> Result<Option<serde_json::Value>> {
         match &node.node_type {
-            NodeType::Start => {
-                Ok(None)
-            }
-            NodeType::End => {
-                Ok(None)
-            }
-            NodeType::Task => {
-                self.execute_task(node, context).await
-            }
-            NodeType::Condition => {
-                self.execute_condition(node, context).await
-            }
-            NodeType::Parallel => {
-                self.execute_parallel(node, context).await
-            }
-            NodeType::SubWorkflow => {
-                self.execute_subworkflow(node, context).await
-            }
-            NodeType::Wait => {
-                self.execute_wait(node, context).await
-            }
-            NodeType::Approval => {
-                self.execute_approval(node, context).await
-            }
+            NodeType::Start => Ok(None),
+            NodeType::End => Ok(None),
+            NodeType::Task => self.execute_task(node, context).await,
+            NodeType::Condition => self.execute_condition(node, context).await,
+            NodeType::Parallel => self.execute_parallel(node, context).await,
+            NodeType::SubWorkflow => self.execute_subworkflow(node, context).await,
+            NodeType::Wait => self.execute_wait(node, context).await,
+            NodeType::Approval => self.execute_approval(node, context).await,
         }
     }
 
@@ -384,7 +394,9 @@ impl WorkflowEngine {
         node: &NodeDef,
         context: &mut WorkflowContext,
     ) -> Result<Option<serde_json::Value>> {
-        let task_name = node.task.as_ref()
+        let task_name = node
+            .task
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Task node '{}' has no task name", node.id))?;
 
         // 渲染参数
@@ -406,11 +418,15 @@ impl WorkflowEngine {
 
         // 回退到旧的 TaskExecutor 接口
         if let Some(executor) = &self.executor {
-            let output = executor.execute(task_name, &rendered_params, context).await?;
+            let output = executor
+                .execute(task_name, &rendered_params, context)
+                .await?;
             Ok(Some(output))
         } else {
             // 无执行器，返回模拟输出
-            Ok(Some(serde_json::json!({ "task": task_name, "status": "completed" })))
+            Ok(Some(
+                serde_json::json!({ "task": task_name, "status": "completed" }),
+            ))
         }
     }
 
@@ -420,7 +436,9 @@ impl WorkflowEngine {
         node: &NodeDef,
         context: &mut WorkflowContext,
     ) -> Result<Option<serde_json::Value>> {
-        let branches = node.branches.as_ref()
+        let branches = node
+            .branches
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Condition node '{}' has no branches", node.id))?;
 
         for branch in branches {
@@ -440,7 +458,9 @@ impl WorkflowEngine {
         node: &NodeDef,
         _context: &mut WorkflowContext,
     ) -> Result<Option<serde_json::Value>> {
-        let branches = node.parallel_branches.as_ref()
+        let branches = node
+            .parallel_branches
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Parallel node '{}' has no branches", node.id))?;
 
         // 并行执行所有分支
@@ -462,8 +482,9 @@ impl WorkflowEngine {
         node: &NodeDef,
         _context: &mut WorkflowContext,
     ) -> Result<Option<serde_json::Value>> {
-        let workflow_name = node.workflow.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("SubWorkflow node '{}' has no workflow name", node.id))?;
+        let workflow_name = node.workflow.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("SubWorkflow node '{}' has no workflow name", node.id)
+        })?;
 
         // 这里简化处理，实际应该加载并执行子工作流
         Ok(Some(serde_json::json!({
@@ -491,7 +512,9 @@ impl WorkflowEngine {
         node: &NodeDef,
         _context: &mut WorkflowContext,
     ) -> Result<Option<serde_json::Value>> {
-        let approvers = node.approvers.as_ref()
+        let approvers = node
+            .approvers
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Approval node '{}' has no approvers", node.id))?;
 
         // 这里简化处理，实际应该等待审批
@@ -502,11 +525,7 @@ impl WorkflowEngine {
     }
 
     /// 获取下一个节点
-    fn get_next_node(
-        &self,
-        node: &NodeDef,
-        context: &WorkflowContext,
-    ) -> Result<Option<String>> {
+    fn get_next_node(&self, node: &NodeDef, context: &WorkflowContext) -> Result<Option<String>> {
         // 结束节点没有下一个节点
         if node.node_type == NodeType::End {
             return Ok(None);
@@ -523,9 +542,10 @@ impl WorkflowEngine {
         if node.node_type == NodeType::Condition {
             let exec = context.get_node_execution(&node.id);
             if let Some(exec) = exec
-                && let Some(serde_json::Value::String(target)) = &exec.output {
-                    return Ok(Some(target.clone()));
-                }
+                && let Some(serde_json::Value::String(target)) = &exec.output
+            {
+                return Ok(Some(target.clone()));
+            }
         }
 
         // 根据边条件选择下一个节点
@@ -549,9 +569,10 @@ impl WorkflowEngine {
         for input_def in &self.definition.inputs {
             if input_def.required
                 && context.get_input(&input_def.name).is_none()
-                    && input_def.default.is_none() {
-                        anyhow::bail!("Required input '{}' is missing", input_def.name);
-                    }
+                && input_def.default.is_none()
+            {
+                anyhow::bail!("Required input '{}' is missing", input_def.name);
+            }
         }
         Ok(())
     }
@@ -583,9 +604,9 @@ impl TaskExecutor for DefaultTaskExecutor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::def::EdgeDef;
     use super::super::context::WorkflowStatus;
+    use super::super::def::EdgeDef;
+    use super::*;
 
     fn create_simple_workflow() -> WorkflowDef {
         WorkflowDef {

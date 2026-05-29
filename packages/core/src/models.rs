@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::constants::{DEFAULT_MAX_TOKENS, COMPRESS_MAX_TOKENS, FAST_MAX_TOKENS};
+use crate::constants::{COMPRESS_MAX_TOKENS, DEFAULT_MAX_TOKENS, FAST_MAX_TOKENS};
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role,
 };

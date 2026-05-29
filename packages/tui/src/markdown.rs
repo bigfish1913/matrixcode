@@ -238,7 +238,11 @@ impl MarkdownRenderer {
                     } else if self.in_table_cell {
                         // Skip separator line text (like |---|---|)
                         let trimmed = text.trim();
-                        if !trimmed.contains('|') || !trimmed.chars().all(|c| c == '|' || c == '-' || c == ' ' || c == ':') {
+                        if !trimmed.contains('|')
+                            || !trimmed
+                                .chars()
+                                .all(|c| c == '|' || c == '-' || c == ' ' || c == ':')
+                        {
                             self.current_cell_content.push_str(&text);
                         }
                     } else {
@@ -861,7 +865,7 @@ mod tests {
         let md = "| **Bold** | Normal |\n|----------|--------|\n| **1** | 2 |";
         let result = render_markdown(md, 80);
         assert!(!result.is_empty());
-        
+
         // Check that bold markers are preserved in table cells
         let all_text = result
             .iter()
@@ -872,9 +876,15 @@ mod tests {
                     .collect::<String>()
             })
             .collect::<String>();
-        
-        assert!(all_text.contains("**Bold**"), "Bold markers should be preserved in table header");
-        assert!(all_text.contains("**1**"), "Bold markers should be preserved in table cells");
+
+        assert!(
+            all_text.contains("**Bold**"),
+            "Bold markers should be preserved in table header"
+        );
+        assert!(
+            all_text.contains("**1**"),
+            "Bold markers should be preserved in table cells"
+        );
     }
 
     #[test]
@@ -890,7 +900,11 @@ mod tests {
         let separator_count = result
             .iter()
             .filter(|line| {
-                let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+                let text = line
+                    .spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>();
                 text.starts_with('+') && text.contains('-')
             })
             .count();

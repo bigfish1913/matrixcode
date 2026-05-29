@@ -6,11 +6,13 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use crate::providers::{ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider};
+use super::node_executor::NodeExecutor;
+use crate::providers::{
+    ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider,
+};
 use crate::workflow::context::WorkflowContext;
 use crate::workflow::def::NodeDef;
 use crate::workflow::template::TemplateRenderer;
-use super::node_executor::NodeExecutor;
 
 /// AI 执行器配置
 #[derive(Debug, Clone)]
@@ -122,7 +124,9 @@ impl NodeExecutor for AiExecutor {
         context: &mut WorkflowContext,
     ) -> Result<serde_json::Value> {
         // 获取任务名称
-        let task_name = node.task.as_ref()
+        let task_name = node
+            .task
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("AI executor requires a task name"))?;
 
         // 构建用户消息
@@ -173,7 +177,9 @@ impl NodeExecutor for AiExecutor {
         };
 
         // 调用 Provider
-        let response = self.provider.chat(request)
+        let response = self
+            .provider
+            .chat(request)
             .await
             .with_context(|| format!("AI executor failed for task '{}'", task_name))?;
 

@@ -5,11 +5,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
+use super::node_executor::NodeExecutor;
 use crate::workflow::context::WorkflowContext;
 use crate::workflow::def::NodeDef;
 use crate::workflow::rule_engine::evaluate_expression;
 use crate::workflow::template::TemplateRenderer;
-use super::node_executor::NodeExecutor;
 
 /// 条件执行器
 ///
@@ -42,13 +42,16 @@ impl NodeExecutor for ConditionExecutor {
         context: &mut WorkflowContext,
     ) -> Result<serde_json::Value> {
         // 条件节点必须有分支定义
-        let branches = node.branches.as_ref()
+        let branches = node
+            .branches
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Condition node '{}' has no branches", node.id))?;
 
         // 遍历所有分支，找到匹配的
         for branch in branches {
             // 渲染条件表达式
-            let rendered_condition = self.template_renderer
+            let rendered_condition = self
+                .template_renderer
                 .render(&branch.condition, &context.variables)?;
 
             // 评估条件

@@ -2,36 +2,36 @@
 //!
 //! 每个处理器实现 Command trait。
 
-mod config;
-mod overview;
-mod skills;
-mod tools;
-mod system;
 mod compact;
-mod workflow;
+mod config;
+mod load;
 mod memory;
+mod mode;
+mod new;
+mod overview;
 mod save;
 mod sessions;
-mod load;
-mod new;
-mod mode;
+mod skills;
+mod system;
+mod tools;
+mod workflow;
 
-use std::sync::Arc;
 use super::registry::CommandRegistry;
+use std::sync::Arc;
 
-pub use config::Config;
-pub use overview::Overview;
-pub use skills::Skills;
-pub use tools::Tools;
-pub use system::System;
 pub use compact::Compact;
-pub use workflow::Workflow;
+pub use config::Config;
+pub use load::Load;
 pub use memory::Memory;
+pub use mode::Mode;
+pub use new::New;
+pub use overview::Overview;
 pub use save::Save;
 pub use sessions::Sessions;
-pub use load::Load;
-pub use new::New;
-pub use mode::Mode;
+pub use skills::Skills;
+pub use system::System;
+pub use tools::Tools;
+pub use workflow::Workflow;
 
 /// 注册所有命令到注册表
 pub fn register_commands(registry: &mut CommandRegistry) {

@@ -31,7 +31,7 @@ impl ConversationPhase {
     pub fn default_weights(&self) -> PhaseWeights {
         match self {
             Self::InitialRequest => PhaseWeights {
-                first_msg_bonus: 200.0,   // First message extremely important
+                first_msg_bonus: 200.0, // First message extremely important
                 user_msg_bonus: 50.0,
                 tool_use_bonus: 30.0,
                 tool_result_bonus: 20.0,
@@ -41,10 +41,10 @@ impl ConversationPhase {
             Self::ActiveDevelopment => PhaseWeights {
                 first_msg_bonus: 100.0,
                 user_msg_bonus: 30.0,
-                tool_use_bonus: 60.0,     // Tool calls more important during active work
+                tool_use_bonus: 60.0, // Tool calls more important during active work
                 tool_result_bonus: 50.0,
                 critical_tool_bonus: 80.0,
-                dependency_pair_bonus: 100.0,  // Pairs extremely important for coherence
+                dependency_pair_bonus: 100.0, // Pairs extremely important for coherence
             },
             Self::Finalizing => PhaseWeights {
                 first_msg_bonus: 80.0,
@@ -57,7 +57,6 @@ impl ConversationPhase {
         }
     }
 }
-
 
 // ============================================================================
 // AI Compression Mode (NEW)
@@ -76,7 +75,6 @@ pub enum AiCompressionMode {
     /// Deep AI analysis for complex content.
     Deep,
 }
-
 
 // ============================================================================
 // Message Dependency (NEW)

@@ -8,11 +8,11 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use super::types::{Node, IndexStatus, PendingChanges, FileInfo};
-use super::install::{get_codegraph_path, ensure_codegraph};
-use super::project::find_project_root;
 use super::git::update_version_after_sync;
-use crate::constants::{CODEGRAPH_CLI_TIMEOUT_SECS};
+use super::install::{ensure_codegraph, get_codegraph_path};
+use super::project::find_project_root;
+use super::types::{FileInfo, IndexStatus, Node, PendingChanges};
+use crate::constants::CODEGRAPH_CLI_TIMEOUT_SECS;
 use crate::memory::ProjectStructureAnalyzer;
 
 /// Manages CodeGraph index for a project.
@@ -85,8 +85,8 @@ impl CodeGraphManager {
 
     /// Run codegraph CLI command.
     async fn run_cli_command(&self, args: &[&str]) -> Result<()> {
-        let codegraph_path = get_codegraph_path()
-            .ok_or_else(|| anyhow::anyhow!("CodeGraph CLI not installed"))?;
+        let codegraph_path =
+            get_codegraph_path().ok_or_else(|| anyhow::anyhow!("CodeGraph CLI not installed"))?;
 
         timeout(Duration::from_secs(CODEGRAPH_CLI_TIMEOUT_SECS), async {
             #[cfg(target_os = "windows")]
@@ -95,7 +95,8 @@ impl CodeGraphManager {
                 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
                 let mut std_cmd = std::process::Command::new(&codegraph_path);
-                std_cmd.args(args)
+                std_cmd
+                    .args(args)
                     .current_dir(&self.project_path)
                     .creation_flags(CREATE_NO_WINDOW);
 
@@ -139,7 +140,10 @@ impl CodeGraphManager {
         }
 
         if !self.is_initialized() {
-            log::info!("Initializing CodeGraph for: {}", self.project_path.display());
+            log::info!(
+                "Initializing CodeGraph for: {}",
+                self.project_path.display()
+            );
             self.init().await?;
         }
 
@@ -160,30 +164,31 @@ impl CodeGraphManager {
              FROM nodes
              WHERE name LIKE ? OR qualified_name LIKE ?
              ORDER BY name
-             LIMIT ?"
+             LIMIT ?",
         )?;
 
         let pattern = format!("%{}%", pattern);
-        let nodes = stmt.query_map(params![&pattern, &pattern, limit], |row| {
-            Ok(Node {
-                id: row.get(0)?,
-                kind: row.get(1)?,
-                name: row.get(2)?,
-                qualified_name: row.get(3)?,
-                file_path: row.get(4)?,
-                language: row.get(5)?,
-                start_line: row.get(6)?,
-                end_line: row.get(7)?,
-                start_column: row.get(8)?,
-                end_column: row.get(9)?,
-                signature: row.get(10)?,
-                docstring: row.get(11)?,
-                visibility: row.get(12)?,
-                is_exported: row.get::<_, i32>(13)? != 0,
-                is_async: row.get::<_, i32>(14)? != 0,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+        let nodes = stmt
+            .query_map(params![&pattern, &pattern, limit], |row| {
+                Ok(Node {
+                    id: row.get(0)?,
+                    kind: row.get(1)?,
+                    name: row.get(2)?,
+                    qualified_name: row.get(3)?,
+                    file_path: row.get(4)?,
+                    language: row.get(5)?,
+                    start_line: row.get(6)?,
+                    end_line: row.get(7)?,
+                    start_column: row.get(8)?,
+                    end_column: row.get(9)?,
+                    signature: row.get(10)?,
+                    docstring: row.get(11)?,
+                    visibility: row.get(12)?,
+                    is_exported: row.get::<_, i32>(13)? != 0,
+                    is_async: row.get::<_, i32>(14)? != 0,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(nodes)
     }
@@ -198,29 +203,30 @@ impl CodeGraphManager {
              FROM nodes n
              INNER JOIN edges e ON n.id = e.source
              WHERE e.target = ? AND e.kind = 'calls'
-             LIMIT ?"
+             LIMIT ?",
         )?;
 
-        let nodes = stmt.query_map(params![symbol_id, limit], |row| {
-            Ok(Node {
-                id: row.get(0)?,
-                kind: row.get(1)?,
-                name: row.get(2)?,
-                qualified_name: row.get(3)?,
-                file_path: row.get(4)?,
-                language: row.get(5)?,
-                start_line: row.get(6)?,
-                end_line: row.get(7)?,
-                start_column: row.get(8)?,
-                end_column: row.get(9)?,
-                signature: row.get(10)?,
-                docstring: row.get(11)?,
-                visibility: row.get(12)?,
-                is_exported: row.get::<_, i32>(13)? != 0,
-                is_async: row.get::<_, i32>(14)? != 0,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+        let nodes = stmt
+            .query_map(params![symbol_id, limit], |row| {
+                Ok(Node {
+                    id: row.get(0)?,
+                    kind: row.get(1)?,
+                    name: row.get(2)?,
+                    qualified_name: row.get(3)?,
+                    file_path: row.get(4)?,
+                    language: row.get(5)?,
+                    start_line: row.get(6)?,
+                    end_line: row.get(7)?,
+                    start_column: row.get(8)?,
+                    end_column: row.get(9)?,
+                    signature: row.get(10)?,
+                    docstring: row.get(11)?,
+                    visibility: row.get(12)?,
+                    is_exported: row.get::<_, i32>(13)? != 0,
+                    is_async: row.get::<_, i32>(14)? != 0,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(nodes)
     }
@@ -235,29 +241,30 @@ impl CodeGraphManager {
              FROM nodes n
              INNER JOIN edges e ON n.id = e.target
              WHERE e.source = ? AND e.kind = 'calls'
-             LIMIT ?"
+             LIMIT ?",
         )?;
 
-        let nodes = stmt.query_map(params![symbol_id, limit], |row| {
-            Ok(Node {
-                id: row.get(0)?,
-                kind: row.get(1)?,
-                name: row.get(2)?,
-                qualified_name: row.get(3)?,
-                file_path: row.get(4)?,
-                language: row.get(5)?,
-                start_line: row.get(6)?,
-                end_line: row.get(7)?,
-                start_column: row.get(8)?,
-                end_column: row.get(9)?,
-                signature: row.get(10)?,
-                docstring: row.get(11)?,
-                visibility: row.get(12)?,
-                is_exported: row.get::<_, i32>(13)? != 0,
-                is_async: row.get::<_, i32>(14)? != 0,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+        let nodes = stmt
+            .query_map(params![symbol_id, limit], |row| {
+                Ok(Node {
+                    id: row.get(0)?,
+                    kind: row.get(1)?,
+                    name: row.get(2)?,
+                    qualified_name: row.get(3)?,
+                    file_path: row.get(4)?,
+                    language: row.get(5)?,
+                    start_line: row.get(6)?,
+                    end_line: row.get(7)?,
+                    start_column: row.get(8)?,
+                    end_column: row.get(9)?,
+                    signature: row.get(10)?,
+                    docstring: row.get(11)?,
+                    visibility: row.get(12)?,
+                    is_exported: row.get::<_, i32>(13)? != 0,
+                    is_async: row.get::<_, i32>(14)? != 0,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(nodes)
     }
@@ -285,7 +292,8 @@ impl CodeGraphManager {
         let edge_count: u32 = conn.query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))?;
 
         let mut stmt = conn.prepare("SELECT DISTINCT language FROM nodes")?;
-        let languages: Vec<String> = stmt.query_map([], |r| r.get(0))?
+        let languages: Vec<String> = stmt
+            .query_map([], |r| r.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(IndexStatus {
@@ -305,7 +313,7 @@ impl CodeGraphManager {
     /// Get files by language.
     pub fn files(&self, language: Option<&str>) -> Result<Vec<FileInfo>> {
         let conn = self.connect()?;
-        
+
         // Query files with metadata from the files table
         let mut stmt = if let Some(_lang) = language {
             conn.prepare("SELECT path, language, 0 as size, 0 as modified, node_count FROM files WHERE language = ?")?

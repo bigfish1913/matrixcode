@@ -79,7 +79,7 @@ pub enum Role {
         name: String,
         detail: Option<String>,
         is_error: bool,
-        is_pending: bool,  // Tool is currently executing (not yet completed)
+        is_pending: bool, // Tool is currently executing (not yet completed)
     },
     System,
     Ask, // Approval/question requests - needs prominent display
@@ -212,5 +212,5 @@ pub struct AskQuestion {
 pub struct Message {
     pub role: Role,
     pub content: String,
-    pub is_pending: bool,  // true = 对接中（等待发送），false = 已发送
+    pub is_pending: bool, // true = 对接中（等待发送），false = 已发送
 }

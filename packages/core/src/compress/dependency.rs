@@ -219,16 +219,14 @@ mod tests {
 
     #[test]
     fn test_missing_tool_result() {
-        let messages = vec![
-            Message {
-                role: Role::Assistant,
-                content: MessageContent::Blocks(vec![ContentBlock::ToolUse {
-                    id: "t1".to_string(),
-                    name: "read".to_string(),
-                    input: serde_json::json!({"path": "test.rs"}),
-                }]),
-            },
-        ];
+        let messages = vec![Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![ContentBlock::ToolUse {
+                id: "t1".to_string(),
+                name: "read".to_string(),
+                input: serde_json::json!({"path": "test.rs"}),
+            }]),
+        }];
 
         let graph = DependencyBuilder::build(&messages);
         assert_eq!(graph.dependencies.len(), 0);

@@ -4,13 +4,13 @@
 //! - StdioTransport: 通过 stdin/stdout 与子进程通信（最常用）
 //! - SseTransport: 通过 HTTP SSE 连接远程服务器
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 // ============================================================================
 // Transport Trait
@@ -21,13 +21,13 @@ use tokio::time::{timeout, Duration};
 pub trait Transport: Send + Sync {
     /// 发送请求并等待响应
     async fn send(&self, message: &str) -> Result<String>;
-    
+
     /// 发送通知（无需响应）
     async fn notify(&self, message: &str) -> Result<()>;
-    
+
     /// 接收一条消息
     async fn receive(&self) -> Result<String>;
-    
+
     /// 关闭连接
     async fn close(&self) -> Result<()>;
 }
@@ -57,17 +57,18 @@ impl StdioTransport {
         env: Option<Vec<(String, String)>>,
     ) -> Result<Self> {
         let server_name = name.into();
-        
+
         // Windows 兼容性：npx, npm 等需要通过 cmd.exe 运行
-        let (actual_command, actual_args) = if cfg!(target_os = "windows") 
-            && (command == "npx" || command == "npm" || command == "node") {
+        let (actual_command, actual_args) = if cfg!(target_os = "windows")
+            && (command == "npx" || command == "npm" || command == "node")
+        {
             let mut full_args = vec!["/c".to_string(), command.to_string()];
             full_args.extend(args.iter().cloned());
             ("cmd.exe".to_string(), full_args)
         } else {
             (command.to_string(), args.to_vec())
         };
-        
+
         // 使用 tokio 异步 Command
         let mut cmd = Command::new(&actual_command);
         cmd.args(&actual_args)
@@ -75,30 +76,54 @@ impl StdioTransport {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true); // 确保进程在 drop 时被杀死
-        
+
         // 设置环境变量
         if let Some(env_vars) = env {
             for (key, value) in env_vars {
                 cmd.env(key, value);
             }
         }
-        
+
         // 启动进程
-        tracing::debug!("Spawning MCP server '{}' with command: {} {:?}", server_name, actual_command, actual_args);
-        let mut child = cmd.spawn()
-            .map_err(|e| anyhow!("Failed to spawn MCP server '{}': {} (command: {} {:?})", 
-                server_name, e, actual_command, actual_args))?;
-        
+        tracing::debug!(
+            "Spawning MCP server '{}' with command: {} {:?}",
+            server_name,
+            actual_command,
+            actual_args
+        );
+        let mut child = cmd.spawn().map_err(|e| {
+            anyhow!(
+                "Failed to spawn MCP server '{}': {} (command: {} {:?})",
+                server_name,
+                e,
+                actual_command,
+                actual_args
+            )
+        })?;
+
         tracing::debug!("MCP server '{}' process spawned successfully", server_name);
-        
+
         // 获取 stdin/stdout (tokio 异步版本)
-        let stdin: Box<dyn AsyncWrite + Unpin + Send> = Box::new(child.stdin.take()
-            .ok_or_else(|| anyhow!("Failed to get stdin for MCP server '{}'", server_name))?);
-        let stdout: Box<dyn AsyncRead + Unpin + Send> = Box::new(child.stdout.take()
-            .ok_or_else(|| anyhow!("Failed to get stdout for MCP server '{}'", server_name))?);
-        
-        tracing::info!("MCP server '{}' started: {} {:?}", server_name, actual_command, actual_args);
-        
+        let stdin: Box<dyn AsyncWrite + Unpin + Send> = Box::new(
+            child
+                .stdin
+                .take()
+                .ok_or_else(|| anyhow!("Failed to get stdin for MCP server '{}'", server_name))?,
+        );
+        let stdout: Box<dyn AsyncRead + Unpin + Send> = Box::new(
+            child
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow!("Failed to get stdout for MCP server '{}'", server_name))?,
+        );
+
+        tracing::info!(
+            "MCP server '{}' started: {} {:?}",
+            server_name,
+            actual_command,
+            actual_args
+        );
+
         Ok(Self {
             process: Arc::new(Mutex::new(Some(child))),
             writer: Arc::new(Mutex::new(Some(stdin))),
@@ -106,24 +131,27 @@ impl StdioTransport {
             server_name,
         })
     }
-    
+
     /// 读取一行响应（带超时）
     async fn read_line(&self) -> Result<String> {
         let mut reader_lock = self.reader.lock().await;
-        let reader = reader_lock.as_mut()
+        let reader = reader_lock
+            .as_mut()
             .ok_or_else(|| anyhow!("Transport closed for server '{}'", self.server_name))?;
-        
+
         let mut line = String::new();
-        
+
         // 添加 30 秒超时
         tracing::debug!("Reading from '{}' (timeout: 30s)...", self.server_name);
-        let read_result = tokio::time::timeout(
-            Duration::from_secs(30),
-            reader.read_line(&mut line)
-        ).await;
-        
-        tracing::debug!("Read result from '{}': {:?}", self.server_name, read_result.is_ok());
-        
+        let read_result =
+            tokio::time::timeout(Duration::from_secs(30), reader.read_line(&mut line)).await;
+
+        tracing::debug!(
+            "Read result from '{}': {:?}",
+            self.server_name,
+            read_result.is_ok()
+        );
+
         match read_result {
             Ok(Ok(_)) => {
                 if line.is_empty() {
@@ -132,8 +160,15 @@ impl StdioTransport {
                 // 移除换行符
                 Ok(line.trim_end().to_string())
             }
-            Ok(Err(e)) => Err(anyhow!("Read error for server '{}': {}", self.server_name, e)),
-            Err(_) => Err(anyhow!("Read timeout for server '{}' after 30s", self.server_name)),
+            Ok(Err(e)) => Err(anyhow!(
+                "Read error for server '{}': {}",
+                self.server_name,
+                e
+            )),
+            Err(_) => Err(anyhow!(
+                "Read timeout for server '{}' after 30s",
+                self.server_name
+            )),
         }
     }
 }
@@ -141,48 +176,76 @@ impl StdioTransport {
 #[async_trait]
 impl Transport for StdioTransport {
     async fn send(&self, message: &str) -> Result<String> {
-        tracing::debug!("MCP send to '{}': {}", self.server_name, message.chars().take(200).collect::<String>());
-        
+        tracing::debug!(
+            "MCP send to '{}': {}",
+            self.server_name,
+            message.chars().take(200).collect::<String>()
+        );
+
         let mut writer_lock = self.writer.lock().await;
-        let writer = writer_lock.as_mut()
+        let writer = writer_lock
+            .as_mut()
             .ok_or_else(|| anyhow!("Transport closed for server '{}'", self.server_name))?;
-        
+
         // 发送请求（带换行符）
-        writer.write_all(format!("{}\n", message).as_bytes()).await?;
+        writer
+            .write_all(format!("{}\n", message).as_bytes())
+            .await?;
         writer.flush().await?;
-        
-        tracing::debug!("MCP sent, waiting for response from '{}'...", self.server_name);
-        
+
+        tracing::debug!(
+            "MCP sent, waiting for response from '{}'...",
+            self.server_name
+        );
+
         // 等待响应
         let response = self.read_line().await?;
-        tracing::debug!("MCP received from '{}': {}", self.server_name, response.chars().take(200).collect::<String>());
+        tracing::debug!(
+            "MCP received from '{}': {}",
+            self.server_name,
+            response.chars().take(200).collect::<String>()
+        );
         Ok(response)
     }
-    
+
     async fn notify(&self, message: &str) -> Result<()> {
         let mut writer_lock = self.writer.lock().await;
-        let writer = writer_lock.as_mut()
+        let writer = writer_lock
+            .as_mut()
             .ok_or_else(|| anyhow!("Transport closed for server '{}'", self.server_name))?;
-        
-        tracing::info!("MCP >> '{}' : {}", self.server_name, message.chars().take(100).collect::<String>());
-        writer.write_all(format!("{}\n", message).as_bytes()).await?;
+
+        tracing::info!(
+            "MCP >> '{}' : {}",
+            self.server_name,
+            message.chars().take(100).collect::<String>()
+        );
+        writer
+            .write_all(format!("{}\n", message).as_bytes())
+            .await?;
         writer.flush().await?;
         Ok(())
     }
-    
+
     async fn receive(&self) -> Result<String> {
         let line = self.read_line().await?;
-        tracing::info!("MCP << '{}' : {}", self.server_name, line.chars().take(100).collect::<String>());
+        tracing::info!(
+            "MCP << '{}' : {}",
+            self.server_name,
+            line.chars().take(100).collect::<String>()
+        );
         Ok(line)
     }
-    
+
     async fn close(&self) -> Result<()> {
         let mut process_lock = self.process.lock().await;
         if let Some(mut child) = process_lock.take() {
-            child.kill().await.map_err(|e| anyhow!("Failed to kill MCP server '{}': {}", self.server_name, e))?;
+            child
+                .kill()
+                .await
+                .map_err(|e| anyhow!("Failed to kill MCP server '{}': {}", self.server_name, e))?;
             tracing::info!("MCP server '{}' stopped", self.server_name);
         }
-        
+
         *self.writer.lock().await = None;
         *self.reader.lock().await = None;
         Ok(())
@@ -219,22 +282,23 @@ impl SseTransport {
             timeout_ms: timeout_ms.unwrap_or(30000),
         }
     }
-    
+
     /// 发送 HTTP 请求
     async fn send_http(&self, body: &str) -> Result<String> {
         let url = format!("{}/mcp", self.base_url);
-        
+
         let response = timeout(
             Duration::from_millis(self.timeout_ms),
             self.client
                 .post(&url)
                 .header("Content-Type", "application/json")
                 .body(body.to_string())
-                .send()
-        ).await
-            .map_err(|_| anyhow!("Request timeout for MCP server '{}'", self.server_name))?
-            .map_err(|e| anyhow!("HTTP error for MCP server '{}': {}", self.server_name, e))?;
-        
+                .send(),
+        )
+        .await
+        .map_err(|_| anyhow!("Request timeout for MCP server '{}'", self.server_name))?
+        .map_err(|e| anyhow!("HTTP error for MCP server '{}': {}", self.server_name, e))?;
+
         let text = response.text().await?;
         Ok(text)
     }
@@ -245,19 +309,21 @@ impl Transport for SseTransport {
     async fn send(&self, message: &str) -> Result<String> {
         self.send_http(message).await
     }
-    
+
     async fn notify(&self, message: &str) -> Result<()> {
         // SSE 通知也是通过 HTTP POST
         self.send_http(message).await?;
         Ok(())
     }
-    
+
     async fn receive(&self) -> Result<String> {
         // SSE 需要等待 HTTP 响应，通常 send 已包含响应
         // 这里作为简化实现，实际 SSE 场景可能需要单独处理
-        Err(anyhow!("SSE receive not implemented - use send() for request/response"))
+        Err(anyhow!(
+            "SSE receive not implemented - use send() for request/response"
+        ))
     }
-    
+
     async fn close(&self) -> Result<()> {
         // HTTP 连接无需关闭
         Ok(())
@@ -293,7 +359,7 @@ impl TransportConfig {
             env: None,
         }
     }
-    
+
     /// 创建 SSE 配置
     pub fn sse(url: impl Into<String>) -> Self {
         Self::Sse {
@@ -309,20 +375,11 @@ pub async fn create_transport(
     config: &TransportConfig,
 ) -> Result<Box<dyn Transport>> {
     match config {
-        TransportConfig::Stdio { command, args, env } => {
-            Ok(Box::new(StdioTransport::spawn(
-                server_name,
-                command,
-                args,
-                env.clone(),
-            ).await?))
-        }
+        TransportConfig::Stdio { command, args, env } => Ok(Box::new(
+            StdioTransport::spawn(server_name, command, args, env.clone()).await?,
+        )),
         TransportConfig::Sse { url, timeout_ms } => {
-            Ok(Box::new(SseTransport::new(
-                server_name,
-                url,
-                *timeout_ms,
-            )))
+            Ok(Box::new(SseTransport::new(server_name, url, *timeout_ms)))
         }
     }
 }
@@ -330,7 +387,7 @@ pub async fn create_transport(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_transport_config_stdio() {
         let config = TransportConfig::stdio("npx", vec!["-y".into(), "@playwright/mcp".into()]);
@@ -342,7 +399,7 @@ mod tests {
             _ => panic!("Expected Stdio variant"),
         }
     }
-    
+
     #[test]
     fn test_transport_config_sse() {
         let config = TransportConfig::sse("http://localhost:3000");

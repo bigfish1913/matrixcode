@@ -118,7 +118,7 @@ impl CommandRegistry {
     pub fn dispatch(&self, cmd: &str, ctx: &mut CommandContext) -> bool {
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         let command_name = parts.first().copied().unwrap_or("");
-        
+
         // Strip leading / if present
         let command_name = command_name.strip_prefix('/').unwrap_or(command_name);
         let args = &parts[1..];
@@ -146,51 +146,51 @@ impl Default for CommandRegistry {
 }
 
 // Built-in commands
-mod exit;
+mod backend;
 mod clear;
-mod help;
-mod debug;
-mod mode;
-mod model;
-mod history;
-mod retry;
-mod new_cmd;
 mod compact;
+mod cron;
+mod debug;
+mod exit;
+mod help;
+mod history;
 mod init;
 mod r#loop;
-mod cron;
-mod workflow;
 mod mcp;
-mod backend;
+mod mode;
+mod model;
+mod new_cmd;
+mod retry;
+mod workflow;
 
-pub use exit::ExitCommand;
 pub use clear::ClearCommand;
-pub use help::HelpCommand;
-pub use debug::DebugCommand;
-pub use mode::ModeCommand;
-pub use model::ModelCommand;
-pub use history::HistoryCommand;
-pub use retry::RetryCommand;
-pub use new_cmd::NewCommand;
 pub use compact::CompactCommand;
+pub use cron::CronCommand;
+pub use debug::DebugCommand;
+pub use exit::ExitCommand;
+pub use help::HelpCommand;
+pub use history::HistoryCommand;
 pub use init::InitCommand;
 pub use r#loop::LoopCommand;
-pub use cron::CronCommand;
-pub use workflow::WorkflowCommand;
 pub use mcp::McpCommand;
+pub use mode::ModeCommand;
+pub use model::ModelCommand;
+pub use new_cmd::NewCommand;
+pub use retry::RetryCommand;
+pub use workflow::WorkflowCommand;
 
 use backend::BackendCommand;
 
 /// Create the default command registry with all built-in commands
 pub fn create_registry() -> CommandRegistry {
     let mut registry = CommandRegistry::new();
-    
+
     // Simple commands
     registry.register(Box::new(ExitCommand));
     registry.register(Box::new(ClearCommand));
     registry.register(Box::new(HelpCommand));
     registry.register(Box::new(DebugCommand));
-    
+
     // Medium commands
     registry.register(Box::new(ModeCommand));
     registry.register(Box::new(ModelCommand));
@@ -199,13 +199,13 @@ pub fn create_registry() -> CommandRegistry {
     registry.register(Box::new(NewCommand));
     registry.register(Box::new(CompactCommand));
     registry.register(Box::new(InitCommand));
-    
+
     // Complex commands
     registry.register(Box::new(LoopCommand));
     registry.register(Box::new(CronCommand));
     registry.register(Box::new(WorkflowCommand));
     registry.register(Box::new(McpCommand));
-    
+
     // Backend-forwarding commands (single handler for multiple commands)
     registry.register(Box::new(BackendCommand::new("tools")));
     registry.register(Box::new(BackendCommand::new("system")));
@@ -214,8 +214,11 @@ pub fn create_registry() -> CommandRegistry {
     registry.register(Box::new(BackendCommand::new("overview")));
     registry.register(Box::new(BackendCommand::new("config")));
     registry.register(Box::new(BackendCommand::new("save")));
-    registry.register(Box::new(BackendCommand::new_with_aliases("sessions", &["resume"])));
-    
+    registry.register(Box::new(BackendCommand::new_with_aliases(
+        "sessions",
+        &["resume"],
+    )));
+
     registry
 }
 
@@ -233,7 +236,7 @@ fn get_registry() -> &'static CommandRegistry {
 pub fn handle_command(app: &mut TuiApp, cmd: &str) {
     let registry = get_registry();
     let mut ctx = CommandContext { app };
-    
+
     if !registry.dispatch(cmd, &mut ctx) {
         // Unknown command: forward to backend for skill handling
         // Backend will check if it matches a skill name (e.g., /om:debug)

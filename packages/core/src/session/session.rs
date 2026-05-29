@@ -4,7 +4,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use super::metadata::{SessionMetadata, MessageSummary};
+use super::metadata::{MessageSummary, SessionMetadata};
 use crate::providers::Message;
 
 /// Full session data including messages.
@@ -153,7 +153,10 @@ impl SessionFileLock {
             }
         }
 
-        anyhow::bail!("Failed to acquire session lock after {}ms timeout", timeout_ms)
+        anyhow::bail!(
+            "Failed to acquire session lock after {}ms timeout",
+            timeout_ms
+        )
     }
 
     fn is_stale_lock(&self) -> anyhow::Result<bool> {

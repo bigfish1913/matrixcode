@@ -166,6 +166,12 @@ pub enum StreamEvent {
     /// received for this block — useful for driving progress indicators
     /// while the model streams large arguments (e.g. a full file body).
     ToolInputDelta { bytes_so_far: usize },
+    /// Complete tool input assembled before the final Done event.
+    ToolInputComplete {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
     /// Real-time usage update (output tokens so far).
     Usage { output_tokens: u32 },
     /// Final turn result — includes the full assembled content blocks.
@@ -203,6 +209,21 @@ pub trait Provider: Send + Sync {
                 }
                 ContentBlock::Text { text } => {
                     let _ = tx.send(StreamEvent::TextDelta(text.clone())).await;
+                }
+                ContentBlock::ToolUse { id, name, input } => {
+                    let _ = tx
+                        .send(StreamEvent::ToolUseStart {
+                            id: id.clone(),
+                            name: name.clone(),
+                        })
+                        .await;
+                    let _ = tx
+                        .send(StreamEvent::ToolInputComplete {
+                            id: id.clone(),
+                            name: name.clone(),
+                            input: input.clone(),
+                        })
+                        .await;
                 }
                 _ => {}
             }

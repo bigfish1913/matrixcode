@@ -24,9 +24,7 @@ impl Command for InitCommand {
             // Reset configuration
             ctx.send_to_backend("/init reset".into());
         } else {
-            ctx.push_system(
-                "Unknown init command. Use: /init, /init status, /init reset".into(),
-            );
+            ctx.push_system("Unknown init command. Use: /init, /init status, /init reset".into());
         }
         ctx.auto_scroll();
     }

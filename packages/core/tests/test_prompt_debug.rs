@@ -1,6 +1,6 @@
 //! Debug test for system prompt
 
-use matrixcode_core::prompt::{build_system_prompt_with_workflows, PromptProfile};
+use matrixcode_core::prompt::{PromptProfile, build_system_prompt_with_workflows};
 use std::path::PathBuf;
 
 fn get_project_path() -> PathBuf {

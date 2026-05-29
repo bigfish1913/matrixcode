@@ -25,7 +25,11 @@ impl Command for McpCommand {
         } else {
             let mut content = "📋 MCP Servers:\n".to_string();
             for server in &ctx.app.mcp_servers {
-                let status = if server.is_started { "✓ 运行中" } else { "✗ 未启动" };
+                let status = if server.is_started {
+                    "✓ 运行中"
+                } else {
+                    "✗ 未启动"
+                };
                 content.push_str(&format!(
                     "  • {} {} ({} 工具)\n",
                     server.name, status, server.tool_count

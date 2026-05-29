@@ -1,7 +1,7 @@
 //! TUI drawing module.
 
 mod helpers;
-mod hint;  // New hint bar module
+mod hint; // New hint bar module
 mod input;
 mod messages;
 mod status;
@@ -37,24 +37,32 @@ impl TuiApp {
         // Fixed heights for bottom components
         let status_height: u16 = 1;
         let hint_height: u16 = if self.should_show_hint() { 1 } else { 0 };
-        let gap_height: u16 = 1;
-        let queue_height: u16 = if self.pending_messages.is_empty() { 0 } else { 1 };
+        let gap_height: u16 = 0;
+        let queue_height: u16 = 0;
 
         // Activity indicator height: 1 line when thinking or tool activity
         // Tool activities show animation in message area when auto_scroll is on,
         // and in fixed bottom area when user scrolls up (auto_scroll off)
         let activity_height: u16 = if matches!(self.activity, Activity::Thinking)
-            || (self.is_tool_activity() && self.streaming.is_empty() && self.thinking.is_empty()) {
+            || (self.is_tool_activity() && self.streaming.is_empty() && self.thinking.is_empty())
+        {
             1
         } else {
             0
         };
 
         // Dynamic input height based on content
-        let input_height: u16 = self.calculate_input_height();
+        let input_content_height: u16 = self.calculate_input_content_height();
+        let input_height: u16 = input_content_height + 2;
 
         // Calculate reserved height from bottom
-        let reserved = status_height + input_height + hint_height + gap_height + queue_height + activity_height + debug_height;
+        let reserved = status_height
+            + input_height
+            + hint_height
+            + gap_height
+            + queue_height
+            + activity_height
+            + debug_height;
 
         // Messages height: what's left, minimum 5 lines
         let messages_height = total_height.saturating_sub(reserved).max(5);
@@ -119,12 +127,12 @@ impl TuiApp {
 
     /// Draw activity indicator (spinner + label) - fixed at bottom
     fn draw_activity_indicator(&self, f: &mut ratatui::Frame, area: Rect) {
+        use crate::SPINNER;
         use ratatui::{
             style::{Color, Modifier, Style},
             text::{Line, Span},
             widgets::Paragraph,
         };
-        use crate::SPINNER;
 
         let elapsed = self
             .request_start
@@ -192,12 +200,15 @@ impl TuiApp {
     }
 
     /// Calculate required input area height based on current state
-    pub(crate) fn calculate_input_height(&self) -> u16 {
-        let base_height: u16 = 2; // Default for single line input
+    pub(crate) fn calculate_input_content_height(&self) -> u16 {
+        let base_height: u16 = 1; // Default for single line input content
 
-        // Ask mode with options needs 2 lines (prompt + options)
-        if self.activity == crate::types::Activity::Asking && self.waiting_for_ask && !self.ask_options.is_empty() {
-            return 2;
+        // Ask mode with options needs prompt + option lines
+        if self.activity == crate::types::Activity::Asking
+            && self.waiting_for_ask
+            && !self.ask_options.is_empty()
+        {
+            return (1 + self.ask_options.len() as u16).min(6).max(2);
         }
 
         // Multiline input: calculate based on line count
@@ -230,15 +241,17 @@ impl TuiApp {
             .border_style(Style::default().fg(Color::Yellow))
             .title(Span::styled(
                 " 🔍 Debug Logs (Shift+D to hide, Shift+C to clear) ",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ));
 
         let inner_area = block.inner(area);
         f.render_widget(block, area);
 
         if self.debug_logs.is_empty() {
-            let empty_msg = Paragraph::new("No debug logs yet...")
-                .style(Style::default().fg(Color::DarkGray));
+            let empty_msg =
+                Paragraph::new("No debug logs yet...").style(Style::default().fg(Color::DarkGray));
             f.render_widget(empty_msg, inner_area);
             return;
         }
@@ -292,7 +305,12 @@ impl TuiApp {
 
             f.render_stateful_widget(
                 scrollbar,
-                Rect::new(inner_area.right() - 1, inner_area.top(), 1, inner_area.height),
+                Rect::new(
+                    inner_area.right() - 1,
+                    inner_area.top(),
+                    1,
+                    inner_area.height,
+                ),
                 &mut scrollbar_state,
             );
         }

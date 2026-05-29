@@ -171,13 +171,12 @@ impl ProjectOverview {
             .with_context(|| format!("reading overview file {}", path.display()))?;
 
         // Limit to 200 lines to prevent excessively long content
-        let limited_content = content
-            .lines()
-            .take(200)
-            .collect::<Vec<_>>()
-            .join("\n");
+        let limited_content = content.lines().take(200).collect::<Vec<_>>().join("\n");
 
-        Ok(Some(Self { content: limited_content, path }))
+        Ok(Some(Self {
+            content: limited_content,
+            path,
+        }))
     }
 
     /// Generate and save a new overview using AI analysis.
@@ -230,10 +229,12 @@ impl ProjectOverview {
                 log::error!("Overview generation failed to start stream: {}", e);
                 e
             })
-            .with_context(|| format!(
-                "starting AI stream for overview generation (model: {})",
-                model_name
-            ))?;
+            .with_context(|| {
+                format!(
+                    "starting AI stream for overview generation (model: {})",
+                    model_name
+                )
+            })?;
 
         // Collect streaming response
         let mut content = String::new();
@@ -256,6 +257,9 @@ impl ProjectOverview {
                 }
                 crate::providers::StreamEvent::ToolInputDelta { bytes_so_far } => {
                     log::debug!("Overview tool input delta: {} bytes", bytes_so_far);
+                }
+                crate::providers::StreamEvent::ToolInputComplete { .. } => {
+                    // Overview generation does not execute tools; ignore complete tool inputs.
                 }
                 crate::providers::StreamEvent::Usage { output_tokens: _ } => {
                     // Usage events are sent during streaming, but we only need the final
@@ -286,7 +290,9 @@ impl ProjectOverview {
         }
 
         if content.is_empty() {
-            return Err(anyhow::anyhow!("Overview generation returned empty content"));
+            return Err(anyhow::anyhow!(
+                "Overview generation returned empty content"
+            ));
         }
 
         // Save to file

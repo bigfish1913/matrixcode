@@ -51,8 +51,6 @@ pub const CONTEXT_IMPORTANCE_WEIGHT: f64 = 0.4;
 /// Default model for cost-effective memory extraction.
 pub const DEFAULT_MEMORY_EXTRACTOR_MODEL: &str = "claude-3-5-haiku-20241022";
 
-
-
 /// Default fast model for AI memory extraction.
 pub const DEFAULT_FAST_MODEL: &str = "claude-3-5-haiku-20241022";
 
@@ -64,8 +62,6 @@ pub const DEFAULT_IMPORTANCE_PREF: f64 = 65.0;
 pub const DEFAULT_IMPORTANCE_FINDING: f64 = 55.0;
 pub const DEFAULT_IMPORTANCE_TECH: f64 = 45.0;
 pub const DEFAULT_IMPORTANCE_STRUCTURE: f64 = 35.0;
-
-
 
 /// AI memory detection mode.
 /// Controls whether AI is used for memory category detection.

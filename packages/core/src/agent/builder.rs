@@ -10,7 +10,7 @@ use crate::prompt::PromptProfile;
 use crate::providers::Provider;
 use crate::skills::Skill;
 use crate::tools::Tool;
-use crate::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
+use crate::tools::toolproxy::{ProxyToolDef, ProxyToolExecutor};
 
 use super::types::{Agent, AgentBuilder};
 
@@ -22,6 +22,7 @@ impl AgentBuilder {
             tools: Vec::new(),
             system_prompt: "You are a helpful AI coding assistant.".to_string(),
             max_tokens: QUICK_ACTION_MAX_TOKENS,
+            context_size_override: None,
             think: false,
             approve_mode: ApproveMode::Ask,
             event_tx: None,
@@ -49,6 +50,12 @@ impl AgentBuilder {
 
     pub fn max_tokens(mut self, tokens: u32) -> Self {
         self.max_tokens = tokens;
+        self
+    }
+
+    /// Override provider-inferred context window size.
+    pub fn context_size(mut self, context_size: Option<u32>) -> Self {
+        self.context_size_override = context_size;
         self
     }
 
@@ -129,7 +136,11 @@ impl AgentBuilder {
     ///
     /// builder.proxy_executor(executor, vec![tool_def])
     /// ```
-    pub fn proxy_executor(mut self, executor: Arc<dyn ProxyToolExecutor>, tool_defs: Vec<ProxyToolDef>) -> Self {
+    pub fn proxy_executor(
+        mut self,
+        executor: Arc<dyn ProxyToolExecutor>,
+        tool_defs: Vec<ProxyToolDef>,
+    ) -> Self {
         self.proxy_executor = Some(executor);
         self.proxy_tool_defs = tool_defs;
         self
@@ -149,7 +160,10 @@ impl AgentBuilder {
     /// let registry = Arc::new(tokio::sync::RwLock::new(McpToolRegistry::new()));
     /// builder.mcp_registry(registry)
     /// ```
-    pub fn mcp_registry(mut self, registry: Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>) -> Self {
+    pub fn mcp_registry(
+        mut self,
+        registry: Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>,
+    ) -> Self {
         self.mcp_registry = Some(registry);
         self
     }

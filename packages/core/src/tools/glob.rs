@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{Tool, ToolDefinition, ToolContext};
+use super::{Tool, ToolContext, ToolDefinition};
 
 pub struct GlobTool;
 
@@ -23,8 +23,9 @@ impl Tool for GlobTool {
 - 查找非代码文件（配置文件、文档等）
 - 搜索特定命名模式的文件"
         };
-        
-        let description = format!("通过 glob 模式查找文件路径。
+
+        let description = format!(
+            "通过 glob 模式查找文件路径。
 
 适用场景：
 - 按文件名模式查找（如 '**/*.rs'、'src/*.toml'）
@@ -33,8 +34,10 @@ impl Tool for GlobTool {
 
 {}
 
-返回匹配路径，按修改时间排序（最新在前）。", prefer_section);
-        
+返回匹配路径，按修改时间排序（最新在前）。",
+            prefer_section
+        );
+
         ToolDefinition {
             name: "glob".to_string(),
             description,
@@ -55,7 +58,7 @@ impl Tool for GlobTool {
             ..Default::default()
         }
     }
-    
+
     fn definition(&self) -> ToolDefinition {
         self.definition_with_context(&ToolContext::default())
     }

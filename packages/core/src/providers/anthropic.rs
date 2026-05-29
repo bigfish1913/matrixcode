@@ -7,9 +7,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::constants::{
-    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS, DEFAULT_READ_TIMEOUT_SECS,
-    THINKING_BUDGET_NEW_MODELS, THINKING_BUDGET_OLD_MODELS,
-    DEFAULT_CONTENT_TIMEOUT_SECS, ANTHROPIC_API_VERSION,
+    ANTHROPIC_API_VERSION, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_CONTENT_TIMEOUT_SECS,
+    DEFAULT_READ_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS, THINKING_BUDGET_NEW_MODELS,
+    THINKING_BUDGET_OLD_MODELS,
 };
 use crate::models::context_window_for;
 use crate::tools::ToolDefinition;
@@ -59,10 +59,11 @@ impl AnthropicProvider {
 
         // Add proxy from environment if available
         if let Some(proxy_url) = Self::load_proxy_from_env()
-            && let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
-                log::info!("AnthropicProvider using proxy: {}", proxy_url);
-                client_builder = client_builder.proxy(proxy);
-            }
+            && let Ok(proxy) = reqwest::Proxy::all(&proxy_url)
+        {
+            log::info!("AnthropicProvider using proxy: {}", proxy_url);
+            client_builder = client_builder.proxy(proxy);
+        }
 
         let client = client_builder
             .build()
@@ -90,7 +91,11 @@ impl AnthropicProvider {
         // to prevent API from entering extended thinking mode and hanging
         // This is necessary because some APIs don't properly support thinking blocks
         let filter_thinking = !self.is_official_anthropic();
-        log::debug!("convert_messages: filter_thinking={}, base_url={}", filter_thinking, self.base_url);
+        log::debug!(
+            "convert_messages: filter_thinking={}, base_url={}",
+            filter_thinking,
+            self.base_url
+        );
 
         // Count thinking blocks in original messages
         let mut thinking_count = 0;
@@ -104,7 +109,12 @@ impl AnthropicProvider {
             }
         }
         if thinking_count > 0 {
-            log::debug!("convert_messages: Found {} thinking blocks in {} messages, filter_thinking={}", thinking_count, messages.len(), filter_thinking);
+            log::debug!(
+                "convert_messages: Found {} thinking blocks in {} messages, filter_thinking={}",
+                thinking_count,
+                messages.len(),
+                filter_thinking
+            );
         }
 
         messages
@@ -227,10 +237,7 @@ impl AnthropicProvider {
         }
 
         if !request.tools.is_empty() {
-            let tools = self.convert_tools_with_caching(
-                &request.tools,
-                request.enable_caching,
-            );
+            let tools = self.convert_tools_with_caching(&request.tools, request.enable_caching);
             body["tools"] = json!(tools);
         }
 
@@ -291,7 +298,7 @@ fn thinking_config(model: &str) -> Value {
     if adaptive {
         json!({"type": "enabled", "budget_tokens": THINKING_BUDGET_NEW_MODELS})
     } else {
-         // to prevent hanging on long histories
+        // to prevent hanging on long histories
         json!({"type": "enabled", "budget_tokens": THINKING_BUDGET_OLD_MODELS})
     }
 }
@@ -332,7 +339,8 @@ impl Provider for AnthropicProvider {
         let url = format!("{}/v1/messages", self.base_url);
 
         // Debug: log request
-        crate::debug::debug_log().api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
+        crate::debug::debug_log()
+            .api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
 
         let mut req = self
             .client
@@ -366,7 +374,10 @@ impl Provider for AnthropicProvider {
         let response_body: Value = response.json().await?;
 
         // Debug: log response
-        crate::debug::debug_log().api_response(status.as_u16(), &serde_json::to_string(&response_body).unwrap_or_default());
+        crate::debug::debug_log().api_response(
+            status.as_u16(),
+            &serde_json::to_string(&response_body).unwrap_or_default(),
+        );
 
         if !status.is_success() {
             let err_msg = response_body["error"]["message"]
@@ -429,7 +440,8 @@ impl Provider for AnthropicProvider {
         let url = format!("{}/v1/messages", self.base_url);
 
         // Debug: log streaming request
-        crate::debug::debug_log().api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
+        crate::debug::debug_log()
+            .api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
 
         let mut req = self
             .client
@@ -486,13 +498,21 @@ impl Provider for AnthropicProvider {
                     Err(e) => {
                         // Log detailed error for debugging
                         let error_msg = e.to_string();
-                        let is_timeout = error_msg.contains("timeout") || error_msg.contains("timed out");
-                        let is_decode = error_msg.contains("decode") || error_msg.contains("decoding");
+                        let is_timeout =
+                            error_msg.contains("timeout") || error_msg.contains("timed out");
+                        let is_decode =
+                            error_msg.contains("decode") || error_msg.contains("decoding");
 
                         let msg = if is_timeout {
-                            format!("Stream timeout - the API took too long to respond: {}", error_msg)
+                            format!(
+                                "Stream timeout - the API took too long to respond: {}",
+                                error_msg
+                            )
                         } else if is_decode {
-                            format!("Stream decode error - possibly interrupted or corrupted response: {}", error_msg)
+                            format!(
+                                "Stream decode error - possibly interrupted or corrupted response: {}",
+                                error_msg
+                            )
                         } else {
                             format!("Stream read error: {}", error_msg)
                         };
@@ -500,11 +520,13 @@ impl Provider for AnthropicProvider {
                         // Try to finalize any partial content we have
                         if sent_first_byte && !blocks.is_empty() {
                             debug!("finalizing partial stream due to error");
-                            let _ = tx.send(StreamEvent::Done(finalize_incomplete_stream(
-                                std::mem::take(&mut blocks),
-                                stop_reason,
-                                usage,
-                            ))).await;
+                            let _ = tx
+                                .send(StreamEvent::Done(finalize_incomplete_stream(
+                                    std::mem::take(&mut blocks),
+                                    stop_reason,
+                                    usage,
+                                )))
+                                .await;
                         } else {
                             let _ = tx.send(StreamEvent::Error(msg)).await;
                         }
@@ -522,19 +544,30 @@ impl Provider for AnthropicProvider {
                 // Check for timeout: if only ping events for too long, force finalize
                 let elapsed = last_content_time.elapsed().as_secs();
                 if elapsed > CONTENT_TIMEOUT_SECS && !blocks.is_empty() {
-                    crate::debug::debug_log().stream_chunk("TIMEOUT_FORCE_FINALIZE",
-                        &format!("elapsed={}s, blocks={}", elapsed, blocks.len()));
-                    let _ = tx.send(StreamEvent::Done(finalize_incomplete_stream(
-                        std::mem::take(&mut blocks),
-                        stop_reason,
-                        usage,
-                    ))).await;
+                    crate::debug::debug_log().stream_chunk(
+                        "TIMEOUT_FORCE_FINALIZE",
+                        &format!("elapsed={}s, blocks={}", elapsed, blocks.len()),
+                    );
+                    let _ = tx
+                        .send(StreamEvent::Done(finalize_incomplete_stream(
+                            std::mem::take(&mut blocks),
+                            stop_reason,
+                            usage,
+                        )))
+                        .await;
                     return;
                 }
 
                 while let Some(frame) = take_next_sse_frame(&mut buffer) {
-                    if handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx, &mut last_content_time)
-                        .await
+                    if handle_sse_frame(
+                        &frame,
+                        &mut blocks,
+                        &mut stop_reason,
+                        &mut usage,
+                        &tx,
+                        &mut last_content_time,
+                    )
+                    .await
                     {
                         return;
                     }
@@ -542,7 +575,15 @@ impl Provider for AnthropicProvider {
             }
 
             if let Some(frame) = take_trailing_sse_frame(&mut buffer)
-                && handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx, &mut last_content_time).await
+                && handle_sse_frame(
+                    &frame,
+                    &mut blocks,
+                    &mut stop_reason,
+                    &mut usage,
+                    &tx,
+                    &mut last_content_time,
+                )
+                .await
             {
                 return;
             }
@@ -785,6 +826,28 @@ async fn handle_sse_event(
                     }
                 }
                 _ => {}
+            }
+        }
+        "content_block_stop" => {
+            let idx = evt["index"].as_u64().unwrap_or(0) as usize;
+            if let Some(AssembledBlock::ToolUse {
+                id,
+                name,
+                input_json,
+            }) = blocks.get(idx)
+            {
+                let input: Value = if input_json.is_empty() {
+                    json!({})
+                } else {
+                    serde_json::from_str(input_json).unwrap_or(json!({}))
+                };
+                let _ = tx
+                    .send(StreamEvent::ToolInputComplete {
+                        id: id.clone(),
+                        name: name.clone(),
+                        input,
+                    })
+                    .await;
             }
         }
         "message_delta" => {

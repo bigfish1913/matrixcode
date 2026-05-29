@@ -3,14 +3,14 @@
 //! Renders workflow DAG visualization panel
 
 use crate::app::TuiApp;
+use crate::types::Activity;
+use crate::workflow::{DagWidget, render_progress_view};
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
-use crate::workflow::{DagWidget, render_progress_view};
-use crate::types::Activity;
 
 /// Convert status color string to ratatui Color
 fn status_to_color(status_color: &str) -> Color {
@@ -37,19 +37,36 @@ impl TuiApp {
 
         // Calculate layout heights (same as main draw)
         let status_height: u16 = 1;
-        let hint_height: u16 = if matches!(self.approve_mode, crate::types::ApproveMode::Ask | crate::types::ApproveMode::Auto) { 1 } else { 0 };
-        let gap_height: u16 = 1;
-        let queue_height: u16 = if self.pending_messages.is_empty() { 0 } else { 1 };
-        let activity_height: u16 = if matches!(self.activity, Activity::Thinking)
-            || (self.is_tool_activity() && self.streaming.is_empty() && self.thinking.is_empty()) {
+        let hint_height: u16 = if matches!(
+            self.approve_mode,
+            crate::types::ApproveMode::Ask | crate::types::ApproveMode::Auto
+        ) {
             1
         } else {
             0
         };
-        let input_height: u16 = self.calculate_input_height();
+        let gap_height: u16 = 1;
+        let queue_height: u16 = if self.pending_messages.is_empty() {
+            0
+        } else {
+            1
+        };
+        let activity_height: u16 = if matches!(self.activity, Activity::Thinking)
+            || (self.is_tool_activity() && self.streaming.is_empty() && self.thinking.is_empty())
+        {
+            1
+        } else {
+            0
+        };
+        let input_height: u16 = self.calculate_input_content_height() + 2;
 
         // Panel height: full height minus bottom components
-        let bottom_reserved = status_height + input_height + hint_height + gap_height + queue_height + activity_height;
+        let bottom_reserved = status_height
+            + input_height
+            + hint_height
+            + gap_height
+            + queue_height
+            + activity_height;
         let panel_height = area.height.saturating_sub(bottom_reserved);
 
         // Panel starts from top (y=0), ends before bottom components
@@ -66,7 +83,9 @@ impl TuiApp {
             .border_style(Style::default().fg(Color::Cyan))
             .title(Span::styled(
                 " ⚙ Workflow (Alt+W) ",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ));
 
         let inner_area = block.inner(panel_area);
@@ -86,9 +105,10 @@ impl TuiApp {
                 for y in inner_area.top()..inner_area.bottom() {
                     for x in inner_area.left()..inner_area.right() {
                         if let Some(cell) = buf.cell((x, y))
-                            && let Some(c) = f.buffer_mut().cell_mut((x, y)) {
-                                *c = cell.clone();
-                            }
+                            && let Some(c) = f.buffer_mut().cell_mut((x, y))
+                        {
+                            *c = cell.clone();
+                        }
                     }
                 }
             }
@@ -118,7 +138,9 @@ impl TuiApp {
                 let lines = vec![
                     Line::from(Span::styled(
                         format!("Node: {}", node.name),
-                        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
                     )),
                     Line::from(Span::styled(
                         format!("ID: {}", node.id),

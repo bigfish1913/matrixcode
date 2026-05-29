@@ -22,7 +22,9 @@ pub fn clean_url(url: &str) -> String {
         && let Some(query) = url.split("uddg=").nth(1)
         && let Some(encoded) = query.split('&').next()
     {
-        return urlencoding::decode(encoded).unwrap_or_default().into_owned();
+        return urlencoding::decode(encoded)
+            .unwrap_or_default()
+            .into_owned();
     }
     url.to_string()
 }

@@ -23,9 +23,11 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
-use crate::constants::{DEFAULT_MAX_TOKENS, ANTHROPIC_DEFAULT_BASE_URL, OPENAI_DEFAULT_BASE_URL, MATRIX_DIR};
-use crate::models::DEFAULT_MAIN_MODEL;
+use crate::constants::{
+    ANTHROPIC_DEFAULT_BASE_URL, DEFAULT_MAX_TOKENS, MATRIX_DIR, OPENAI_DEFAULT_BASE_URL,
+};
 use crate::mcp::McpServerConfig;
+use crate::models::DEFAULT_MAIN_MODEL;
 
 /// Matrixcode configuration file structure.
 /// Uses universal naming (no ANTHROPIC_ prefix).
@@ -226,37 +228,38 @@ impl MatrixConfig {
     /// Also supports legacy: ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, ANTHROPIC_MODEL
     fn load_from_env() -> Self {
         // Parse EXTRA_HEADERS from env if available (JSON format)
-        let extra_headers = env::var("EXTRA_HEADERS").ok()
+        let extra_headers = env::var("EXTRA_HEADERS")
+            .ok()
             .and_then(|json_str| serde_json::from_str::<HashMap<String, String>>(&json_str).ok());
 
         Self {
             provider: env::var("PROVIDER").ok(),
-            api_key: env::var("API_KEY").ok()
+            api_key: env::var("API_KEY")
+                .ok()
                 .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
                 .or_else(|| env::var("ANTHROPIC_API_KEY").ok()),
-            base_url: env::var("BASE_URL").ok()
+            base_url: env::var("BASE_URL")
+                .ok()
                 .or_else(|| env::var("ANTHROPIC_BASE_URL").ok()),
-            model: env::var("MODEL").ok()
+            model: env::var("MODEL")
+                .ok()
                 .or_else(|| env::var("ANTHROPIC_MODEL").ok())
                 .or_else(|| env::var("MODEL_NAME").ok()),
-            think: env::var("THINK").ok()
+            think: env::var("THINK").ok().map(|v| v != "false").unwrap_or(true),
+            markdown: env::var("MARKDOWN")
+                .ok()
                 .map(|v| v != "false")
                 .unwrap_or(true),
-            markdown: env::var("MARKDOWN").ok()
-                .map(|v| v != "false")
-                .unwrap_or(true),
-            max_tokens: env::var("MAX_TOKENS").ok()
+            max_tokens: env::var("MAX_TOKENS")
+                .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_MAX_TOKENS),
-            context_size: env::var("CONTEXT_SIZE").ok()
-                .and_then(|v| v.parse().ok()),
-            multi_model: env::var("MULTI_MODEL").ok()
-                .map(|v| v == "true"),
+            context_size: env::var("CONTEXT_SIZE").ok().and_then(|v| v.parse().ok()),
+            multi_model: env::var("MULTI_MODEL").ok().map(|v| v == "true"),
             plan_model: env::var("ANTHROPIC_REASONING_MODEL").ok(),
             compress_model: env::var("ANTHROPIC_DEFAULT_HAIKU_MODEL").ok(),
             fast_model: None,
-            approve_mode: env::var("APPROVE_MODE").ok()
-                .or(Some("ask".to_string())),
+            approve_mode: env::var("APPROVE_MODE").ok().or(Some("ask".to_string())),
             extra_headers,
             mcp_servers: None,
             lsp_servers: None,
@@ -293,7 +296,11 @@ impl MatrixConfig {
             has_env.then_some("env"),
             has_matrix.then_some("~/.matrix/config.json"),
             has_claude.then_some("~/.claude/settings.json"),
-        ].iter().flatten().copied().collect();
+        ]
+        .iter()
+        .flatten()
+        .copied()
+        .collect();
         println!("[config: {}]", sources.join(" + "));
 
         // Merge with correct priority: env > matrix > claude > defaults
@@ -364,11 +371,13 @@ impl MatrixConfig {
     /// Universal env var: API_KEY (also supports ANTHROPIC_AUTH_TOKEN for compatibility)
     pub fn get_api_key(&self, provider: &str) -> Option<String> {
         // Try universal env var first
-        let env_key = env::var("API_KEY").ok()
+        let env_key = env::var("API_KEY")
+            .ok()
             // Then provider-specific env vars
             .or_else(|| match provider {
                 "openai" => env::var("OPENAI_API_KEY").ok(),
-                _ => env::var("ANTHROPIC_AUTH_TOKEN").ok()
+                _ => env::var("ANTHROPIC_AUTH_TOKEN")
+                    .ok()
                     .or_else(|| env::var("ANTHROPIC_API_KEY").ok()),
             });
         // Finally config file
@@ -378,7 +387,8 @@ impl MatrixConfig {
     /// Get model name, with fallback to environment variable.
     /// Universal env var: MODEL (also supports ANTHROPIC_MODEL for compatibility)
     pub fn get_model(&self, provider: &str) -> String {
-        env::var("MODEL").ok()
+        env::var("MODEL")
+            .ok()
             .or_else(|| env::var("ANTHROPIC_MODEL").ok())
             .or_else(|| env::var("MODEL_NAME").ok())
             .or(self.model.clone())
@@ -391,7 +401,8 @@ impl MatrixConfig {
     /// Get base URL, with fallback to environment variable.
     /// Universal env var: BASE_URL (also supports ANTHROPIC_BASE_URL for compatibility)
     pub fn get_base_url(&self, provider: &str) -> String {
-        env::var("BASE_URL").ok()
+        env::var("BASE_URL")
+            .ok()
             .or_else(|| env::var("ANTHROPIC_BASE_URL").ok())
             .or(self.base_url.clone())
             .unwrap_or_else(|| match provider {
@@ -429,14 +440,16 @@ impl MatrixConfig {
 
     /// Get API key with fallback chain
     fn resolve_api_key(&self) -> Option<String> {
-        self.api_key.clone()
+        self.api_key
+            .clone()
             .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
             .or_else(|| env::var("API_KEY").ok())
     }
 
     /// Get model with fallback chain
     fn resolve_model(&self) -> String {
-        self.model.clone()
+        self.model
+            .clone()
             .or_else(|| env::var("MODEL").ok())
             .or_else(|| env::var("ANTHROPIC_MODEL").ok())
             .unwrap_or_else(|| DEFAULT_MAIN_MODEL.to_string())
@@ -444,7 +457,8 @@ impl MatrixConfig {
 
     /// Get base URL with fallback chain
     fn resolve_base_url(&self) -> Option<String> {
-        self.base_url.clone()
+        self.base_url
+            .clone()
             .or_else(|| env::var("BASE_URL").ok())
             .or_else(|| env::var("ANTHROPIC_BASE_URL").ok())
     }
@@ -462,7 +476,8 @@ impl MatrixConfig {
     fn resolve_provider_type(&self, model: &str) -> crate::providers::ProviderType {
         use crate::providers::ProviderType;
 
-        self.provider.clone()
+        self.provider
+            .clone()
             .or_else(|| env::var("PROVIDER").ok())
             .map(|p| match p.to_lowercase().as_str() {
                 "openai" => ProviderType::OpenAI,
@@ -473,10 +488,12 @@ impl MatrixConfig {
 
     /// Create a Provider instance from configuration.
     /// Useful for tools that need AI capabilities but don't have an injected provider.
-    pub fn create_provider_from_env() -> anyhow::Result<std::sync::Arc<dyn crate::providers::Provider>> {
+    pub fn create_provider_from_env()
+    -> anyhow::Result<std::sync::Arc<dyn crate::providers::Provider>> {
         let config = Self::load();
 
-        let api_key = config.resolve_api_key()
+        let api_key = config
+            .resolve_api_key()
             .ok_or_else(|| anyhow::anyhow!("未配置 API key，无法执行 AI 任务"))?;
 
         let model = config.resolve_model();
@@ -488,8 +505,9 @@ impl MatrixConfig {
             api_key,
             model,
             base_url,
-            config.extra_headers.clone()
-        ).map(std::sync::Arc::from)
+            config.extra_headers.clone(),
+        )
+        .map(std::sync::Arc::from)
     }
 }
 

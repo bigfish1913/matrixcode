@@ -2,7 +2,9 @@
 //!
 //! Defines visual state for workflow DAG rendering
 
-use matrixcode_core::workflow::{WorkflowDef, WorkflowContext, NodeStatus, NodeType, WorkflowPersistence, WorkflowRegistry};
+use matrixcode_core::workflow::{
+    NodeStatus, NodeType, WorkflowContext, WorkflowDef, WorkflowPersistence, WorkflowRegistry,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -51,7 +53,6 @@ pub struct DagLayout {
     pub height: usize,
     pub width: usize,
 }
-
 
 /// Edge connection info
 pub struct EdgeInfo {
@@ -160,12 +161,17 @@ impl WorkflowViewState {
         if let Ok(contexts) = persistence.list() {
             // Sort by updated_at descending (most recent first)
             let mut sorted = contexts;
-            sorted.sort_by(|a, b| {
-                b.updated_at.cmp(&a.updated_at)
-            });
+            sorted.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
             // Return only running/paused workflows, or the 5 most recent
-            let running: Vec<_> = sorted.iter()
-                .filter(|c| matches!(c.status, matrixcode_core::workflow::WorkflowStatus::Running | matrixcode_core::workflow::WorkflowStatus::Paused))
+            let running: Vec<_> = sorted
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c.status,
+                        matrixcode_core::workflow::WorkflowStatus::Running
+                            | matrixcode_core::workflow::WorkflowStatus::Paused
+                    )
+                })
                 .cloned()
                 .collect();
             if running.is_empty() {
@@ -179,7 +185,10 @@ impl WorkflowViewState {
     }
 
     /// Load workflow definition from registry
-    pub fn load_workflow_def(project_dir: Option<&PathBuf>, workflow_id: &str) -> Option<WorkflowDef> {
+    pub fn load_workflow_def(
+        project_dir: Option<&PathBuf>,
+        workflow_id: &str,
+    ) -> Option<WorkflowDef> {
         let registry = WorkflowRegistry::new(project_dir);
         if let Some(info) = registry.get(workflow_id) {
             matrixcode_core::workflow::parse_workflow_from_file(&info.path).ok()
@@ -203,9 +212,10 @@ impl WorkflowViewState {
     /// Get node visual status
     pub fn get_node_status(&self, node_id: &str) -> NodeVisualStatus {
         if let Some(ctx) = &self.context
-            && let Some(exec) = ctx.node_executions.get(node_id) {
-                return to_visual_status(&exec.status, exec.error.as_ref());
-            }
+            && let Some(exec) = ctx.node_executions.get(node_id)
+        {
+            return to_visual_status(&exec.status, exec.error.as_ref());
+        }
         NodeVisualStatus::Pending
     }
 
@@ -240,7 +250,9 @@ fn compute_layout(def: &WorkflowDef) -> DagLayout {
     let mut layers: Vec<Vec<String>> = Vec::new();
 
     // Find start node
-    let start_node = def.nodes.iter()
+    let start_node = def
+        .nodes
+        .iter()
         .find(|n| n.node_type == NodeType::Start)
         .map(|n| n.id.clone());
 

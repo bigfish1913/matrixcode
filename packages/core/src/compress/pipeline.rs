@@ -9,16 +9,16 @@ use anyhow::Result;
 use crate::providers::{ContentBlock, Message, MessageContent, Provider, Role};
 
 use super::compressor::{compress_messages, estimate_total_tokens};
-use super::config::{CompressionConfig, CircuitBreakerState, ThresholdLevel,
-    TIME_BASED_MC_CLEARED_MESSAGE};
+use super::config::{
+    CircuitBreakerState, CompressionConfig, TIME_BASED_MC_CLEARED_MESSAGE, ThresholdLevel,
+};
 use super::dependency::DependencyBuilder;
 use super::phase_detector::PhaseDetector;
 use super::scorer::Scorer;
 use super::summarizer::Summarizer;
 use super::tool_compressor::ToolCompressor;
 use super::types::{
-    AiCompressionMode, CompressionThresholds, DependencyGraph,
-    ScoredMessage, CompressionStrategy,
+    AiCompressionMode, CompressionStrategy, CompressionThresholds, DependencyGraph, ScoredMessage,
 };
 
 /// Compression pipeline that orchestrates all modules.
@@ -59,7 +59,11 @@ pub enum ValidationError {
     /// Missing first message (original user request).
     MissingFirstMessage,
     /// Message order violation.
-    OrderViolation { expected_role: Role, actual_role: Role, index: usize },
+    OrderViolation {
+        expected_role: Role,
+        actual_role: Role,
+        index: usize,
+    },
 }
 
 impl CompressionPipeline {
@@ -75,10 +79,7 @@ impl CompressionPipeline {
     }
 
     /// Create a new pipeline with AI assistance.
-    pub fn new_with_ai(
-        config: CompressionConfig,
-        fast_model: Box<dyn Provider>,
-    ) -> Self {
+    pub fn new_with_ai(config: CompressionConfig, fast_model: Box<dyn Provider>) -> Self {
         let thresholds = CompressionThresholds::default();
         let summarizer = Summarizer::new(fast_model.clone());
 
@@ -108,11 +109,7 @@ impl CompressionPipeline {
     }
 
     /// Check if compression should run (threshold check).
-    pub fn should_compress(
-        &self,
-        token_usage: u32,
-        context_window: u32,
-    ) -> (bool, ThresholdLevel) {
+    pub fn should_compress(&self, token_usage: u32, context_window: u32) -> (bool, ThresholdLevel) {
         // Circuit breaker check
         if self.circuit_breaker.should_skip() {
             return (false, ThresholdLevel::Blocking);
@@ -132,7 +129,11 @@ impl CompressionPipeline {
         if let Some(_msg) = last_assistant {
             // Try to get timestamp from message
             // For now, use a simple heuristic: if there are many messages since last assistant
-            let messages_since = messages.iter().rev().take_while(|m| m.role != Role::Assistant).count();
+            let messages_since = messages
+                .iter()
+                .rev()
+                .take_while(|m| m.role != Role::Assistant)
+                .count();
             // Approximate: if more than 10 messages since last assistant, likely > 5 minutes
             messages_since > 10
         } else {
@@ -142,67 +143,91 @@ impl CompressionPipeline {
 
     /// Execute time-based microcompact: clear old tool results.
     pub fn time_based_microcompact(messages: &[Message]) -> Vec<Message> {
-        messages.iter().map(|msg| {
-            if msg.role != Role::Tool {
-                return msg.clone();
-            }
-
-            // Check if this is a tool result with large content
-            match &msg.content {
-                MessageContent::Blocks(blocks) => {
-                    let new_blocks: Vec<ContentBlock> = blocks.iter().map(|b| {
-                        if let ContentBlock::ToolResult { tool_use_id, content } = b {
-                            // Clear if content is large and not already cleared
-                            if content.len() > 500 && content != TIME_BASED_MC_CLEARED_MESSAGE {
-                                ContentBlock::ToolResult {
-                                    tool_use_id: tool_use_id.clone(),
-                                    content: TIME_BASED_MC_CLEARED_MESSAGE.to_string(),
-                                }
-                            } else {
-                                b.clone()
-                            }
-                        } else {
-                            b.clone()
-                        }
-                    }).collect();
-                    Message {
-                        role: msg.role.clone(),
-                        content: MessageContent::Blocks(new_blocks),
-                    }
+        messages
+            .iter()
+            .map(|msg| {
+                if msg.role != Role::Tool {
+                    return msg.clone();
                 }
-                _ => msg.clone(),
-            }
-        }).collect()
+
+                // Check if this is a tool result with large content
+                match &msg.content {
+                    MessageContent::Blocks(blocks) => {
+                        let new_blocks: Vec<ContentBlock> = blocks
+                            .iter()
+                            .map(|b| {
+                                if let ContentBlock::ToolResult {
+                                    tool_use_id,
+                                    content,
+                                } = b
+                                {
+                                    // Clear if content is large and not already cleared
+                                    if content.len() > 500
+                                        && content != TIME_BASED_MC_CLEARED_MESSAGE
+                                    {
+                                        ContentBlock::ToolResult {
+                                            tool_use_id: tool_use_id.clone(),
+                                            content: TIME_BASED_MC_CLEARED_MESSAGE.to_string(),
+                                        }
+                                    } else {
+                                        b.clone()
+                                    }
+                                } else {
+                                    b.clone()
+                                }
+                            })
+                            .collect();
+                        Message {
+                            role: msg.role.clone(),
+                            content: MessageContent::Blocks(new_blocks),
+                        }
+                    }
+                    _ => msg.clone(),
+                }
+            })
+            .collect()
     }
 
     /// Strip thinking blocks from messages (zero-cost compression).
     /// Thinking blocks consume significant tokens and can often be removed for context continuity.
     pub fn strip_thinking(messages: &[Message]) -> Vec<Message> {
-        messages.iter().map(|msg| {
-            match &msg.content {
-                MessageContent::Blocks(blocks) => {
-                    let new_blocks: Vec<ContentBlock> = blocks.iter()
-                        .filter(|b| {
-                            // Keep all blocks except thinking
-                            !matches!(b, ContentBlock::Thinking { .. })
-                        })
-                        .cloned()
-                        .collect();
-                    Message {
-                        role: msg.role.clone(),
-                        content: MessageContent::Blocks(new_blocks),
+        messages
+            .iter()
+            .map(|msg| {
+                match &msg.content {
+                    MessageContent::Blocks(blocks) => {
+                        let new_blocks: Vec<ContentBlock> = blocks
+                            .iter()
+                            .filter(|b| {
+                                // Keep all blocks except thinking
+                                !matches!(b, ContentBlock::Thinking { .. })
+                            })
+                            .cloned()
+                            .collect();
+                        Message {
+                            role: msg.role.clone(),
+                            content: MessageContent::Blocks(new_blocks),
+                        }
                     }
+                    _ => msg.clone(),
                 }
-                _ => msg.clone(),
-            }
-        }).collect()
+            })
+            .collect()
     }
 
     /// Compactable tools - tool types that can be safely cleared.
     /// Based on Claude Code's COMPACTABLE_TOOLS list.
     const COMPACTABLE_TOOLS: &[&str] = &[
-        "bash", "read", "glob", "grep", "ls", "edit", "write",
-        "notebook_edit", "web_fetch", "web_search",
+        "bash",
+        "read",
+        "glob",
+        "grep",
+        "ls",
+        "edit",
+        "write",
+        "notebook_edit",
+        "web_fetch",
+        "web_search",
     ];
 
     /// Check if a tool name is compactable.
@@ -212,37 +237,49 @@ impl CompressionPipeline {
 
     /// Clear specific tool types (more targeted than time-based).
     pub fn clear_tool_results(messages: &[Message], _tool_names: &[&str]) -> Vec<Message> {
-        messages.iter().map(|msg| {
-            if msg.role != Role::Tool {
-                return msg.clone();
-            }
-
-            match &msg.content {
-                MessageContent::Blocks(blocks) => {
-                    let new_blocks: Vec<ContentBlock> = blocks.iter().map(|b| {
-                        if let ContentBlock::ToolResult { tool_use_id, content } = b {
-                            // Check if the corresponding tool is in the list
-                            // We need to find the tool_use block to check the name
-                            if content.len() > 500 && content != TIME_BASED_MC_CLEARED_MESSAGE {
-                                ContentBlock::ToolResult {
-                                    tool_use_id: tool_use_id.clone(),
-                                    content: TIME_BASED_MC_CLEARED_MESSAGE.to_string(),
-                                }
-                            } else {
-                                b.clone()
-                            }
-                        } else {
-                            b.clone()
-                        }
-                    }).collect();
-                    Message {
-                        role: msg.role.clone(),
-                        content: MessageContent::Blocks(new_blocks),
-                    }
+        messages
+            .iter()
+            .map(|msg| {
+                if msg.role != Role::Tool {
+                    return msg.clone();
                 }
-                _ => msg.clone(),
-            }
-        }).collect()
+
+                match &msg.content {
+                    MessageContent::Blocks(blocks) => {
+                        let new_blocks: Vec<ContentBlock> = blocks
+                            .iter()
+                            .map(|b| {
+                                if let ContentBlock::ToolResult {
+                                    tool_use_id,
+                                    content,
+                                } = b
+                                {
+                                    // Check if the corresponding tool is in the list
+                                    // We need to find the tool_use block to check the name
+                                    if content.len() > 500
+                                        && content != TIME_BASED_MC_CLEARED_MESSAGE
+                                    {
+                                        ContentBlock::ToolResult {
+                                            tool_use_id: tool_use_id.clone(),
+                                            content: TIME_BASED_MC_CLEARED_MESSAGE.to_string(),
+                                        }
+                                    } else {
+                                        b.clone()
+                                    }
+                                } else {
+                                    b.clone()
+                                }
+                            })
+                            .collect();
+                        Message {
+                            role: msg.role.clone(),
+                            content: MessageContent::Blocks(new_blocks),
+                        }
+                    }
+                    _ => msg.clone(),
+                }
+            })
+            .collect()
     }
 
     /// Combined microcompact: clear all compactable tool results + strip thinking blocks.
@@ -258,7 +295,10 @@ impl CompressionPipeline {
     // ========================================================================
 
     /// Validate compressed messages for integrity.
-    pub fn validate_compression(messages: &[Message], _original_deps: &DependencyGraph) -> Vec<ValidationError> {
+    pub fn validate_compression(
+        messages: &[Message],
+        _original_deps: &DependencyGraph,
+    ) -> Vec<ValidationError> {
         let mut errors = Vec::new();
 
         // Check first message exists
@@ -273,33 +313,34 @@ impl CompressionPipeline {
         // Check for orphaned tool results by scanning content
         for (idx, msg) in messages.iter().enumerate() {
             if msg.role == Role::Tool
-                && let MessageContent::Blocks(blocks) = &msg.content {
-                    for block in blocks {
-                        if let ContentBlock::ToolResult { tool_use_id, .. } = block {
-                            // Find corresponding tool_use
-                            let has_tool_use = messages.iter().any(|m| {
-                                if let MessageContent::Blocks(bs) = &m.content {
-                                    bs.iter().any(|b| {
-                                        if let ContentBlock::ToolUse { id, .. } = b {
-                                            id == tool_use_id
-                                        } else {
-                                            false
-                                        }
-                                    })
-                                } else {
-                                    false
-                                }
-                            });
-
-                            if !has_tool_use {
-                                errors.push(ValidationError::OrphanedToolResult {
-                                    tool_use_id: tool_use_id.clone(),
-                                    index: idx,
-                                });
+                && let MessageContent::Blocks(blocks) = &msg.content
+            {
+                for block in blocks {
+                    if let ContentBlock::ToolResult { tool_use_id, .. } = block {
+                        // Find corresponding tool_use
+                        let has_tool_use = messages.iter().any(|m| {
+                            if let MessageContent::Blocks(bs) = &m.content {
+                                bs.iter().any(|b| {
+                                    if let ContentBlock::ToolUse { id, .. } = b {
+                                        id == tool_use_id
+                                    } else {
+                                        false
+                                    }
+                                })
+                            } else {
+                                false
                             }
+                        });
+
+                        if !has_tool_use {
+                            errors.push(ValidationError::OrphanedToolResult {
+                                tool_use_id: tool_use_id.clone(),
+                                index: idx,
+                            });
                         }
                     }
                 }
+            }
         }
 
         // Check for orphaned tool use blocks (tool_use without tool_result)
@@ -382,7 +423,8 @@ impl CompressionPipeline {
         }
 
         if messages.len() <= self.config.min_preserve_messages {
-            let (level, percent) = CompressionConfig::calculate_threshold_level(token_usage, context_window);
+            let (level, percent) =
+                CompressionConfig::calculate_threshold_level(token_usage, context_window);
             return Ok(CompressionOutcome {
                 messages: messages.to_vec(),
                 threshold_level: level,
@@ -406,10 +448,16 @@ impl CompressionPipeline {
         let deps = DependencyBuilder::build(&pre_processed);
 
         // Phase 2: Intelligent scoring
-        let scored = self.scorer.score_all(&pre_processed, &weights, &deps, ai_mode).await?;
+        let scored = self
+            .scorer
+            .score_all(&pre_processed, &weights, &deps, ai_mode)
+            .await?;
 
         // Phase 3: Content compression
-        let compressed = self.tool_compressor.compress_results(&pre_processed, ai_mode).await?;
+        let compressed = self
+            .tool_compressor
+            .compress_results(&pre_processed, ai_mode)
+            .await?;
 
         // Phase 4: Select messages to preserve
         let target_count = calculate_target_count(pre_processed.len(), &self.config);
@@ -423,7 +471,8 @@ impl CompressionPipeline {
 
         // Calculate post-compression metrics
         let post_tokens = estimate_total_tokens(&final_messages);
-        let (level, percent) = CompressionConfig::calculate_threshold_level(post_tokens, context_window);
+        let (level, percent) =
+            CompressionConfig::calculate_threshold_level(post_tokens, context_window);
 
         Ok(CompressionOutcome {
             messages: final_messages,
@@ -443,7 +492,9 @@ impl CompressionPipeline {
         token_usage: u32,
         context_window: u32,
     ) -> Result<CompressionOutcome> {
-        let result = self.execute(messages, ai_mode, token_usage, context_window).await;
+        let result = self
+            .execute(messages, ai_mode, token_usage, context_window)
+            .await;
 
         match result {
             Ok(res) => Ok(res),
@@ -451,7 +502,8 @@ impl CompressionPipeline {
                 // Record failure for circuit breaker
                 let tripped = self.circuit_breaker.record_failure();
 
-                let (level, percent) = CompressionConfig::calculate_threshold_level(token_usage, context_window);
+                let (level, percent) =
+                    CompressionConfig::calculate_threshold_level(token_usage, context_window);
 
                 Ok(CompressionOutcome {
                     messages: messages.to_vec(),
@@ -484,7 +536,8 @@ impl CompressionPipeline {
         sorted.sort_by(|a, b| b.final_score.partial_cmp(&a.final_score).unwrap());
 
         // Build a set of indices to preserve
-        let mut preserve_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut preserve_indices: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
 
         // First pass: select top scored messages
         for sm in sorted.iter().take(target_count) {
@@ -581,12 +634,10 @@ mod tests {
         let config = CompressionConfig::default();
         let pipeline = CompressionPipeline::new_rule_only(config);
         // Pipeline created successfully - test by executing
-        let messages = vec![
-            Message {
-                role: Role::User,
-                content: MessageContent::Text("Test".to_string()),
-            },
-        ];
+        let messages = vec![Message {
+            role: Role::User,
+            content: MessageContent::Text("Test".to_string()),
+        }];
         let result = pipeline.execute_sync(&messages);
         assert!(result.is_ok());
     }
@@ -626,12 +677,10 @@ mod tests {
         let config = CompressionConfig::default();
         let pipeline = CompressionPipeline::new_rule_only(config);
 
-        let messages = vec![
-            Message {
-                role: Role::User,
-                content: MessageContent::Text("Hello".to_string()),
-            },
-        ];
+        let messages = vec![Message {
+            role: Role::User,
+            content: MessageContent::Text("Hello".to_string()),
+        }];
 
         let result = pipeline.execute_sync(&messages).unwrap();
         assert_eq!(result.len(), 1); // Small message list unchanged
@@ -642,21 +691,18 @@ mod tests {
         let messages = vec![
             Message {
                 role: Role::Tool,
-                content: MessageContent::Blocks(vec![
-                    ContentBlock::ToolResult {
-                        tool_use_id: "tool_1".to_string(),
-                        content: "This is a very long tool result content that should be cleared...".repeat(20),
-                    },
-                ]),
+                content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                    tool_use_id: "tool_1".to_string(),
+                    content: "This is a very long tool result content that should be cleared..."
+                        .repeat(20),
+                }]),
             },
             Message {
                 role: Role::Tool,
-                content: MessageContent::Blocks(vec![
-                    ContentBlock::ToolResult {
-                        tool_use_id: "tool_2".to_string(),
-                        content: "Short content".to_string(),
-                    },
-                ]),
+                content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                    tool_use_id: "tool_2".to_string(),
+                    content: "Short content".to_string(),
+                }]),
             },
         ];
 
@@ -679,15 +725,18 @@ mod tests {
 
     #[test]
     fn test_strip_thinking() {
-        let messages = vec![
-            Message {
-                role: Role::Assistant,
-                content: MessageContent::Blocks(vec![
-                    ContentBlock::Text { text: "Response".to_string() },
-                    ContentBlock::Thinking { thinking: "Long thinking process...".to_string(), signature: None },
-                ]),
-            },
-        ];
+        let messages = vec![Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![
+                ContentBlock::Text {
+                    text: "Response".to_string(),
+                },
+                ContentBlock::Thinking {
+                    thinking: "Long thinking process...".to_string(),
+                    signature: None,
+                },
+            ]),
+        }];
 
         let stripped = CompressionPipeline::strip_thinking(&messages);
 
@@ -709,12 +758,10 @@ mod tests {
     #[test]
     fn test_should_time_based_clear() {
         // Many messages since last assistant (assistant at start, then 15+ messages)
-        let mut many_messages: Vec<Message> = vec![
-            Message {
-                role: Role::Assistant,
-                content: MessageContent::Text("response".to_string()),
-            },
-        ];
+        let mut many_messages: Vec<Message> = vec![Message {
+            role: Role::Assistant,
+            content: MessageContent::Text("response".to_string()),
+        }];
         // Add 15 more messages after assistant
         for i in 0..15 {
             many_messages.push(Message {
@@ -749,22 +796,18 @@ mod tests {
             },
             Message {
                 role: Role::Assistant,
-                content: MessageContent::Blocks(vec![
-                    ContentBlock::ToolUse {
-                        id: "tool_1".to_string(),
-                        name: "read".to_string(),
-                        input: serde_json::json!({"path": "test.txt"}),
-                    },
-                ]),
+                content: MessageContent::Blocks(vec![ContentBlock::ToolUse {
+                    id: "tool_1".to_string(),
+                    name: "read".to_string(),
+                    input: serde_json::json!({"path": "test.txt"}),
+                }]),
             },
             Message {
                 role: Role::Tool,
-                content: MessageContent::Blocks(vec![
-                    ContentBlock::ToolResult {
-                        tool_use_id: "tool_1".to_string(),
-                        content: "File content".to_string(),
-                    },
-                ]),
+                content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                    tool_use_id: "tool_1".to_string(),
+                    content: "File content".to_string(),
+                }]),
             },
         ];
 
@@ -782,19 +825,21 @@ mod tests {
             },
             Message {
                 role: Role::Tool,
-                content: MessageContent::Blocks(vec![
-                    ContentBlock::ToolResult {
-                        tool_use_id: "tool_missing".to_string(),
-                        content: "Orphaned result".to_string(),
-                    },
-                ]),
+                content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                    tool_use_id: "tool_missing".to_string(),
+                    content: "Orphaned result".to_string(),
+                }]),
             },
         ];
 
         let deps = DependencyBuilder::build(&messages);
         let errors = CompressionPipeline::validate_compression(&messages, &deps);
         assert!(!errors.is_empty());
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::OrphanedToolResult { .. })));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::OrphanedToolResult { .. }))
+        );
     }
 
     #[test]
@@ -803,6 +848,10 @@ mod tests {
         let deps = DependencyBuilder::build(&messages);
         let errors = CompressionPipeline::validate_compression(&messages, &deps);
         assert!(!errors.is_empty());
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::MissingFirstMessage)));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::MissingFirstMessage))
+        );
     }
 }

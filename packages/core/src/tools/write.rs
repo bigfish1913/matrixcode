@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::{Tool, ToolDefinition};
 use crate::approval::RiskLevel;
-use crate::path_validator::{validate_path, validate_content_size};
+use crate::path_validator::{validate_content_size, validate_path};
 
 pub struct WriteTool;
 
@@ -25,7 +25,8 @@ impl Tool for WriteTool {
 - 创建新文件
 - 完整重写文件（用户明确要求）
 
-路径安全：自动验证路径安全性，阻止路径穿越和系统文件写入".to_string(),
+路径安全：自动验证路径安全性，阻止路径穿越和系统文件写入"
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -67,10 +68,10 @@ impl Tool for WriteTool {
         // 4. Write the file with validated path
         let total_bytes = content.len();
         let size_mb = total_bytes as f64 / 1_000_000.0;
-        
+
         // Write the file
         tokio::fs::write(&validated_path, content).await?;
-        
+
         // 5. Provide helpful feedback based on file size
         let size_feedback = if size_mb > 1.0 {
             format!(
@@ -86,7 +87,10 @@ impl Tool for WriteTool {
 
         Ok(format!(
             "Successfully wrote {} bytes{} to {}\nPath validated: {}",
-            total_bytes, size_feedback, path_str, validated_path.display()
+            total_bytes,
+            size_feedback,
+            path_str,
+            validated_path.display()
         ))
     }
 

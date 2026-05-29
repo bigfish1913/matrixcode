@@ -54,13 +54,16 @@ impl Agent {
 
                     has_tool_use = true;
 
-                    // Emit ToolUseStart event with full input before execution
-                    // This allows UI to display command details before result arrives
-                    self.emit(AgentEvent::tool_use_start(
-                        id.clone(),
-                        name.clone(),
-                        Some(input.clone()),
-                    ))?;
+                    // Emit ToolUseStart event with full input before execution when the
+                    // streaming phase did not already preview the complete input.
+                    // This allows UI to display command details before result arrives.
+                    if !self.previewed_tool_inputs.remove(id) {
+                        self.emit(AgentEvent::tool_use_start(
+                            id.clone(),
+                            name.clone(),
+                            Some(input.clone()),
+                        ))?;
+                    }
 
                     log::info!("Agent: starting tool '{}' with id {}", name, id);
                     let result = self.execute_tool(name, input.clone()).await;
@@ -80,7 +83,11 @@ impl Agent {
                             content.len(),
                             truncated.len()
                         );
-                        format!("{}\n\n⚠️ Output truncated ({} bytes total)", truncated, content.len())
+                        format!(
+                            "{}\n\n⚠️ Output truncated ({} bytes total)",
+                            truncated,
+                            content.len()
+                        )
                     } else {
                         content
                     };
@@ -137,7 +144,11 @@ impl Agent {
         input: serde_json::Value,
     ) -> Result<String> {
         // 先检查是否是代理工具
-        if self.proxy_tool_defs.iter().any(|t| t.definition.name == name) {
+        if self
+            .proxy_tool_defs
+            .iter()
+            .any(|t| t.definition.name == name)
+        {
             log::info!("Executing proxy tool: {}", name);
             return self.handle_proxy_tool(name, input).await;
         }
@@ -322,7 +333,8 @@ impl Agent {
             log::info!("Proxy tool: calling executor for {}", name);
 
             // 获取超时时间
-            let timeout_ms = self.proxy_tool_defs
+            let timeout_ms = self
+                .proxy_tool_defs
                 .iter()
                 .find(|t| t.definition.name == name)
                 .map(|t| t.timeout_ms)
@@ -342,8 +354,9 @@ impl Agent {
             } else {
                 tokio::time::timeout(
                     tokio::time::Duration::from_millis(timeout_ms),
-                    executor.exec(name, input.clone())
-                ).await
+                    executor.exec(name, input.clone()),
+                )
+                .await
             };
 
             match result {
@@ -353,7 +366,8 @@ impl Agent {
                 }
                 Err(_) => Err(anyhow::anyhow!(
                     "Proxy tool '{}' timed out after {}ms",
-                    name, timeout_ms
+                    name,
+                    timeout_ms
                 )),
             }
         } else {

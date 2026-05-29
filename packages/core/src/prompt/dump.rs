@@ -5,11 +5,11 @@
 //! - Debug output for development
 //! - Prompt analysis tools
 
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::prompt::AssembledPrompt;
 
@@ -134,15 +134,15 @@ impl PromptDumper {
     /// Dump an assembled prompt
     pub fn dump(&mut self, prompt: &AssembledPrompt) {
         let entry = DumpEntry::from_prompt(prompt, self.session_id.clone());
-        
+
         // Print if enabled
         if self.print_enabled {
             self.print_entry(&entry);
         }
-        
+
         // Buffer entry
         self.entries.push(entry);
-        
+
         // Flush if buffer is full
         if self.entries.len() >= self.buffer_size {
             self.flush();
@@ -153,13 +153,13 @@ impl PromptDumper {
     pub fn dump_with_conversation(&mut self, prompt: &AssembledPrompt, conversation_id: String) {
         let entry = DumpEntry::from_prompt(prompt, self.session_id.clone())
             .with_conversation(conversation_id);
-        
+
         if self.print_enabled {
             self.print_entry(&entry);
         }
-        
+
         self.entries.push(entry);
-        
+
         if self.entries.len() >= self.buffer_size {
             self.flush();
         }
@@ -170,20 +170,28 @@ impl PromptDumper {
         println!("=== Prompt Dump ===");
         println!("Timestamp: {}", entry.timestamp);
         println!("Profile: {}", entry.profile);
-        println!("Sections: {} cached, {} dynamic", entry.cached_sections, entry.dynamic_sections);
-        println!("Tokens: {} cached, {} dynamic, {} total", 
-                 entry.cached_tokens, entry.dynamic_tokens, entry.total_tokens);
+        println!(
+            "Sections: {} cached, {} dynamic",
+            entry.cached_sections, entry.dynamic_sections
+        );
+        println!(
+            "Tokens: {} cached, {} dynamic, {} total",
+            entry.cached_tokens, entry.dynamic_tokens, entry.total_tokens
+        );
         println!("Cache efficiency: {:.1}%", entry.cache_efficiency);
         println!("--- Prompt Content ---");
-        
+
         // Limit output for readability
         if entry.prompt.len() > 2000 {
-            println!("{}... (truncated, {} chars total)", 
-                     &entry.prompt[..2000], entry.prompt.len());
+            println!(
+                "{}... (truncated, {} chars total)",
+                &entry.prompt[..2000],
+                entry.prompt.len()
+            );
         } else {
             println!("{}", entry.prompt);
         }
-        
+
         println!("=== End Dump ===");
     }
 
@@ -255,21 +263,25 @@ impl PromptDumper {
         for cap in tag_pattern.captures_iter(prompt) {
             let tag = cap[1].to_string();
             analysis.xml_tags.push(tag.clone());
-            analysis.xml_tag_counts.entry(tag).and_modify(|c| *c += 1).or_insert(1);
+            analysis
+                .xml_tag_counts
+                .entry(tag)
+                .and_modify(|c| *c += 1)
+                .or_insert(1);
         }
-        
+
         // Find cache boundary
         analysis.has_cache_boundary = prompt.contains(crate::prompt::CACHE_BOUNDARY);
-        
+
         // Estimate tokens
         analysis.estimated_tokens = crate::prompt::cache::estimate_tokens(prompt);
-        
+
         // Character count
         analysis.char_count = prompt.len();
-        
+
         // Line count
         analysis.line_count = prompt.lines().count();
-        
+
         analysis
     }
 }
@@ -304,7 +316,11 @@ impl PromptAnalysis {
     pub fn print_summary(&self) {
         println!("Prompt Analysis Summary:");
         println!("  Sections: {:?}", self.sections);
-        println!("  XML tags: {} unique, {:?} counts", self.xml_tags.len(), self.xml_tag_counts);
+        println!(
+            "  XML tags: {} unique, {:?} counts",
+            self.xml_tags.len(),
+            self.xml_tag_counts
+        );
         println!("  Cache boundary: {}", self.has_cache_boundary);
         println!("  Tokens estimate: {}", self.estimated_tokens);
         println!("  Characters: {}", self.char_count);
@@ -318,9 +334,10 @@ pub fn read_dump_file<P: AsRef<Path>>(path: P) -> Vec<DumpEntry> {
     if !path.exists() {
         return Vec::new();
     }
-    
+
     let content = std::fs::read_to_string(path).unwrap_or_default();
-    content.lines()
+    content
+        .lines()
         .filter_map(|line| serde_json::from_str::<DumpEntry>(line).ok())
         .collect()
 }
@@ -328,28 +345,35 @@ pub fn read_dump_file<P: AsRef<Path>>(path: P) -> Vec<DumpEntry> {
 /// Analyze a dump file for patterns
 pub fn analyze_dump_file<P: AsRef<Path>>(path: P) -> DumpFileAnalysis {
     let entries = read_dump_file(path);
-    
+
     let mut analysis = DumpFileAnalysis::default();
     analysis.total_entries = entries.len();
-    
+
     for entry in &entries {
         analysis.total_tokens += entry.total_tokens;
         analysis.avg_tokens += entry.total_tokens;
-        analysis.profile_counts.entry(entry.profile.clone()).and_modify(|c| *c += 1).or_insert(1);
-        
+        analysis
+            .profile_counts
+            .entry(entry.profile.clone())
+            .and_modify(|c| *c += 1)
+            .or_insert(1);
+
         if entry.cache_efficiency > analysis.max_cache_efficiency {
             analysis.max_cache_efficiency = entry.cache_efficiency;
         }
-        if entry.cache_efficiency < analysis.min_cache_efficiency || analysis.min_cache_efficiency == 0.0 {
+        if entry.cache_efficiency < analysis.min_cache_efficiency
+            || analysis.min_cache_efficiency == 0.0
+        {
             analysis.min_cache_efficiency = entry.cache_efficiency;
         }
     }
-    
+
     if analysis.total_entries > 0 {
         analysis.avg_tokens /= analysis.total_entries;
-        analysis.avg_cache_efficiency = entries.iter().map(|e| e.cache_efficiency).sum::<f64>() / analysis.total_entries as f64;
+        analysis.avg_cache_efficiency =
+            entries.iter().map(|e| e.cache_efficiency).sum::<f64>() / analysis.total_entries as f64;
     }
-    
+
     analysis
 }
 
@@ -379,8 +403,10 @@ impl DumpFileAnalysis {
         println!("  Total tokens: {}", self.total_tokens);
         println!("  Average tokens: {}", self.avg_tokens);
         println!("  Profile distribution: {:?}", self.profile_counts);
-        println!("  Cache efficiency: min {:.1}%, max {:.1}%, avg {:.1}%",
-                 self.min_cache_efficiency, self.max_cache_efficiency, self.avg_cache_efficiency);
+        println!(
+            "  Cache efficiency: min {:.1}%, max {:.1}%, avg {:.1}%",
+            self.min_cache_efficiency, self.max_cache_efficiency, self.avg_cache_efficiency
+        );
     }
 }
 
@@ -390,12 +416,16 @@ mod tests {
 
     #[test]
     fn test_dump_entry_creation() {
-        let mut orchestrator = crate::prompt::PromptOrchestrator::new(std::env::current_dir().unwrap());
-        orchestrator.add_section(crate::prompt::PromptSection::static_section("test", "test content"));
-        
+        let mut orchestrator =
+            crate::prompt::PromptOrchestrator::new(std::env::current_dir().unwrap());
+        orchestrator.add_section(crate::prompt::PromptSection::static_section(
+            "test",
+            "test content",
+        ));
+
         let assembled = orchestrator.assemble();
         let entry = DumpEntry::from_prompt(&assembled, Some("session-1".to_string()));
-        
+
         assert_eq!(entry.profile, "default");
         assert!(entry.prompt.contains("test"));
         assert_eq!(entry.session_id, Some("session-1".to_string()));
@@ -404,13 +434,17 @@ mod tests {
     #[test]
     fn test_dumper_basic() {
         let mut dumper = PromptDumper::new().enable_print();
-        
-        let mut orchestrator = crate::prompt::PromptOrchestrator::new(std::env::current_dir().unwrap());
-        orchestrator.add_section(crate::prompt::PromptSection::static_section("identity", "You are AI"));
-        
+
+        let mut orchestrator =
+            crate::prompt::PromptOrchestrator::new(std::env::current_dir().unwrap());
+        orchestrator.add_section(crate::prompt::PromptSection::static_section(
+            "identity",
+            "You are AI",
+        ));
+
         let assembled = orchestrator.assemble();
         dumper.dump(&assembled);
-        
+
         assert_eq!(dumper.entries().len(), 1);
     }
 
@@ -418,7 +452,7 @@ mod tests {
     fn test_analyze_prompt() {
         let prompt = "[identity]\nYou are AI\n\n<context>\nSome context\n</context>";
         let analysis = PromptDumper::analyze_prompt(prompt);
-        
+
         assert!(analysis.sections.contains(&"identity".to_string()));
         assert!(analysis.xml_tags.contains(&"context".to_string()));
         assert!(!analysis.has_cache_boundary);
@@ -436,21 +470,24 @@ mod tests {
     fn test_dump_file_analysis() {
         let temp_file = tempfile::NamedTempFile::new().unwrap();
         let path = temp_file.path();
-        
+
         // Write some entries
         let mut dumper = PromptDumper::new()
             .enable_file_dump(path)
             .with_session("test-session".to_string());
-        
-        let mut orchestrator = crate::prompt::PromptOrchestrator::new(std::env::current_dir().unwrap());
-        orchestrator.add_section(crate::prompt::PromptSection::static_section("test", "content"));
-        
+
+        let mut orchestrator =
+            crate::prompt::PromptOrchestrator::new(std::env::current_dir().unwrap());
+        orchestrator.add_section(crate::prompt::PromptSection::static_section(
+            "test", "content",
+        ));
+
         for _ in 0..5 {
             let assembled = orchestrator.assemble();
             dumper.dump(&assembled);
         }
         dumper.flush();
-        
+
         // Analyze
         let analysis = analyze_dump_file(path);
         assert_eq!(analysis.total_entries, 5);

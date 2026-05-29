@@ -3,8 +3,8 @@
 use matrixcode_core::{
     event::{AgentEvent, EventData, EventType},
     tools::{
-        toolproxy::{ProxyMetadata, ProxyTool, ProxyToolRequest, ProxyToolResponse},
         ToolDefinition,
+        toolproxy::{ProxyMetadata, ProxyTool, ProxyToolRequest, ProxyToolResponse},
     },
 };
 use serde_json::json;
@@ -169,22 +169,33 @@ async fn test_proxy_tool_error_chain() {
     let request_id = Uuid::new_v4().to_string();
 
     // Agent sends request
-    event_tx.send(AgentEvent::proxy_tool_request(
-        request_id.clone(),
-        "image_search".to_string(),
-        json!({"query": ""}), // Empty query - should fail
-        ProxyMetadata {
-            tool_type: "image_search".to_string(),
-            endpoint: None,
-            timeout_ms: 30000,
-            custom: None,
-        },
-    )).await.unwrap();
+    event_tx
+        .send(AgentEvent::proxy_tool_request(
+            request_id.clone(),
+            "image_search".to_string(),
+            json!({"query": ""}), // Empty query - should fail
+            ProxyMetadata {
+                tool_type: "image_search".to_string(),
+                endpoint: None,
+                timeout_ms: 30000,
+                custom: None,
+            },
+        ))
+        .await
+        .unwrap();
 
     // External handler receives and detects error
     let received_event = event_rx.recv().await.unwrap();
-    if let Some(EventData::ProxyToolRequest { request_id: recv_id, tool_input, .. }) = received_event.data {
-        let query = tool_input.get("query").and_then(|q| q.as_str()).unwrap_or("");
+    if let Some(EventData::ProxyToolRequest {
+        request_id: recv_id,
+        tool_input,
+        ..
+    }) = received_event.data
+    {
+        let query = tool_input
+            .get("query")
+            .and_then(|q| q.as_str())
+            .unwrap_or("");
 
         // Empty query = error
         let response = if query.is_empty() {
@@ -242,7 +253,10 @@ async fn test_proxy_tool_timeout() {
     let longer_timeout = Duration::from_millis(1000);
     let result = timeout(longer_timeout, response_rx.recv()).await;
 
-    assert!(result.is_ok(), "Should receive response when sent before timeout");
+    assert!(
+        result.is_ok(),
+        "Should receive response when sent before timeout"
+    );
 }
 
 /// Test send().await vs try_send behavior in async context
@@ -257,7 +271,8 @@ async fn test_send_vs_try_send_async() {
             request_id: format!("req-{}", i),
             result: "{}".to_string(),
             is_error: false,
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     // try_send should fail now (channel full)
@@ -266,18 +281,23 @@ async fn test_send_vs_try_send_async() {
         result: "{}".to_string(),
         is_error: false,
     });
-    assert!(try_result.is_err(), "try_send should fail when channel is full");
+    assert!(
+        try_result.is_err(),
+        "try_send should fail when channel is full"
+    );
 
     // send().await should wait for capacity and succeed
     // We need to receive from rx in parallel to make room
     let tx_clone = tx.clone();
     let send_handle = tokio::spawn(async move {
         // This will wait until there's room in the channel
-        tx_clone.send(ProxyToolResponse {
-            request_id: "req-async".to_string(),
-            result: "{}".to_string(),
-            is_error: false,
-        }).await
+        tx_clone
+            .send(ProxyToolResponse {
+                request_id: "req-async".to_string(),
+                result: "{}".to_string(),
+                is_error: false,
+            })
+            .await
     });
 
     // Receive one to make room
@@ -285,5 +305,8 @@ async fn test_send_vs_try_send_async() {
 
     // Now send should complete
     let send_result = send_handle.await.unwrap();
-    assert!(send_result.is_ok(), "send().await should succeed after channel has room");
+    assert!(
+        send_result.is_ok(),
+        "send().await should succeed after channel has room"
+    );
 }

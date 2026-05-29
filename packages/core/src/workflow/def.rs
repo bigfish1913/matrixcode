@@ -77,7 +77,10 @@ impl From<FailureStrategyConfig> for FailureStrategy {
 impl From<FailureStrategy> for FailureStrategyConfig {
     fn from(strategy: FailureStrategy) -> Self {
         match strategy {
-            FailureStrategy::Retry { max_attempts, interval_ms } => FailureStrategyConfig {
+            FailureStrategy::Retry {
+                max_attempts,
+                interval_ms,
+            } => FailureStrategyConfig {
                 strategy_type: FailureStrategyType::Retry,
                 max_attempts: Some(max_attempts),
                 interval_ms,
@@ -106,8 +109,7 @@ impl From<FailureStrategy> for FailureStrategyConfig {
 }
 
 /// 失败策略
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum FailureStrategy {
     /// 重试
     Retry {
@@ -127,7 +129,6 @@ pub enum FailureStrategy {
         target: String,
     },
 }
-
 
 impl Serialize for FailureStrategy {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

@@ -7,8 +7,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::manager::CodeGraphManager;
-use crate::tools::{Tool, ToolDefinition};
 use crate::approval::RiskLevel;
+use crate::tools::{Tool, ToolDefinition};
 
 /// Tool for searching symbols in CodeGraph index.
 pub struct CodeGraphSearchTool {
@@ -49,12 +49,13 @@ impl Tool for CodeGraphSearchTool {
     }
 
     async fn execute(&self, args: Value) -> Result<String> {
-        let pattern = args["pattern"].as_str()
+        let pattern = args["pattern"]
+            .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing pattern parameter"))?;
         let limit = args["limit"].as_u64().unwrap_or(20) as usize;
 
         let nodes = self.manager.search(pattern, limit)?;
-        
+
         Ok(serde_json::to_string(&json!({
             "nodes": nodes,
             "query": pattern,
@@ -106,12 +107,13 @@ impl Tool for CodeGraphCallersTool {
     }
 
     async fn execute(&self, args: Value) -> Result<String> {
-        let symbol = args["symbol"].as_str()
+        let symbol = args["symbol"]
+            .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing symbol parameter"))?;
         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
 
         let nodes = self.manager.callers(symbol, limit)?;
-        
+
         Ok(serde_json::to_string(&json!({
             "callers": nodes,
             "symbol": symbol,
@@ -163,12 +165,13 @@ impl Tool for CodeGraphCalleesTool {
     }
 
     async fn execute(&self, args: Value) -> Result<String> {
-        let symbol = args["symbol"].as_str()
+        let symbol = args["symbol"]
+            .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing symbol parameter"))?;
         let limit = args["limit"].as_u64().unwrap_or(10) as usize;
 
         let nodes = self.manager.callees(symbol, limit)?;
-        
+
         Ok(serde_json::to_string(&json!({
             "callees": nodes,
             "symbol": symbol,
@@ -199,7 +202,8 @@ impl Tool for CodeGraphStatusTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "code_status".to_string(),
-            description: "检查 CodeGraph 索引状态。返回文件数、节点数、边数、支持的语言等信息。".to_string(),
+            description: "检查 CodeGraph 索引状态。返回文件数、节点数、边数、支持的语言等信息。"
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {}
@@ -247,7 +251,9 @@ impl Tool for CodeGraphSyncTool {
 
     async fn execute(&self, _args: Value) -> Result<String> {
         self.manager.sync().await?;
-        Ok(serde_json::to_string(&json!({"success": true, "message": "CodeGraph index synced"}))?)
+        Ok(serde_json::to_string(
+            &json!({"success": true, "message": "CodeGraph index synced"}),
+        )?)
     }
 
     fn risk_level(&self) -> RiskLevel {
@@ -274,8 +280,8 @@ pub fn codegraph_tools_with_auto_detect(start_path: &Path) -> Vec<Box<dyn Tool>>
 
 /// Check if CodeGraph tools should be injected.
 pub fn should_inject_codegraph_tools(start_path: &Path) -> bool {
-    super::install::is_codegraph_installed() && 
-        CodeGraphManager::with_auto_detect(start_path).is_initialized()
+    super::install::is_codegraph_installed()
+        && CodeGraphManager::with_auto_detect(start_path).is_initialized()
 }
 
 /// Create CodeGraph tools if installed.

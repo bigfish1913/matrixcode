@@ -9,8 +9,8 @@ use ratatui::{
     crossterm::event::{self, Event, MouseEvent, MouseEventKind},
 };
 
-use matrixcode_core::{AgentEvent, cancel::CancellationToken};
 use matrixcode_core::tools::ProxyToolResponse;
+use matrixcode_core::{AgentEvent, cancel::CancellationToken};
 
 use crate::ANIM_MS;
 use crate::types::{Activity, ApproveMode, AskQuestion, Message, Role, SubmitMode};
@@ -112,7 +112,7 @@ pub struct TuiApp {
 
 /// Todo item for progress tracking
 #[derive(Clone)]
-#[allow(dead_code)]  // Fields used in serialization, not directly read
+#[allow(dead_code)] // Fields used in serialization, not directly read
 pub struct TodoItem {
     pub content: String,
     pub status: String, // "pending", "in_progress", "completed"
@@ -234,7 +234,10 @@ impl TuiApp {
     }
 
     /// Set proxy tool response channel
-    pub fn with_proxy_response_tx(mut self, tx: tokio::sync::mpsc::Sender<ProxyToolResponse>) -> Self {
+    pub fn with_proxy_response_tx(
+        mut self,
+        tx: tokio::sync::mpsc::Sender<ProxyToolResponse>,
+    ) -> Self {
         self.proxy_response_tx = Some(tx);
         self
     }
@@ -438,7 +441,12 @@ impl TuiApp {
     }
 
     /// Set token stats from restored session metadata.
-    pub fn set_token_stats(&mut self, input_tokens: u64, total_output_tokens: u64, _message_count: usize) {
+    pub fn set_token_stats(
+        &mut self,
+        input_tokens: u64,
+        total_output_tokens: u64,
+        _message_count: usize,
+    ) {
         self.tokens_in = input_tokens;
         self.session_total_out = total_output_tokens;
     }
@@ -548,28 +556,32 @@ impl TuiApp {
         // Reload workflow context from persistence
         if self.workflow_state.context.is_some() {
             // Reload existing workflow instance
-            let instances = crate::workflow::WorkflowViewState::load_recent_instances(project_dir.as_ref());
+            let instances =
+                crate::workflow::WorkflowViewState::load_recent_instances(project_dir.as_ref());
             if let Some(ctx) = instances.first() {
                 // Only update if status changed or execution_path grew
                 let old_ctx = self.workflow_state.context.as_ref();
-                let should_update = old_ctx.map(|old| {
-                    old.status != ctx.status ||
-                    old.execution_path.len() != ctx.execution_path.len() ||
-                    old.updated_at != ctx.updated_at
-                }).unwrap_or(true);
+                let should_update = old_ctx
+                    .map(|old| {
+                        old.status != ctx.status
+                            || old.execution_path.len() != ctx.execution_path.len()
+                            || old.updated_at != ctx.updated_at
+                    })
+                    .unwrap_or(true);
 
                 if should_update {
                     self.workflow_state.update_context(ctx.clone());
                     // Also reload workflow def if workflow_id changed
-                    if (self.workflow_state.workflow_def.is_none() ||
-                       self.workflow_state.workflow_def.as_ref().map(|d| &d.id) !=
-                       Some(&ctx.workflow_id))
+                    if (self.workflow_state.workflow_def.is_none()
+                        || self.workflow_state.workflow_def.as_ref().map(|d| &d.id)
+                            != Some(&ctx.workflow_id))
                         && let Some(def) = crate::workflow::WorkflowViewState::load_workflow_def(
                             project_dir.as_ref(),
-                            &ctx.workflow_id
-                        ) {
-                            self.workflow_state.set_workflow(def);
-                        }
+                            &ctx.workflow_id,
+                        )
+                    {
+                        self.workflow_state.set_workflow(def);
+                    }
                 }
             }
         } else if self.workflow_state.workflow_def.is_none() {

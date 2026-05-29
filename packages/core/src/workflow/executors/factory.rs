@@ -5,12 +5,12 @@
 use anyhow::Result;
 use std::sync::Arc;
 
-use crate::providers::Provider;
 use super::ai::{AiExecutor, AiExecutorConfig};
 use super::condition::ConditionExecutor;
 use super::node_executor::NodeExecutor;
 use super::tool::ToolExecutor;
 use super::validate::{ValidateExecutor, ValidateExecutorConfig};
+use crate::providers::Provider;
 
 /// 执行器工厂
 ///
@@ -45,14 +45,21 @@ impl ExecutorFactory {
 
     /// 创建 AI 执行器
     pub fn create_ai_executor(&self) -> Result<Arc<dyn NodeExecutor>> {
-        let provider = self.provider.clone()
+        let provider = self
+            .provider
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("Provider not configured for AI executor"))?;
         Ok(Arc::new(AiExecutor::new(provider)))
     }
 
     /// 创建带配置的 AI 执行器
-    pub fn create_ai_executor_with_config(&self, config: AiExecutorConfig) -> Result<Arc<dyn NodeExecutor>> {
-        let provider = self.provider.clone()
+    pub fn create_ai_executor_with_config(
+        &self,
+        config: AiExecutorConfig,
+    ) -> Result<Arc<dyn NodeExecutor>> {
+        let provider = self
+            .provider
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("Provider not configured for AI executor"))?;
         Ok(Arc::new(AiExecutor::with_config(provider, config)))
     }
@@ -60,10 +67,7 @@ impl ExecutorFactory {
     /// 创建工具执行器（使用默认工具集）
     pub fn create_tool_executor(&self) -> Arc<dyn NodeExecutor> {
         let tools = if let Some(provider) = &self.provider {
-            crate::tools::all_tools_with_provider(
-                std::sync::Arc::new(Vec::new()),
-                provider.clone()
-            )
+            crate::tools::all_tools_with_provider(std::sync::Arc::new(Vec::new()), provider.clone())
         } else {
             crate::tools::all_tools()
         };
@@ -81,8 +85,13 @@ impl ExecutorFactory {
     }
 
     /// 创建带 AI 的验证执行器
-    pub fn create_validate_executor_with_ai(&self, config: ValidateExecutorConfig) -> Result<Arc<dyn NodeExecutor>> {
-        let provider = self.provider.clone()
+    pub fn create_validate_executor_with_ai(
+        &self,
+        config: ValidateExecutorConfig,
+    ) -> Result<Arc<dyn NodeExecutor>> {
+        let provider = self
+            .provider
+            .clone()
             .ok_or_else(|| anyhow::anyhow!("Provider not configured for AI validation"))?;
         Ok(Arc::new(ValidateExecutor::with_ai(provider, config)))
     }

@@ -5,10 +5,10 @@
 //! - System context (git status, date, workspace info)
 //! - Environment context (platform, tools available)
 
-use std::path::{Path, PathBuf};
+use crate::lsp::LspServerInfo;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use crate::lsp::LspServerInfo;
+use std::path::{Path, PathBuf};
 
 /// User context from CLAUDE.md and preferences
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,21 +88,28 @@ impl ProjectType {
     /// Detect project type from directory contents
     pub fn detect<P: AsRef<Path>>(dir: P) -> Self {
         let dir = dir.as_ref();
-        
+
         let has_cargo = dir.join("Cargo.toml").exists();
         let has_package_json = dir.join("package.json").exists();
         let has_pyproject = dir.join("pyproject.toml").exists() || dir.join("setup.py").exists();
         let has_go_mod = dir.join("go.mod").exists();
         let has_pom = dir.join("pom.xml").exists() || dir.join("build.gradle").exists();
         let has_cmake = dir.join("CMakeLists.txt").exists() || dir.join("Makefile").exists();
-        
-        let types = [has_cargo, has_package_json, has_pyproject, has_go_mod, has_pom, has_cmake];
+
+        let types = [
+            has_cargo,
+            has_package_json,
+            has_pyproject,
+            has_go_mod,
+            has_pom,
+            has_cmake,
+        ];
         let count = types.iter().filter(|&&x| x).count();
-        
+
         if count > 1 {
             return ProjectType::Mixed;
         }
-        
+
         if has_cargo {
             ProjectType::Rust
         } else if has_package_json {
@@ -119,7 +126,7 @@ impl ProjectType {
             ProjectType::Unknown
         }
     }
-    
+
     pub fn as_str(&self) -> &'static str {
         match self {
             ProjectType::Rust => "rust",
@@ -187,7 +194,7 @@ impl ContextInjector {
     pub fn get_system_context(&mut self) -> &SystemContext {
         if self.dirty || self.system_context_cache.is_none() {
             self.system_context_cache = Some(self.collect_system_context());
-            self.dirty = false;  // Reset dirty flag after refresh
+            self.dirty = false; // Reset dirty flag after refresh
         }
         self.system_context_cache.as_ref().unwrap()
     }
@@ -195,7 +202,7 @@ impl ContextInjector {
     /// Collect user context
     fn collect_user_context(&self) -> UserContext {
         let mut ctx = UserContext::default();
-        
+
         // Read CLAUDE.md
         let claude_md_path = self.working_dir.join("CLAUDE.md");
         if claude_md_path.exists() {
@@ -203,7 +210,7 @@ impl ContextInjector {
                 ctx.claude_md_content = Some(content);
             }
         }
-        
+
         // Also check parent directories
         if ctx.claude_md_content.is_none() {
             if let Some(parent) = self.working_dir.parent() {
@@ -215,14 +222,14 @@ impl ContextInjector {
                 }
             }
         }
-        
+
         ctx
     }
 
     /// Collect system context
     fn collect_system_context(&self) -> SystemContext {
         let mut ctx = SystemContext::default();
-        
+
         // Git info
         if let Ok(output) = std::process::Command::new("git")
             .args(["branch", "--show-current"])
@@ -233,7 +240,7 @@ impl ContextInjector {
                 ctx.git_branch = Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
             }
         }
-        
+
         if let Ok(output) = std::process::Command::new("git")
             .args(["status", "--porcelain"])
             .current_dir(&self.working_dir)
@@ -248,14 +255,14 @@ impl ContextInjector {
                 };
             }
         }
-        
+
         // Working directory
         ctx.working_directory = self.working_dir.to_str().map(|s| s.to_string());
         ctx.project_root = ctx.working_directory.clone();
-        
+
         // Project type
         ctx.project_type = Some(ProjectType::detect(&self.working_dir));
-        
+
         // Available tools (check common tools)
         let tools = ["git", "cargo", "npm", "python", "go", "docker"];
         for tool in tools {
@@ -263,7 +270,7 @@ impl ContextInjector {
                 ctx.available_tools.push(tool.to_string());
             }
         }
-        
+
         ctx
     }
 
@@ -277,7 +284,7 @@ impl ContextInjector {
                 .map(|o| o.status.success())
                 .unwrap_or(false)
         }
-        
+
         #[cfg(windows)]
         {
             std::process::Command::new("where")
@@ -292,15 +299,21 @@ impl ContextInjector {
     pub fn render_user_context(&mut self) -> String {
         let ctx = self.get_user_context();
         let mut parts = Vec::new();
-        
+
         // Date
-        parts.push(format!("<currentDate>\n{}\n</currentDate>", ctx.current_date));
-        
+        parts.push(format!(
+            "<currentDate>\n{}\n</currentDate>",
+            ctx.current_date
+        ));
+
         // CLAUDE.md content
         if let Some(ref claude_md) = ctx.claude_md_content {
-            parts.push(format!("<userPreferences>\n{}\n</userPreferences>", claude_md));
+            parts.push(format!(
+                "<userPreferences>\n{}\n</userPreferences>",
+                claude_md
+            ));
         }
-        
+
         parts.join("\n\n")
     }
 
@@ -308,12 +321,12 @@ impl ContextInjector {
     pub fn render_system_context(&mut self) -> String {
         let ctx = self.get_system_context();
         let mut parts = Vec::new();
-        
+
         // Working directory
         if let Some(ref dir) = ctx.working_directory {
             parts.push(format!("<workingDirectory>\n{}\n</workingDirectory>", dir));
         }
-        
+
         // Git info
         if let Some(ref branch) = ctx.git_branch {
             let git_info = if let Some(ref status) = ctx.git_status {
@@ -323,20 +336,25 @@ impl ContextInjector {
             };
             parts.push(format!("<gitContext>\n{}\n</gitContext>", git_info));
         }
-        
+
         // Project type
         if let Some(ref pt) = ctx.project_type {
             parts.push(format!("<projectType>\n{}\n</projectType>", pt.as_str()));
         }
-        
+
         // Available tools
         if !ctx.available_tools.is_empty() {
-            parts.push(format!("<availableTools>\n{}\n</availableTools>", ctx.available_tools.join(", ")));
+            parts.push(format!(
+                "<availableTools>\n{}\n</availableTools>",
+                ctx.available_tools.join(", ")
+            ));
         }
-        
+
         // LSP servers (dynamic injection)
         if !ctx.lsp_servers.is_empty() {
-            let servers_info = ctx.lsp_servers.iter()
+            let servers_info = ctx
+                .lsp_servers
+                .iter()
                 .map(|s| {
                     let status = s.status.label();
                     format!("{}: {} [{}]", s.language, s.name, status)
@@ -345,7 +363,7 @@ impl ContextInjector {
                 .join("\n");
             parts.push(format!("<lspServers>\n{}\n</lspServers>", servers_info));
         }
-        
+
         parts.join("\n\n")
     }
 
@@ -353,11 +371,8 @@ impl ContextInjector {
     pub fn render_full_context(&mut self) -> String {
         let user = self.render_user_context();
         let system = self.render_system_context();
-        
-        format!(
-            "<context>\n{}\n\n{}\n</context>",
-            user, system
-        )
+
+        format!("<context>\n{}\n\n{}\n</context>", user, system)
     }
 }
 
@@ -384,7 +399,7 @@ mod tests {
     fn test_project_type_detect_rust() {
         let temp_dir = tempfile::tempdir().unwrap();
         std::fs::write(temp_dir.path().join("Cargo.toml"), "").unwrap();
-        
+
         assert_eq!(ProjectType::detect(temp_dir.path()), ProjectType::Rust);
     }
 
@@ -393,20 +408,20 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         std::fs::write(temp_dir.path().join("Cargo.toml"), "").unwrap();
         std::fs::write(temp_dir.path().join("package.json"), "").unwrap();
-        
+
         assert_eq!(ProjectType::detect(temp_dir.path()), ProjectType::Mixed);
     }
 
     #[test]
     fn test_context_invalidator() {
         let mut injector = ContextInjector::new(std::env::current_dir().unwrap());
-        
+
         // Get once
         let _ = injector.get_user_context();
-        
+
         // Invalidate
         injector.invalidate();
-        
+
         // Should refresh
         let _ = injector.get_user_context();
     }
@@ -415,7 +430,7 @@ mod tests {
     fn test_render_user_context() {
         let mut injector = ContextInjector::new(std::env::current_dir().unwrap());
         let rendered = injector.render_user_context();
-        
+
         assert!(rendered.contains("<currentDate>"));
     }
 
@@ -423,7 +438,7 @@ mod tests {
     fn test_render_system_context() {
         let mut injector = ContextInjector::new(std::env::current_dir().unwrap());
         let rendered = injector.render_system_context();
-        
+
         assert!(rendered.contains("<workingDirectory>") || rendered.contains("<projectType>"));
     }
 }

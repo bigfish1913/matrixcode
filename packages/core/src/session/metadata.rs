@@ -63,7 +63,10 @@ impl SessionMetadata {
     }
 
     pub fn total_tokens_saved(&self) -> u32 {
-        self.compression_history.iter().map(|e| e.tokens_saved).sum()
+        self.compression_history
+            .iter()
+            .map(|e| e.tokens_saved)
+            .sum()
     }
 
     pub fn compression_count(&self) -> usize {
@@ -103,7 +106,10 @@ impl SessionMetadata {
             "".to_string()
         };
 
-        format!("{} {}  {} msgs  {}{}", marker, name, msgs, project, compression_info)
+        format!(
+            "{} {}  {} msgs  {}{}",
+            marker, name, msgs, project, compression_info
+        )
     }
 }
 
@@ -122,7 +128,11 @@ impl SessionIndex {
         if let Some(s) = self.sessions.iter().find(|s| s.id == query) {
             return Some(s);
         }
-        if let Some(s) = self.sessions.iter().find(|s| s.name.as_deref() == Some(query)) {
+        if let Some(s) = self
+            .sessions
+            .iter()
+            .find(|s| s.name.as_deref() == Some(query))
+        {
             return Some(s);
         }
         if let Some(s) = self.sessions.iter().find(|s| s.id.starts_with(query)) {
@@ -141,7 +151,8 @@ impl SessionIndex {
         self.sessions.retain(|s| s.id != meta.id);
         self.sessions.push(meta.clone());
         self.last_session_id = Some(meta.id);
-        self.sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        self.sessions
+            .sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     }
 
     pub fn remove(&mut self, id: &str) -> Option<SessionMetadata> {
@@ -202,7 +213,9 @@ impl MessageSummary {
                         ContentBlock::Text { text } => truncate_chars(text, 50),
                         ContentBlock::ToolUse { name, .. } => format!("[{}]", name),
                         ContentBlock::ToolResult { content, .. } => truncate_chars(content, 50),
-                        ContentBlock::Thinking { thinking, .. } => format!("💭 {}", truncate_chars(thinking, 30)),
+                        ContentBlock::Thinking { thinking, .. } => {
+                            format!("💭 {}", truncate_chars(thinking, 30))
+                        }
                         _ => "...".to_string(),
                     })
                     .collect();

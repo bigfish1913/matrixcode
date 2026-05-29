@@ -12,10 +12,10 @@ pub mod config;
 pub mod constants;
 pub mod debug;
 pub mod event;
+pub mod lsp;
+pub mod mcp;
 pub mod memory;
 pub mod models;
-pub mod mcp;
-pub mod lsp;
 pub mod overview;
 pub mod path_validator;
 pub mod prompt;
@@ -33,23 +33,23 @@ pub use approval::ApproveMode;
 pub use config::Config;
 pub use debug::{DebugLog, DebugStats, debug_log, set_debug_event_sender};
 pub use event::{AgentEvent, EventCollector, EventData, EventType};
-pub use lsp::{LspServerInfo, LspServerStatus, LspManager};
+pub use lsp::{LspManager, LspServerInfo, LspServerStatus};
 pub use providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, ProviderType, Role,
-    create_provider, create_provider_with_headers, create_minimal_provider, infer_provider_type,
+    create_minimal_provider, create_provider, create_provider_with_headers, infer_provider_type,
 };
-pub use session::{Session, SessionFileLock, SessionManager, SessionMetadata, SessionIndex, MessageSummary};
+pub use session::{
+    MessageSummary, Session, SessionFileLock, SessionIndex, SessionManager, SessionMetadata,
+};
 pub use truncate::{find_boundary, truncate_bytes, truncate_chars, truncate_with_suffix};
 
 // Workflow exports
 pub use workflow::{
-    WorkflowDef, NodeDef, EdgeDef, NodeType, FailureStrategy,
-    WorkflowEngine, WorkflowContext, WorkflowStatus, WorkflowPersistence,
-    parse_workflow, parse_workflow_from_file, to_yaml,
-    TemplateRenderer, render_template,
-    Rule, RuleEngine, ValidationResult, evaluate_expression,
-    NodeExecutor, AiExecutor, ToolExecutor, ConditionExecutor, ValidateExecutor,
-    ExecutorFactory,
+    AiExecutor, ConditionExecutor, EdgeDef, ExecutorFactory, FailureStrategy, NodeDef,
+    NodeExecutor, NodeType, Rule, RuleEngine, TemplateRenderer, ToolExecutor, ValidateExecutor,
+    ValidationResult, WorkflowContext, WorkflowDef, WorkflowEngine, WorkflowPersistence,
+    WorkflowStatus, evaluate_expression, parse_workflow, parse_workflow_from_file, render_template,
+    to_yaml,
 };
 
 /// Core version

@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
-use super::command_trait::Command;
 use super::backend_context::BackendContext;
+use super::command_trait::Command;
 
 /// 全局命令注册表
 static REGISTRY: LazyLock<Mutex<CommandRegistry>> = LazyLock::new(|| {
@@ -41,12 +41,12 @@ impl CommandRegistry {
     pub fn register(&mut self, command: Arc<dyn Command>) {
         let idx = self.commands.len();
         self.name_index.insert(command.name().to_string(), idx);
-        
+
         // 注册别名
         for alias in command.aliases() {
             self.name_index.insert(alias.to_string(), idx);
         }
-        
+
         self.commands.push(command);
     }
 

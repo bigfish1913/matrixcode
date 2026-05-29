@@ -2,12 +2,12 @@ mod app;
 mod commands;
 mod draw;
 mod events;
+pub mod image_search;
+pub mod image_utils;
 mod input;
 mod markdown;
 mod types;
 mod utils;
-pub mod image_utils;
-pub mod image_search;
 pub mod workflow;
 
 use anyhow::Result;
@@ -17,7 +17,7 @@ use ratatui::{
     crossterm::{
         cursor::Show,
         event, execute,
-        terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
+        terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
     },
 };
 use std::io::Stdout;

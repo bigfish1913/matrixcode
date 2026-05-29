@@ -1,19 +1,22 @@
 //! Workflow Create/Edit Tool
 //!
 //! 帮助用户创建、编辑、验证 workflow YAML 文件的工具
-//! 
+//!
 //! 核心功能：
 //! - 创建：从零开始创建 workflow
 //! - 编辑：修改现有 workflow 的节点、边、参数
 //! - 模板：提供预定义模板
 //! - 验证：检查 workflow 结构合法性
 
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use anyhow::{Result, bail};
 
 use crate::tools::{Tool, ToolDefinition};
-use crate::workflow::{NodeDef, EdgeDef, InputDef, OutputDef, NodeType, parser::{parse_workflow, parse_workflow_from_file, to_yaml}};
+use crate::workflow::{
+    EdgeDef, InputDef, NodeDef, NodeType, OutputDef,
+    parser::{parse_workflow, parse_workflow_from_file, to_yaml},
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -25,11 +28,9 @@ fn get_workflow_dir(location: &str) -> Result<PathBuf> {
                 .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?;
             Ok(cwd.join(".matrix").join("workflows"))
         }
-        "user" => {
-            dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))
-                .map(|p| p.join(".matrix").join("workflows"))
-        }
+        "user" => dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))
+            .map(|p| p.join(".matrix").join("workflows")),
         _ => bail!("Invalid location: {}. Use 'project' or 'user'", location),
     }
 }
@@ -202,7 +203,10 @@ impl Tool for WorkflowCreateTool {
             "template" => self.handle_template(params).await,
             "validate" => self.handle_validate(params).await,
             "info" => self.handle_info(params).await,
-            _ => bail!("Invalid mode: {}. Supported modes: create, edit, template, validate, info", mode),
+            _ => bail!(
+                "Invalid mode: {}. Supported modes: create, edit, template, validate, info",
+                mode
+            ),
         }
     }
 }
@@ -213,18 +217,20 @@ impl WorkflowCreateTool {
         // 获取 workflow 定义
         let workflow_def = if let Some(yaml_str) = params["yaml_content"].as_str() {
             // 从 YAML 解析
-            parse_workflow(yaml_str)
-                .map_err(|e| anyhow::anyhow!("Failed to parse YAML: {}", e))?
+            parse_workflow(yaml_str).map_err(|e| anyhow::anyhow!("Failed to parse YAML: {}", e))?
         } else if let Some(workflow_json) = params.get("workflow") {
             // 从 JSON 解析
             serde_json::from_value(workflow_json.clone())
                 .map_err(|e| anyhow::anyhow!("Failed to parse workflow JSON: {}", e))?
         } else {
-            bail!("Missing workflow definition. Provide either 'workflow' (JSON) or 'yaml_content' (YAML string)");
+            bail!(
+                "Missing workflow definition. Provide either 'workflow' (JSON) or 'yaml_content' (YAML string)"
+            );
         };
 
         // 验证 workflow
-        workflow_def.validate()
+        workflow_def
+            .validate()
             .map_err(|e| anyhow::anyhow!("Workflow validation failed: {}", e))?;
 
         // 获取保存位置
@@ -256,10 +262,7 @@ impl WorkflowCreateTool {
 
         Ok(format!(
             "✓ Workflow created successfully!\n\n📄 File: {:?}\n📁 ID: {}\n📝 Name: {}\n\n```yaml\n{}\n```\n\nUse 'workflow_run' to execute this workflow.",
-            file_path,
-            workflow_def.id,
-            workflow_def.name,
-            yaml_content
+            file_path, workflow_def.id, workflow_def.name, yaml_content
         ))
     }
 
@@ -273,26 +276,29 @@ impl WorkflowCreateTool {
             "condition" => self.get_condition_template(),
             "research" => self.get_research_template(),
             "batch" => self.get_batch_template(),
-            _ => bail!("Unknown template type: {}. Available: simple, parallel, condition, research, batch", template_type),
+            _ => bail!(
+                "Unknown template type: {}. Available: simple, parallel, condition, research, batch",
+                template_type
+            ),
         };
 
         Ok(format!(
             "📋 Workflow Template: {}\n\n```yaml\n{}\n```\n\n💡 Tips:\n- Copy this template and modify as needed\n- Use 'workflow_create' with mode='create' to save it\n- Each workflow must have a start node and an end node",
-            template_type,
-            template
+            template_type, template
         ))
     }
 
     /// 验证 workflow 结构
     async fn handle_validate(&self, params: Value) -> Result<String> {
         let workflow_def = if let Some(yaml_str) = params["yaml_content"].as_str() {
-            parse_workflow(yaml_str)
-                .map_err(|e| anyhow::anyhow!("YAML parsing failed: {}", e))?
+            parse_workflow(yaml_str).map_err(|e| anyhow::anyhow!("YAML parsing failed: {}", e))?
         } else if let Some(workflow_json) = params.get("workflow") {
             serde_json::from_value(workflow_json.clone())
                 .map_err(|e| anyhow::anyhow!("JSON parsing failed: {}", e))?
         } else {
-            bail!("Missing workflow definition. Provide either 'workflow' (JSON) or 'yaml_content' (YAML string)");
+            bail!(
+                "Missing workflow definition. Provide either 'workflow' (JSON) or 'yaml_content' (YAML string)"
+            );
         };
 
         // 执行验证
@@ -342,41 +348,53 @@ impl WorkflowCreateTool {
         match edit_operation {
             // 节点操作
             "add_node" => {
-                let node_json = edit_value.ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for add_node"))?;
+                let node_json = edit_value
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for add_node"))?;
                 let new_node: NodeDef = serde_json::from_value(node_json)
                     .map_err(|e| anyhow::anyhow!("Invalid node definition: {}", e))?;
-                
+
                 // 检查节点ID是否已存在
                 if workflow.nodes.iter().any(|n| n.id == new_node.id) {
                     bail!("Node '{}' already exists", new_node.id);
                 }
-                
+
                 workflow.nodes.push(new_node);
             }
 
             "remove_node" => {
-                let node_id = edit_target.ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for remove_node"))?;
-                let idx = workflow.nodes.iter().position(|n| n.id == node_id)
+                let node_id = edit_target
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for remove_node"))?;
+                let idx = workflow
+                    .nodes
+                    .iter()
+                    .position(|n| n.id == node_id)
                     .ok_or_else(|| anyhow::anyhow!("Node '{}' not found", node_id))?;
-                
+
                 // 不能删除 start/end 节点
                 let node = &workflow.nodes[idx];
                 if node.node_type == NodeType::Start || node.node_type == NodeType::End {
                     bail!("Cannot remove start/end nodes");
                 }
-                
+
                 // 删除相关边
-                workflow.edges.retain(|e| e.from != node_id && e.to != node_id);
+                workflow
+                    .edges
+                    .retain(|e| e.from != node_id && e.to != node_id);
                 workflow.nodes.remove(idx);
             }
 
             "update_node" => {
-                let node_id = edit_target.ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for update_node"))?;
-                let node = workflow.nodes.iter_mut().find(|n| n.id == node_id)
+                let node_id = edit_target
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for update_node"))?;
+                let node = workflow
+                    .nodes
+                    .iter_mut()
+                    .find(|n| n.id == node_id)
                     .ok_or_else(|| anyhow::anyhow!("Node '{}' not found", node_id))?;
-                
-                let updates = edit_value.ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for update_node"))?;
-                
+
+                let updates = edit_value
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for update_node"))?;
+
                 // 更新节点属性
                 if let Some(name) = updates.get("name").and_then(|v| v.as_str()) {
                     node.name = name.to_string();
@@ -395,10 +413,11 @@ impl WorkflowCreateTool {
 
             // 边操作
             "add_edge" => {
-                let edge_json = edit_value.ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for add_edge"))?;
+                let edge_json = edit_value
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for add_edge"))?;
                 let new_edge: EdgeDef = serde_json::from_value(edge_json)
                     .map_err(|e| anyhow::anyhow!("Invalid edge definition: {}", e))?;
-                
+
                 // 检查源和目标节点是否存在
                 if !workflow.nodes.iter().any(|n| n.id == new_edge.from) {
                     bail!("Source node '{}' not found", new_edge.from);
@@ -406,39 +425,49 @@ impl WorkflowCreateTool {
                 if !workflow.nodes.iter().any(|n| n.id == new_edge.to) {
                     bail!("Target node '{}' not found", new_edge.to);
                 }
-                
+
                 workflow.edges.push(new_edge);
             }
 
             "remove_edge" => {
-                let from = edit_target.ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' (from node) for remove_edge"))?;
-                let to = params["to"].as_str()
+                let from = edit_target.ok_or_else(|| {
+                    anyhow::anyhow!("Missing 'edit_target' (from node) for remove_edge")
+                })?;
+                let to = params["to"]
+                    .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing 'to' parameter for remove_edge"))?;
-                
+
                 workflow.edges.retain(|e| e.from != from || e.to != to);
             }
 
             // 输入参数操作
             "add_input" => {
-                let input_json = edit_value.ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for add_input"))?;
+                let input_json = edit_value
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for add_input"))?;
                 let new_input: InputDef = serde_json::from_value(input_json)
                     .map_err(|e| anyhow::anyhow!("Invalid input definition: {}", e))?;
-                
+
                 workflow.inputs.push(new_input);
             }
 
             "remove_input" => {
-                let input_name = edit_target.ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for remove_input"))?;
+                let input_name = edit_target
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for remove_input"))?;
                 workflow.inputs.retain(|i| i.name != input_name);
             }
 
             "update_input" => {
-                let input_name = edit_target.ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for update_input"))?;
-                let input = workflow.inputs.iter_mut().find(|i| i.name == input_name)
+                let input_name = edit_target
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for update_input"))?;
+                let input = workflow
+                    .inputs
+                    .iter_mut()
+                    .find(|i| i.name == input_name)
                     .ok_or_else(|| anyhow::anyhow!("Input '{}' not found", input_name))?;
-                
-                let updates = edit_value.ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for update_input"))?;
-                
+
+                let updates = edit_value
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for update_input"))?;
+
                 if let Some(desc) = updates.get("description").and_then(|v| v.as_str()) {
                     input.description = Some(desc.to_string());
                 }
@@ -452,25 +481,32 @@ impl WorkflowCreateTool {
 
             // 输出参数操作
             "add_output" => {
-                let output_json = edit_value.ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for add_output"))?;
+                let output_json = edit_value
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for add_output"))?;
                 let new_output: OutputDef = serde_json::from_value(output_json)
                     .map_err(|e| anyhow::anyhow!("Invalid output definition: {}", e))?;
-                
+
                 workflow.outputs.push(new_output);
             }
 
             "remove_output" => {
-                let output_name = edit_target.ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for remove_output"))?;
+                let output_name = edit_target
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for remove_output"))?;
                 workflow.outputs.retain(|o| o.name != output_name);
             }
 
             "update_output" => {
-                let output_name = edit_target.ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for update_output"))?;
-                let output = workflow.outputs.iter_mut().find(|o| o.name == output_name)
+                let output_name = edit_target
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_target' for update_output"))?;
+                let output = workflow
+                    .outputs
+                    .iter_mut()
+                    .find(|o| o.name == output_name)
                     .ok_or_else(|| anyhow::anyhow!("Output '{}' not found", output_name))?;
-                
-                let updates = edit_value.ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for update_output"))?;
-                
+
+                let updates = edit_value
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for update_output"))?;
+
                 if let Some(value) = updates.get("value").and_then(|v| v.as_str()) {
                     output.value = value.to_string();
                 }
@@ -481,8 +517,9 @@ impl WorkflowCreateTool {
 
             // 元数据操作
             "update_metadata" => {
-                let updates = edit_value.ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for update_metadata"))?;
-                
+                let updates = edit_value
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'edit_value' for update_metadata"))?;
+
                 if let Some(name) = updates.get("name").and_then(|v| v.as_str()) {
                     workflow.name = name.to_string();
                 }
@@ -498,21 +535,19 @@ impl WorkflowCreateTool {
         }
 
         // 验证修改后的 workflow
-        workflow.validate()
+        workflow
+            .validate()
             .map_err(|e| anyhow::anyhow!("Workflow validation failed after edit: {}", e))?;
 
         // 保存文件
-        let yaml_content = to_yaml(&workflow)
-            .map_err(|e| anyhow::anyhow!("Failed to convert to YAML: {}", e))?;
+        let yaml_content =
+            to_yaml(&workflow).map_err(|e| anyhow::anyhow!("Failed to convert to YAML: {}", e))?;
         fs::write(&file_path, &yaml_content)
             .map_err(|e| anyhow::anyhow!("Failed to write file {:?}: {}", file_path, e))?;
 
         Ok(format!(
             "✓ Workflow '{}' updated successfully!\n\nOperation: {}\n📄 File: {:?}\n\n```yaml\n{}\n```\n\nUse 'info' mode to see detailed structure.",
-            workflow_id,
-            edit_operation,
-            file_path,
-            yaml_content
+            workflow_id, edit_operation, file_path, yaml_content
         ))
     }
 
@@ -537,10 +572,7 @@ impl WorkflowCreateTool {
 
         let mut info = format!(
             "📋 Workflow: {}\n\n📁 ID: {}\n📝 Name: {}\n📌 Version: {}\n",
-            workflow_id,
-            workflow.id,
-            workflow.name,
-            workflow.version
+            workflow_id, workflow.id, workflow.name, workflow.version
         );
 
         if let Some(ref desc) = workflow.description {
@@ -561,7 +593,7 @@ impl WorkflowCreateTool {
                 NodeType::SubWorkflow => "subworkflow",
             };
             info.push_str(&format!("  - {} [{}] {}\n", node.id, node_type, node.name));
-            
+
             if let Some(ref task) = node.task {
                 info.push_str(&format!("    Task: {}\n", task));
             }
@@ -570,7 +602,11 @@ impl WorkflowCreateTool {
         // 边信息
         info.push_str("\n🔗 Edges:\n");
         for edge in &workflow.edges {
-            let label = edge.label.as_ref().map(|l| format!(" ({})", l)).unwrap_or_default();
+            let label = edge
+                .label
+                .as_ref()
+                .map(|l| format!(" ({})", l))
+                .unwrap_or_default();
             info.push_str(&format!("  {} → {}{}\n", edge.from, edge.to, label));
         }
 
@@ -579,7 +615,10 @@ impl WorkflowCreateTool {
             info.push_str("\n📥 Inputs:\n");
             for input in &workflow.inputs {
                 let required = if input.required { " (required)" } else { "" };
-                info.push_str(&format!("  - {} [{}]{}\n", input.name, input.input_type, required));
+                info.push_str(&format!(
+                    "  - {} [{}]{}\n",
+                    input.name, input.input_type, required
+                ));
                 if let Some(ref desc) = input.description {
                     info.push_str(&format!("    {}\n", desc));
                 }
@@ -637,7 +676,8 @@ edges:
     to: task1
   - from: task1
     to: end
-"#.to_string()
+"#
+        .to_string()
     }
 
     /// 并行工作流模板
@@ -698,7 +738,8 @@ edges:
     to: merge
   - from: merge
     to: end
-"#.to_string()
+"#
+        .to_string()
     }
 
     /// 条件工作流模板
@@ -761,7 +802,8 @@ edges:
     to: end
   - from: zero_task
     to: end
-"#.to_string()
+"#
+        .to_string()
     }
 
     /// 研究工作流模板
@@ -832,7 +874,8 @@ edges:
     to: generate_report
   - from: generate_report
     to: end
-"#.to_string()
+"#
+        .to_string()
     }
 
     /// 批量操作工作流模板
@@ -907,7 +950,8 @@ edges:
     to: aggregate_results
   - from: aggregate_results
     to: end
-"#.to_string()
+"#
+        .to_string()
     }
 }
 
@@ -919,11 +963,14 @@ mod tests {
     #[tokio::test]
     async fn test_template_simple() {
         let tool = WorkflowCreateTool;
-        let result = tool.execute(json!({
-            "mode": "template",
-            "template_type": "simple"
-        })).await.unwrap();
-        
+        let result = tool
+            .execute(json!({
+                "mode": "template",
+                "template_type": "simple"
+            }))
+            .await
+            .unwrap();
+
         assert!(result.contains("simple"));
         assert!(result.contains("id:"));
         assert!(result.contains("nodes:"));
@@ -933,11 +980,14 @@ mod tests {
     #[tokio::test]
     async fn test_template_research() {
         let tool = WorkflowCreateTool;
-        let result = tool.execute(json!({
-            "mode": "template",
-            "template_type": "research"
-        })).await.unwrap();
-        
+        let result = tool
+            .execute(json!({
+                "mode": "template",
+                "template_type": "research"
+            }))
+            .await
+            .unwrap();
+
         assert!(result.contains("research"));
         assert!(result.contains("websearch"));
         assert!(result.contains("generate_report"));
@@ -950,7 +1000,7 @@ mod tests {
             "mode": "validate",
             "yaml_content": "id: test\nname: Test\nnodes:\n  - id: start\n    type: start\n    name: Start\n  - id: end\n    type: end\n    name: End\nedges:\n  - from: start\n    to: end"
         })).await.unwrap();
-        
+
         assert!(result.contains("validation passed"));
         assert!(result.contains("Nodes: 2"));
         assert!(result.contains("Edges: 1"));
@@ -963,16 +1013,21 @@ mod tests {
             "mode": "validate",
             "yaml_content": "id: test\nname: Test\nnodes:\n  - id: task1\n    type: task\n    name: Task"
         })).await;
-        
+
         // Should fail because no start/end nodes
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("validation failed"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("validation failed")
+        );
     }
 
     #[tokio::test]
     async fn test_info_mode() {
         let tool = WorkflowCreateTool;
-        
+
         // 先创建一个 workflow
         let create_result = tool.execute(json!({
             "mode": "create",
@@ -1000,15 +1055,18 @@ mod tests {
             "location": "project",
             "overwrite": true
         })).await.unwrap();
-        
+
         assert!(create_result.contains("created successfully"));
 
         // 测试 info 模式
-        let info_result = tool.execute(json!({
-            "mode": "info",
-            "workflow_id": "test-info-workflow"
-        })).await.unwrap();
-        
+        let info_result = tool
+            .execute(json!({
+                "mode": "info",
+                "workflow_id": "test-info-workflow"
+            }))
+            .await
+            .unwrap();
+
         assert!(info_result.contains("test-info-workflow"));
         assert!(info_result.contains("Test Info Workflow"));
         assert!(info_result.contains("Task 1"));
@@ -1019,7 +1077,7 @@ mod tests {
     #[tokio::test]
     async fn test_edit_update_node() {
         let tool = WorkflowCreateTool;
-        
+
         // 先创建一个 workflow
         tool.execute(json!({
             "mode": "create",
@@ -1039,29 +1097,37 @@ mod tests {
             },
             "location": "project",
             "overwrite": true
-        })).await.unwrap();
+        }))
+        .await
+        .unwrap();
 
         // 测试 update_node
-        let edit_result = tool.execute(json!({
-            "mode": "edit",
-            "workflow_id": "test-edit-workflow",
-            "edit_operation": "update_node",
-            "edit_target": "task1",
-            "edit_value": {
-                "name": "New Name",
-                "task": "new_task"
-            }
-        })).await.unwrap();
-        
+        let edit_result = tool
+            .execute(json!({
+                "mode": "edit",
+                "workflow_id": "test-edit-workflow",
+                "edit_operation": "update_node",
+                "edit_target": "task1",
+                "edit_value": {
+                    "name": "New Name",
+                    "task": "new_task"
+                }
+            }))
+            .await
+            .unwrap();
+
         assert!(edit_result.contains("updated successfully"));
         assert!(edit_result.contains("update_node"));
 
         // 验证更新
-        let info_result = tool.execute(json!({
-            "mode": "info",
-            "workflow_id": "test-edit-workflow"
-        })).await.unwrap();
-        
+        let info_result = tool
+            .execute(json!({
+                "mode": "info",
+                "workflow_id": "test-edit-workflow"
+            }))
+            .await
+            .unwrap();
+
         assert!(info_result.contains("New Name"));
         assert!(info_result.contains("new_task"));
         assert!(!info_result.contains("Old Name"));
@@ -1070,7 +1136,7 @@ mod tests {
     #[tokio::test]
     async fn test_edit_add_node() {
         let tool = WorkflowCreateTool;
-        
+
         // 先创建一个 workflow
         tool.execute(json!({
             "mode": "create",
@@ -1088,34 +1154,42 @@ mod tests {
             },
             "location": "project",
             "overwrite": true
-        })).await.unwrap();
+        }))
+        .await
+        .unwrap();
 
         // 测试 add_node
-        let edit_result = tool.execute(json!({
-            "mode": "edit",
-            "workflow_id": "test-add-node-workflow",
-            "edit_operation": "add_node",
-            "edit_value": {
-                "id": "new_task",
-                "type": "task",
-                "name": "New Task",
-                "task": "process"
-            }
-        })).await.unwrap();
-        
+        let edit_result = tool
+            .execute(json!({
+                "mode": "edit",
+                "workflow_id": "test-add-node-workflow",
+                "edit_operation": "add_node",
+                "edit_value": {
+                    "id": "new_task",
+                    "type": "task",
+                    "name": "New Task",
+                    "task": "process"
+                }
+            }))
+            .await
+            .unwrap();
+
         assert!(edit_result.contains("updated successfully"));
 
         // 测试 add_edge
-        let edge_result = tool.execute(json!({
-            "mode": "edit",
-            "workflow_id": "test-add-node-workflow",
-            "edit_operation": "add_edge",
-            "edit_value": {
-                "from": "start",
-                "to": "new_task"
-            }
-        })).await.unwrap();
-        
+        let edge_result = tool
+            .execute(json!({
+                "mode": "edit",
+                "workflow_id": "test-add-node-workflow",
+                "edit_operation": "add_edge",
+                "edit_value": {
+                    "from": "start",
+                    "to": "new_task"
+                }
+            }))
+            .await
+            .unwrap();
+
         assert!(edge_result.contains("updated successfully"));
 
         // 再添加一条边
@@ -1127,14 +1201,19 @@ mod tests {
                 "from": "new_task",
                 "to": "end"
             }
-        })).await.unwrap();
+        }))
+        .await
+        .unwrap();
 
         // 验证节点和边
-        let info_result = tool.execute(json!({
-            "mode": "info",
-            "workflow_id": "test-add-node-workflow"
-        })).await.unwrap();
-        
+        let info_result = tool
+            .execute(json!({
+                "mode": "info",
+                "workflow_id": "test-add-node-workflow"
+            }))
+            .await
+            .unwrap();
+
         assert!(info_result.contains("new_task"));
         assert!(info_result.contains("New Task"));
         assert!(info_result.contains("start → new_task"));
@@ -1144,10 +1223,12 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_mode() {
         let tool = WorkflowCreateTool;
-        let result = tool.execute(json!({
-            "mode": "invalid"
-        })).await;
-        
+        let result = tool
+            .execute(json!({
+                "mode": "invalid"
+            }))
+            .await;
+
         assert!(result.is_err());
     }
 
@@ -1155,7 +1236,7 @@ mod tests {
     fn test_definition() {
         let tool = WorkflowCreateTool;
         let def = tool.definition();
-        
+
         assert_eq!(def.name, "workflow_create");
         assert!(def.description.contains("创建并保存"));
         assert!(def.parameters["properties"]["mode"].is_object());

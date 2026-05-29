@@ -5,8 +5,8 @@
 //! - User directory: ~/.matrix/workflows/*.yaml
 
 use anyhow::Result;
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use super::def::WorkflowDef;
 use super::parser::parse_workflow_from_file;
@@ -88,9 +88,10 @@ impl WorkflowRegistry {
 
         // Discover from project directory
         if let Some(proj) = project_path
-            && proj.exists() {
-                self.discover_from_dir(&proj, WorkflowSource::Project)?;
-            }
+            && proj.exists()
+        {
+            self.discover_from_dir(&proj, WorkflowSource::Project)?;
+        }
 
         // Discover from user directory
         if user_path.exists() {
@@ -108,23 +109,28 @@ impl WorkflowRegistry {
             let path = entry.path();
 
             // Only process .yaml and .yml files
-            if path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml")
-                && let Ok(workflow) = parse_workflow_from_file(&path) {
-                    let info = WorkflowInfo {
-                        id: workflow.id.clone(),
-                        name: workflow.name.clone(),
-                        description: workflow.description.clone(),
-                        path: path.clone(),
-                        source: source.clone(),
-                        tags: self.extract_tags(&workflow),
-                        required_inputs: workflow.inputs.iter()
-                            .filter(|i| i.required)
-                            .map(|i| i.name.clone())
-                            .collect(),
-                    };
+            if path
+                .extension()
+                .is_some_and(|ext| ext == "yaml" || ext == "yml")
+                && let Ok(workflow) = parse_workflow_from_file(&path)
+            {
+                let info = WorkflowInfo {
+                    id: workflow.id.clone(),
+                    name: workflow.name.clone(),
+                    description: workflow.description.clone(),
+                    path: path.clone(),
+                    source: source.clone(),
+                    tags: self.extract_tags(&workflow),
+                    required_inputs: workflow
+                        .inputs
+                        .iter()
+                        .filter(|i| i.required)
+                        .map(|i| i.name.clone())
+                        .collect(),
+                };
 
-                    self.workflows.insert(workflow.id.clone(), info);
-                }
+                self.workflows.insert(workflow.id.clone(), info);
+            }
         }
 
         Ok(())
@@ -179,7 +185,9 @@ impl WorkflowRegistry {
         let query_words: Vec<&str> = query_lower.split_whitespace().collect();
 
         // Calculate match scores
-        let mut scored: Vec<(usize, &WorkflowInfo)> = self.workflows.values()
+        let mut scored: Vec<(usize, &WorkflowInfo)> = self
+            .workflows
+            .values()
             .map(|info| {
                 let score = self.calculate_match_score(info, &query_words, &query_lower);
                 (score, info)
@@ -194,7 +202,12 @@ impl WorkflowRegistry {
     }
 
     /// Calculate match score for a workflow
-    fn calculate_match_score(&self, info: &WorkflowInfo, query_words: &[&str], query_lower: &str) -> usize {
+    fn calculate_match_score(
+        &self,
+        info: &WorkflowInfo,
+        query_words: &[&str],
+        query_lower: &str,
+    ) -> usize {
         let mut score = 0;
 
         // Direct ID match
@@ -275,13 +288,12 @@ impl WorkflowRegistry {
         let mut summary = format!("Available workflows ({}):\n\n", self.count());
 
         for info in self.list() {
-            let source = if info.source == WorkflowSource::Project { "project" } else { "global" };
-            summary.push_str(&format!(
-                "• {} - {} [{}]\n",
-                info.id,
-                info.name,
-                source
-            ));
+            let source = if info.source == WorkflowSource::Project {
+                "project"
+            } else {
+                "global"
+            };
+            summary.push_str(&format!("• {} - {} [{}]\n", info.id, info.name, source));
 
             if let Some(ref desc) = info.description {
                 let desc_short = desc.chars().take(50).collect::<String>();
@@ -289,7 +301,10 @@ impl WorkflowRegistry {
             }
 
             if !info.required_inputs.is_empty() {
-                summary.push_str(&format!("  Required inputs: {}\n", info.required_inputs.join(", ")));
+                summary.push_str(&format!(
+                    "  Required inputs: {}\n",
+                    info.required_inputs.join(", ")
+                ));
             }
         }
 
@@ -333,7 +348,7 @@ mod tests {
     #[test]
     fn test_discover_image_article_workflow() {
         let registry = WorkflowRegistry::new_global();
-        
+
         // Check if image-article workflow is discovered
         let info = registry.get("image-article");
         if let Some(workflow_info) = info {
@@ -342,8 +357,10 @@ mod tests {
             assert!(workflow_info.required_inputs.contains(&"topic".to_string()));
         } else {
             // If not found, at least verify the hello-world workflow exists
-            assert!(registry.get("hello-world").is_some(), 
-                    "Neither image-article nor hello-world workflows found in ~/.matrix/workflows/");
+            assert!(
+                registry.get("hello-world").is_some(),
+                "Neither image-article nor hello-world workflows found in ~/.matrix/workflows/"
+            );
         }
     }
 }

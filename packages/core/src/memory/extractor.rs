@@ -16,7 +16,12 @@ use super::manager::AutoMemory;
 #[async_trait::async_trait]
 pub trait MemoryExtractor: Send + Sync {
     /// Extract memories from conversation text using AI.
-    async fn extract(&self, text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Result<Vec<MemoryEntry>>;
+    async fn extract(
+        &self,
+        text: &str,
+        session_id: Option<&str>,
+        project_path: Option<&str>,
+    ) -> Result<Vec<MemoryEntry>>;
 
     /// Get the model name used for extraction.
     fn model_name(&self) -> &str;
@@ -119,7 +124,12 @@ const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是记忆提取助手。从对�
 
 #[async_trait::async_trait]
 impl MemoryExtractor for AiMemoryExtractor {
-    async fn extract(&self, text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Result<Vec<MemoryEntry>> {
+    async fn extract(
+        &self,
+        text: &str,
+        session_id: Option<&str>,
+        project_path: Option<&str>,
+    ) -> Result<Vec<MemoryEntry>> {
         use crate::providers::{ChatRequest, Message, MessageContent, Role};
 
         // Safely truncate to ~4000 chars respecting UTF-8 boundaries
@@ -164,7 +174,11 @@ impl MemoryExtractor for AiMemoryExtractor {
     }
 }
 
-fn parse_memory_response(json_text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Result<Vec<MemoryEntry>> {
+fn parse_memory_response(
+    json_text: &str,
+    session_id: Option<&str>,
+    project_path: Option<&str>,
+) -> Result<Vec<MemoryEntry>> {
     let cleaned = json_text
         .trim()
         .trim_start_matches("```json")
@@ -209,8 +223,12 @@ fn parse_memory_response(json_text: &str, session_id: Option<&str>, project_path
                 return None;
             }
 
-            let mut entry =
-                MemoryEntry::new(category, item.content, session_id.map(|s| s.to_string()), project_path.map(|p| p.to_string()));
+            let mut entry = MemoryEntry::new(
+                category,
+                item.content,
+                session_id.map(|s| s.to_string()),
+                project_path.map(|p| p.to_string()),
+            );
             if item.importance > 0.0 {
                 entry.importance = item.importance.clamp(0.0, 100.0);
             }
@@ -254,18 +272,40 @@ fn deduplicate_entries(entries: Vec<MemoryEntry>) -> Vec<MemoryEntry> {
 // ============================================================================
 
 /// Detect memories from text using hard-coded patterns.
-pub fn detect_memories_fallback(text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Vec<MemoryEntry> {
+pub fn detect_memories_fallback(
+    text: &str,
+    session_id: Option<&str>,
+    project_path: Option<&str>,
+) -> Vec<MemoryEntry> {
     let mut entries = Vec::new();
     let text_lower = text.to_lowercase();
 
     // Hard-coded patterns for each category
     let patterns = [
-        (MemoryCategory::Decision, ["决定", "选择", "采用", "定下", "decided", "chose"]),
-        (MemoryCategory::Preference, ["偏好", "习惯", "喜欢", "首选", "prefer", "like"]),
-        (MemoryCategory::Solution, ["解决", "修复", "搞定", "改成", "fixed", "solved"]),
-        (MemoryCategory::Finding, ["发现", "原来", "原因", "定位", "found", "reason"]),
-        (MemoryCategory::Technical, ["技术栈", "框架", "用的", "基于", "stack", "using"]),
-        (MemoryCategory::Structure, ["入口", "主文件", "目录", "位于", "entry", "main"]),
+        (
+            MemoryCategory::Decision,
+            ["决定", "选择", "采用", "定下", "decided", "chose"],
+        ),
+        (
+            MemoryCategory::Preference,
+            ["偏好", "习惯", "喜欢", "首选", "prefer", "like"],
+        ),
+        (
+            MemoryCategory::Solution,
+            ["解决", "修复", "搞定", "改成", "fixed", "solved"],
+        ),
+        (
+            MemoryCategory::Finding,
+            ["发现", "原来", "原因", "定位", "found", "reason"],
+        ),
+        (
+            MemoryCategory::Technical,
+            ["技术栈", "框架", "用的", "基于", "stack", "using"],
+        ),
+        (
+            MemoryCategory::Structure,
+            ["入口", "主文件", "目录", "位于", "entry", "main"],
+        ),
     ];
 
     for (category, keywords) in patterns {
@@ -288,7 +328,11 @@ pub fn detect_memories_fallback(text: &str, session_id: Option<&str>, project_pa
 }
 
 /// Detect memories from text (wrapper for fallback).
-pub fn detect_memories_from_text(text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Vec<MemoryEntry> {
+pub fn detect_memories_from_text(
+    text: &str,
+    session_id: Option<&str>,
+    project_path: Option<&str>,
+) -> Vec<MemoryEntry> {
     detect_memories_fallback(text, session_id, project_path)
 }
 

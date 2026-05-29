@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::constants::{
-    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS, DEFAULT_READ_TIMEOUT_SECS,
+    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_READ_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS,
 };
 use crate::models::context_window_for;
 use crate::tools::ToolDefinition;
@@ -223,7 +223,8 @@ impl Provider for OpenAIProvider {
         let url = format!("{}/chat/completions", self.base_url);
 
         // Debug: log request
-        crate::debug::debug_log().api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
+        crate::debug::debug_log()
+            .api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
 
         let mut req = self
             .client
@@ -237,26 +238,27 @@ impl Provider for OpenAIProvider {
             req = req.header(name, value);
         }
 
-        let response = req.send().await.map_err(|e| {
-            anyhow::anyhow!("HTTP request failed: {} (url: {})", e, url)
-        })?;
+        let response = req
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("HTTP request failed: {} (url: {})", e, url))?;
 
         let status = response.status();
-        let response_body: Value = response.json().await.map_err(|e| {
-            anyhow::anyhow!("Failed to parse response JSON: {}", e)
-        })?;
+        let response_body: Value = response
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to parse response JSON: {}", e))?;
 
         // Debug: log response
-        crate::debug::debug_log().api_response(status.as_u16(), &serde_json::to_string(&response_body).unwrap_or_default());
+        crate::debug::debug_log().api_response(
+            status.as_u16(),
+            &serde_json::to_string(&response_body).unwrap_or_default(),
+        );
 
         if !status.is_success() {
             let err_msg = response_body["error"]["message"]
                 .as_str()
-                .unwrap_or_else(|| {
-                    response_body["error"]
-                        .as_str()
-                        .unwrap_or("unknown error")
-                });
+                .unwrap_or_else(|| response_body["error"].as_str().unwrap_or("unknown error"));
             anyhow::bail!("API error ({}): {}", status, err_msg);
         }
 

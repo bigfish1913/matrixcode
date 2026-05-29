@@ -10,13 +10,13 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::truncate::truncate_with_suffix;
-use crate::event::AgentEvent;
 use crate::constants::MATRIX_DIR;
+use crate::event::AgentEvent;
+use crate::truncate::truncate_with_suffix;
 use tokio::sync::mpsc;
 
 static API_CALL_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -59,9 +59,9 @@ impl DebugLog {
         self.enabled.store(true, Ordering::Relaxed);
 
         // Generate session ID if not provided
-        let sid = session_id.map(|s| s.to_string()).unwrap_or_else(|| {
-            Self::generate_session_id()
-        });
+        let sid = session_id
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| Self::generate_session_id());
 
         if let Ok(mut guard) = self.session_id.lock() {
             *guard = Some(sid.clone());
@@ -118,7 +118,10 @@ impl DebugLog {
     }
 
     /// Open a session-specific log file
-    fn open_session_log_file(session_id: &str, rotation: u32) -> Result<(File, PathBuf), std::io::Error> {
+    fn open_session_log_file(
+        session_id: &str,
+        rotation: u32,
+    ) -> Result<(File, PathBuf), std::io::Error> {
         let mut path = Self::get_log_dir()?;
         let filename = if rotation == 0 {
             format!("{}.log", session_id)
@@ -126,10 +129,7 @@ impl DebugLog {
             format!("{}.{}.log", session_id, rotation)
         };
         path.push(&filename);
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok((file, path))
     }
 
@@ -139,9 +139,11 @@ impl DebugLog {
             && let Ok(mut path_guard) = self.current_file.lock()
             && let Ok(session_guard) = self.session_id.lock()
         {
-            if let (Some(file), Some(_path), Some(session_id)) =
-                (file_guard.as_mut(), path_guard.as_ref(), session_guard.as_ref())
-            {
+            if let (Some(file), Some(_path), Some(session_id)) = (
+                file_guard.as_mut(),
+                path_guard.as_ref(),
+                session_guard.as_ref(),
+            ) {
                 // Check file size
                 if let Ok(metadata) = file.metadata() {
                     if metadata.len() > MAX_LOG_SIZE {
@@ -158,7 +160,9 @@ impl DebugLog {
                         }
 
                         // Open new rotated file
-                        if let Ok((new_file, new_path)) = Self::open_session_log_file(session_id, rotation) {
+                        if let Ok((new_file, new_path)) =
+                            Self::open_session_log_file(session_id, rotation)
+                        {
                             *file_guard = Some(new_file);
                             *path_guard = Some(new_path);
                         }
@@ -173,12 +177,19 @@ impl DebugLog {
         let log_dir = Self::get_log_dir()?;
         let mut log_files: Vec<_> = fs::read_dir(&log_dir)?
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "log").unwrap_or(false))
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "log")
+                    .unwrap_or(false)
+            })
             .collect();
 
         // Sort by modification time (oldest first)
         log_files.sort_by_key(|e| {
-            e.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
+            e.metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH)
         });
 
         // Remove oldest files beyond keep_count
@@ -205,21 +216,22 @@ impl DebugLog {
 
     /// Log an API call
     pub fn api_call(&self, model: &str, input_tokens: u32, cached: bool) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         let count = API_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let msg = format!(
             "API#{}: model={}, input_tokens={}, cached={}",
-            count,
-            model,
-            input_tokens,
-            cached
+            count, model, input_tokens, cached
         );
         self.write_log("API", &msg);
     }
 
     /// Log compression trigger
     pub fn compression(&self, original_tokens: u32, compressed_tokens: u32, ratio: f32) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         let count = COMPRESSION_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let saved = original_tokens - compressed_tokens;
         let msg = format!(
@@ -235,20 +247,22 @@ impl DebugLog {
 
     /// Log memory save
     pub fn memory_save(&self, entries: usize, summary_len: usize) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         let count = MEMORY_SAVE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let msg = format!(
             "MEMORY#{}: entries={}, summary_len={}chars",
-            count,
-            entries,
-            summary_len
+            count, entries, summary_len
         );
         self.write_log("MEMORY", &msg);
     }
 
     /// Log keyword extraction
     pub fn keywords_extracted(&self, keywords: &[String], source: &str) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         let msg = format!(
             "{} extracted from {}chars | keywords: {}",
             keywords.len(),
@@ -260,7 +274,9 @@ impl DebugLog {
 
     /// Log tool execution
     pub fn tool_call(&self, tool: &str, input_preview: &str, result_preview: &str) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         let count = TOOL_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
         let msg = format!(
             "TOOL#{}: {} | input: {} | result: {}",
@@ -274,24 +290,29 @@ impl DebugLog {
 
     /// Log session save
     pub fn session_save(&self, message_count: usize, total_tokens: u64) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         let msg = format!(
             "SESSION: messages={}, total_tokens={}",
-            message_count,
-            total_tokens
+            message_count, total_tokens
         );
         self.write_log("SESSION", &msg);
     }
 
     /// Log generic debug message
     pub fn log(&self, category: &str, message: &str) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         self.write_log(category, message);
     }
 
     /// Log API request body (for debug)
     pub fn api_request(&self, url: &str, body: &str) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         // Write full content to file
         let body_preview = if body.len() > 5000 {
             truncate_with_suffix(body, 5000)
@@ -300,8 +321,7 @@ impl DebugLog {
         };
         let msg = format!(
             "API_REQUEST: url={}\n---REQUEST_BODY---\n{}\n---END---",
-            url,
-            body_preview
+            url, body_preview
         );
         self.write(&format!("[{}] {}", Self::timestamp(), msg));
 
@@ -312,7 +332,9 @@ impl DebugLog {
 
     /// Log API response (for debug)
     pub fn api_response(&self, status: u16, body: &str) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         // Write full content to file
         let body_preview = if body.len() > 10000 {
             truncate_with_suffix(body, 10000)
@@ -321,8 +343,7 @@ impl DebugLog {
         };
         let msg = format!(
             "API_RESPONSE: status={}\n---RESPONSE_BODY---\n{}\n---END---",
-            status,
-            body_preview
+            status, body_preview
         );
         self.write(&format!("[{}] {}", Self::timestamp(), msg));
 
@@ -333,7 +354,9 @@ impl DebugLog {
 
     /// Log streaming chunk (for debug, limited)
     pub fn stream_chunk(&self, chunk_type: &str, content: &str) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
         // Only log small chunks to avoid flooding
         let preview = if content.len() > 200 {
             truncate_with_suffix(content, 200)
@@ -350,29 +373,39 @@ impl DebugLog {
     }
 
     /// Log AI memory extraction (keyword extraction with fast model)
-    pub fn memory_ai_keywords(&self, model: &str, keywords_count: usize, source_len: usize, used_ai: bool) {
-        if !self.is_enabled() { return; }
+    pub fn memory_ai_keywords(
+        &self,
+        model: &str,
+        keywords_count: usize,
+        source_len: usize,
+        used_ai: bool,
+    ) {
+        if !self.is_enabled() {
+            return;
+        }
         let method = if used_ai { "AI" } else { "rule" };
         let msg = format!(
             "MEMORY_AI_KEYWORDS: model={}, method={}, keywords={}, source_len={}chars",
-            model,
-            method,
-            keywords_count,
-            source_len
+            model, method, keywords_count, source_len
         );
         self.write_log("MEMORY", &msg);
     }
 
     /// Log AI memory detection (memory extraction from response)
-    pub fn memory_ai_detection(&self, model: &str, entries_count: usize, text_len: usize, used_ai: bool) {
-        if !self.is_enabled() { return; }
+    pub fn memory_ai_detection(
+        &self,
+        model: &str,
+        entries_count: usize,
+        text_len: usize,
+        used_ai: bool,
+    ) {
+        if !self.is_enabled() {
+            return;
+        }
         let method = if used_ai { "AI" } else { "rule" };
         let msg = format!(
             "MEMORY_AI_DETECT: model={}, method={}, entries={}, text_len={}chars",
-            model,
-            method,
-            entries_count,
-            text_len
+            model, method, entries_count, text_len
         );
         self.write_log("MEMORY", &msg);
     }
@@ -398,7 +431,9 @@ impl DebugLog {
 
     /// Write log with category and send event to TUI debug panel
     fn write_log(&self, category: &str, message: &str) {
-        if !self.is_enabled() { return; }
+        if !self.is_enabled() {
+            return;
+        }
 
         let msg = format!("[{}] {}: {}", Self::timestamp(), category, message);
         self.write(&msg);

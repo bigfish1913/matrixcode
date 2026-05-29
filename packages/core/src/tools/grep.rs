@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{Tool, ToolDefinition, ToolContext};
+use super::{Tool, ToolContext, ToolDefinition};
 
 /// Grep search options bundled into a single struct.
 struct GrepOptions {
@@ -67,8 +67,9 @@ impl Tool for GrepTool {
 - ❌ 找类定义、变量声明 → 用 grep 搜索 class/struct 名
 - ❌ 查调用关系 → 用 grep 搜索函数名（不精确）"
         };
-        
-        let description = format!("搜索文本内容（错误消息、注释、字符串等）。
+
+        let description = format!(
+            "搜索文本内容（错误消息、注释、字符串等）。
 
 适用场景：
 - 搜错误信息（如 'failed to connect'、'panic'）
@@ -78,8 +79,10 @@ impl Tool for GrepTool {
 
 {}
 
-优先级：[中] 文本搜索首选工具", not_applicable);
-        
+优先级：[中] 文本搜索首选工具",
+            not_applicable
+        );
+
         ToolDefinition {
             name: "grep".to_string(),
             description,
@@ -135,7 +138,7 @@ impl Tool for GrepTool {
             ..Default::default()
         }
     }
-    
+
     fn definition(&self) -> ToolDefinition {
         self.definition_with_context(&ToolContext::default())
     }

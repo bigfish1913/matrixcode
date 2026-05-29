@@ -11,10 +11,7 @@ pub struct BackendCommand {
 
 impl BackendCommand {
     pub fn new(name: &'static str) -> Self {
-        Self {
-            name,
-            aliases: &[],
-        }
+        Self { name, aliases: &[] }
     }
 
     pub fn new_with_aliases(name: &'static str, aliases: &'static [&'static str]) -> Self {

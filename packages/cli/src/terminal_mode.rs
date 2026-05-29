@@ -417,7 +417,12 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
         .with_pending_input_tx(pending_input_tx)
-        .with_config(&model, cli.think.unwrap_or(config.think), cli.max_tokens, None)
+        .with_config(
+            &model,
+            cli.think.unwrap_or(config.think),
+            cli.max_tokens,
+            config.context_size.map(u64::from),
+        )
         .with_debug_mode(debug_mode);
 
     // Load restored messages if any
@@ -642,6 +647,7 @@ async fn run_agent_task(
         .system_prompt(system_prompt)
         .model_name(model.clone())
         .max_tokens(max_tokens)
+        .context_size(config.context_size)
         .think(think)
         .tools(base_tools)
         .project_path(project_path_for_tools)

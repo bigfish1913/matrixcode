@@ -16,7 +16,8 @@ impl TuiApp {
     pub(crate) fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
         // Always estimate actual context size from messages (like debug panel)
         // This gives accurate current context usage, not cumulative API tokens
-        let actual_tokens = self.messages
+        let actual_tokens = self
+            .messages
             .iter()
             .map(|m| estimate_message_tokens(&m.content) as u64)
             .sum::<u64>();
@@ -142,10 +143,7 @@ impl TuiApp {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             let running = self.mcp_servers.iter().filter(|s| s.is_started).count();
             let mcp_text = format!(" MCP:{} ", running);
-            spans.push(Span::styled(
-                mcp_text,
-                Style::default().fg(Color::Cyan),
-            ));
+            spans.push(Span::styled(mcp_text, Style::default().fg(Color::Cyan)));
         }
 
         // LSP servers
@@ -153,7 +151,7 @@ impl TuiApp {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             let running = self.lsp_servers.iter().filter(|s| s.status.is_ok()).count();
             let has_error = self.lsp_servers.iter().any(|s| s.status.is_error());
-            
+
             // Color based on status: Green if connected, Red if error, Gray if not started
             let lsp_color = if has_error {
                 Color::LightRed
@@ -162,12 +160,9 @@ impl TuiApp {
             } else {
                 Color::DarkGray
             };
-            
+
             let lsp_text = format!(" LSP:{} ", running);
-            spans.push(Span::styled(
-                lsp_text,
-                Style::default().fg(lsp_color),
-            ));
+            spans.push(Span::styled(lsp_text, Style::default().fg(lsp_color)));
         }
 
         // Cache info

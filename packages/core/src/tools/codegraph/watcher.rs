@@ -4,29 +4,26 @@ use anyhow::Result;
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use tokio::time::sleep;
 
-use super::manager::CodeGraphManager;
 use super::git::{
-    is_git_repository, get_git_status_changes, is_git_fsmonitor_running, start_git_fsmonitor,
-    has_version_changed, update_version_after_sync,
-    try_acquire_watcher_lock, release_watcher_lock,
-    try_acquire_sync_lock, release_sync_lock, check_sync_lock_owner,
-    update_watcher_heartbeat,
-    is_source_file,
-    check_mcp_daemon_active,
+    check_mcp_daemon_active, check_sync_lock_owner, get_git_status_changes, has_version_changed,
+    is_git_fsmonitor_running, is_git_repository, is_source_file, release_sync_lock,
+    release_watcher_lock, start_git_fsmonitor, try_acquire_sync_lock, try_acquire_watcher_lock,
+    update_version_after_sync, update_watcher_heartbeat,
 };
 use super::ignore::IgnoreMatcher;
 use super::install::get_codegraph_path;
+use super::manager::CodeGraphManager;
 use super::project::find_project_root;
 use super::types::CodeGraphEnv;
+use crate::cancel::CancellationToken;
 use crate::constants::CODEGRAPH_SYNC_INTERVAL_SECS;
 use crate::memory::ProjectStructureAnalyzer;
-use crate::cancel::CancellationToken;
 
 /// Git status polling interval (for non-fsmonitor fallback).
 const GIT_STATUS_POLL_INTERVAL_SECS: u64 = 2;
@@ -52,7 +49,10 @@ impl WatcherHandle {
     /// Create handle with automatic project root detection.
     pub fn with_auto_detect(start_path: &Path) -> Self {
         let project_path = find_project_root(start_path);
-        log::info!("CodeGraph: detected project root at {}", project_path.display());
+        log::info!(
+            "CodeGraph: detected project root at {}",
+            project_path.display()
+        );
         Self::new(&project_path)
     }
 
@@ -87,7 +87,8 @@ impl WatcherHandle {
     pub fn stop(&self) {
         let guard = self.handle.lock().unwrap();
         if let Some(ref h) = *guard
-            && !h.is_finished() {
+            && !h.is_finished()
+        {
             log::info!("Aborting CodeGraph watcher...");
             h.abort();
         }
@@ -148,7 +149,9 @@ impl CodeGraphWatcher {
             if let Ok(metadata) = std::fs::metadata(&daemon_log_path) {
                 if let Ok(modified) = metadata.modified() {
                     let now = std::time::SystemTime::now();
-                    let elapsed = now.duration_since(modified).unwrap_or(std::time::Duration::MAX);
+                    let elapsed = now
+                        .duration_since(modified)
+                        .unwrap_or(std::time::Duration::MAX);
                     if elapsed < std::time::Duration::from_secs(60) {
                         log::info!("CodeGraph: daemon.log recently modified, daemon likely active");
                         return true;
@@ -173,7 +176,10 @@ impl CodeGraphWatcher {
     /// Create watcher with automatic project root detection.
     pub fn with_auto_detect(start_path: &Path) -> Self {
         let project_path = find_project_root(start_path);
-        log::info!("CodeGraph: detected project root at {}", project_path.display());
+        log::info!(
+            "CodeGraph: detected project root at {}",
+            project_path.display()
+        );
         Self::new(&project_path)
     }
 
@@ -200,7 +206,9 @@ impl CodeGraphWatcher {
     ) {
         // Check if CodeGraph CLI is available (no auto-install)
         if get_codegraph_path().is_none() {
-            log::warn!("CodeGraph CLI not found, watcher disabled. Please install CodeGraph manually.");
+            log::warn!(
+                "CodeGraph CLI not found, watcher disabled. Please install CodeGraph manually."
+            );
             return;
         }
 
@@ -237,7 +245,7 @@ impl CodeGraphWatcher {
         } else {
             CodeGraphEnv::NonGit
         };
-        
+
         log::info!(
             "CodeGraph: environment detected as {} for: {}",
             match env_type {
@@ -269,7 +277,10 @@ impl CodeGraphWatcher {
         // Create notify file watcher
         let watcher_result = Self::create_file_watcher(&project_path, change_tx.clone());
         if watcher_result.is_err() {
-            log::warn!("CodeGraph notify watcher failed to start: {}", watcher_result.err().unwrap());
+            log::warn!(
+                "CodeGraph notify watcher failed to start: {}",
+                watcher_result.err().unwrap()
+            );
             release_watcher_lock(&project_path);
             return;
         }

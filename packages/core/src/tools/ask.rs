@@ -187,11 +187,7 @@ fn ask_tool_schema() -> Value {
                     "required": ["id", "question"]
                 }
             }
-        },
-        "oneOf": [
-            { "required": ["question"] },
-            { "required": ["questions"] }
-        ]
+        }
     })
 }
 

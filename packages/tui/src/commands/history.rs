@@ -16,15 +16,16 @@ impl Command for HistoryCommand {
     }
 
     fn execute(&self, ctx: &mut CommandContext, _args: &[&str]) {
-        let (user_count, assistant_count, tool_count) = ctx.app.messages.iter().fold(
-            (0, 0, 0),
-            |(u, a, t), m| match m.role {
-                Role::User => (u + 1, a, t),
-                Role::Assistant => (u, a + 1, t),
-                Role::Tool { .. } => (u, a, t + 1),
-                _ => (u, a, t),
-            },
-        );
+        let (user_count, assistant_count, tool_count) =
+            ctx.app
+                .messages
+                .iter()
+                .fold((0, 0, 0), |(u, a, t), m| match m.role {
+                    Role::User => (u + 1, a, t),
+                    Role::Assistant => (u, a + 1, t),
+                    Role::Tool { .. } => (u, a, t + 1),
+                    _ => (u, a, t),
+                });
         let queue_count = ctx.app.pending_messages.len();
 
         if ctx.app.debug_mode {

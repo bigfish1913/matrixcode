@@ -10,7 +10,9 @@
       "project_path": "C:/Users/bigfish/Projects/matrixcode",
       "reference_count": 0,
       "importance": 45.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -23,6 +25,90 @@
       "project_path": "C:/Users/bigfish/Projects/matrixcode",
       "reference_count": 0,
       "importance": 35.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "c91c7a75-290b-482a-b769-c472e69f93b3",
+      "created_at": "2026-05-29T12:17:37.324015700Z",
+      "last_referenced": "2026-05-29T12:17:37.324016100Z",
+      "category": "finding",
+      "content": "t have 'oneOf'/'anyOf'/'allOf'/'enum'/'not' at the top level",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "1eb8efdf-82d1-47d9-bd2a-5213d9779649",
+      "created_at": "2026-05-29T12:20:50.559951200Z",
+      "last_referenced": "2026-05-29T12:20:50.559951500Z",
+      "category": "finding",
+      "content": "确定是这个问题吗",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "21770d10-41c7-4521-a58d-8907e17de66a",
+      "created_at": "2026-05-29T12:37:24.622764500Z",
+      "last_referenced": "2026-05-29T12:37:24.622765100Z",
+      "category": "solution",
+      "content": "，看下什么问题 然后给我一个解决方案",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "3552eb7c-a308-4983-a840-aa77fab70e22",
+      "created_at": "2026-05-29T14:15:36.518648600Z",
+      "last_referenced": "2026-05-29T14:15:36.518648900Z",
+      "category": "finding",
+      "content": "要改成消息本身",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "86fd63d2-8aee-41a4-93d0-2324338d1be2",
+      "created_at": "2026-05-29T15:30:17.321921400Z",
+      "last_referenced": "2026-05-29T15:30:17.321921800Z",
+      "category": "finding",
+      "content": "的，需要在下次请求模型的时候 理解提交给大模型",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "43485d3e-ea01-42bd-a44a-266486fdec0b",
+      "created_at": "2026-05-29T15:40:09.071331Z",
+      "last_referenced": "2026-05-29T15:40:09.071331300Z",
+      "category": "finding",
+      "content": "我测试还是 我发送了消息放入等待队列，一直没有拉取这个消息去处理 ，知道最后结束才处理",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
       "tags": [],
       "is_manual": false
     }

@@ -15,7 +15,7 @@ use crate::prompt;
 use crate::providers::{ChatRequest, Message, MessageContent, Role};
 use crate::tools::Tool;
 use crate::tools::ToolDefinition;
-use crate::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
+use crate::tools::toolproxy::{ProxyToolDef, ProxyToolExecutor};
 
 use super::types::{Agent, AgentBuilder, MAX_ITERATIONS};
 
@@ -33,6 +33,7 @@ impl Agent {
             messages: Vec::new(),
             system_prompt: builder.system_prompt,
             max_tokens: builder.max_tokens,
+            context_size_override: builder.context_size_override,
             think: builder.think,
             approve_mode: Arc::new(AtomicU8::new(builder.approve_mode.to_u8())),
             event_tx,
@@ -52,7 +53,15 @@ impl Agent {
             mcp_registry: builder.mcp_registry,
             pending_input_rx: builder.pending_input_rx,
             pending_inputs: Vec::new(),
+            previewed_tool_inputs: std::collections::HashSet::new(),
+            todo_reminder_count: std::collections::HashMap::new(),
         }
+    }
+
+    /// Effective context window size, preferring explicit configuration over model inference.
+    pub(crate) fn effective_context_size(&self) -> Option<u32> {
+        self.context_size_override
+            .or_else(|| self.provider.context_size())
     }
 
     /// Get event sender for streaming
@@ -66,7 +75,11 @@ impl Agent {
     }
 
     /// 设置代理工具执行器
-    pub fn set_proxy_executor(&mut self, executor: Arc<dyn ProxyToolExecutor>, tool_defs: Vec<ProxyToolDef>) {
+    pub fn set_proxy_executor(
+        &mut self,
+        executor: Arc<dyn ProxyToolExecutor>,
+        tool_defs: Vec<ProxyToolDef>,
+    ) {
         self.proxy_executor = Some(executor);
         self.proxy_tool_defs = tool_defs;
     }
@@ -112,7 +125,8 @@ impl Agent {
     pub fn refresh_codegraph_tools(&mut self) {
         if let Some(path) = &self.project_path {
             // Check if CodeGraph should be injected now
-            let should_have_codegraph = crate::tools::codegraph::should_inject_codegraph_tools(path);
+            let should_have_codegraph =
+                crate::tools::codegraph::should_inject_codegraph_tools(path);
 
             // Check if we currently have CodeGraph tools
             let has_codegraph = self.tools.iter().any(|t| {
@@ -175,6 +189,7 @@ impl Agent {
 
             // Check for pending inputs BEFORE building request
             // This ensures appended messages are sent in this iteration's API call
+            self.drain_pending_inputs();
             if self.has_pending_inputs() {
                 let pending = self.take_pending_inputs();
                 let count = pending.len();
@@ -213,7 +228,7 @@ impl Agent {
 
             // Proactive compression: check context size BEFORE API call
             // For long conversations, compress early to avoid timeout issues
-            let context_size = self.provider.context_size();
+            let context_size = self.effective_context_size();
             let estimated_tokens = estimate_total_tokens(&self.messages);
 
             if should_compress(estimated_tokens, context_size, &self.compression_config) {
@@ -234,26 +249,27 @@ impl Agent {
                         );
                     }
                     Err(e) => {
-                        self.emit(AgentEvent::progress(
-                            format!("预压缩失败: {}", e),
-                            None,
-                        ))?;
+                        self.emit(AgentEvent::progress(format!("预压缩失败: {}", e), None))?;
                     }
                 }
             }
 
             // Build request with current messages (including any pending inputs)
             let tool_defs: Vec<ToolDefinition> = {
-                let mut defs: Vec<ToolDefinition> = self.tools.iter().map(|t| {
-                    let def = t.definition();
-                    let description = def.description_for_llm();
-                    ToolDefinition {
-                        name: def.name,
-                        description,
-                        parameters: def.parameters,
-                        is_priority: def.is_priority,
-                    }
-                }).collect();
+                let mut defs: Vec<ToolDefinition> = self
+                    .tools
+                    .iter()
+                    .map(|t| {
+                        let def = t.definition();
+                        let description = def.description_for_llm();
+                        ToolDefinition {
+                            name: def.name,
+                            description,
+                            parameters: def.parameters,
+                            is_priority: def.is_priority,
+                        }
+                    })
+                    .collect();
                 // 添加代理工具定义
                 defs.extend(self.proxy_tool_defs.iter().map(|t| {
                     let def = &t.definition;
@@ -294,42 +310,76 @@ impl Agent {
             if !should_continue && iterations < MAX_ITERATIONS - 1 {
                 // Final drain of pending inputs before checking todos
                 self.drain_pending_inputs();
-                
+
                 if self.has_pending_inputs() {
                     log::info!("Agent: found pending inputs at session end, continuing loop");
                     should_continue = true;
-                    continue;  // Will be processed at start of next iteration
+                    continue; // Will be processed at start of next iteration
                 }
-                
+
                 // Then check for pending todos
-                let pending = self.get_pending_todos();
-                if !pending.is_empty() {
-                    let pending_list = pending.iter()
-                        .map(|(status, content)| {
-                            let marker = match status.as_str() {
-                                "in_progress" => "[~]",
-                                "pending" => "[ ]",
-                                _ => "[?]"
-                            };
-                            format!("  {} {}", marker, content)
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-
-                    let reminder = format!(
-                        "📋 任务尚未完成。以下待办项需要处理：\n{}\n\n请继续执行，或在 todo_write 中标记为 completed。如遇阻塞请说明原因。",
-                        pending_list
+                // First check if we just sent a reminder (prevent immediate duplicate)
+                if self.last_message_was_todo_reminder() {
+                    log::info!("Skipping todo check: reminder already sent in recent messages");
+                } else {
+                    const MAX_TODO_REMINDERS: usize = 2;
+                    
+                    // Clone todo_reminder_count to avoid borrow conflict
+                    let reminder_count_clone = self.todo_reminder_count.clone();
+                    let (pending, all_at_limit) = self.get_pending_todos_with_limit(
+                        &reminder_count_clone,
+                        MAX_TODO_REMINDERS
                     );
+                    
+                    if !pending.is_empty() {
+                        // Update reminder counts for todos we're about to remind about
+                        for (_, content) in &pending {
+                            *self.todo_reminder_count.entry(content.clone()).or_insert(0) += 1;
+                        }
+                        
+                        let pending_list = pending
+                            .iter()
+                            .map(|(status, content)| {
+                                let marker = match status.as_str() {
+                                    "in_progress" => "[~]",
+                                    "pending" => "[ ]",
+                                    _ => "[?]",
+                                };
+                                format!("  {} {}", marker, content)
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
 
-                    self.messages.push(Message {
-                        role: Role::User,
-                        content: MessageContent::Text(reminder),
-                    });
-                    should_continue = true;
+                        let reminder = format!(
+                            "📋 任务尚未完成。以下待办项需要处理：\n{}\n\n请继续执行，或在 todo_write 中标记为 completed。如遇阻塞请说明原因。",
+                            pending_list
+                        );
+
+                        self.messages.push(Message {
+                            role: Role::User,
+                            content: MessageContent::Text(reminder),
+                        });
+                        should_continue = true;
+                    } else if all_at_limit && !self.todo_reminder_count.is_empty() {
+                        // All todos have reached reminder limit, allow session to end
+                        // but inform user that todos remain incomplete
+                        let remaining_count = self.todo_reminder_count.len();
+                        self.emit(AgentEvent::progress(
+                            format!(
+                                "⚠️ 会话结束：{} 个待办项未完成（已提醒 {} 次，达到上限）",
+                                remaining_count, MAX_TODO_REMINDERS
+                            ),
+                            None,
+                        ))?;
+                        log::warn!(
+                            "Session ending with {} incomplete todos (reminder limit reached)",
+                            remaining_count
+                        );
+                    }
                 }
             }
 
-            let context_size = self.provider.context_size();
+            let context_size = self.effective_context_size();
             let api_tokens = self.last_input_tokens.load(Ordering::Relaxed) as u32;
             let estimated_tokens = estimate_total_tokens(&self.messages);
 
@@ -408,7 +458,7 @@ impl Agent {
                 }
             }
         }
-        
+
         // Check if we stopped due to reaching MAX_ITERATIONS
         if iterations >= MAX_ITERATIONS && should_continue {
             self.emit(AgentEvent::error(
@@ -419,7 +469,7 @@ impl Agent {
                 Some("agent/run.rs".to_string()),
             ))?;
         }
-        
+
         self.emit(AgentEvent::usage_with_cache(
             self.total_input_tokens.load(Ordering::Relaxed),
             self.total_output_tokens.load(Ordering::Relaxed),
@@ -478,15 +528,19 @@ impl Agent {
     // ========================================================================
 
     /// 动态添加 MCP 服务器
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// use matrixcode_core::mcp::McpServerConfig;
-    /// 
+    ///
     /// let config = McpServerConfig::stdio("npx", vec!["-y", "@playwright/mcp@latest"]);
     /// agent.add_mcp_server("playwright", config).await?;
     /// ```
-    pub async fn add_mcp_server(&mut self, name: &str, config: crate::mcp::McpServerConfig) -> Result<()> {
+    pub async fn add_mcp_server(
+        &mut self,
+        name: &str,
+        config: crate::mcp::McpServerConfig,
+    ) -> Result<()> {
         if let Some(registry) = &self.mcp_registry {
             let mut reg = registry.write().await;
             reg.add_server(name.to_string(), config);
@@ -518,7 +572,10 @@ impl Agent {
     }
 
     /// 启动指定的 MCP 服务器
-    pub async fn start_mcp_server(&self, name: &str) -> Result<Vec<Arc<crate::mcp::McpToolWrapper>>> {
+    pub async fn start_mcp_server(
+        &self,
+        name: &str,
+    ) -> Result<Vec<Arc<crate::mcp::McpToolWrapper>>> {
         if let Some(registry) = &self.mcp_registry {
             let reg = registry.read().await;
             if let Some(placeholder) = reg.get_server(name) {
@@ -526,7 +583,10 @@ impl Agent {
                 log::info!("MCP server '{}' started with {} tools", name, tools.len());
                 Ok(tools)
             } else {
-                Err(anyhow::anyhow!("MCP server '{}' not found in registry", name))
+                Err(anyhow::anyhow!(
+                    "MCP server '{}' not found in registry",
+                    name
+                ))
             }
         } else {
             Err(anyhow::anyhow!("MCP registry not initialized"))

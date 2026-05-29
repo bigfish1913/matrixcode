@@ -3,7 +3,7 @@
 //! 使用系统默认浏览器打开指定的 URL
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::tools::Tool;
 
@@ -15,7 +15,8 @@ impl Tool for BrowserOpenTool {
     fn definition(&self) -> crate::tools::ToolDefinition {
         crate::tools::ToolDefinition {
             name: "browser_open".to_string(),
-            description: "使用系统默认浏览器打开指定的 URL。适用于预览网页、文档或在线资源。".to_string(),
+            description: "使用系统默认浏览器打开指定的 URL。适用于预览网页、文档或在线资源。"
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {

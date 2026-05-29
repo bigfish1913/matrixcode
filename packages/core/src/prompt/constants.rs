@@ -7,8 +7,7 @@
 // Identity Section
 // ============================================================================
 
-pub const SYSTEM_PROMPT_IDENTITY: &str =
-    r#"你是 MatrixCode - 基于 Rust 的智能代码助手。
+pub const SYSTEM_PROMPT_IDENTITY: &str = r#"你是 MatrixCode - 基于 Rust 的智能代码助手。
 
 【MatrixCode 核心特性】
 - YAML 工作流引擎：自动化任务流程，声明式配置
@@ -602,17 +601,17 @@ pub fn get_static_sections(with_codegraph: bool) -> Vec<(&'static str, &'static 
     } else {
         SYSTEM_PROMPT_TOOL_DECISION_GENERIC
     };
-    
+
     let debugging = if with_codegraph {
         SYSTEM_PROMPT_DEBUGGING_WITH_CODEGRAPH
     } else {
         SYSTEM_PROMPT_DEBUGGING_GENERIC
     };
-    
+
     vec![
         ("identity", SYSTEM_PROMPT_IDENTITY),
-        ("skills", SYSTEM_PROMPT_SKILLS),           // Skills 使用说明
-        ("workflows", SYSTEM_PROMPT_WORKFLOWS),     // Workflows 使用说明
+        ("skills", SYSTEM_PROMPT_SKILLS),       // Skills 使用说明
+        ("workflows", SYSTEM_PROMPT_WORKFLOWS), // Workflows 使用说明
         ("workflow_creation", SYSTEM_PROMPT_WORKFLOW_CREATION), // Workflow 制作指导
         ("trigger_logic", SYSTEM_PROMPT_TRIGGER_LOGIC), // 触发检测规则
         ("tool_decision", tool_decision),
@@ -658,7 +657,8 @@ pub const MSG_ITERATION_WARNING: &str = "⚠️ 接近最大迭代次数限制�
     3. 确保在限制内完成或在最后输出剩余任务摘要";
 
 /// UI-only warning when approaching iteration limit
-pub const MSG_ITERATION_WARNING_UI: &str = "⚠️ 接近迭代上限 ({iterations}/{max_iterations})，模型将优先完成关键任务";
+pub const MSG_ITERATION_WARNING_UI: &str =
+    "⚠️ 接近迭代上限 ({iterations}/{max_iterations})，模型将优先完成关键任务";
 
 /// Error message when operation is cancelled
 pub const MSG_OPERATION_CANCELLED: &str = "操作已取消";
@@ -703,28 +703,28 @@ pub const SYSTEM_PROMPT_LSP_PRACTICE: &str = r#"【LSP 智能感知】
 - 符号查找比静态索引更精确"#;
 
 /// Generate LSP servers info section dynamically
-/// 
+///
 /// Returns None if no servers are active, otherwise returns the formatted section
 pub fn get_lsp_section(servers_info: &[crate::lsp::LspServerInfo]) -> Option<String> {
     if servers_info.is_empty() {
         return None;
     }
-    
+
     // Check if any server is connected
     let has_active = servers_info.iter().any(|s| s.status.is_ok());
     if !has_active {
         return None;
     }
-    
-    let servers_list = servers_info.iter()
+
+    let servers_list = servers_info
+        .iter()
         .filter(|s| s.status.is_ok())
         .map(|s| format!("  - {}: {} ({})", s.language, s.name, s.status.label()))
         .collect::<Vec<_>>()
         .join("\n");
-    
+
     Some(format!(
         "[LSP SERVERS]\n当前活跃的语言服务器：\n\n{}\n\n{}",
-        servers_list,
-        SYSTEM_PROMPT_LSP_PRACTICE
+        servers_list, SYSTEM_PROMPT_LSP_PRACTICE
     ))
 }

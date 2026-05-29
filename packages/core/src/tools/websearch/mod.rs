@@ -55,7 +55,9 @@ impl Default for WebSearchTool {
 
 impl WebSearchTool {
     pub fn new() -> Self {
-        Self { config: WebSearchConfig::default() }
+        Self {
+            config: WebSearchConfig::default(),
+        }
     }
 
     pub fn with_config(config: WebSearchConfig) -> Self {
@@ -63,7 +65,11 @@ impl WebSearchTool {
     }
 
     /// Search with retry mechanism
-    async fn search_with_retry(&self, query: &str, max_results: usize) -> Result<Vec<SearchResult>> {
+    async fn search_with_retry(
+        &self,
+        query: &str,
+        max_results: usize,
+    ) -> Result<Vec<SearchResult>> {
         let client = create_client(self.config.proxy.as_deref(), self.config.timeout_secs)?;
         let mut last_error: Option<anyhow::Error> = None;
 
@@ -71,7 +77,11 @@ impl WebSearchTool {
             if attempt > 0 {
                 let delay = Duration::from_secs(1 << (attempt - 1));
                 tokio::time::sleep(delay).await;
-                log::info!("WebSearch retry attempt {} after {}s delay", attempt + 1, delay.as_secs());
+                log::info!(
+                    "WebSearch retry attempt {} after {}s delay",
+                    attempt + 1,
+                    delay.as_secs()
+                );
             }
 
             match backends::search_duckduckgo(&client, query, max_results).await {
@@ -80,7 +90,10 @@ impl WebSearchTool {
                     return Ok(results);
                 }
                 Ok(_) => {
-                    log::warn!("WebSearch returned empty results on attempt {}", attempt + 1);
+                    log::warn!(
+                        "WebSearch returned empty results on attempt {}",
+                        attempt + 1
+                    );
                     last_error = Some(anyhow::anyhow!("No search results found"));
                 }
                 Err(e) => {
@@ -95,20 +108,23 @@ impl WebSearchTool {
             log::info!("Trying fallback search backends...");
 
             if let Ok(results) = backends::search_wikipedia(&client, query, max_results).await
-                && !results.is_empty() {
-                    log::info!("Fallback search succeeded via Wikipedia");
-                    return Ok(results);
-                }
+                && !results.is_empty()
+            {
+                log::info!("Fallback search succeeded via Wikipedia");
+                return Ok(results);
+            }
 
             if let Ok(results) = backends::search_searxng(&client, query, max_results).await
-                && !results.is_empty() {
-                    log::info!("Fallback search succeeded via SearXNG");
-                    return Ok(results);
-                }
+                && !results.is_empty()
+            {
+                log::info!("Fallback search succeeded via SearXNG");
+                return Ok(results);
+            }
         }
 
-        Err(last_error
-            .unwrap_or_else(|| anyhow::anyhow!("WebSearch failed after {} retries", self.config.max_retries)))
+        Err(last_error.unwrap_or_else(|| {
+            anyhow::anyhow!("WebSearch failed after {} retries", self.config.max_retries)
+        }))
     }
 }
 
@@ -162,7 +178,8 @@ impl Tool for WebSearchTool {
             return Ok("No results found. Suggestions:\n1. Check your network connection\n2. Try enabling proxy (set HTTP_PROXY env var)\n3. Try a different query".to_string());
         }
 
-        let output = results.iter()
+        let output = results
+            .iter()
             .enumerate()
             .map(|(i, r)| {
                 let mut s = format!("{}. {}\n   {}", i + 1, r.title, r.url);
@@ -181,7 +198,7 @@ impl Tool for WebSearchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parser::{strip_html_tags, clean_url};
+    use parser::{clean_url, strip_html_tags};
 
     #[test]
     fn test_strip_html_tags() {
@@ -225,7 +242,10 @@ mod integration_tests {
         match tool.execute(params).await {
             Ok(result) => {
                 println!("Full websearch result:\n{}", result);
-                assert!(!result.contains("No results found"), "Should find results via Wikipedia fallback");
+                assert!(
+                    !result.contains("No results found"),
+                    "Should find results via Wikipedia fallback"
+                );
             }
             Err(e) => {
                 eprintln!("Error: {:?}", e);

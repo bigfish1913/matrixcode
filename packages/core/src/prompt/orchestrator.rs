@@ -6,12 +6,12 @@
 //! - Manages caching for static sections
 //! - Injects runtime context
 
+use crate::prompt::{CacheKey, PromptSection, SectionCache};
+use crate::prompt::{ContextInjector, SystemContext, UserContext};
 use std::sync::Arc;
-use crate::prompt::{PromptSection, SectionCache, CacheKey};
-use crate::prompt::{ContextInjector, UserContext, SystemContext};
 
 /// Cache boundary marker for API caching
-/// 
+///
 /// This marker indicates where cached content ends and dynamic content begins.
 /// APIs like Claude can use this for prompt prefix caching.
 pub const CACHE_BOUNDARY: &str = "\n<!-- CACHE_BOUNDARY -->\n";
@@ -142,7 +142,8 @@ impl PromptOrchestrator {
     fn render_section(&self, section: &PromptSection) -> String {
         if section.cacheable {
             let key = CacheKey::new(&section.name, self.profile.as_str());
-            self.cache.get_or_compute(&key, || section.compute_content())
+            self.cache
+                .get_or_compute(&key, || section.compute_content())
         } else {
             section.compute_content()
         }
@@ -162,7 +163,7 @@ impl PromptOrchestrator {
         // Process each section
         for section in &sections {
             let content = self.render_section(section);
-            
+
             if section.cacheable {
                 cached_parts.push((section.name.clone(), content.clone()));
                 cached_tokens += self.estimate_tokens(&content);
@@ -192,7 +193,10 @@ impl PromptOrchestrator {
         }
 
         // Add cache boundary if there are both cached and dynamic parts
-        if self.include_boundary && !cached_parts.is_empty() && (!dynamic_parts.is_empty() || context_section.is_some()) {
+        if self.include_boundary
+            && !cached_parts.is_empty()
+            && (!dynamic_parts.is_empty() || context_section.is_some())
+        {
             final_parts.push(CACHE_BOUNDARY.to_string());
         }
 
@@ -299,8 +303,16 @@ impl AssembledPrompt {
             let cached = &self.prompt[..idx];
             let dynamic = &self.prompt[idx + CACHE_BOUNDARY.len()..];
             (
-                if cached.is_empty() { None } else { Some(cached) },
-                if dynamic.is_empty() { None } else { Some(dynamic) },
+                if cached.is_empty() {
+                    None
+                } else {
+                    Some(cached)
+                },
+                if dynamic.is_empty() {
+                    None
+                } else {
+                    Some(dynamic)
+                },
             )
         } else {
             if self.prompt.is_empty() {
@@ -380,8 +392,11 @@ mod tests {
     #[test]
     fn test_assemble_simple() {
         let mut orchestrator = PromptOrchestrator::new(std::env::current_dir().unwrap());
-        orchestrator.add_section(PromptSection::static_section("identity", "You are an AI assistant."));
-        
+        orchestrator.add_section(PromptSection::static_section(
+            "identity",
+            "You are an AI assistant.",
+        ));
+
         let assembled = orchestrator.assemble();
         assert!(!assembled.prompt.is_empty());
         assert!(assembled.prompt.contains("identity"));
@@ -395,7 +410,7 @@ mod tests {
         orchestrator.add_section(PromptSection::dynamic_section("date", || {
             format!("Current date: {}", chrono::Local::now().format("%Y-%m-%d"))
         }));
-        
+
         let assembled = orchestrator.assemble();
         assert!(assembled.dynamic_sections >= 1);
         assert!(assembled.cached_sections >= 1);
@@ -406,13 +421,15 @@ mod tests {
         let mut orchestrator = PromptOrchestrator::new(std::env::current_dir().unwrap())
             .with_boundary(true)
             .with_context_injection(false);
-        
+
         orchestrator.add_section(PromptSection::static_section("cached", "cached content"));
-        orchestrator.add_section(PromptSection::dynamic_section("dynamic", || "dynamic content".to_string()));
-        
+        orchestrator.add_section(PromptSection::dynamic_section("dynamic", || {
+            "dynamic content".to_string()
+        }));
+
         let assembled = orchestrator.assemble();
         assert!(assembled.prompt.contains(CACHE_BOUNDARY));
-        
+
         let (cached, dynamic) = assembled.split_at_boundary();
         assert!(cached.is_some());
         assert!(dynamic.is_some());
@@ -422,7 +439,7 @@ mod tests {
     fn test_profile() {
         let orchestrator = PromptOrchestrator::new(std::env::current_dir().unwrap())
             .with_profile(PromptProfile::Fast);
-        
+
         assert_eq!(orchestrator.profile, PromptProfile::Fast);
     }
 
@@ -433,24 +450,26 @@ mod tests {
             .add_static("identity", "You are a code reviewer.")
             .add_dynamic("date", || "Today".to_string())
             .build();
-        
+
         let assembled = orchestrator.assemble();
         assert!(assembled.prompt.contains("identity"));
     }
 
     #[test]
     fn test_cache_efficiency() {
-        let mut orchestrator = PromptOrchestrator::new(std::env::current_dir().unwrap())
-            .with_context_injection(false);
-        
+        let mut orchestrator =
+            PromptOrchestrator::new(std::env::current_dir().unwrap()).with_context_injection(false);
+
         // Add static content with words (to have proper token estimate)
         let static_content = "static content that should be cached properly test test test";
         orchestrator.add_section(PromptSection::static_section("big", static_content));
-        orchestrator.add_section(PromptSection::dynamic_section("small", || "dynamic".to_string()));
-        
+        orchestrator.add_section(PromptSection::dynamic_section("small", || {
+            "dynamic".to_string()
+        }));
+
         let assembled = orchestrator.assemble();
         let efficiency = assembled.cache_efficiency();
-        
+
         // Static content should be cached
         assert!(efficiency >= 50.0, "Cache efficiency: {}", efficiency);
     }
@@ -459,13 +478,13 @@ mod tests {
     fn test_invalidate_cache() {
         let mut orchestrator = PromptOrchestrator::new(std::env::current_dir().unwrap());
         orchestrator.add_section(PromptSection::static_section("test", "test content"));
-        
+
         // First assembly
         let _ = orchestrator.assemble();
-        
+
         // Invalidate
         orchestrator.invalidate_cache();
-        
+
         // Should recalculate
         let assembled = orchestrator.assemble();
         assert!(assembled.prompt.contains("test"));

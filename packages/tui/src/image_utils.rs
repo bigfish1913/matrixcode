@@ -125,16 +125,17 @@ async fn validate_image_url(client: &reqwest::Client, url: &str) -> bool {
     if url.is_empty() {
         return false;
     }
-    
+
     match client.head(url).send().await {
         Ok(resp) => {
             let status = resp.status();
             if status.is_success() || status.as_u16() == 302 {
                 // Check content-type if available
                 if let Some(content_type) = resp.headers().get("content-type")
-                    && let Ok(ct) = content_type.to_str() {
-                        return ct.starts_with("image/");
-                    }
+                    && let Ok(ct) = content_type.to_str()
+                {
+                    return ct.starts_with("image/");
+                }
                 // Some servers don't return content-type for HEAD, assume valid
                 return status.is_success();
             }
@@ -152,7 +153,7 @@ async fn validate_image_url_get(client: &reqwest::Client, url: &str) -> bool {
     if url.is_empty() {
         return false;
     }
-    
+
     // Only fetch first 1KB to verify it's accessible
     match client
         .get(url)
@@ -171,9 +172,8 @@ async fn validate_image_url_get(client: &reqwest::Client, url: &str) -> bool {
 
 /// Search Unsplash API
 pub async fn search_unsplash(query: &str, per_page: u32) -> Result<Vec<ImageResult>> {
-    let key = get_unsplash_key().ok_or_else(|| {
-        anyhow::anyhow!("UNSPLASH_ACCESS_KEY not set in environment")
-    })?;
+    let key = get_unsplash_key()
+        .ok_or_else(|| anyhow::anyhow!("UNSPLASH_ACCESS_KEY not set in environment"))?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -189,34 +189,40 @@ pub async fn search_unsplash(query: &str, per_page: u32) -> Result<Vec<ImageResu
         .header("Authorization", format!("Client-ID {}", key))
         .send()
         .await?;
-    
+
     if !response.status().is_success() {
         log::warn!("Unsplash API error: {}", response.status());
         return Ok(vec![]);
     }
-    
+
     let data: UnsplashResponse = response.json().await?;
-    
-    Ok(data.results.into_iter().map(|photo| ImageResult {
-        id: photo.id,
-        url: photo.urls.regular,
-        full_url: photo.urls.full,
-        thumb_url: photo.urls.thumb,
-        description: photo.description.or(photo.alt_description).unwrap_or_else(|| "无描述".to_string()),
-        photographer: photo.user.name,
-        photographer_url: photo.user.links.html,
-        width: photo.width,
-        height: photo.height,
-        platform: "Unsplash".to_string(),
-        validated: false, // Will be validated later
-    }).collect())
+
+    Ok(data
+        .results
+        .into_iter()
+        .map(|photo| ImageResult {
+            id: photo.id,
+            url: photo.urls.regular,
+            full_url: photo.urls.full,
+            thumb_url: photo.urls.thumb,
+            description: photo
+                .description
+                .or(photo.alt_description)
+                .unwrap_or_else(|| "无描述".to_string()),
+            photographer: photo.user.name,
+            photographer_url: photo.user.links.html,
+            width: photo.width,
+            height: photo.height,
+            platform: "Unsplash".to_string(),
+            validated: false, // Will be validated later
+        })
+        .collect())
 }
 
 /// Search Pexels API
 pub async fn search_pexels(query: &str, per_page: u32) -> Result<Vec<ImageResult>> {
-    let key = get_pexels_key().ok_or_else(|| {
-        anyhow::anyhow!("PEXELS_API_KEY not set in environment")
-    })?;
+    let key =
+        get_pexels_key().ok_or_else(|| anyhow::anyhow!("PEXELS_API_KEY not set in environment"))?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -227,39 +233,38 @@ pub async fn search_pexels(query: &str, per_page: u32) -> Result<Vec<ImageResult
         "https://api.pexels.com/v1/search?query={}&per_page={}&page=1&locale=zh-CN",
         query, per_page
     );
-    let response = client
-        .get(&url)
-        .header("Authorization", key)
-        .send()
-        .await?;
-    
+    let response = client.get(&url).header("Authorization", key).send().await?;
+
     if !response.status().is_success() {
         log::warn!("Pexels API error: {}", response.status());
         return Ok(vec![]);
     }
-    
+
     let data: PexelsResponse = response.json().await?;
-    
-    Ok(data.photos.into_iter().map(|photo| ImageResult {
-        id: photo.id.to_string(),
-        url: photo.src.large,
-        full_url: photo.src.original,
-        thumb_url: photo.src.medium,
-        description: photo.alt.unwrap_or_else(|| "无描述".to_string()),
-        photographer: photo.photographer,
-        photographer_url: photo.photographer_url,
-        width: photo.width,
-        height: photo.height,
-        platform: "Pexels".to_string(),
-        validated: false,
-    }).collect())
+
+    Ok(data
+        .photos
+        .into_iter()
+        .map(|photo| ImageResult {
+            id: photo.id.to_string(),
+            url: photo.src.large,
+            full_url: photo.src.original,
+            thumb_url: photo.src.medium,
+            description: photo.alt.unwrap_or_else(|| "无描述".to_string()),
+            photographer: photo.photographer,
+            photographer_url: photo.photographer_url,
+            width: photo.width,
+            height: photo.height,
+            platform: "Pexels".to_string(),
+            validated: false,
+        })
+        .collect())
 }
 
 /// Search Pixabay API
 pub async fn search_pixabay(query: &str, per_page: u32) -> Result<Vec<ImageResult>> {
-    let key = get_pixabay_key().ok_or_else(|| {
-        anyhow::anyhow!("PIXABAY_API_KEY not set in environment")
-    })?;
+    let key = get_pixabay_key()
+        .ok_or_else(|| anyhow::anyhow!("PIXABAY_API_KEY not set in environment"))?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -270,34 +275,35 @@ pub async fn search_pixabay(query: &str, per_page: u32) -> Result<Vec<ImageResul
         "https://pixabay.com/api/?key={}&q={}&per_page={}&page=1&image_type=photo&safesearch=true",
         key, query, per_page
     );
-    let response = client
-        .get(&url)
-        .send()
-        .await?;
-    
+    let response = client.get(&url).send().await?;
+
     if !response.status().is_success() {
         log::warn!("Pixabay API error: {}", response.status());
         return Ok(vec![]);
     }
-    
+
     let data: PixabayResponse = response.json().await?;
-    
-    Ok(data.hits.into_iter().map(|hit| {
-        let user = hit.user.clone();
-        ImageResult {
-            id: hit.id.to_string(),
-            url: hit.webformat_url,
-            full_url: hit.large_image_url,
-            thumb_url: hit.preview_url,
-            description: hit.tags.unwrap_or_else(|| "无描述".to_string()),
-            photographer: user.clone(),
-            photographer_url: format!("https://pixabay.com/users/{}/{}", user, hit.user_id),
-            width: hit.webformat_width,
-            height: hit.webformat_height,
-            platform: "Pixabay".to_string(),
-            validated: false,
-        }
-    }).collect())
+
+    Ok(data
+        .hits
+        .into_iter()
+        .map(|hit| {
+            let user = hit.user.clone();
+            ImageResult {
+                id: hit.id.to_string(),
+                url: hit.webformat_url,
+                full_url: hit.large_image_url,
+                thumb_url: hit.preview_url,
+                description: hit.tags.unwrap_or_else(|| "无描述".to_string()),
+                photographer: user.clone(),
+                photographer_url: format!("https://pixabay.com/users/{}/{}", user, hit.user_id),
+                width: hit.webformat_width,
+                height: hit.webformat_height,
+                platform: "Pixabay".to_string(),
+                validated: false,
+            }
+        })
+        .collect())
 }
 
 /// Validate all image URLs concurrently and filter out invalid ones
@@ -306,26 +312,26 @@ async fn validate_images(images: Vec<ImageResult>) -> Vec<ImageResult> {
     if images.is_empty() {
         return images;
     }
-    
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .user_agent("Mozilla/5.0 (compatible; MatrixCode/1.0)")
         .danger_accept_invalid_certs(true) // Some CDNs may have cert issues
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
-    
+
     log::info!("Validating {} image URLs...", images.len());
-    
+
     // Validate all images concurrently
     let mut tasks = Vec::new();
     for img in images {
         let client = client.clone();
         let url = img.url.clone();
-        
+
         let task = tokio::spawn(async move {
             // Try HEAD first (faster)
             let valid = validate_image_url(&client, &url).await;
-            
+
             // If HEAD fails (some servers don't support HEAD), try GET
             let valid = if !valid {
                 log::debug!("HEAD failed for {}, trying GET...", url);
@@ -333,34 +339,35 @@ async fn validate_images(images: Vec<ImageResult>) -> Vec<ImageResult> {
             } else {
                 true
             };
-            
+
             if valid {
                 log::debug!("URL validated: {}", url);
             } else {
                 log::debug!("URL invalid: {}", url);
             }
-            
+
             (img, valid)
         });
-        
+
         tasks.push(task);
     }
-    
+
     // Execute all validations concurrently
     let results = futures_util::future::join_all(tasks).await;
-    
+
     // Filter and return only validated images
     let mut validated = Vec::new();
     let total_count = results.len();
-    
+
     for result in results {
         if let Ok((mut img, valid)) = result
-            && valid {
-                img.validated = true;
-                validated.push(img);
-            }
+            && valid
+        {
+            img.validated = true;
+            validated.push(img);
+        }
     }
-    
+
     log::info!("Validated {}/{} images", validated.len(), total_count);
     validated
 }
@@ -403,7 +410,10 @@ pub async fn search_all(query: &str, per_page: u32) -> Result<Vec<ImageResult>> 
 
     // Log errors but return results if any succeeded
     if !errors.is_empty() && all_results.is_empty() {
-        return Err(anyhow::anyhow!("All searches failed: {}", errors.join("; ")));
+        return Err(anyhow::anyhow!(
+            "All searches failed: {}",
+            errors.join("; ")
+        ));
     }
 
     for e in &errors {
@@ -413,7 +423,7 @@ pub async fn search_all(query: &str, per_page: u32) -> Result<Vec<ImageResult>> 
     // Validate all image URLs
     let total_count = all_results.len();
     let validated_results = validate_images(all_results).await;
-    
+
     // Return error if all images failed validation
     if validated_results.is_empty() && !errors.is_empty() {
         return Err(anyhow::anyhow!(
