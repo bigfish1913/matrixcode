@@ -1365,6 +1365,84 @@
         "prompt-engineering"
       ],
       "is_manual": false
+    },
+    {
+      "id": "3e0f551a-f978-48a0-86b9-90e843cb34dd",
+      "created_at": "2026-05-29T05:19:30.829365900Z",
+      "last_referenced": "2026-05-29T05:19:30.829366400Z",
+      "category": "decision",
+      "content": "关键词提取改用纯规则方法，放弃AI混合方案。**Why:** 代码更简洁，配置更清晰，避免混淆。**Context:** 关键词提取模块",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "关键词提取",
+        "规则方法",
+        "keywords",
+        "simplification",
+        "architecture",
+        "refactor"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "43c4415f-567e-4392-9bad-76c62e87edf1",
+      "created_at": "2026-05-29T05:19:30.829372400Z",
+      "last_referenced": "2026-05-29T05:19:30.829372500Z",
+      "category": "technical",
+      "content": "关键词配置文件位于 ~/.matrix/keywords.json，可自定义关键词模式",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "keywords",
+        "配置文件",
+        "keywords.json",
+        "config"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "d4599303-b452-47a0-8c85-a57a91454eb5",
+      "created_at": "2026-05-29T05:26:20.697008800Z",
+      "last_referenced": "2026-05-29T05:26:20.697009300Z",
+      "category": "finding",
+      "content": "KeywordsConfig 的实际价值有限：支持配置文件 (~/.matrix/keywords.json) 但很少用户使用，主要依赖硬编码默认值。AI 关键词提取功能已被移除，现仅依赖规则，能力受限。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "KeywordsConfig",
+        "硬编码",
+        "配置文件",
+        "关键词提取",
+        "config",
+        "finding"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "554cca48-2700-41c0-bf48-ca59f3b7e1fe",
+      "created_at": "2026-05-29T05:26:20.697016300Z",
+      "last_referenced": "2026-05-29T05:26:20.697016400Z",
+      "category": "solution",
+      "content": "KeywordsConfig 简化策略：保留停用词过滤（必要的），移除预定义模式、别名扩展、矛盾信号检测（不够准确或可被 AI 理解替代）。**Problem:** 硬编码配置不准确且配置文件几乎无人使用 **Key:** 只保留核心必要的停用词功能",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "KeywordsConfig",
+        "简化",
+        "停用词",
+        "重构",
+        "refactor",
+        "config"
+      ],
+      "is_manual": false
     }
   ],
   "config": {

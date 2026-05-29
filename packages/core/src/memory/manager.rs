@@ -8,7 +8,7 @@ use super::config::*;
 use super::entry::{MemoryCategory, MemoryEntry};
 use super::retrieval::{
     TfIdfSearch, compute_relevance, expand_semantic_keywords, extract_context_keywords,
-    extract_keywords_hybrid, has_contradiction_signal,
+    has_contradiction_signal,
 };
 use crate::providers::Message;
 use crate::truncate::truncate_with_suffix;
@@ -919,22 +919,19 @@ impl AutoMemory {
             .collect()
     }
 
-    /// Generate context-aware summary async with AI keyword extraction.
+    /// Generate context-aware summary async.
+    /// Note: AI keyword extraction has been removed, uses rule-based extraction now.
     pub async fn generate_contextual_summary_async(
         &self,
         context: &str,
         max_entries: usize,
-        fast_provider: Option<&dyn crate::providers::Provider>,
+        _fast_provider: Option<&dyn crate::providers::Provider>,
     ) -> String {
         if self.entries.is_empty() {
             return String::new();
         }
 
-        let context_keywords = if let Some(provider) = fast_provider {
-            extract_keywords_hybrid(context, Some(provider)).await
-        } else {
-            extract_context_keywords(context)
-        };
+        let context_keywords = extract_context_keywords(context);
 
         let mut scored: Vec<(&MemoryEntry, f64)> = self
             .entries

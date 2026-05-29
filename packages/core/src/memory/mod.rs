@@ -14,12 +14,10 @@
 //! - **extractor**: AI and rule-based memory detection
 //! - **learning**: Feedback learning, behavior inference
 //! - **project**: Project structure analysis
-//! - **keywords_config**: Customizable keywords configuration
 
 mod config;
 mod entry;
 mod extractor;
-mod keywords_config;
 mod learning;
 mod manager;
 mod project;
@@ -30,7 +28,6 @@ mod storage;
 pub use config::*;
 pub use entry::*;
 pub use extractor::*;
-pub use keywords_config::*;
 pub use learning::*;
 pub use manager::*;
 pub use project::*;

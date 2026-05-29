@@ -1,20 +1,35 @@
-//! Retrieval helpers: TF-IDF search, semantic aliases, keyword extraction.
+//! Retrieval helpers: TF-IDF search, keyword extraction.
 
 use std::collections::{HashMap, HashSet};
 
-use super::keywords_config::KeywordsConfig;
 use super::entry::MemoryEntry;
 use super::manager::AutoMemory;
 
 // ============================================================================
-// Keyword Extraction (uses KeywordsConfig)
+// Hard-coded Stop Words (simplified)
+// ============================================================================
+
+/// Common Chinese + English stop words (minimal set).
+fn get_stop_words() -> HashSet<&'static str> {
+    HashSet::from([
+        // Chinese
+        "的", "了", "是", "在", "我", "有", "和", "就", "不", "都", "一", "也", "很", "到", "要", "去",
+        "你", "会", "着", "没有", "看", "好", "这", "那", "什么", "怎么", "请", "能", "可以", "需要",
+        // English
+        "the", "a", "an", "is", "are", "was", "were", "be", "have", "has", "do", "will", "would",
+        "could", "should", "can", "to", "of", "in", "for", "on", "with", "at", "by", "from", "and",
+        "but", "or", "not", "if", "then", "this", "that", "it", "i", "me", "my", "we", "you", "he",
+        "she", "they", "please", "help", "need", "want", "let", "use",
+    ])
+}
+
+// ============================================================================
+// Keyword Extraction (simplified)
 // ============================================================================
 
 /// Extract meaningful keywords from conversation context.
 pub fn extract_context_keywords(context: &str) -> Vec<String> {
-    let config = KeywordsConfig::load();
-    let stop_words = config.get_stop_words_set();
-
+    let stop_words = get_stop_words();
     let lower = context.to_lowercase();
     let mut keywords: HashSet<String> = HashSet::new();
 
@@ -26,16 +41,7 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
         }
     }
 
-    // 2. Extract patterns from config
-    for category_patterns in config.patterns.values() {
-        for pattern in category_patterns {
-            if lower.contains(&pattern.to_lowercase()) {
-                keywords.insert(pattern.clone());
-            }
-        }
-    }
-
-    // 3. Extract tech patterns (camelCase, snake_case, file paths)
+    // 2. Extract tech patterns (camelCase, snake_case, file paths)
     let tech_regexes = [
         r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z]{1,4}",       // file extensions
         r"[A-Z][a-z]+[A-Z][a-zA-Z]*",                   // CamelCase
@@ -103,14 +109,38 @@ pub fn calculate_similarity(a: &str, b: &str) -> f64 {
 // Semantic Aliases (uses KeywordsConfig)
 // ============================================================================
 
-/// Get semantic aliases.
+/// Get semantic aliases (hard-coded).
 pub fn get_semantic_aliases() -> Vec<(&'static str, &'static str)> {
-    KeywordsConfig::get_aliases()
+    vec![
+        // Technical terms
+        ("rust", "Rust"),
+        ("typescript", "TypeScript"),
+        ("javascript", "JavaScript"),
+        ("python", "Python"),
+        ("react", "React"),
+        ("vue", "Vue"),
+        ("angular", "Angular"),
+        // Actions
+        ("修复", "fix"),
+        ("解决", "solve"),
+        ("优化", "optimize"),
+        ("重构", "refactor"),
+        ("更新", "update"),
+        ("删除", "delete"),
+        // Preferences
+        ("喜欢", "prefer"),
+        ("偏好", "prefer"),
+        ("首选", "prefer"),
+        // Structures
+        ("入口", "entry"),
+        ("主文件", "main"),
+        ("目录", "directory"),
+    ]
 }
 
 /// Expand keywords with semantic aliases.
 pub fn expand_semantic_keywords(keywords: &[String]) -> Vec<String> {
-    let aliases = KeywordsConfig::get_aliases();
+    let aliases = get_semantic_aliases();
     let mut expanded: Vec<String> = keywords.to_vec();
 
     for keyword in keywords {
@@ -172,12 +202,22 @@ pub fn compute_relevance(entry: &MemoryEntry, context_keywords: &[String]) -> f6
 }
 
 /// Detect if two memory contents have contradiction signals.
-/// Uses KeywordsConfig for contradiction signals.
+/// Uses hard-coded contradiction signals.
 pub fn has_contradiction_signal(old: &str, new: &str) -> bool {
-    let config = KeywordsConfig::load();
+    // Hard-coded contradiction signals
+    let contradiction_signals = [
+        "不再",
+        "改为",
+        "换成",
+        "放弃",
+        "no longer",
+        "instead of",
+        "changed to",
+        "switched to",
+    ];
 
-    // Check contradiction signals from config
-    for signal in &config.contradiction_signals {
+    // Check contradiction signals
+    for signal in &contradiction_signals {
         if new.contains(signal) {
             return true;
         }
@@ -212,20 +252,7 @@ pub fn has_contradiction_signal(old: &str, new: &str) -> bool {
     false
 }
 
-// ============================================================================
-// AI Keyword Extraction (Hybrid) - DEPRECATED, use extract_context_keywords instead
-// ============================================================================
 
-/// Extract keywords using hybrid approach (rule-based only now, AI removed).
-/// DEPRECATED: This function now just calls extract_context_keywords.
-/// Use extract_context_keywords directly for clarity.
-pub async fn extract_keywords_hybrid(
-    context: &str,
-    _fast_provider: Option<&dyn crate::providers::Provider>,
-) -> Vec<String> {
-    // AI keyword extraction removed - just use rule-based
-    extract_context_keywords(context)
-}
 
 // ============================================================================
 // TF-IDF Search

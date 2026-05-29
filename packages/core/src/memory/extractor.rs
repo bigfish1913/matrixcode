@@ -5,7 +5,6 @@ use anyhow::Result;
 use serde::Deserialize;
 
 use super::config::*;
-use super::keywords_config::KeywordsConfig;
 use super::entry::{MemoryCategory, MemoryEntry};
 use super::manager::AutoMemory;
 
@@ -254,28 +253,23 @@ fn deduplicate_entries(entries: Vec<MemoryEntry>) -> Vec<MemoryEntry> {
 // Rule-based Detection (uses KeywordsConfig)
 // ============================================================================
 
-/// Detect memories from text using configurable patterns.
+/// Detect memories from text using hard-coded patterns.
 pub fn detect_memories_fallback(text: &str, session_id: Option<&str>, project_path: Option<&str>) -> Vec<MemoryEntry> {
-    let config = KeywordsConfig::load();
     let mut entries = Vec::new();
     let text_lower = text.to_lowercase();
 
-    let categories = [
-        (MemoryCategory::Decision, "decision"),
-        (MemoryCategory::Preference, "preference"),
-        (MemoryCategory::Solution, "solution"),
-        (MemoryCategory::Finding, "finding"),
-        (MemoryCategory::Technical, "technical"),
-        (MemoryCategory::Structure, "structure"),
+    // Hard-coded patterns for each category
+    let patterns = [
+        (MemoryCategory::Decision, ["决定", "选择", "采用", "定下", "decided", "chose"]),
+        (MemoryCategory::Preference, ["偏好", "习惯", "喜欢", "首选", "prefer", "like"]),
+        (MemoryCategory::Solution, ["解决", "修复", "搞定", "改成", "fixed", "solved"]),
+        (MemoryCategory::Finding, ["发现", "原来", "原因", "定位", "found", "reason"]),
+        (MemoryCategory::Technical, ["技术栈", "框架", "用的", "基于", "stack", "using"]),
+        (MemoryCategory::Structure, ["入口", "主文件", "目录", "位于", "entry", "main"]),
     ];
 
-    for (category, key) in categories {
-        let patterns = config
-            .patterns
-            .get(key)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[]);
-        for keyword in patterns {
+    for (category, keywords) in patterns {
+        for keyword in keywords {
             if text_lower.contains(&keyword.to_lowercase()) {
                 let content = extract_memory_content(text, keyword);
                 if !content.is_empty() && content.len() >= MIN_MEMORY_CONTENT_LENGTH {

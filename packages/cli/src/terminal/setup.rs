@@ -117,11 +117,11 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_mcp_servers = prepare_mcp_tools(
         &cli.mcp,
         cli.no_mcp,
-        effective_project_path.as_ref(),
+        effective_project_path.as_ref().map(|v| v.as_path()),
     );
 
     // Prepare LSP servers configuration
-    let agent_lsp_servers = prepare_lsp_servers(&config);
+    let agent_lsp_servers = prepare_lsp_servers(&config, effective_project_path.as_ref().map(|v| v.as_path()));
 
     // Enter runtime context BEFORE spawning agent task
     let _guard = rt.enter();
@@ -131,7 +131,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
 
     // Start CodeGraph watcher for auto-sync (with hidden window on Windows)
     start_watcher_if_needed(
-        effective_project_path.as_ref(),
+        effective_project_path.as_ref().map(|v| v.as_path()),
         cancel_token.clone(),
         watcher_handle_arc.clone(),
     );
