@@ -155,32 +155,51 @@ pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String
     // Add workflow tools
     tools.extend(workflow::workflow_tools());
 
-    let mut lines = vec!["可用工具：".to_string()];
-
+    // 🎯 分类显示：优先工具 + 其他工具
+    let mut priority_tools = Vec::new();
+    let mut normal_tools = Vec::new();
+    
     for tool in tools {
         let def = tool.definition();
-        
-        // 对于优先工具，保留更完整的描述（前150字符）
-        let brief = if def.is_priority {
-            let desc = def.description.split('\n').next().unwrap_or(&def.description);
-            if desc.len() > 150 {
-                format!("{}...", desc.chars().take(147).collect::<String>())
-            } else {
-                desc.to_string()
-            }
+        if def.is_priority {
+            priority_tools.push(def);
         } else {
-            // 其他工具保持原有截断逻辑（前60字符）
+            normal_tools.push(def);
+        }
+    }
+    
+    let mut lines = vec!["可用工具：".to_string()];
+    
+    // 优先工具（完整描述，包含适用场景）
+    if !priority_tools.is_empty() {
+        lines.push("\n【优先工具 - 必须优先考虑】".to_string());
+        for def in priority_tools {
+            // 使用 description_for_llm() 自动添加 [优先] 标记
+            let full_desc = def.description_for_llm();
+            // 优先工具保留完整描述（最多150字符）
+            let desc = full_desc.split('\n').next().unwrap_or(&full_desc);
+            if desc.len() > 150 {
+                lines.push(format!("  {}: {}...", def.name, desc.chars().take(147).collect::<String>()));
+            } else {
+                lines.push(format!("  {}: {}", def.name, desc));
+            }
+        }
+    }
+    
+    // 其他工具（简要描述）
+    if !normal_tools.is_empty() {
+        lines.push("\n【其他工具】".to_string());
+        for def in normal_tools {
+            // 其他工具保持简要描述（前60字符）
             let desc = def.description.split('.').next()
                 .or_else(|| def.description.split('\n').next())
                 .unwrap_or(&def.description);
             if desc.len() > 60 {
-                format!("{}...", desc.chars().take(57).collect::<String>())
+                lines.push(format!("  {}: {}...", def.name, desc.chars().take(57).collect::<String>()));
             } else {
-                desc.to_string()
+                lines.push(format!("  {}: {}", def.name, desc));
             }
-        };
-        
-        lines.push(format!("- {}: {}", def.name, brief));
+        }
     }
 
     lines.join("\n")

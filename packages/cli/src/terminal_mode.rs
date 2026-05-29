@@ -190,6 +190,8 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
     let (task_tx, task_rx) = tokio::sync::mpsc::channel::<String>(TASK_CHANNEL_BUFFER);
     let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(ASK_CHANNEL_BUFFER);
+    // Channel for real-time appended messages during processing
+    let (pending_input_tx, pending_input_rx) = tokio::sync::mpsc::channel::<String>(TASK_CHANNEL_BUFFER);
 
     // Set debug event sender for TUI debug panel
     matrixcode_core::set_debug_event_sender(event_tx.clone());
@@ -414,6 +416,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token.clone())
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
+        .with_pending_input_tx(pending_input_tx)
         .with_config(&model, cli.think.unwrap_or(config.think), cli.max_tokens, None)
         .with_debug_mode(debug_mode);
 
@@ -648,6 +651,7 @@ async fn run_agent_task(
             matrixcode_tui::image_search::get_default_proxy_tools()
         )
         .mcp_registry(mcp_registry)
+        .pending_input_rx(pending_input_rx)
         .build();
 
     agent.set_approve_mode_shared(shared_approve_mode);

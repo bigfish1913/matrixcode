@@ -33,6 +33,7 @@ impl AgentBuilder {
             proxy_tool_defs: Vec::new(),
             proxy_executor: None,
             mcp_registry: None,
+            pending_input_rx: None,
         }
     }
 
@@ -150,6 +151,20 @@ impl AgentBuilder {
     /// ```
     pub fn mcp_registry(mut self, registry: Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>) -> Self {
         self.mcp_registry = Some(registry);
+        self
+    }
+
+    /// 设置实时追加消息接收器
+    ///
+    /// 允许在 Agent 处理过程中接收新消息，实现实时追加功能。
+    ///
+    /// # Example
+    /// ```ignore
+    /// let (pending_tx, pending_rx) = tokio::sync::mpsc::channel::<String>(100);
+    /// builder.pending_input_rx(pending_rx)
+    /// ```
+    pub fn pending_input_rx(mut self, rx: tokio::sync::mpsc::Receiver<String>) -> Self {
+        self.pending_input_rx = Some(rx);
         self
     }
 }

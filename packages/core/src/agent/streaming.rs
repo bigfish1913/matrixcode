@@ -16,7 +16,31 @@ async fn wait_for_cancel_stream(token: &crate::cancel::CancellationToken) {
 }
 
 impl Agent {
-    /// Call provider with streaming and emit events in real-time
+    /// Drain any pending input messages from the channel.
+    /// Called during streaming to collect real-time appended messages.
+    fn drain_pending_inputs(&mut self) {
+        if let Some(rx) = &mut self.pending_input_rx {
+            while let Ok(msg) = rx.try_recv() {
+                log::info!("Agent received pending input: {}", msg.chars().take(50).collect::<String>());
+                self.pending_inputs.push(msg);
+            }
+        }
+    }
+
+    /// Check if there are pending inputs waiting to be processed.
+    pub fn has_pending_inputs(&self) -> bool {
+        !self.pending_inputs.is_empty()
+    }
+
+    /// Get and clear all pending inputs.
+    pub fn take_pending_inputs(&mut self) -> Vec<String> {
+        let inputs = self.pending_inputs.clone();
+        self.pending_inputs.clear();
+        inputs
+    }
+
+    /// Call provider with streaming and emit events in real-time.
+    /// Also monitors pending_input_rx for real-time message appending.
     pub(crate) async fn call_streaming(&mut self, request: &ChatRequest) -> Result<ChatResponse> {
         const MAX_RETRIES: u32 = 5;
         const RETRY_DELAY_MS: u64 = 1000;
@@ -51,17 +75,30 @@ impl Agent {
                     let mut should_retry = false;
 
                     loop {
-                        // Use select! with cancellation check integrated
-                        // No need for busy-loop timeout - cancellation is checked directly
+                        // Use select! with cancellation and pending input checks
                         let event = if let Some(token) = &self.cancel_token {
                             tokio::select! {
+                                // Primary: receive stream event
                                 event = rx.recv() => event,
+                                // Check for pending inputs periodically
+                                _ = sleep(Duration::from_millis(50)) => {
+                                    self.drain_pending_inputs();
+                                    continue;
+                                }
+                                // Cancellation signal
                                 _ = wait_for_cancel_stream(token) => {
                                     return Err(anyhow::anyhow!("Operation cancelled"));
                                 }
                             }
                         } else {
-                            rx.recv().await
+                            // No cancellation token, but still check pending inputs
+                            tokio::select! {
+                                event = rx.recv() => event,
+                                _ = sleep(Duration::from_millis(50)) => {
+                                    self.drain_pending_inputs();
+                                    continue;
+                                }
+                            }
                         };
 
                         match event {
@@ -123,6 +160,9 @@ impl Agent {
                                 {
                                     return Err(anyhow::anyhow!("Operation cancelled"));
                                 }
+
+                                // Final drain of pending inputs before completing
+                                self.drain_pending_inputs();
 
                                 // Don't add current_thinking/current_text here - use resp.content directly
                                 // This avoids duplicates since resp.content contains everything

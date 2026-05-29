@@ -424,17 +424,23 @@ impl MarkdownRenderer {
                 self.pop_style();
             }
             TagEnd::Strong => {
-                if !self.in_table_cell {
+                if self.in_table_cell {
+                    self.current_cell_content.push_str("**");
+                } else {
                     self.pop_style();
                 }
             }
             TagEnd::Emphasis => {
-                if !self.in_table_cell {
+                if self.in_table_cell {
+                    self.current_cell_content.push_str("*");
+                } else {
                     self.pop_style();
                 }
             }
             TagEnd::Strikethrough => {
-                if !self.in_table_cell {
+                if self.in_table_cell {
+                    self.current_cell_content.push_str("~~");
+                } else {
                     self.pop_style();
                 }
             }
@@ -671,35 +677,35 @@ impl MarkdownRenderer {
             }
         }
 
-        // Build borders with matching widths
-        // Top: ┌───┬───┐
+        // Use simple ASCII borders for better terminal compatibility
+        // Top: +---+---+
         let top_border = format!(
-            "┌{}┐",
+            "+{}+",
             widths
                 .iter()
-                .map(|w| "─".repeat(*w))
+                .map(|w| "-".repeat(*w))
                 .collect::<Vec<_>>()
-                .join("┬")
+                .join("+")
         );
 
-        // Separator: ├───┼───┤
+        // Separator: +---+---+
         let row_sep = format!(
-            "├{}┤",
+            "+{}+",
             widths
                 .iter()
-                .map(|w| "─".repeat(*w))
+                .map(|w| "-".repeat(*w))
                 .collect::<Vec<_>>()
-                .join("┼")
+                .join("+")
         );
 
-        // Bottom: └───┴───┘
+        // Bottom: +---+---+
         let bottom_border = format!(
-            "└{}┘",
+            "+{}+",
             widths
                 .iter()
-                .map(|w| "─".repeat(*w))
+                .map(|w| "-".repeat(*w))
                 .collect::<Vec<_>>()
-                .join("┴")
+                .join("+")
         );
 
         // Top border
@@ -708,15 +714,15 @@ impl MarkdownRenderer {
             Style::default().fg(Color::DarkGray),
         ));
 
-        // Header row: │ A │ B │
+        // Header row: | A | B |
         let header_line = format!(
-            "│{}│",
+            "|{}|",
             widths
                 .iter()
                 .enumerate()
                 .map(|(i, w)| self.pad_cell(&self.table_header[i], *w))
                 .collect::<Vec<_>>()
-                .join("│")
+                .join("|")
         );
         self.lines.push(Line::styled(
             header_line,
@@ -734,13 +740,13 @@ impl MarkdownRenderer {
         // Data rows
         for (idx, row) in self.table_rows.iter().enumerate() {
             let row_line = format!(
-                "│{}│",
+                "|{}|",
                 widths
                     .iter()
                     .enumerate()
                     .map(|(i, w)| self.pad_cell(&row[i], *w))
                     .collect::<Vec<_>>()
-                    .join("│")
+                    .join("|")
             );
             self.lines
                 .push(Line::styled(row_line, Style::default().fg(Color::Gray)));
@@ -875,33 +881,22 @@ mod tests {
     fn test_table_no_duplicate_borders() {
         let md = "| A | B |\n|---|---|\n| 1 | 2 |";
         let result = render_markdown(md, 80);
-        
-        // Collect all text
-        let all_text = result
+
+        // Should have 4 lines: top border, header, separator, data row, bottom border
+        // Actually 5 lines for simple table
+        assert!(!result.is_empty(), "Table should render");
+
+        // Count separator lines (lines starting with + and containing -)
+        let separator_count = result
             .iter()
-            .map(|line| {
-                line.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
+            .filter(|line| {
+                let text = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+                text.starts_with('+') && text.contains('-')
             })
-            .collect::<Vec<_>>();
-        
-        // Count separator lines (should be exactly 3: top, header sep, bottom)
-        let separator_count = all_text
-            .iter()
-            .filter(|text| text.contains("├") || text.contains("┼"))
             .count();
-        
-        assert_eq!(separator_count, 1, "Should have exactly 1 header separator line, not duplicates");
-        
-        // Should not contain raw markdown separator |---|---|
-        let raw_separator_count = all_text
-            .iter()
-            .filter(|text| text.contains("---"))
-            .count();
-        
-        assert_eq!(raw_separator_count, 0, "Should not contain raw markdown separator |---|---|");
+
+        // Should have 3 separator lines: top, header sep, bottom
+        assert_eq!(separator_count, 3, "Should have exactly 3 separator lines");
     }
 
     #[test]

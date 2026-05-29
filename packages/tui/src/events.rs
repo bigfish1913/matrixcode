@@ -63,14 +63,30 @@ impl TuiApp {
     }
 
     /// Process pending message queue, returning true if a message was sent.
+    /// Merges all pending messages into one request for better context continuity.
     fn process_pending_queue(&mut self) -> bool {
         if !self.pending_messages.is_empty() {
-            let next_msg = self.pending_messages.remove(0);
+            let msg_count = self.pending_messages.len();
+
+            // Merge all pending messages with separator
+            let merged_msg = self.pending_messages.join("\n\n---\n\n");
+            self.pending_messages.clear();
+
+            // Show merged message info to user
             self.push_message(Message {
                 role: Role::User,
-                content: next_msg.clone(),
+                content: format!("📝 发送 {} 条队列消息:\n\n{}", msg_count, merged_msg),
             });
-            self.tx.try_send(next_msg).ok();
+
+            // Send merged message, retry on failure
+            if self.tx.try_send(merged_msg.clone()).is_err() {
+                // Channel full, restore messages and retry later
+                log::warn!("Task channel full, re-queueing merged message");
+                self.pending_messages.push(merged_msg);
+                self.activity = Activity::Idle;
+                return false;
+            }
+
             self.activity = Activity::Thinking;
             self.auto_scroll = true;
             true

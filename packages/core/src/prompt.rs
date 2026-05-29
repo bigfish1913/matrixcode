@@ -19,7 +19,37 @@ IMPORTANT: 不生成或猜测 URL，防止误导用户。
 - 中等（多文件、需规划）：快速规划后执行
 - 复杂（架构影响、风险不确定）：先确认方案"#;
 
-const SYSTEM_PROMPT_TOOL_DECISION: &str = r#"工具选择决策链（必须执行）：
+const SYSTEM_PROMPT_TOOL_DECISION_GENERIC: &str = r#"工具选择决策链（必须执行）：
+
+第1步：判断意图
+问自己：用户想做什么？
+- 找代码符号？ → 查看工具列表中的符号搜索工具（如有）或用 grep
+- 搜文本内容？ → grep（错误消息、日志、注释）
+- 查调用关系？ → 查看工具列表中的调用分析工具（如有）或用 grep
+- 改文件？ → edit/write
+- 执行命令？ → bash
+- 不确定？ → 先用 ask 确认
+
+第2步：验证工具可用性
+- 检查工具是否在可用工具列表中
+- 如果工具不在列表中 → 说明不可用，选择替代方案
+- 优先使用带有 [优先] 标记的工具
+
+第3步：验证选择
+检查：是否选对了工具？
+- 文本搜索用 grep，符号搜索用专用工具（如有）
+- 单处改动用 edit，多处改动用 multi_edit
+
+并行调用规则：
+- 多个独立工具调用可在单次响应中并行发出
+- 依赖其他调用结果的工具必须顺序调用
+- 最大化并行以提高效率
+
+优先级规则：
+- 有 [优先] 标记的工具必须优先考虑
+- 根据工具描述中的"适用场景"选择合适工具"#;
+
+const SYSTEM_PROMPT_TOOL_DECISION_WITH_CODEGRAPH: &str = r#"工具选择决策链（必须执行）：
 
 第1步：判断意图
 问自己：用户想做什么？
@@ -31,12 +61,13 @@ const SYSTEM_PROMPT_TOOL_DECISION: &str = r#"工具选择决策链（必须执�
 - 不确定？ → 先用 ask 确认
 
 第2步：验证工具可用性
+- 检查工具是否在可用工具列表中
 - 如果工具不在列表中 → 说明不可用，选择替代方案
-- 如果 CodeGraph 未初始化 → 用 grep/search 替代 code_*
+- 优先使用带有 [优先] 标记的工具
 
 第3步：验证选择
 检查：是否犯了常见错误？
-- ❌ 用 grep 找函数定义 → 应该用 code_search
+- ❌ 用 grep 找函数定义 → 应该用 code_search（快 10-100 倍）
 - ❌ 用 code_search 搜错误信息 → 应该用 grep
 - ❌ 单处改动用批量编辑 → 应该用 edit
 
@@ -47,7 +78,7 @@ const SYSTEM_PROMPT_TOOL_DECISION: &str = r#"工具选择决策链（必须执�
 
 优先级规则：
 - 有 [优先] 标记的工具必须优先考虑
-- 根据工具描述中的"适用场景"选择合适工具"#;
+- 根据���具描述中的"适用场景"选择合适工具"#;
 
 const SYSTEM_PROMPT_MISSION: &str = r#"核心目标：
 - 安全正确完成编码任务
@@ -101,10 +132,21 @@ const SYSTEM_PROMPT_TESTING: &str = r#"测试验证：
 - 测试失败先分析原因再修改，不盲目猜测
 - 无测试覆盖的改动需说明风险"#;
 
-const SYSTEM_PROMPT_DEBUGGING: &str = r#"调试策略：
+const SYSTEM_PROMPT_DEBUGGING_GENERIC: &str = r#"调试策略：
 - 先复现：理解错误信息、失败场景、触发条件
 - 定位代码：
-  * 找符号定义 → code_search（优先）
+  * 找符号定义 → 使用专用符号搜索工具（如有）或 grep
+  * 查调用关系 → 使用专用调用分析工具（如有）或 grep
+  * 搜文本内容 → grep/search
+  * 读完整文件 → read
+- 不猜测根因：用工具（日志、调试器）验证假设
+- 修复后确认：运行测试或验证步骤
+- 无法定位时：说明已尝试方法、排查范围、剩余可能性"#;
+
+const SYSTEM_PROMPT_DEBUGGING_WITH_CODEGRAPH: &str = r#"调试策略：
+- 先复现：理解错误信息、失败场景、触发条件
+- 定位代码：
+  * 找符号定义 → code_search（优先，快 10-100 倍）
   * 查调用关系 → code_callers/callees（优先）
   * 搜文本内容 → grep/search
   * 读完整文件 → read
@@ -187,7 +229,7 @@ Skills 是 MatrixCode 的核心特性之一，提供场景化的最佳实践指�
 AI: 
   → 调用 skill {"name": "security-review"}  ← 阻塞调用
   → 返回指令："检查用户输入验证、SQL 注入、XSS..."
-  → 立即执行指令，调用 code_search 查找用户输入处理代码
+  → 立即执行指令，使用符号搜索工具查找用户输入处理代码
   → 生成审查报告
 
 错误做法：
@@ -442,7 +484,7 @@ const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_SKILLS,          // Skills 系统（核心特性）← 提前到第2位
     SYSTEM_PROMPT_WORKFLOWS,       // Workflows 系统（核心特性）← 提前到第3位
     SYSTEM_PROMPT_TRIGGER_LOGIC,   // 强制触发检测 ← 新增
-    SYSTEM_PROMPT_TOOL_DECISION,   // 工具选择决策链 ← 移后
+    // SYSTEM_PROMPT_TOOL_DECISION 移到动态构建（根据是否有 CodeGraph 选择版本）
     SYSTEM_PROMPT_MISSION,         // 核心目标
     SYSTEM_PROMPT_WORKFLOW,        // 工作方式
     SYSTEM_PROMPT_AMBIGUITY,       // 歧义确认
@@ -452,7 +494,7 @@ const DEFAULT_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_SYSTEM_RULES,    // 系统规则
     SYSTEM_PROMPT_QUALITY,         // 代码质量
     SYSTEM_PROMPT_TESTING,         // 测试验证
-    SYSTEM_PROMPT_DEBUGGING,       // 调试策略
+    // SYSTEM_PROMPT_DEBUGGING 移到动态构建（根据是否有 CodeGraph 选择版本）
     SYSTEM_PROMPT_SECURITY,        // 安全意识
     SYSTEM_PROMPT_EDITING,         // 编辑规则
     SYSTEM_PROMPT_EXECUTION,       // 执行策略（已移除高风险重复内容）
@@ -468,7 +510,6 @@ const SAFE_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_SKILLS,          // 提前到第2位
     SYSTEM_PROMPT_WORKFLOWS,       // 提前到第3位
     SYSTEM_PROMPT_TRIGGER_LOGIC,   // 新增
-    SYSTEM_PROMPT_TOOL_DECISION,   // 移后
     SYSTEM_PROMPT_MISSION,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_AMBIGUITY,
@@ -498,7 +539,6 @@ const REVIEW_SYSTEM_PROMPT_MODULES: &[&str] = &[
     SYSTEM_PROMPT_SKILLS,          // 提前到第2位
     SYSTEM_PROMPT_WORKFLOWS,       // 提前到第3位
     SYSTEM_PROMPT_TRIGGER_LOGIC,   // 新增
-    SYSTEM_PROMPT_TOOL_DECISION,   // 移后
     SYSTEM_PROMPT_MISSION,
     SYSTEM_PROMPT_WORKFLOW,
     SYSTEM_PROMPT_AMBIGUITY,
@@ -559,8 +599,41 @@ impl FromStr for PromptProfile {
     }
 }
 
+/// 动态构建系统提示词（根据是否有 CodeGraph 选择不同版本）
+pub fn build_static_system_prompt_with_codegraph(profile: PromptProfile, has_codegraph: bool) -> String {
+    let base_modules = profile.static_modules();
+    
+    // 动态选择 TOOL_DECISION 版本
+    let tool_decision = if has_codegraph {
+        SYSTEM_PROMPT_TOOL_DECISION_WITH_CODEGRAPH
+    } else {
+        SYSTEM_PROMPT_TOOL_DECISION_GENERIC
+    };
+    
+    // 动态选择 DEBUGGING 版本
+    let debugging = if has_codegraph {
+        SYSTEM_PROMPT_DEBUGGING_WITH_CODEGRAPH
+    } else {
+        SYSTEM_PROMPT_DEBUGGING_GENERIC
+    };
+    
+    // 构建完整提示词
+    let mut modules_vec: Vec<&str> = base_modules.to_vec();
+    
+    // 在 TRIGGER_LOGIC 之后插入 TOOL_DECISION
+    let trigger_index = modules_vec.iter().position(|m| m.contains("强制触发检测")).unwrap_or(4);
+    modules_vec.insert(trigger_index + 1, tool_decision);
+    
+    // 在 TESTING 之后插入 DEBUGGING
+    let testing_index = modules_vec.iter().position(|m| m.contains("测试验证")).unwrap_or(12);
+    modules_vec.insert(testing_index + 1, debugging);
+    
+    modules_vec.join("\n\n")
+}
+
+/// 保留原函数签名（向后兼容）
 pub fn build_static_system_prompt(profile: PromptProfile) -> String {
-    profile.static_modules().join("\n\n")
+    build_static_system_prompt_with_codegraph(profile, false)
 }
 
 pub const SECTION_PROJECT_CONTEXT: &str = "PROJECT CONTEXT";
@@ -591,7 +664,7 @@ pub const MEMORY_USAGE_INSTRUCTIONS: &str = r#"【记忆使用规则】
 记忆中命名的文件、函数、符号可能在写入时存在，但后来可能被重命名或删除。
 在推荐前：
 - 如果记忆命名了文件路径：检查文件是否存在
-- 如果记忆命名了函数：用 code_search 搜索验证
+- 如果记忆命名了函数：先用符号搜索工具验证（如有）或用 grep 搜索
 "记忆说 X 存在"不等于"X 现在存在""#;
 
 /// Memory entry format template.
@@ -809,7 +882,7 @@ pub fn build_system_prompt(
     build_system_prompt_with_workflows(profile, skills, project_overview, memory_summary, None)
 }
 
-/// Build full system prompt with workflow support
+// Build full system prompt with workflow support
 pub fn build_system_prompt_with_workflows(
     profile: &PromptProfile,
     skills: &[crate::skills::Skill],
@@ -819,19 +892,32 @@ pub fn build_system_prompt_with_workflows(
 ) -> String {
     let builder = SystemPromptBuilder::new(*profile);
 
-    // Get static prompt parts
-    let static_prompt = build_static_system_prompt(*profile);
+    // Check if CodeGraph is available
+    let has_codegraph = if let Some(path) = project_path {
+        crate::tools::codegraph::should_inject_codegraph_tools(path)
+    } else {
+        false
+    };
+
+    // Dynamically build static prompt with CodeGraph-specific modules
+    let static_prompt = build_static_system_prompt_with_codegraph(*profile, has_codegraph);
 
     // Dynamically generate tools description (include CodeGraph if project_path available)
     let tools_prompt = crate::tools::generate_tools_prompt_with_path(project_path);
 
-    // Combine: static prompt (before tools) + tools + practice guide + CODEGRAPH rules (after tools) + sections
-    let mut parts = vec![static_prompt, tools_prompt];
+    // Combine: static prompt + PRACTICE guide (before tools) + tools + CODEGRAPH rules + sections
+    let mut parts = vec![static_prompt];
     
-    // Add practice guide BEFORE CODEGRAPH rules (dynamic injection based on project state)
-    if let Some(path) = project_path
-        && crate::tools::codegraph::should_inject_codegraph_tools(path) {
+    // Add practice guide BEFORE tools list (so Agent knows how to choose before seeing tools)
+    if has_codegraph {
         parts.push(SYSTEM_PROMPT_CODEGRAPH_PRACTICE.to_string());
+    }
+    
+    // Add tools list (Agent now knows how to choose from practice guide)
+    parts.push(tools_prompt);
+    
+    // Add CODEGRAPH detailed rules (after tools, for reference)
+    if has_codegraph {
         parts.push(SYSTEM_PROMPT_CODEGRAPH.to_string());
     }
     

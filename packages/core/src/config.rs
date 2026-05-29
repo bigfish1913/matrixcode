@@ -608,6 +608,7 @@ mod tests {
             approve_mode: None,
             extra_headers: None,
             mcp_servers: None,
+            lsp_servers: None,
         };
         assert!(config.api_key.is_none());
         assert!(config.model.is_none());

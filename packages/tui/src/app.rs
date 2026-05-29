@@ -86,6 +86,8 @@ pub struct TuiApp {
     pub(crate) proxy_response_tx: Option<tokio::sync::mpsc::Sender<ProxyToolResponse>>,
     // Message queue for pending inputs while AI is processing
     pub(crate) pending_messages: Vec<String>,
+    // Real-time pending input sender (pushes to Agent during processing)
+    pub(crate) pending_input_tx: Option<tokio::sync::mpsc::Sender<String>>,
     // Loop task state
     pub(crate) loop_task: Option<LoopTask>,
     // Cron tasks state
@@ -196,6 +198,7 @@ impl TuiApp {
             cancel,
             proxy_response_tx: None,
             pending_messages: Vec::new(),
+            pending_input_tx: None,
             loop_task: None,
             cron_tasks: Vec::new(),
             debug_mode: false,
@@ -212,6 +215,12 @@ impl TuiApp {
 
     pub fn with_ask_channel(mut self, ask_tx: tokio::sync::mpsc::Sender<String>) -> Self {
         self.ask_tx = Some(ask_tx);
+        self
+    }
+
+    /// Set pending input sender for real-time message appending during processing.
+    pub fn with_pending_input_tx(mut self, tx: tokio::sync::mpsc::Sender<String>) -> Self {
+        self.pending_input_tx = Some(tx);
         self
     }
 
