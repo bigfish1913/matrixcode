@@ -120,6 +120,8 @@ pub fn get_semantic_aliases() -> Vec<(&'static str, &'static str)> {
         ("react", "React"),
         ("vue", "Vue"),
         ("angular", "Angular"),
+        ("数据库", "database"),
+        ("db", "database"),
         // Actions
         ("修复", "fix"),
         ("解决", "solve"),

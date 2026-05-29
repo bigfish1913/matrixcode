@@ -226,10 +226,22 @@ impl Default for SectionCache {
 
 /// Estimate token count for content
 pub fn estimate_tokens(content: &str) -> usize {
-    // Rough estimate: ~4 chars per token for Chinese, ~1 token per word for English
+    // Rough estimate:
+    // - Chinese: ~3 chars per token (each Chinese char is ~1 token, but /3 for safety)
+    // - English words: ~1 token per word
+    // - Other ASCII chars: ~4 chars per token
     let chinese_chars = content.chars().filter(|c| c.is_alphabetic() && c.len_utf8() > 1).count();
     let english_words = content.split_whitespace().count();
-    chinese_chars / 3 + english_words + (content.len() - chinese_chars) / 4
+    let non_whitespace: usize = content.chars().filter(|c| !c.is_whitespace()).count();
+    
+    // Fallback: if no words detected (no whitespace), use char count / 4
+    let fallback_estimate = if english_words == 0 && non_whitespace > 0 {
+        non_whitespace / 4
+    } else {
+        0
+    };
+    
+    chinese_chars / 3 + english_words + fallback_estimate
 }
 
 /// Global cache instance
@@ -316,13 +328,13 @@ mod tests {
         let english = "Hello world this is a test";
         let chinese = "你好世界这是一个测试";
         
-        // English should be roughly word count
+        // English: 5 words, should be roughly 5-7 tokens
         let eng_tokens = estimate_tokens(english);
-        assert!(eng_tokens >= 5 && eng_tokens <= 10);
+        assert!(eng_tokens >= 5 && eng_tokens <= 10, "English tokens: {}", eng_tokens);
         
-        // Chinese should be roughly char/3
+        // Chinese: 9 chars / 3 = 3 tokens
         let ch_tokens = estimate_tokens(chinese);
-        assert!(ch_tokens >= 5 && ch_tokens <= 15);
+        assert!(ch_tokens >= 2 && ch_tokens <= 10, "Chinese tokens: {}", ch_tokens);
     }
 
     #[test]

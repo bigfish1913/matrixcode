@@ -167,7 +167,7 @@ pub struct InitializeResult {
 pub struct Tool {
     pub name: String,
     pub description: Option<String>,
-    #[serde(alias = "inputSchema")]
+    #[serde(alias = "input_schema", alias = "inputSchema")]
     pub input_schema: Value,
 }
 

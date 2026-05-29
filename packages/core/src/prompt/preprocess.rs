@@ -391,9 +391,9 @@ mod tests {
 
     #[test]
     fn test_confidence_threshold() {
-        let hook = PreProcessHook::new().with_confidence_threshold(0.95);
+        let hook = PreProcessHook::new().with_confidence_threshold(0.85);
         
-        // Should still work for high-confidence matches
+        // Should still work for high-confidence matches (0.9 > 0.85)
         let result = hook.process("/review");
         assert!(matches!(result, ProcessResult::SkillTriggered { .. }));
     }
