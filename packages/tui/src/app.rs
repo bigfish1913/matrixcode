@@ -325,6 +325,7 @@ impl TuiApp {
                             name: "tool".into(),
                             detail: None,
                             is_error: false,
+                            is_pending: false,
                         },
                     };
                     // Restore input history from user messages
@@ -355,6 +356,7 @@ impl TuiApp {
                                         name: "tool".into(),
                                         detail: None,
                                         is_error: false,
+                                        is_pending: false,
                                     },
                                 };
                                 // Restore input history from user messages
@@ -415,6 +417,7 @@ impl TuiApp {
                                         name,
                                         detail: None,
                                         is_error,
+                                        is_pending: false,
                                     },
                                     content: content.clone(),
                                 });

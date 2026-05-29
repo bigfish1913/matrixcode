@@ -79,6 +79,7 @@ pub enum Role {
         name: String,
         detail: Option<String>,
         is_error: bool,
+        is_pending: bool,  // Tool is currently executing (not yet completed)
     },
     System,
     Ask, // Approval/question requests - needs prominent display

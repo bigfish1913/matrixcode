@@ -156,6 +156,25 @@ impl TuiApp {
                     if name == "todo_write" && let Some(ref input) = input {
                         self.update_todo_items(input);
                     }
+
+                    // Add a pending tool message to show command/input details immediately
+                    // This lets user see what's being executed before the result arrives
+                    let detail = extract_tool_detail(&name, input.as_ref());
+                    // Store input JSON in content so it persists until the message is rendered
+                    let content = input
+                        .as_ref()
+                        .map(|v| v.to_string())
+                        .unwrap_or_default();
+                    self.push_message(Message {
+                        role: Role::Tool {
+                            name,
+                            detail: Some(detail),
+                            is_error: false,
+                            is_pending: true,
+                        },
+                        content,
+                    });
+                    self.auto_scroll = true; // Ensure new message is visible
                 }
             }
             EventType::ToolResult => {
@@ -167,14 +186,33 @@ impl TuiApp {
                     ..
                 }) = e.data
                 {
-                    self.push_message(Message {
-                        role: Role::Tool {
+                    // Search for the most recent pending tool message with matching name
+                    // (search from end to handle interleaved thinking/other messages)
+                    let pending_idx = self.messages.iter().rposition(|m| {
+                        matches!(&m.role, Role::Tool { name: n, is_pending: true, .. } if n == &name)
+                    });
+
+                    if let Some(idx) = pending_idx {
+                        // Replace the pending message with completed result
+                        self.messages[idx].role = Role::Tool {
                             name,
                             detail,
                             is_error,
-                        },
-                        content, // Keep full content, draw.rs will summarize
-                    });
+                            is_pending: false,
+                        };
+                        self.messages[idx].content = content;
+                    } else {
+                        // No pending message to replace, add new message
+                        self.push_message(Message {
+                            role: Role::Tool {
+                                name,
+                                detail,
+                                is_error,
+                                is_pending: false,
+                            },
+                            content, // Keep full content, draw.rs will summarize
+                        });
+                    }
                     self.tool_calls += 1;
                     self.activity = Activity::Thinking;
                     self.activity_detail.clear();
