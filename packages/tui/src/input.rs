@@ -612,16 +612,26 @@ impl TuiApp {
             self.auto_scroll = true;
         } else {
             // AI is processing - real-time append message
-            // Add to local queue for display
-            self.pending_messages.push(input.clone());
+            // Immediately show user's input as a message (so user can see what they sent)
+            self.push_message(Message {
+                role: Role::User,
+                content: input.clone(),
+            });
 
             // Push to Agent immediately via pending_input channel
             if let Some(pending_tx) = &self.pending_input_tx {
                 if pending_tx.try_send(input.clone()).is_ok() {
                     log::info!("TUI: real-time pushed message to Agent (len={})", input.len());
+                    // Message sent successfully, Agent will process in next iteration
+                    // Don't add to pending_messages since it's sent directly
                 } else {
-                    log::warn!("TUI: pending_input channel full, message queued only");
+                    log::warn!("TUI: pending_input channel full, message queued locally");
+                    // Channel full, queue locally for SessionEnded processing
+                    self.pending_messages.push(input);
                 }
+            } else {
+                // No pending_input_tx configured, queue locally for SessionEnded processing
+                self.pending_messages.push(input);
             }
         }
     }

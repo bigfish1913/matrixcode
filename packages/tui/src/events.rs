@@ -64,6 +64,8 @@ impl TuiApp {
 
     /// Process pending message queue, returning true if a message was sent.
     /// Merges all pending messages into one request for better context continuity.
+    /// Note: These are messages that failed to send via pending_input_tx channel,
+    /// so they need to be sent after the current session ends.
     fn process_pending_queue(&mut self) -> bool {
         if !self.pending_messages.is_empty() {
             let msg_count = self.pending_messages.len();
@@ -72,10 +74,11 @@ impl TuiApp {
             let merged_msg = self.pending_messages.join("\n\n---\n\n");
             self.pending_messages.clear();
 
-            // Show merged message info to user
+            // Send merged message (messages were already displayed when user typed them)
+            // Just show a brief notification
             self.push_message(Message {
-                role: Role::User,
-                content: format!("📝 发送 {} 条队列消息:\n\n{}", msg_count, merged_msg),
+                role: Role::System,
+                content: format!("📝 重试发送 {} 条消息...", msg_count),
             });
 
             // Send merged message, retry on failure

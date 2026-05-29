@@ -1443,6 +1443,65 @@
         "config"
       ],
       "is_manual": false
+    },
+    {
+      "id": "4949d403-aa28-45b4-91cb-c4018df1c1d1",
+      "created_at": "2026-05-29T07:03:35.190042400Z",
+      "last_referenced": "2026-05-29T07:03:35.190043Z",
+      "category": "decision",
+      "content": "workflow 工具设计采用 edit + info 双模式，支持增量修改和结构化查看。**Why:** 传统方式要求用户懂 YAML 语法，门槛高且迭代困难。**Context:** workflow 创建场景",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "workflow",
+        "edit",
+        "info",
+        "YAML",
+        "design",
+        "ux"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "24fbc5fc-70d3-4f6e-bda8-116d35d7356a",
+      "created_at": "2026-05-29T07:03:35.190049400Z",
+      "last_referenced": "2026-05-29T07:03:35.190049400Z",
+      "category": "solution",
+      "content": "workflow 编辑后自动验证结构，而非仅在最终保存时验证。**Problem:** 用户可能在多次编辑后积累多个结构错误，难以定位问题。**Key:** 每次 edit 操作后立即调用验证函数",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "workflow",
+        "验证",
+        "edit",
+        "结构",
+        "validation",
+        "ux"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "914c3c2a-9081-4d65-8b24-053489b95df9",
+      "created_at": "2026-05-29T07:03:35.190050600Z",
+      "last_referenced": "2026-05-29T07:03:35.190050700Z",
+      "category": "decision",
+      "content": "系统提示词采用主动引导模式（AI 识别需求后主动建议使用工具），而非被动等待用户请求。**Why:** 用户往往不知道工具存在或不清楚何时该用。**Context:** 用户可能受益于工具但未意识到的场景",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "系统提示词",
+        "主动引导",
+        "AI行为",
+        "prompt",
+        "ux"
+      ],
+      "is_manual": false
     }
   ],
   "config": {

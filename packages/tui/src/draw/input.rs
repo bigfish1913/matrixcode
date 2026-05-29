@@ -202,15 +202,18 @@ impl TuiApp {
         let is_multiline = self.input.contains('\n');
 
         // Show queue indicator when AI is processing and user is typing
+        // Note: pending_messages only contains messages that failed to send via pending_input_tx
         let queue_hint = if self.activity != Activity::Idle
             && self.activity != Activity::Asking
             && !self.input.is_empty()
         {
             let queue_count = self.pending_messages.len();
             if queue_count > 0 {
-                format!(" [queue: {}]", queue_count + 1)
+                format!(" [retry queue: {}]", queue_count)
+            } else if self.pending_input_tx.is_some() {
+                " [实时追加]".to_string()
             } else {
-                " [will queue]".to_string()
+                " [等待发送]".to_string()
             }
         } else {
             String::new()

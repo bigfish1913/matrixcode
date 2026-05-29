@@ -6,11 +6,13 @@ mod discover;
 mod run;
 mod r#match;
 mod content;
+mod create;
 
 pub use discover::WorkflowDiscoverTool;
 pub use run::WorkflowRunTool;
 pub use r#match::WorkflowMatchTool;
 pub use content::ContentGenerationTool;
+pub use create::WorkflowCreateTool;
 
 use crate::tools::BoxedTool;
 use std::sync::Arc;
@@ -22,6 +24,7 @@ pub fn workflow_tools() -> Vec<BoxedTool> {
         Box::new(WorkflowDiscoverTool),
         Box::new(WorkflowRunTool::new()),
         Box::new(WorkflowMatchTool),
+        Box::new(WorkflowCreateTool),
     ]
 }
 
