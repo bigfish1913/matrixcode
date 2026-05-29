@@ -1,124 +1,71 @@
 /**
- * MatrixCode VSCode Extension Entry Point
+ * MatrixCode VSCode Extension - Terminal Launcher
  * 
- * This extension provides an AI code agent in a dedicated editor tab,
- * similar to Claude Code's approach.
+ * A simplified extension that launches MatrixCode CLI in VSCode's integrated terminal.
  */
 
 import * as vscode from 'vscode';
-import { MatrixCodeClient } from './matrixcodeClient';
-import { ChatPanelProvider } from './chatPanel';
-import { ConfigManager } from './configManager';
-import { SessionManager } from './sessionManager';
-import { EditorContext } from './types';
 
-let client: MatrixCodeClient;
-let chatPanel: ChatPanelProvider;
-let configManager: ConfigManager;
 let statusBarItem: vscode.StatusBarItem;
 let modelStatusBarItem: vscode.StatusBarItem;
+let matrixcodeTerminal: vscode.Terminal | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     try {
-        // Create output channel for debugging
         const outputChannel = vscode.window.createOutputChannel('MatrixCode');
         context.subscriptions.push(outputChannel);
         
         outputChannel.appendLine('MatrixCode extension is activating...');
-        outputChannel.appendLine(`Extension path: ${context.extensionPath}`);
         
-        // Initialize configuration manager
-        configManager = new ConfigManager();
-        const sessionManager = new SessionManager(context);
-        outputChannel.appendLine('ConfigManager initialized');
-        
-        // Initialize CLI client with config object
-        client = new MatrixCodeClient({
-            cliPath: configManager.getCliPath(),
-            provider: configManager.getProvider(),
-            model: configManager.getModel(),
-            think: configManager.getThink(),
-            markdown: configManager.getMarkdown(),
-            maxTokens: configManager.getMaxTokens(),
-            compressModel: configManager.getCompressModel(),
-            daemonMode: configManager.getDaemonMode()
-        });
-        outputChannel.appendLine('MatrixCodeClient initialized');
-        outputChannel.appendLine(`Config: cliPath=${configManager.getCliPath()}, provider=${configManager.getProvider()}, model=${configManager.getModel()}`);
-        
-        // Initialize chat panel provider
-        chatPanel = new ChatPanelProvider(context.extensionUri, client, configManager, sessionManager, outputChannel);
-        outputChannel.appendLine('ChatPanelProvider initialized');
-        
-        // Register all commands
+        // Register commands
         registerCommands(context);
-        outputChannel.appendLine('Commands registered');
         
-        // Check CLI availability
-        const available = await client.checkAvailability();
-        outputChannel.appendLine(`CLI availability: ${available}`);
+        // Add status bar button
+        statusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Left,
+            100
+        );
+        statusBarItem.text = '◈ MatrixCode';
+        statusBarItem.tooltip = 'Open MatrixCode in Terminal (Ctrl+K)';
+        statusBarItem.command = 'matrixcode.openChat';
+        statusBarItem.show();
+        context.subscriptions.push(statusBarItem);
         
-        if (!available) {
-            const result = await vscode.window.showWarningMessage(
-                'MatrixCode CLI not found. The extension requires the MatrixCode CLI to function.',
-                'Install CLI',
-                'Configure Path',
-                'Ignore'
-            );
-            
-            handleCliNotFound(result);
-        } else {
-            outputChannel.appendLine('MatrixCode CLI found, starting daemon...');
-            
-            // Start daemon if enabled
-            if (configManager.get('daemonMode')) {
-                try {
-                    await client.startDaemon();
-                    vscode.window.setStatusBarMessage('$(check) MatrixCode connected', 3000);
-                    outputChannel.appendLine('Daemon started successfully');
-                } catch (error) {
-                    const errMsg = error instanceof Error ? error.message : String(error);
-                    outputChannel.appendLine(`Failed to start daemon: ${errMsg}`);
-                    vscode.window.showErrorMessage(`Failed to start MatrixCode daemon: ${errMsg}`);
-                }
-            }
-        }
+        // Add model status bar item
+        modelStatusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Right,
+            200
+        );
+        const config = vscode.workspace.getConfiguration('matrixcode');
+        const model = config.get<string>('model', '');
+        const provider = config.get<string>('provider', 'anthropic');
+        modelStatusBarItem.text = '$(hub) ' + getModelDisplayName(model, provider);
+        modelStatusBarItem.tooltip = 'Current Model: ' + (model || 'Default');
+        modelStatusBarItem.command = 'matrixcode.openSettings';
+        modelStatusBarItem.show();
+        context.subscriptions.push(modelStatusBarItem);
         
         // Listen for configuration changes
         context.subscriptions.push(
             vscode.workspace.onDidChangeConfiguration(e => {
                 if (e.affectsConfiguration('matrixcode')) {
-                    configManager.reload();
-                    client.updateConfig(configManager);
+                    const newConfig = vscode.workspace.getConfiguration('matrixcode');
+                    const newModel = newConfig.get<string>('model', '');
+                    const newProvider = newConfig.get<string>('provider', 'anthropic');
+                    modelStatusBarItem.text = '$(hub) ' + getModelDisplayName(newModel, newProvider);
+                    modelStatusBarItem.tooltip = 'Current Model: ' + (newModel || 'Default');
                 }
             })
         );
         
-        // Add status bar button with custom icon
-        statusBarItem = vscode.window.createStatusBarItem(
-            vscode.StatusBarAlignment.Left,
-            100
+        // Handle terminal close
+        context.subscriptions.push(
+            vscode.window.onDidCloseTerminal(closedTerminal => {
+                if (closedTerminal === matrixcodeTerminal) {
+                    matrixcodeTerminal = undefined;
+                }
+            })
         );
-        
-        // Use the matrix grid icon representation
-        statusBarItem.text = '◈ MatrixCode';
-        statusBarItem.tooltip = 'Open MatrixCode AI Chat (Ctrl+K)';
-        statusBarItem.command = 'matrixcode.openChat';
-        statusBarItem.show();
-        context.subscriptions.push(statusBarItem);
-        
-        // Add model status bar item (right side)
-        modelStatusBarItem = vscode.window.createStatusBarItem(
-            vscode.StatusBarAlignment.Right,
-            200
-        );
-        modelStatusBarItem.text = '$(hub) ' + getModelDisplayName(configManager.getModel(), configManager.getProvider());
-        modelStatusBarItem.tooltip = 'Current Model: ' + (configManager.getModel() || 'Default');
-        modelStatusBarItem.command = 'matrixcode.openSettings';
-        modelStatusBarItem.show();
-        context.subscriptions.push(modelStatusBarItem);
-        
-        outputChannel.appendLine('StatusBar items added');
         
         outputChannel.appendLine('MatrixCode extension activated successfully!');
         console.log('MatrixCode extension activated');
@@ -131,14 +78,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 function registerCommands(context: vscode.ExtensionContext): void {
-    // Open chat in a new tab
+    // Open MatrixCode in terminal
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.openChat', () => {
-            chatPanel.openOrCreate();
+            openMatrixCodeTerminal();
         })
     );
     
-    // Quick action command (Ctrl+Shift+K)
+    // Quick action - open terminal with context
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.quickAction', async () => {
             const editor = vscode.window.activeTextEditor;
@@ -153,7 +100,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 return;
             }
             
-            // Prompt for question
             const question = await vscode.window.showInputBox({
                 prompt: 'Ask about the selected code',
                 placeHolder: 'e.g., What does this function do? How can I optimize it?'
@@ -163,110 +109,35 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 return;
             }
             
-            const text = editor.document.getText(selection);
-            const ctx = buildEditorContext(editor);
-            
-            // Open chat panel and send question
-            chatPanel.openOrCreate();
-            await chatPanel.sendQuickAction('ask', text, ctx, question);
+            openMatrixCodeTerminal(question);
         })
     );
     
-    // Improve code command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('matrixcode.improve', async () => {
-            const editor = vscode.window.activeTextEditor;
-            if (!editor) {
-                vscode.window.showWarningMessage('No active editor');
-                return;
-            }
-            
-            const selection = editor.selection;
-            if (selection.isEmpty) {
-                vscode.window.showWarningMessage('Please select some code to improve');
-                return;
-            }
-            
-            const text = editor.document.getText(selection);
-            const ctx = buildEditorContext(editor);
-            
-            chatPanel.openOrCreate();
-            await chatPanel.sendQuickAction('improve', text, ctx);
-        })
-    );
-    
-    // Explain code command
+    // Explain code
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.explain', async () => {
             const editor = vscode.window.activeTextEditor;
-            if (!editor) {
-                vscode.window.showWarningMessage('No active editor');
-                return;
-            }
-            
-            const selection = editor.selection;
-            if (selection.isEmpty) {
+            if (!editor || editor.selection.isEmpty) {
                 vscode.window.showWarningMessage('Please select some code to explain');
                 return;
             }
-            
-            const text = editor.document.getText(selection);
-            const ctx = buildEditorContext(editor);
-            
-            // Open chat panel first
-            chatPanel.openOrCreate();
-            
-            // Send quick action
-            await chatPanel.sendQuickAction('explain', text, ctx);
+            openMatrixCodeTerminal('Explain this code');
         })
     );
     
-    // Fix code command
+    // Fix code
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.fix', async () => {
             const editor = vscode.window.activeTextEditor;
-            if (!editor) {
-                vscode.window.showWarningMessage('No active editor');
-                return;
-            }
-            
-            const selection = editor.selection;
-            if (selection.isEmpty) {
+            if (!editor || editor.selection.isEmpty) {
                 vscode.window.showWarningMessage('Please select some code to fix');
                 return;
             }
-            
-            const text = editor.document.getText(selection);
-            const ctx = buildEditorContext(editor);
-            
-            // Add diagnostics to context
-            const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
-            if (diagnostics.length > 0) {
-                const relevantDiagnostics = diagnostics.filter(d => {
-                    const range = d.range;
-                    return selection.contains(range.start) || selection.contains(range.end);
-                });
-                if (relevantDiagnostics.length > 0) {
-                    ctx.diagnostics = relevantDiagnostics.map(d => ({
-                        severity: vscode.DiagnosticSeverity[d.severity].toLowerCase(),
-                        message: d.message,
-                        range: {
-                            start: { line: d.range.start.line, character: d.range.start.character },
-                            end: { line: d.range.end.line, character: d.range.end.character }
-                        }
-                    }));
-                }
-            }
-            
-            // Open chat panel first
-            chatPanel.openOrCreate();
-            
-            // Send quick action
-            await chatPanel.sendQuickAction('fix', text, ctx);
+            openMatrixCodeTerminal('Fix this code');
         })
     );
     
-    // Generate tests command
+    // Generate tests
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.generateTests', async () => {
             const editor = vscode.window.activeTextEditor;
@@ -274,67 +145,123 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 vscode.window.showWarningMessage('No active editor');
                 return;
             }
-            
-            const selection = editor.selection;
-            const text = selection.isEmpty 
-                ? editor.document.getText() 
-                : editor.document.getText(selection);
-            const ctx = buildEditorContext(editor);
-            
-            // Open chat panel first
-            chatPanel.openOrCreate();
-            
-            // Send quick action
-            await chatPanel.sendQuickAction('generateTests', text, ctx);
+            openMatrixCodeTerminal('Generate tests for this code');
         })
     );
     
-    // Refactor command
+    // Refactor
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.refactor', async () => {
             const editor = vscode.window.activeTextEditor;
-            if (!editor) {
-                vscode.window.showWarningMessage('No active editor');
-                return;
-            }
-            
-            const selection = editor.selection;
-            if (selection.isEmpty) {
+            if (!editor || editor.selection.isEmpty) {
                 vscode.window.showWarningMessage('Please select some code to refactor');
                 return;
             }
             
-            const text = editor.document.getText(selection);
-            const ctx = buildEditorContext(editor);
-            
-            // Prompt for refactor instructions
             const instructions = await vscode.window.showInputBox({
                 prompt: 'Refactor instructions (optional)',
                 placeHolder: 'e.g., Extract method, Rename variables, etc.'
             });
             
-            // Open chat panel first
-            chatPanel.openOrCreate();
-            
-            // Send quick action
-            await chatPanel.sendQuickAction('refactor', text, ctx, instructions);
+            openMatrixCodeTerminal(instructions ? `Refactor: ${instructions}` : 'Refactor this code');
         })
     );
     
-    // New session command
+    // Improve code
     context.subscriptions.push(
-        vscode.commands.registerCommand('matrixcode.newSession', async () => {
-            chatPanel.clearHistory();
+        vscode.commands.registerCommand('matrixcode.improve', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.selection.isEmpty) {
+                vscode.window.showWarningMessage('Please select some code to improve');
+                return;
+            }
+            openMatrixCodeTerminal('Improve this code');
+        })
+    );
+    
+    // New session
+    context.subscriptions.push(
+        vscode.commands.registerCommand('matrixcode.newSession', () => {
+            // Close existing terminal if any
+            if (matrixcodeTerminal) {
+                matrixcodeTerminal.dispose();
+                matrixcodeTerminal = undefined;
+            }
+            // Open new terminal for new session
+            openMatrixCodeTerminal();
             vscode.window.showInformationMessage('MatrixCode: Started new session');
         })
     );
     
-    // Open settings command
+    // Open settings
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixcode.openSettings', () => {
             vscode.commands.executeCommand('workbench.action.openSettings', 'matrixcode');
         })
     );
+}
+
+/**
+ * Open or focus MatrixCode terminal
+ */
+function openMatrixCodeTerminal(initialPrompt?: string): void {
+    const config = vscode.workspace.getConfiguration('matrixcode');
+    const cliPath = config.get<string>('cliPath', 'matrixcode');
+    const provider = config.get<string>('provider', 'anthropic');
+    const model = config.get<string>('model', '');
+    const think = config.get<boolean>('think', true);
+    const maxTokens = config.get<number>('maxTokens', 16384);
+    
+    // Build command arguments
+    const args: string[] = [];
+    
+    if (provider) {
+        args.push('--provider', provider);
+    }
+    
+    if (model) {
+        args.push('--model', model);
+    }
+    
+    if (think) {
+        args.push('--think');
+    }
+    
+    if (maxTokens) {
+        args.push('--max-tokens', maxTokens.toString());
+    }
+    
+    // Check if terminal already exists
+    if (matrixcodeTerminal) {
+        // Focus existing terminal
+        matrixcodeTerminal.show();
+        
+        // Send prompt if provided
+        if (initialPrompt) {
+            // For existing terminal, just send the text (user needs to press Enter)
+            matrixcodeTerminal.sendText(initialPrompt);
+        }
+    } else {
+        // Create new terminal
+        const terminalOptions: vscode.TerminalOptions = {
+            name: 'MatrixCode',
+            shellPath: process.env.SHELL || (process.platform === 'win32' ? 'cmd.exe' : 'bash'),
+        };
+        
+        matrixcodeTerminal = vscode.window.createTerminal(terminalOptions);
+        matrixcodeTerminal.show();
+        
+        // Run matrixcode command
+        const fullCommand = `${cliPath} ${args.join(' ')}`;
+        matrixcodeTerminal.sendText(fullCommand);
+        
+        // Send initial prompt after command starts
+        if (initialPrompt) {
+            setTimeout(() => {
+                matrixcodeTerminal?.sendText(initialPrompt);
+            }, 500);
+        }
+    }
 }
 
 function getModelDisplayName(model: string, provider: string): string {
@@ -351,42 +278,9 @@ function getModelDisplayName(model: string, provider: string): string {
     return model.substring(0, 15);
 }
 
-function buildEditorContext(editor: vscode.TextEditor): EditorContext {
-    const document = editor.document;
-    const selection = editor.selection;
-    
-    return {
-        workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-        file: document.uri.fsPath,
-        language: document.languageId,
-        selection: {
-            start: { line: selection.start.line, character: selection.start.character },
-            end: { line: selection.end.line, character: selection.end.character }
-        }
-    };
-}
-
-async function handleCliNotFound(result: string | undefined): Promise<void> {
-    switch (result) {
-        case 'Install CLI':
-            await vscode.env.openExternal(
-                vscode.Uri.parse('https://github.com/bigfish1913/matrixcode#installation')
-            );
-            break;
-        case 'Configure Path':
-            await vscode.commands.executeCommand('workbench.action.openSettings', 'matrixcode.cliPath');
-            break;
-        case 'Ignore':
-            break;
-    }
-}
-
 export function deactivate(): void {
-    if (client) {
-        client.dispose();
-    }
-    if (chatPanel) {
-        chatPanel.dispose();
+    if (matrixcodeTerminal) {
+        matrixcodeTerminal.dispose();
     }
     if (statusBarItem) {
         statusBarItem.dispose();
@@ -396,4 +290,3 @@ export function deactivate(): void {
     }
     console.log('MatrixCode extension deactivated');
 }
-

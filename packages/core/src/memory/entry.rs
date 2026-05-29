@@ -207,7 +207,21 @@ impl MemoryEntry {
     }
 
     /// Format for inclusion in system prompt.
+    /// Note: This is used inside category groups, so we don't repeat the category name.
     pub fn format_for_prompt(&self) -> String {
+        if self.content.len() > MAX_MEMORY_CONTENT_LENGTH {
+            format!(
+                "{}...",
+                truncate(&self.content, MAX_MEMORY_CONTENT_LENGTH - 3)
+            )
+        } else {
+            self.content.clone()
+        }
+    }
+
+    /// Format for inclusion in system prompt with category name.
+    /// Use this when displaying entries outside of category groups.
+    pub fn format_for_prompt_with_category(&self) -> String {
         let category_name = self.category.display_name();
         if self.content.len() > MAX_MEMORY_CONTENT_LENGTH {
             format!(

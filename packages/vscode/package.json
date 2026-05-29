@@ -147,45 +147,15 @@
           "default": "",
           "markdownDescription": "Model name. Examples:\n- Anthropic: `claude-sonnet-4-20250514`, `claude-opus-4-20250514`, `claude-3-5-haiku-20241022`\n- OpenAI: `gpt-4o`, `gpt-4-turbo`, `gpt-3.5-turbo`"
         },
-        "matrixcode.autoContext": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically include current file and selection as context"
-        },
         "matrixcode.think": {
           "type": "boolean",
           "default": true,
           "description": "Enable extended thinking mode (Anthropic only)"
         },
-        "matrixcode.markdown": {
-          "type": "boolean",
-          "default": true,
-          "description": "Render responses as Markdown"
-        },
         "matrixcode.maxTokens": {
           "type": "number",
           "default": 16384,
           "description": "Maximum output tokens per response"
-        },
-        "matrixcode.compressModel": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Model for context compression. Leave empty to use the main model. Recommended: `claude-3-5-haiku-20241022`"
-        },
-        "matrixcode.daemonMode": {
-          "type": "boolean",
-          "default": true,
-          "description": "Use daemon mode for persistent CLI process (recommended)"
-        },
-        "matrixcode.showThinking": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show thinking process in chat view"
-        },
-        "matrixcode.showToolUse": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show tool usage (file reads, bash commands, etc.) in chat view"
         }
       }
     },
@@ -250,9 +220,5 @@
     "sharp": "^0.34.5",
     "typescript": "^5.3.0"
   },
-  "dependencies": {
-    "@vscode/webview-ui-toolkit": "^1.4.0",
-    "highlight.js": "^11.11.1",
-    "marked": "^18.0.4"
-  }
+  "dependencies": {}
 }
