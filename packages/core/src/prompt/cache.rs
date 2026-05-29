@@ -220,15 +220,9 @@ impl Default for SectionCache {
     }
 }
 
-impl Clone for SectionCache {
-    fn clone(&self) -> Self {
-        Self {
-            entries: RwLock::new(self.entries.read().unwrap().clone()),
-            max_age: self.max_age,
-            stats: RwLock::new(self.stats.read().unwrap().clone()),
-        }
-    }
-}
+// Note: Clone implementation removed - use Arc<SectionCache> for sharing
+// Full cloning of potentially large cache entries is expensive and unnecessary
+// when Arc provides cheap reference counting
 
 /// Estimate token count for content
 pub fn estimate_tokens(content: &str) -> usize {
@@ -264,7 +258,7 @@ mod tests {
         assert!(cache.get(&key).is_none());
         
         // Set
-        cache.set(key.clone(), "test content");
+        cache.set(key.clone(), "test content".to_string());
         
         // Hit
         assert_eq!(cache.get(&key), Some("test content".to_string()));
@@ -280,7 +274,7 @@ mod tests {
         let cache = SectionCache::with_max_age(Duration::from_millis(10));
         let key = CacheKey::new("test", "default");
         
-        cache.set(key.clone(), "test");
+        cache.set(key.clone(), "test".to_string());
         
         // Wait for expiry
         std::thread::sleep(Duration::from_millis(20));
@@ -308,8 +302,8 @@ mod tests {
     fn test_clear_profile() {
         let cache = SectionCache::new();
         
-        cache.set(CacheKey::new("a", "default"), "a");
-        cache.set(CacheKey::new("b", "safe"), "b");
+        cache.set(CacheKey::new("a", "default"), "a".to_string());
+        cache.set(CacheKey::new("b", "safe"), "b".to_string());
         
         cache.clear_profile("default");
         
@@ -337,7 +331,7 @@ mod tests {
         let cache = global_cache();
         
         let key = CacheKey::new("global_test", "default");
-        cache.set(key.clone(), "global content");
+        cache.set(key.clone(), "global content".to_string());
         
         // Should persist across calls
         let cache2 = global_cache();

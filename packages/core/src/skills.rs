@@ -86,7 +86,7 @@ pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {
             let path = entry.path();
 
             if path.is_dir() {
-                // Try Format 1: SKILL.md exists
+                // Try Format 1: SKILL.md exists (package index)
                 let skill_md = path.join("SKILL.md");
                 if skill_md.is_file() {
                     match load_skill_from_file(&skill_md, &path) {
@@ -97,10 +97,11 @@ pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {
                             eprintln!("[warn] skipping skill at {}: {e}", path.display());
                         }
                     }
-                    continue;
+                    // Don't continue here - also load other .md files in the directory
+                    // (SKILL.md acts as package index, other .md files are individual skills)
                 }
 
-                // Try Format 2: multiple .md files in directory
+                // Try Format 2: multiple .md files in directory (including alongside SKILL.md)
                 load_multi_file_skills(&path, &mut out);
             } else if path.is_file() {
                 // Format 3: standalone .md file directly in root
@@ -142,6 +143,8 @@ fn add_skill(out: &mut Vec<Skill>, skill: Skill) {
 
 /// Load skills from a directory containing multiple .md files.
 /// Each .md file with frontmatter becomes a separate skill.
+/// Note: SKILL.md is skipped here (handled separately as package index),
+/// but other .md files are loaded even when SKILL.md exists.
 fn load_multi_file_skills(dir: &Path, out: &mut Vec<Skill>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,

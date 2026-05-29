@@ -323,6 +323,33 @@ pub fn release_sync_lock(project_path: &Path) {
 }
 
 // ========================================================================
+// MCP Daemon Detection
+// ========================================================================
+
+/// Check if MCP daemon is active (via daemon.log recent activity).
+/// Returns true if daemon.log was modified within the last 30 seconds.
+pub fn check_mcp_daemon_active(project_path: &Path) -> bool {
+    let daemon_log_path = project_path.join(".codegraph").join("daemon.log");
+
+    if !daemon_log_path.exists() {
+        return false;
+    }
+
+    // Check if log was modified recently (daemon is active)
+    if let Ok(metadata) = std::fs::metadata(&daemon_log_path) {
+        if let Ok(modified) = metadata.modified() {
+            let now = std::time::SystemTime::now();
+            let elapsed = now.duration_since(modified).unwrap_or(std::time::Duration::MAX);
+            if elapsed < std::time::Duration::from_secs(30) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+// ========================================================================
 // Version Tracking
 // ========================================================================
 

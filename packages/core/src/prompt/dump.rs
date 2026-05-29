@@ -7,10 +7,24 @@
 
 use std::path::{Path, PathBuf};
 use std::io::Write;
+use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use regex::Regex;
 
 use crate::prompt::AssembledPrompt;
+
+// Pre-compiled regex patterns for analyze_prompt
+static SECTION_PATTERN: OnceLock<Regex> = OnceLock::new();
+static TAG_PATTERN: OnceLock<Regex> = OnceLock::new();
+
+fn get_section_pattern() -> &'static Regex {
+    SECTION_PATTERN.get_or_init(|| Regex::new(r"\[([^\]]+)\]").unwrap())
+}
+
+fn get_tag_pattern() -> &'static Regex {
+    TAG_PATTERN.get_or_init(|| Regex::new(r"<([a-zA-Z_][a-zA-Z0-9_]*)>").unwrap())
+}
 
 /// A single dump entry for JSONL export
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,30 +193,41 @@ impl PromptDumper {
         if !self.dump_enabled || self.dump_path.is_none() || self.entries.is_empty() {
             return;
         }
-        
+
         let path = self.dump_path.as_ref().unwrap();
-        
+
         // Create parent directories if needed
         if let Some(parent) = path.parent() {
             if !parent.exists() {
-                std::fs::create_dir_all(parent).ok();
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    log::warn!("Failed to create dump directory: {}", e);
+                    return;
+                }
             }
         }
-        
+
         // Open file for append
-        let mut file = std::fs::OpenOptions::new()
+        match std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(path)
-            .ok();
-        
-        if let Some(ref mut file) = file {
-            for entry in &self.entries {
-                let json = serde_json::to_string(entry).unwrap();
-                writeln!(file, "{}", json).ok();
+        {
+            Ok(mut file) => {
+                use std::io::Write;
+                for entry in &self.entries {
+                    match serde_json::to_string(entry) {
+                        Ok(json) => {
+                            if let Err(e) = writeln!(file, "{}", json) {
+                                log::warn!("Failed to write dump entry: {}", e);
+                            }
+                        }
+                        Err(e) => log::warn!("Failed to serialize dump entry: {}", e),
+                    }
+                }
             }
+            Err(e) => log::warn!("Failed to open dump file {}: {}", path.display(), e),
         }
-        
+
         self.entries.clear();
     }
 
@@ -219,15 +244,15 @@ impl PromptDumper {
     /// Analyze prompt for debugging
     pub fn analyze_prompt(prompt: &str) -> PromptAnalysis {
         let mut analysis = PromptAnalysis::default();
-        
-        // Count sections
-        let section_pattern = regex::Regex::new(r"\[([^\]]+)\]").unwrap();
+
+        // Count sections (using pre-compiled pattern)
+        let section_pattern = get_section_pattern();
         for cap in section_pattern.captures_iter(prompt) {
             analysis.sections.push(cap[1].to_string());
         }
-        
-        // Count XML tags
-        let tag_pattern = regex::Regex::new(r"<([a-zA-Z_][a-zA-Z0-9_]*)>").unwrap();
+
+        // Count XML tags (using pre-compiled pattern)
+        let tag_pattern = get_tag_pattern();
         for cap in tag_pattern.captures_iter(prompt) {
             let tag = cap[1].to_string();
             analysis.xml_tags.push(tag.clone());

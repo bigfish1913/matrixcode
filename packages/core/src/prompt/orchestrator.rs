@@ -408,7 +408,7 @@ mod tests {
             .with_context_injection(false);
         
         orchestrator.add_section(PromptSection::static_section("cached", "cached content"));
-        orchestrator.add_section(PromptSection::dynamic_section("dynamic", "dynamic content"));
+        orchestrator.add_section(PromptSection::dynamic_section("dynamic", || "dynamic content".to_string()));
         
         let assembled = orchestrator.assemble();
         assert!(assembled.prompt.contains(CACHE_BOUNDARY));
@@ -443,8 +443,9 @@ mod tests {
         let mut orchestrator = PromptOrchestrator::new(std::env::current_dir().unwrap())
             .with_context_injection(false);
         
-        // Add lots of static content
-        orchestrator.add_section(PromptSection::static_section("big", "x".repeat(1000).as_str()));
+        // Add lots of static content (using leaked string for test)
+        let big_content: &'static str = Box::leak("x".repeat(1000).into_boxed_str());
+        orchestrator.add_section(PromptSection::static_section("big", big_content));
         orchestrator.add_section(PromptSection::dynamic_section("small", || "y".to_string()));
         
         let assembled = orchestrator.assemble();

@@ -31,37 +31,15 @@ pub use orchestrator::{PromptOrchestrator, PromptProfile, PromptBuilder, Assembl
 pub use preprocess::{PreProcessHook, ProcessResult, SkillPattern, WorkflowTrigger, preprocess};
 pub use dump::{PromptDumper, DumpEntry, PromptAnalysis, DumpFileAnalysis, read_dump_file, analyze_dump_file};
 
-// Re-export constants
+// Re-export constants (includes SECTION_*, MEMORY_*, MSG_*)
 pub use constants::*;
 
 // =============================================================================
 // Legacy Compatibility Layer
 // =============================================================================
-// These functions bridge to the legacy prompt_legacy.rs for backward compatibility.
-// They will be gradually migrated to the new PromptOrchestrator system.
 
 /// Legacy profile enum - alias to new PromptProfile
 pub use orchestrator::PromptProfile as LegacyPromptProfile;
-
-/// Legacy section names
-pub const SECTION_PROJECT_CONTEXT: &str = "PROJECT_CONTEXT";
-pub const SECTION_TASK_CONTEXT: &str = "TASK_CONTEXT";
-pub const SECTION_AVAILABLE_SKILLS: &str = "AVAILABLE_SKILLS";
-pub const SECTION_AVAILABLE_WORKFLOWS: &str = "AVAILABLE_WORKFLOWS";
-pub const SECTION_ACCUMULATED_MEMORY: &str = "ACCUMULATED_MEMORY";
-
-/// Legacy memory instructions
-pub const MEMORY_SUMMARY_HEADER: &str = "[ACCUMULATED MEMORY]";
-pub const MEMORY_USAGE_INSTRUCTIONS: &str = constants::MEMORY_USAGE_INSTRUCTIONS;
-pub const MEMORY_ENTRY_TEMPLATE: &str = "{icon} {category}: {content}";
-
-/// Legacy message constants
-pub const MSG_ITERATION_WARNING: &str = "⚠️ 接近最大迭代次数限制（当前 {iterations}/{max_iterations}）。";
-pub const MSG_ITERATION_WARNING_UI: &str = "⚠️ 接近迭代上限 ({iterations}/{max_iterations})，模型将优先完���关键任务";
-pub const MSG_OPERATION_CANCELLED: &str = "操作已取消";
-pub const MSG_COMPRESSING_CONTEXT: &str = "正在压缩上下文...";
-pub const MSG_COMPRESSION_FAILED: &str = "压缩失败：";
-pub const MSG_MAX_ITERATIONS_REACHED: &str = "⚠️ 已达到最大迭代次数限制。";
 
 /// Legacy OverviewContext for project overview generation
 /// Used by overview.rs to generate MATRIX.md content
@@ -132,7 +110,7 @@ pub fn build_overview_prompt(context: &OverviewContext) -> String {
 
     // Add key source files
     if !context.source_files.is_empty() {
-        prompt.push_str("## 关键��文件\n\n");
+        prompt.push_str("## 关键源文件\n\n");
         for (filename, content) in &context.source_files {
             prompt.push_str(&format!("### {}\n\n", filename));
             prompt.push_str("```\n");
@@ -150,7 +128,7 @@ pub fn build_overview_prompt(context: &OverviewContext) -> String {
 use crate::skills::Skill;
 use std::path::PathBuf;
 
-// Helper for joining iterators (替代 itertools)
+// Helper for joining iterators
 fn join_lines(items: &[String]) -> String {
     items.join("\n")
 }
@@ -179,12 +157,11 @@ pub fn build_system_prompt_with_workflows(
         .unwrap_or(false);
 
     // Use orchestrator to build prompt
-    // Note: boundary is enabled by default, context injection is disabled via no_context()
     let mut builder = PromptBuilder::new(
         project_path.cloned().unwrap_or_else(|| std::env::current_dir().unwrap())
     )
     .profile(*profile)
-    .no_context(); // We handle context manually for now
+    .no_context();
 
     // Add static sections from constants
     for (name, content) in constants::get_static_sections(has_codegraph) {
@@ -210,7 +187,13 @@ pub fn build_system_prompt_with_workflows(
     // Add Skills section if available
     if !skills.is_empty() {
         let skills_lines: Vec<String> = skills.iter()
-            .map(|s| format!("  - {}: {}", s.name, s.description))
+            .map(|s| {
+                if let Some(trigger) = &s.trigger {
+                    format!("  - {}: {}\n    触发场景: {}", s.name, s.description, trigger)
+                } else {
+                    format!("  - {}: {}", s.name, s.description)
+                }
+            })
             .collect();
         let skills_section = format!(
             "[AVAILABLE SKILLS]\n可用技能（使用 skill 工具调用）：\n\n{}",

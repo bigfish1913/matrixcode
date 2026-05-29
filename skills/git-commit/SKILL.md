@@ -1,6 +1,7 @@
 ---
 name: git-commit
 description: 生成规范的 Git 提交信息，遵循 Conventional Commits 规范
+trigger: 用户说 "/commit"、"生成提交信息"、"写 commit message"
 ---
 
 # Git 提交信息生成器

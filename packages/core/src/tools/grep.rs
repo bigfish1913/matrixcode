@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{Tool, ToolDefinition};
+use super::{Tool, ToolDefinition, ToolContext};
 
 /// Grep search options bundled into a single struct.
 struct GrepOptions {
@@ -54,10 +54,21 @@ pub struct GrepTool;
 
 #[async_trait]
 impl Tool for GrepTool {
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "grep".to_string(),
-            description: "搜索文本内容（错误消息、注释、字符串等）。
+    fn definition_with_context(&self, ctx: &ToolContext) -> ToolDefinition {
+        // Dynamic description based on CodeGraph availability
+        let not_applicable = if ctx.codegraph_available {
+            "不适用场景：
+- ❌ 找函数定义 → code_search（快10-100倍）
+- ❌ 找类定义、变量声明 → code_search
+- ❌ 查谁调用了某方法 → code_callers"
+        } else {
+            "不适用场景：
+- ❌ 找函数定义 → 用 grep 搜索 'fn func_name' 或 'class ClassName'
+- ❌ 找类定义、变量声明 → 用 grep 搜索 class/struct 名
+- ❌ 查调用关系 → 用 grep 搜索函数名（不精确）"
+        };
+        
+        let description = format!("搜索文本内容（错误消息、注释、字符串等）。
 
 适用场景：
 - 搜错误信息（如 'failed to connect'、'panic'）
@@ -65,12 +76,13 @@ impl Tool for GrepTool {
 - 搜字符串常量、日志文本
 - 搜索任意文本模式（正则表达式）
 
-不适用场景：
-- ❌ 找函数定义 → 用 code_search（快10-100倍）
-- ❌ 找类定义、变量声明 → 用 code_search
-- ❌ 查谁调用了某方法 → 用 code_callers
+{}
 
-优先级：[中] 文本搜索首选工具".to_string(),
+优先级：[中] 文本搜索首选工具", not_applicable);
+        
+        ToolDefinition {
+            name: "grep".to_string(),
+            description,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -122,6 +134,10 @@ impl Tool for GrepTool {
             }),
             ..Default::default()
         }
+    }
+    
+    fn definition(&self) -> ToolDefinition {
+        self.definition_with_context(&ToolContext::default())
     }
 
     async fn execute(&self, params: Value) -> Result<String> {

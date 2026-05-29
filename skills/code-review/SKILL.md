@@ -1,6 +1,7 @@
 ---
 name: code-review
 description: 执行代码审查，检查代码质量、安全性和最佳实践
+trigger: 用户说 "/review"、"审查代码"、"代码审查"、"检查代码质量"
 ---
 
 # 代码审查技能

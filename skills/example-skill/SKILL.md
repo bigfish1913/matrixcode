@@ -1,6 +1,7 @@
 ---
 name: example-skill
 description: 一个示例 skill，演示如何编写技能
+trigger: 用户说 "/example" 或想了解如何编写 skill
 ---
 
 # 示例技能

@@ -226,9 +226,9 @@ mod tests {
     #[test]
     fn test_order_sorting() {
         let sections = SectionBuilder::new()
-            .add_static(PromptSection::static_section("last", "c").with_order(10))
-            .add_static(PromptSection::static_section("first", "a").with_order(1))
-            .add_static(PromptSection::static_section("middle", "b").with_order(5))
+            .add_section(PromptSection::static_section("last", "c").with_order(10))
+            .add_section(PromptSection::static_section("first", "a").with_order(1))
+            .add_section(PromptSection::static_section("middle", "b").with_order(5))
             .build();
         
         assert_eq!(sections[0].name, "first");

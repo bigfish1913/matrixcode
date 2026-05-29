@@ -18,6 +18,7 @@ use super::git::{
     try_acquire_sync_lock, release_sync_lock, check_sync_lock_owner,
     update_watcher_heartbeat,
     is_source_file,
+    check_mcp_daemon_active,
 };
 use super::ignore::IgnoreMatcher;
 use super::install::get_codegraph_path;
@@ -399,30 +400,36 @@ impl CodeGraphWatcher {
                         syncing_clone.store(true, Ordering::SeqCst);
                         log::info!("CodeGraph: auto-sync triggered ({} unique files changed)", files_count);
 
-                        let our_timestamp = try_acquire_sync_lock(&project_path);
-                        if our_timestamp > 0 {
-                            let manager = CodeGraphManager::new(&project_path);
-                            if manager.is_initialized() {
-                                if let Err(e) = manager.sync().await {
-                                    log::warn!("CodeGraph sync failed: {}", e);
-                                } else {
-                                    // Check if lock still belongs to us before updating
-                                    if check_sync_lock_owner(&project_path, our_timestamp) {
-                                        update_version_after_sync(&project_path);
-                                        changed_files.write().await.clear();
-                                        log::debug!("CodeGraph: sync completed, lock verified");
+                        // Check if MCP daemon is active before syncing
+                        if check_mcp_daemon_active(&project_path) {
+                            log::info!("CodeGraph: MCP daemon active, skipping our sync to avoid conflict");
+                            syncing_clone.store(false, Ordering::SeqCst);
+                        } else {
+                            let our_timestamp = try_acquire_sync_lock(&project_path);
+                            if our_timestamp > 0 {
+                                let manager = CodeGraphManager::new(&project_path);
+                                if manager.is_initialized() {
+                                    if let Err(e) = manager.sync().await {
+                                        log::warn!("CodeGraph sync failed: {}", e);
                                     } else {
-                                        // Lock was stolen by another process, abandon this sync
-                                        log::info!("CodeGraph: sync abandoned, another process took over");
-                                        // Don't clear changed_files, let next sync handle them
+                                        // Check if lock still belongs to us before updating
+                                        if check_sync_lock_owner(&project_path, our_timestamp) {
+                                            update_version_after_sync(&project_path);
+                                            changed_files.write().await.clear();
+                                            log::debug!("CodeGraph: sync completed, lock verified");
+                                        } else {
+                                            // Lock was stolen by another process, abandon this sync
+                                            log::info!("CodeGraph: sync abandoned, another process took over");
+                                            // Don't clear changed_files, let next sync handle them
+                                        }
                                     }
                                 }
+                                release_sync_lock(&project_path);
+                            } else {
+                                log::debug!("CodeGraph: skipping sync, another instance is syncing");
                             }
-                            release_sync_lock(&project_path);
-                        } else {
-                            log::debug!("CodeGraph: skipping sync, another instance is syncing");
+                            syncing_clone.store(false, Ordering::SeqCst);
                         }
-                        syncing_clone.store(false, Ordering::SeqCst);
                     }
                 }
             }

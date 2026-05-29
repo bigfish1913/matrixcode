@@ -170,6 +170,7 @@ impl ContextInjector {
     pub fn get_system_context(&mut self) -> &SystemContext {
         if self.dirty || self.system_context_cache.is_none() {
             self.system_context_cache = Some(self.collect_system_context());
+            self.dirty = false;  // Reset dirty flag after refresh
         }
         self.system_context_cache.as_ref().unwrap()
     }
