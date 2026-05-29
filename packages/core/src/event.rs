@@ -48,6 +48,7 @@ pub enum EventType {
     SkillsLoaded,   // Skills loaded notification
     WorkflowsLoaded, // Workflows loaded notification
     McpServerAdded,   // MCP server added
+    QueueProcessed,   // Pending messages processed by Agent
     McpServerRemoved, // MCP server removed
     McpServerStatus,  // MCP server status update
     LspServerAdded,   // LSP server added
@@ -149,6 +150,10 @@ pub enum EventData {
         name: String,
         tool_count: usize,
     },
+    QueueProcessed {
+        count: usize,
+        messages: Vec<String>,  // Messages that were processed
+    },   // Pending messages processed by Agent
     McpServerRemoved {
         name: String,
     },
@@ -288,6 +293,13 @@ impl AgentEvent {
                 message: message.into(),
                 percentage,
             },
+        )
+    }
+
+    pub fn queue_processed(count: usize, messages: Vec<String>) -> Self {
+        Self::with_data(
+            EventType::QueueProcessed,
+            EventData::QueueProcessed { count, messages },
         )
     }
 

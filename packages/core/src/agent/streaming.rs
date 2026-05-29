@@ -18,7 +18,7 @@ async fn wait_for_cancel_stream(token: &crate::cancel::CancellationToken) {
 impl Agent {
     /// Drain any pending input messages from the channel.
     /// Called during streaming to collect real-time appended messages.
-    fn drain_pending_inputs(&mut self) {
+    pub(crate) fn drain_pending_inputs(&mut self) {
         if let Some(rx) = &mut self.pending_input_rx {
             while let Ok(msg) = rx.try_recv() {
                 log::info!("Agent received pending input: {}", msg.chars().take(50).collect::<String>());

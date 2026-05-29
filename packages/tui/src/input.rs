@@ -612,27 +612,22 @@ impl TuiApp {
             self.auto_scroll = true;
         } else {
             // AI is processing - real-time append message
-            // Immediately show user's input as a message (so user can see what they sent)
-            self.push_message(Message {
-                role: Role::User,
-                content: input.clone(),
-            });
+            // Add to waiting queue (pending_messages) for display
+            // Will be moved to message area after Agent confirms processing
+            self.pending_messages.push(input.clone());
+            log::info!("TUI: real-time message added to waiting queue (len={})", input.len());
 
             // Push to Agent immediately via pending_input channel
             if let Some(pending_tx) = &self.pending_input_tx {
                 if pending_tx.try_send(input.clone()).is_ok() {
-                    log::info!("TUI: real-time pushed message to Agent (len={})", input.len());
-                    // Message sent successfully, Agent will process in next iteration
-                    // Don't add to pending_messages since it's sent directly
+                    log::info!("TUI: message sent to Agent channel, waiting for confirmation");
+                    // Message sent to channel, will be confirmed by QueueProcessed event
                 } else {
-                    log::warn!("TUI: pending_input channel full, message queued locally");
-                    // Channel full, queue locally for SessionEnded processing
-                    self.pending_messages.push(input);
+                    log::warn!("TUI: pending_input channel full, message stays in local queue");
+                    // Channel full, message stays in pending_messages for SessionEnded processing
                 }
-            } else {
-                // No pending_input_tx configured, queue locally for SessionEnded processing
-                self.pending_messages.push(input);
             }
+            // Note: pending_input_tx not configured is rare case, message stays in queue
         }
     }
 

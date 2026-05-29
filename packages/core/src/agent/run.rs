@@ -177,13 +177,12 @@ impl Agent {
             // This ensures appended messages are sent in this iteration's API call
             if self.has_pending_inputs() {
                 let pending = self.take_pending_inputs();
+                let count = pending.len();
                 let merged = pending.join("\n\n---\n\n");
-                log::info!("Adding {} pending input messages to request", pending.len());
+                log::info!("Adding {} pending input messages to request", count);
 
-                self.emit(AgentEvent::progress(
-                    format!("📝 收到 {} 条追加消息", pending.len()),
-                    None,
-                ))?;
+                // Send queue processed event to TUI with messages content
+                self.emit(AgentEvent::queue_processed(count, pending.clone()))?;
 
                 self.messages.push(Message {
                     role: Role::User,
@@ -290,52 +289,43 @@ impl Agent {
 
             should_continue = self.process_response(&response).await?;
 
-            // If model wants to stop, check for pending inputs first, then pending todos
+            // If model wants to stop, check for pending inputs first (higher priority than todos)
+            // This ensures appended messages are processed before session ends
             if !should_continue && iterations < MAX_ITERATIONS - 1 {
-                // Check for user appended messages (real-time input during processing)
+                // Final drain of pending inputs before checking todos
+                self.drain_pending_inputs();
+                
                 if self.has_pending_inputs() {
-                    let pending = self.take_pending_inputs();
-                    let merged = pending.join("\n\n---\n\n");
-                    log::info!("Model stopped but user appended {} messages, continuing", pending.len());
+                    log::info!("Agent: found pending inputs at session end, continuing loop");
+                    should_continue = true;
+                    continue;  // Will be processed at start of next iteration
+                }
+                
+                // Then check for pending todos
+                let pending = self.get_pending_todos();
+                if !pending.is_empty() {
+                    let pending_list = pending.iter()
+                        .map(|(status, content)| {
+                            let marker = match status.as_str() {
+                                "in_progress" => "[~]",
+                                "pending" => "[ ]",
+                                _ => "[?]"
+                            };
+                            format!("  {} {}", marker, content)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
 
-                    self.emit(AgentEvent::progress(
-                        format!("📝 处理 {} 条追加消息", pending.len()),
-                        None,
-                    ))?;
+                    let reminder = format!(
+                        "📋 任务尚未完成。以下待办项需要处理：\n{}\n\n请继续执行，或在 todo_write 中标记为 completed。如遇阻塞请说明原因。",
+                        pending_list
+                    );
 
                     self.messages.push(Message {
                         role: Role::User,
-                        content: MessageContent::Text(merged),
+                        content: MessageContent::Text(reminder),
                     });
                     should_continue = true;
-                } else {
-                    // No pending inputs, check for pending todos
-                    let pending = self.get_pending_todos();
-                    if !pending.is_empty() {
-                        // Generate specific reminder with pending tasks
-                        let pending_list = pending.iter()
-                            .map(|(status, content)| {
-                                let marker = match status.as_str() {
-                                    "in_progress" => "[~]",
-                                    "pending" => "[ ]",
-                                    _ => "[?]"
-                                };
-                                format!("  {} {}", marker, content)
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-
-                        let reminder = format!(
-                            "📋 任务尚未完成。以下待办项需要处理：\n{}\n\n请继续执行，或在 todo_write 中标记为 completed。如遇阻塞请说明原因。",
-                            pending_list
-                        );
-
-                        self.messages.push(Message {
-                            role: Role::User,
-                            content: MessageContent::Text(reminder),
-                        });
-                        should_continue = true;
-                    }
                 }
             }
 

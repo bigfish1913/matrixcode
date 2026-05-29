@@ -302,6 +302,32 @@ impl TuiApp {
                     self.auto_scroll = true;
                 }
             }
+            EventType::QueueProcessed => {
+                // Agent confirmed processing of pending messages
+                if let Some(EventData::QueueProcessed { count, messages }) = e.data {
+                    log::info!("TUI: Agent processed {} pending messages", count);
+
+                    // Remove confirmed messages from waiting queue
+                    // Use prefix matching since messages might be slightly different
+                    for confirmed_msg in &messages {
+                        let confirmed_prefix: String = confirmed_msg.chars().take(100).collect();
+                        self.pending_messages.retain(|pending_msg| {
+                            let pending_prefix: String = pending_msg.chars().take(100).collect();
+                            pending_prefix != confirmed_prefix
+                        });
+                    }
+
+                    // Display confirmed messages in message area with "追加" annotation
+                    for msg in messages {
+                        self.push_message(Message {
+                            role: Role::User,
+                            content: format!("📎 {}", msg),  // Add append indicator
+                        });
+                    }
+
+                    log::info!("TUI: Remaining {} messages in waiting queue", self.pending_messages.len());
+                }
+            }
             EventType::MemoryLoaded => {
                 // Only update counter, don't show in message area
                 // Debug info is already shown in debug panel via DebugLog events
