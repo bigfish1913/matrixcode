@@ -4,6 +4,8 @@ use anyhow::Result;
 use rusqlite::{Connection, params};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+#[cfg(not(target_os = "windows"))]
+use tokio::process::Command;
 use tokio::time::timeout;
 
 use super::types::{Node, IndexStatus, PendingChanges, FileInfo};
