@@ -338,6 +338,7 @@ impl TuiApp {
                     self.messages.push(Message {
                         role,
                         content: t.clone(),
+                        is_pending: false,
                     });
                 }
                 matrixcode_core::MessageContent::Blocks(blocks) => {
@@ -369,6 +370,7 @@ impl TuiApp {
                                 self.messages.push(Message {
                                     role,
                                     content: text.clone(),
+                                    is_pending: false,
                                 });
                             }
                             matrixcode_core::ContentBlock::Thinking { thinking, .. } => {
@@ -379,6 +381,7 @@ impl TuiApp {
                                 self.messages.push(Message {
                                     role: Role::Thinking,
                                     content: thinking.clone(),
+                                    is_pending: false,
                                 });
                             }
                             matrixcode_core::ContentBlock::ToolUse { name: _, .. } => {
@@ -420,6 +423,7 @@ impl TuiApp {
                                         is_pending: false,
                                     },
                                     content: content.clone(),
+                                    is_pending: false,
                                 });
                             }
                             _ => {}

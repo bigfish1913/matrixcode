@@ -170,6 +170,10 @@ impl TuiApp {
             match &msg.role {
                 Role::User => {
                     // User: green left border + bold white text
+                    // Skip pending messages - they are shown in input area already
+                    if msg.is_pending {
+                        continue;
+                    }
                     let wrapped = word_wrap(&msg.content, max_w.saturating_sub(2));
                     for line in wrapped {
                         lines.push(Line::from(vec![

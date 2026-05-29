@@ -47,6 +47,147 @@
       "is_manual": false
     },
     {
+      "id": "24774a71-ef81-42e2-89a1-7036337fff40",
+      "created_at": "2026-05-29T04:52:40.286568Z",
+      "last_referenced": "2026-05-29T04:52:40.286568100Z",
+      "category": "preference",
+      "content": "同类功能的提示词应集中管理在 constants 模块中，通过动态生成函数按需组装。**Why:** 便于维护和修改，避免散落在多处。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 68.0,
+      "tags": [
+        "提示词管理",
+        "集中管理",
+        "constants",
+        "architecture",
+        "prompt-engineering"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "d3d05990-a658-4c11-bccd-fce71cddf6d8",
+      "created_at": "2026-05-28T10:07:33.306195300Z",
+      "last_referenced": "2026-05-28T10:07:33.306195400Z",
+      "category": "finding",
+      "content": "，应该是直接定时查询 server graphql 就行了把？",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "24774a71-ef81-42e2-89a1-7036337fff40",
+      "created_at": "2026-05-29T04:52:40.286568Z",
+      "last_referenced": "2026-05-29T04:52:40.286568100Z",
+      "category": "preference",
+      "content": "同类功能的提示词应集中管理在 constants 模块中，通过动态生成函数按需组装。**Why:** 便于维护和修改，避免散落在多处。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 68.0,
+      "tags": [
+        "提示词管理",
+        "集中管理",
+        "constants",
+        "architecture",
+        "prompt-engineering",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "38d87b03-fe95-4143-bb6d-94303b087196",
+      "created_at": "2026-05-25T16:02:08.631280300Z",
+      "last_referenced": "2026-05-25T16:02:08.631280400Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "88a9d4fe-d179-43d2-9e43-bd505b1bd74e",
+      "created_at": "2026-05-26T15:54:46.922179300Z",
+      "last_referenced": "2026-05-26T15:54:46.922181300Z",
+      "category": "preference",
+      "content": "CodeGraph 工具使用优先级高于传统方法（grep、read），查找代码符号和分析调用关系时必须优先使用 CodeGraph",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish\\Projects\\matrixcode\\packages",
+      "reference_count": 0,
+      "importance": 90.0,
+      "tags": [
+        "CodeGraph",
+        "codegraph_search",
+        "grep",
+        "优先级",
+        "工具使用",
+        "workflow",
+        "tools",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "d3d05990-a658-4c11-bccd-fce71cddf6d8",
+      "created_at": "2026-05-28T10:07:33.306195300Z",
+      "last_referenced": "2026-05-28T10:07:33.306195400Z",
+      "category": "finding",
+      "content": "，应该是直接定时查询 server graphql 就行了把？",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "38d87b03-fe95-4143-bb6d-94303b087196",
       "created_at": "2026-05-25T16:02:08.631280300Z",
       "last_referenced": "2026-05-25T16:02:08.631280400Z",
@@ -1323,7 +1464,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 55.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -1341,7 +1484,8 @@
         "Web Server",
         "反向代理",
         "server",
-        "infrastructure"
+        "infrastructure",
+        "project"
       ],
       "is_manual": false
     },
@@ -1362,7 +1506,8 @@
         "CodeGraph",
         "token优化",
         "architecture",
-        "prompt-engineering"
+        "prompt-engineering",
+        "project"
       ],
       "is_manual": false
     },
@@ -1382,7 +1527,8 @@
         "keywords",
         "simplification",
         "architecture",
-        "refactor"
+        "refactor",
+        "project"
       ],
       "is_manual": false
     },
@@ -1400,7 +1546,8 @@
         "keywords",
         "配置文件",
         "keywords.json",
-        "config"
+        "config",
+        "project"
       ],
       "is_manual": false
     },
@@ -1420,7 +1567,8 @@
         "配置文件",
         "关键词提取",
         "config",
-        "finding"
+        "finding",
+        "project"
       ],
       "is_manual": false
     },
@@ -1440,7 +1588,8 @@
         "停用词",
         "重构",
         "refactor",
-        "config"
+        "config",
+        "project"
       ],
       "is_manual": false
     },
@@ -1460,7 +1609,8 @@
         "info",
         "YAML",
         "design",
-        "ux"
+        "ux",
+        "project"
       ],
       "is_manual": false
     },
@@ -1480,7 +1630,8 @@
         "edit",
         "结构",
         "validation",
-        "ux"
+        "ux",
+        "project"
       ],
       "is_manual": false
     },
@@ -1499,7 +1650,64 @@
         "主动引导",
         "AI行为",
         "prompt",
-        "ux"
+        "ux",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "83dfdad9-b2bf-4c07-b738-26a911f0d510",
+      "created_at": "2026-05-29T10:11:55.350278500Z",
+      "last_referenced": "2026-05-29T10:11:55.350279Z",
+      "category": "finding",
+      "content": "的 ，我是想先看到执行了什么 的详情 不是看动画",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "c3f1932c-61e8-43fb-a1bb-f94372115426",
+      "created_at": "2026-05-29T10:28:50.208416600Z",
+      "last_referenced": "2026-05-29T10:28:50.208417100Z",
+      "category": "solution",
+      "content": "TUI 动画帧驱动事件循环：动画帧更新与事件 poll 共享同一定时器，通过 Activity 状态判断是否需要更新帧，Idle 时跳过帧更新避免 CPU 浪费。**Problem:** 动画需要定期刷新帧，但事件循环阻塞等待时会导致延迟 **Key:** poll 超时 = 动画帧间隔，Idle 状态不更新帧",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "animation frame",
+        "event loop",
+        "CPU optimization",
+        "Activity state",
+        "frontend",
+        "performance",
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "7d9f85b6-7d39-49b0-a776-2570cd7461dd",
+      "created_at": "2026-05-29T10:28:50.208424Z",
+      "last_referenced": "2026-05-29T10:28:50.208424100Z",
+      "category": "solution",
+      "content": "Spinner 动画去重：auto_scroll=true 时底部 activity indicator 隐藏 spinner（消息区 pending 工具已有动画），auto_scroll=false 时才显示完整 spinner + 状态（用户滚动查看历史时仍可感知执行进度）。**Problem:** 消息区和底部 indicator 同时显示 spinner 造成视觉重复 **Key:** 用 auto_scroll 状态控制 indicator 中的 spinner 显示",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "spinner",
+        "duplicate rendering",
+        "auto scroll",
+        "visual redundancy",
+        "frontend",
+        "ux",
+        "project"
       ],
       "is_manual": false
     }

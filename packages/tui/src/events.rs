@@ -50,6 +50,7 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::Thinking,
                 content: self.thinking.clone(),
+                is_pending: false,
             });
             self.thinking.clear();
         }
@@ -57,6 +58,7 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::Assistant,
                 content: self.streaming.clone(),
+                is_pending: false,
             });
             self.streaming.clear();
         }
@@ -79,6 +81,7 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::System,
                 content: format!("📝 重试发送 {} 条消息...", msg_count),
+                is_pending: false,
             });
 
             // Send merged message, retry on failure
@@ -117,6 +120,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::Thinking,
                         content: self.thinking.clone(),
+                        is_pending: false,
                     });
                     self.thinking.clear();
                 }
@@ -137,6 +141,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::Assistant,
                         content: self.streaming.clone(),
+                        is_pending: false,
                     });
                     self.streaming.clear();
                 }
@@ -157,23 +162,42 @@ impl TuiApp {
                         self.update_todo_items(input);
                     }
 
-                    // Add a pending tool message to show command/input details immediately
-                    // This lets user see what's being executed before the result arrives
-                    let detail = extract_tool_detail(&name, input.as_ref());
-                    // Store input JSON in content so it persists until the message is rendered
-                    let content = input
-                        .as_ref()
-                        .map(|v| v.to_string())
-                        .unwrap_or_default();
-                    self.push_message(Message {
-                        role: Role::Tool {
-                            name,
-                            detail: Some(detail),
-                            is_error: false,
-                            is_pending: true,
-                        },
-                        content,
+                    // Check if there's already a pending message for this tool (from streaming phase)
+                    // If input is available now, update it; otherwise create new pending message
+                    let pending_idx = self.messages.iter().rposition(|m| {
+                        matches!(&m.role, Role::Tool { name: n, is_pending: true, .. } if n == &name)
                     });
+
+                    if let Some(idx) = pending_idx {
+                        // Update existing pending message with full input if available
+                        if let Some(ref input_val) = input {
+                            let detail = extract_tool_detail(&name, Some(input_val));
+                            self.messages[idx].role = Role::Tool {
+                                name,
+                                detail: Some(detail),
+                                is_error: false,
+                                is_pending: true,
+                            };
+                            self.messages[idx].content = input_val.to_string();
+                        }
+                    } else {
+                        // No existing pending message, create new one
+                        let detail = extract_tool_detail(&name, input.as_ref());
+                        let content = input
+                            .as_ref()
+                            .map(|v| v.to_string())
+                            .unwrap_or_default();
+                        self.push_message(Message {
+                            role: Role::Tool {
+                                name,
+                                detail: Some(detail),
+                                is_error: false,
+                                is_pending: true,
+                            },
+                            content,
+                            is_pending: false,
+                        });
+                    }
                     self.auto_scroll = true; // Ensure new message is visible
                 }
             }
@@ -211,6 +235,7 @@ impl TuiApp {
                                 is_pending: false,
                             },
                             content, // Keep full content, draw.rs will summarize
+                            is_pending: false,
                         });
                     }
                     self.tool_calls += 1;
@@ -256,11 +281,13 @@ impl TuiApp {
                         self.push_message(Message {
                             role: Role::System,
                             content: "\u{26a1} Interrupted".into(),
+                            is_pending: false,
                         });
                     } else {
                         self.push_message(Message {
                             role: Role::System,
                             content: format!("\u{274c} Error: {}", message),
+                            is_pending: false,
                         });
                         self.streaming.clear();
                         self.thinking.clear();
@@ -322,6 +349,7 @@ impl TuiApp {
                             fmt_tokens(compressed_tokens),
                             (1.0 - ratio) * 100.0
                         ),
+                        is_pending: false,
                     });
                     self.auto_scroll = true;
                 }
@@ -336,6 +364,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: message,
+                        is_pending: false,
                     });
                     self.auto_scroll = true;
                 }
@@ -353,14 +382,18 @@ impl TuiApp {
                             let pending_prefix: String = pending_msg.chars().take(100).collect();
                             pending_prefix != confirmed_prefix
                         });
-                    }
 
-                    // Display confirmed messages in message area with "追加" annotation
-                    for msg in messages {
-                        self.push_message(Message {
-                            role: Role::User,
-                            content: format!("📎 {}", msg),  // Add append indicator
-                        });
+                        // Update existing pending message to non-pending state
+                        // Find matching message and change is_pending from true to false
+                        for msg in &mut self.messages {
+                            if msg.is_pending {
+                                let msg_prefix: String = msg.content.chars().take(100).collect();
+                                if msg_prefix == confirmed_prefix {
+                                    msg.is_pending = false;
+                                    break;
+                                }
+                            }
+                        }
                     }
 
                     log::info!("TUI: Remaining {} messages in waiting queue", self.pending_messages.len());
@@ -534,6 +567,7 @@ impl TuiApp {
                         self.push_message(Message {
                             role: Role::System,
                             content: format!("📚 skills[{}]", names_str),
+                            is_pending: false,
                         });
                         self.auto_scroll = true;
                     }
@@ -547,6 +581,7 @@ impl TuiApp {
                         self.push_message(Message {
                             role: Role::System,
                             content: format!("🔄 workflows[{}]", names_str),
+                            is_pending: false,
                         });
                         self.auto_scroll = true;
                     }
@@ -557,6 +592,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: format!("🔗 MCP '{}' 已连接 ({} 工具)", name, tool_count),
+                        is_pending: false,
                     });
                     self.mcp_servers.push(McpServerInfo::new(name, true, tool_count));
                     self.auto_scroll = true;
@@ -568,6 +604,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: format!("🔌 MCP '{}' 已移除", name),
+                        is_pending: false,
                     });
                     self.auto_scroll = true;
                 }
@@ -582,6 +619,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: format!("🔤 LSP '{}' ({}) 已添加", name, language),
+                        is_pending: false,
                     });
                     self.lsp_servers.push(matrixcode_core::LspServerInfo::new(name, language));
                     self.auto_scroll = true;
@@ -593,6 +631,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: format!("🔤 LSP '{}' 已移除", name),
+                        is_pending: false,
                     });
                     self.auto_scroll = true;
                 }
@@ -772,6 +811,7 @@ impl TuiApp {
         self.push_message(Message {
             role: Role::Ask,
             content,
+            is_pending: false,
         });
         self.waiting_for_ask = true;
         self.activity = Activity::Asking;
@@ -915,6 +955,7 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::Ask,
                 content,
+                is_pending: false,
             });
             self.waiting_for_ask = true;
             self.activity = Activity::Asking;

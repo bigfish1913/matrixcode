@@ -212,4 +212,5 @@ pub struct AskQuestion {
 pub struct Message {
     pub role: Role,
     pub content: String,
+    pub is_pending: bool,  // true = 对接中（等待发送），false = 已发送
 }

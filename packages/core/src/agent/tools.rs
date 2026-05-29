@@ -54,6 +54,14 @@ impl Agent {
 
                     has_tool_use = true;
 
+                    // Emit ToolUseStart event with full input before execution
+                    // This allows UI to display command details before result arrives
+                    self.emit(AgentEvent::tool_use_start(
+                        id.clone(),
+                        name.clone(),
+                        Some(input.clone()),
+                    ))?;
+
                     log::info!("Agent: starting tool '{}' with id {}", name, id);
                     let result = self.execute_tool(name, input.clone()).await;
                     log::info!("Agent: tool '{}' completed", name);

@@ -59,6 +59,7 @@ impl TuiApp {
                         self.push_message(Message {
                             role: Role::System,
                             content: format!("🗑️ Removed from queue: {}", truncate(&removed, 50)),
+                            is_pending: false,
                         });
                     }
                 } else if self.multiline_confirm_send {
@@ -82,6 +83,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: "⚠️ 已取消".into(),
+                        is_pending: false,
                     });
                     if let Some(ask_tx) = &self.ask_tx {
                         ask_tx.try_send("abort".to_string()).ok();
@@ -97,6 +99,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: "⚡ Interrupted".into(),
+                        is_pending: false,
                     });
                 } else if !self.input.is_empty() {
                     // Clear input when idle
@@ -129,6 +132,7 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: "⚡ 已中断".into(),
+                        is_pending: false,
                     });
                 }
             }
@@ -588,6 +592,7 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::User,
                 content: input.clone(),
+                is_pending: false,
             });
             if let Some(ask_tx) = &self.ask_tx {
                 ask_tx.try_send(input).ok();
@@ -604,6 +609,7 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::User,
                 content: input.clone(),
+                is_pending: false,
             });
             let send_result = self.tx.try_send(input);
             log::info!("TUI send_input: try_send result = {:?}", send_result.is_ok());
@@ -612,8 +618,12 @@ impl TuiApp {
             self.auto_scroll = true;
         } else {
             // AI is processing - real-time append message
-            // Add to waiting queue (pending_messages) for display
-            // Will be moved to message area after Agent confirms processing
+            // Immediately display message with "对接中" status
+            self.push_message(Message {
+                role: Role::User,
+                content: input.clone(),
+                is_pending: true,  // Mark as pending (对接中)
+            });
             self.pending_messages.push(input.clone());
             log::info!("TUI: real-time message added to waiting queue (len={})", input.len());
 
@@ -621,13 +631,11 @@ impl TuiApp {
             if let Some(pending_tx) = &self.pending_input_tx {
                 if pending_tx.try_send(input.clone()).is_ok() {
                     log::info!("TUI: message sent to Agent channel, waiting for confirmation");
-                    // Message sent to channel, will be confirmed by QueueProcessed event
                 } else {
                     log::warn!("TUI: pending_input channel full, message stays in local queue");
-                    // Channel full, message stays in pending_messages for SessionEnded processing
                 }
             }
-            // Note: pending_input_tx not configured is rare case, message stays in queue
+            self.auto_scroll = true;  // Ensure new message is visible
         }
     }
 
@@ -932,6 +940,7 @@ impl TuiApp {
                 self.push_message(Message {
                     role: Role::User,
                     content: display_response,
+                    is_pending: false,
                 });
                 if let Some(ask_tx) = &self.ask_tx {
                     ask_tx.try_send(response).ok();
@@ -946,6 +955,7 @@ impl TuiApp {
                 self.push_message(Message {
                     role: Role::User,
                     content: custom_text.clone(),
+                    is_pending: false,
                 });
                 if let Some(ask_tx) = &self.ask_tx {
                     ask_tx.try_send(custom_text).ok();
@@ -1041,6 +1051,7 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::User,
                 content: display_response,
+                is_pending: false,
             });
             if let Some(ask_tx) = &self.ask_tx {
                 ask_tx.try_send(response).ok();
@@ -1115,6 +1126,7 @@ impl TuiApp {
         self.push_message(Message {
             role: Role::User,
             content: display_response,
+            is_pending: false,
         });
         if let Some(ask_tx) = &self.ask_tx {
             ask_tx.try_send(response).ok();
