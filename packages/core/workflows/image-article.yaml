@@ -1,0 +1,98 @@
+# Image Article Generation Workflow
+# Automatically generates articles with images for a given topic
+
+id: image-article
+name: Image Article Generation Workflow
+version: "1.0.0"
+description: A workflow that searches for images and generates professional articles on a given topic
+
+inputs:
+  - name: topic
+    type: string
+    required: true
+    description: The topic for the article
+  - name: style
+    type: string
+    required: false
+    default: "professional"
+    description: Writing style (professional/casual/informative)
+  - name: max_images
+    type: integer
+    required: false
+    default: 5
+    description: Maximum number of images to include
+
+outputs:
+  - name: article
+    value: "{{final_article}}"
+  - name: images
+    value: "{{selected_images}}"
+
+variables:
+  search_query: "{{topic}}"
+  article_style: "{{style}}"
+
+nodes:
+  - id: start
+    type: start
+    name: Start Workflow
+
+  - id: search_images
+    type: task
+    name: Search for Images
+    task: image_search
+    params:
+      query: "{{search_query}} illustration concept"
+      max_results: "{{max_images}}"
+    on_failure:
+      type: continue
+      default_value: []
+    timeout_ms: 30000
+
+  - id: generate_article
+    type: task
+    name: Generate Article Content
+    task: content_generation
+    params:
+      topic: "{{topic}}"
+      style: "{{article_style}}"
+      image_urls: "{{search_images.result}}"
+    depends_on:
+      - search_images
+    on_failure:
+      type: retry
+      max_attempts: 2
+      interval_ms: 2000
+    timeout_ms: 60000
+
+  - id: format_output
+    type: task
+    name: Format Final Article
+    task: format_article
+    params:
+      content: "{{generate_article.result}}"
+      images: "{{search_images.result}}"
+    depends_on:
+      - generate_article
+      - search_images
+
+  - id: end
+    type: end
+    name: Workflow Complete
+
+edges:
+  - id: e1
+    from: start
+    to: search_images
+
+  - id: e2
+    from: search_images
+    to: generate_article
+
+  - id: e3
+    from: generate_article
+    to: format_output
+
+  - id: e4
+    from: format_output
+    to: end

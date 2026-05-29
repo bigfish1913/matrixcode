@@ -127,6 +127,7 @@ pub fn list_sessions() {
 }
 
 /// Handle /save command
+#[allow(dead_code)]
 pub async fn handle_save(
     event_tx: &tokio::sync::mpsc::Sender<matrixcode_core::AgentEvent>,
     msg: &str,
@@ -159,6 +160,7 @@ pub async fn handle_save(
 }
 
 /// Handle /sessions and /resume commands
+#[allow(dead_code)]
 pub async fn handle_sessions(
     event_tx: &tokio::sync::mpsc::Sender<matrixcode_core::AgentEvent>,
     msg: &str,
@@ -201,6 +203,7 @@ pub async fn handle_sessions(
 }
 
 /// Handle /load command
+#[allow(dead_code)]
 pub async fn handle_load(
     event_tx: &tokio::sync::mpsc::Sender<matrixcode_core::AgentEvent>,
     msg: &str,

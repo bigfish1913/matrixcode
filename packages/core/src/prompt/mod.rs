@@ -140,16 +140,20 @@ pub fn build_system_prompt(
     project_overview: Option<&str>,
     memory_summary: Option<&str>,
 ) -> String {
-    build_system_prompt_with_workflows(profile, skills, project_overview, memory_summary, None)
+    build_system_prompt_with_workflows(profile, skills, project_overview, memory_summary, None, None)
 }
 
-/// Build system prompt with workflow support
+/// Build system prompt with workflow support and LSP injection
+/// 
+/// # Arguments
+/// - `lsp_servers`: Optional LSP server info list for dynamic injection
 pub fn build_system_prompt_with_workflows(
     profile: &PromptProfile,
     skills: &[Skill],
     project_overview: Option<&str>,
     memory_summary: Option<&str>,
     project_path: Option<&PathBuf>,
+    lsp_servers: Option<&[crate::lsp::LspServerInfo]>,
 ) -> String {
     // Determine if CodeGraph is available
     let has_codegraph = project_path
@@ -237,6 +241,13 @@ pub fn build_system_prompt_with_workflows(
             MEMORY_USAGE_INSTRUCTIONS,
             memory
         ));
+    }
+
+    // Add LSP servers section if active (dynamic injection)
+    if let Some(servers) = lsp_servers {
+        if let Some(lsp_section) = crate::prompt::constants::get_lsp_section(servers) {
+            parts.push(lsp_section);
+        }
     }
 
     parts.join("\n\n")

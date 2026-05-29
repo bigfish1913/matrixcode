@@ -573,6 +573,7 @@ async fn run_agent_task(
         project_overview.as_ref().map(|o| o.content.as_str()),
         if initial_memory_summary.is_empty() { None } else { Some(&initial_memory_summary) },
         project_path.as_ref(),
+        None, // LSP servers will be injected dynamically when available
     );
 
     // Create MCP Tool Registry for unified management

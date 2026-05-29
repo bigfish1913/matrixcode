@@ -582,3 +582,51 @@ pub const MSG_MAX_ITERATIONS_REACHED: &str = "⚠️ 已达到最大迭代次数
        - 将任务拆分为更小的子任务\n\
        - 使用 '/resume' 从当前状态继续\n\n\
     **限制原因**：防止失控操作和资源耗尽。";
+
+// ============================================================================
+// LSP (Language Server Protocol) Dynamic Injection
+// ============================================================================
+
+/// LSP practice guide (injected when LSP servers are active)
+pub const SYSTEM_PROMPT_LSP_PRACTICE: &str = r#"【LSP 智能感知】
+
+项目已启用 LSP 语言服务器，提供实时代码智能分析。
+
+【LSP 能力】
+- 实时类型检查和错误诊断
+- 精确的符号定义跳转
+- 上下文感知的引用查找
+- 类型签名和文档悬停提示
+
+【使用建议】
+当 LSP 服务器状态显示为 "ok" 时：
+- 代码分析优先依赖 LSP 实时结果
+- 类型错误可直接查看诊断信息
+- 符号查找比静态索引更精确"#;
+
+/// Generate LSP servers info section dynamically
+/// 
+/// Returns None if no servers are active, otherwise returns the formatted section
+pub fn get_lsp_section(servers_info: &[crate::lsp::LspServerInfo]) -> Option<String> {
+    if servers_info.is_empty() {
+        return None;
+    }
+    
+    // Check if any server is connected
+    let has_active = servers_info.iter().any(|s| s.status.is_ok());
+    if !has_active {
+        return None;
+    }
+    
+    let servers_list = servers_info.iter()
+        .filter(|s| s.status.is_ok())
+        .map(|s| format!("  - {}: {} ({})", s.language, s.name, s.status.label()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    
+    Some(format!(
+        "[LSP SERVERS]\n当前活跃的语言服务器：\n\n{}\n\n{}",
+        servers_list,
+        SYSTEM_PROMPT_LSP_PRACTICE
+    ))
+}

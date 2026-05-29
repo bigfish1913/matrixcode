@@ -98,7 +98,7 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
 
                     let project_path = std::env::current_dir().unwrap_or_default();
-                    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Default, &skills, None, None, Some(&project_path));
+                    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Default, &skills, None, None, Some(&project_path), None);
 
                     let provider = match create_provider_with_headers(
                         resolve_provider(&config, &model),
@@ -210,7 +210,7 @@ async fn handle_chat(
     msg: String,
 ) {
     let project_path = std::env::current_dir().unwrap_or_default();
-    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Default, skills, None, None, Some(&project_path));
+    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Default, skills, None, None, Some(&project_path), None);
 
     let provider = match create_provider_with_headers(
         resolve_provider(config, model),
@@ -285,7 +285,7 @@ async fn handle_quick_action(
 
     let project_path = std::env::current_dir().unwrap_or_default();
     let prompt = build_action_prompt(&action, &file);
-    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Fast, skills, None, None, Some(&project_path));
+    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Fast, skills, None, None, Some(&project_path), None);
 
     let provider = match create_provider_with_headers(
         resolve_provider(config, model),
@@ -482,7 +482,7 @@ async fn handle_quick_action_json(
 ) -> Result<()> {
     let project_path = std::env::current_dir().unwrap_or_default();
     let prompt = build_action_prompt(&action, &file);
-    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Fast, skills, None, None, Some(&project_path));
+    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Fast, skills, None, None, Some(&project_path), None);
 
     let provider = create_provider_with_headers(
         resolve_provider(config, model),

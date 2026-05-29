@@ -57,7 +57,7 @@ go install golang.org/x/tools/gopls@latest
 |------|------|------|
 | Connected | LSP:N (绿色) | 正常工作 |
 | NotStarted | LSP:0 (灰色) | 未检测到 |
-| Error | 系统消息 | 启动失败 |
+| Error | LSP:N (红色) | 启动失败 |
 
 ## 工作原理
 
@@ -86,7 +86,7 @@ if is_command_available("rust-analyzer") {
 |------|-----|-----|
 | 配置 | 需要 `mcp.toml` | **自动检测** |
 | 检测 | 手动配置 | 自动扫描 |
-| 工具栏 | Cyan | LightMagenta |
+| 工具栏颜色 | Cyan | 根据状态动态变化 |
 | 用途 | 外部工具 | 代码智能 |
 
 ## 未来功能

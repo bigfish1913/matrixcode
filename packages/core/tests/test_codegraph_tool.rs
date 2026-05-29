@@ -113,6 +113,7 @@ fn test_build_system_prompt_with_codegraph() {
         None,
         None,
         Some(&project_path),
+        None, // LSP servers not available in test
     );
 
     // CodeGraph tools are only included when conditions are met

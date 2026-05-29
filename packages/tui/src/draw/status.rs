@@ -152,10 +152,21 @@ impl TuiApp {
         if width >= 80 && !self.lsp_servers.is_empty() {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             let running = self.lsp_servers.iter().filter(|s| s.status.is_ok()).count();
+            let has_error = self.lsp_servers.iter().any(|s| s.status.is_error());
+            
+            // Color based on status: Green if connected, Red if error, Gray if not started
+            let lsp_color = if has_error {
+                Color::LightRed
+            } else if running > 0 {
+                Color::LightGreen
+            } else {
+                Color::DarkGray
+            };
+            
             let lsp_text = format!(" LSP:{} ", running);
             spans.push(Span::styled(
                 lsp_text,
-                Style::default().fg(Color::LightMagenta),
+                Style::default().fg(lsp_color),
             ));
         }
 

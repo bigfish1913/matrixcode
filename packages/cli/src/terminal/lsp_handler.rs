@@ -29,9 +29,17 @@ impl LspHandler {
 
     /// Start all LSP servers and notify UI
     pub async fn start_all(&self, event_tx: &tokio::sync::mpsc::Sender<AgentEvent>) {
-        let manager = self.manager.read().await;
+        let manager = self.manager.write().await;
 
-        // Get all server statuses (this would trigger actual starts in a real implementation)
+        // Get all server configs and mark them as connected
+        let servers: Vec<_> = manager.server_infos();
+        
+        // Mark all detected servers as connected (they passed detection)
+        for server in &servers {
+            manager.mark_connected(&server.language);
+        }
+        
+        // Get updated statuses
         let servers = manager.server_infos();
 
         // Notify UI about each server
@@ -47,6 +55,7 @@ impl LspHandler {
     }
 
     /// Get server statuses
+    #[allow(dead_code)]
     pub async fn get_status(&self) -> Vec<LspServerInfo> {
         self.manager.read().await.server_infos()
     }

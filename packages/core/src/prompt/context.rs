@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use crate::lsp::LspServerInfo;
 
 /// User context from CLAUDE.md and preferences
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +51,9 @@ pub struct SystemContext {
     pub available_tools: Vec<String>,
     /// Platform info
     pub platform: String,
+    /// LSP servers status (dynamic injection)
+    #[serde(default)]
+    pub lsp_servers: Vec<LspServerInfo>,
 }
 
 impl Default for SystemContext {
@@ -62,6 +66,7 @@ impl Default for SystemContext {
             project_type: None,
             available_tools: Vec::new(),
             platform: std::env::consts::OS.to_string(),
+            lsp_servers: Vec::new(),
         }
     }
 }
@@ -155,6 +160,18 @@ impl ContextInjector {
     /// Mark cache as dirty (need refresh)
     pub fn invalidate(&mut self) {
         self.dirty = true;
+    }
+
+    /// Set LSP servers info (for dynamic injection)
+    /// This updates the cached system context with LSP server information
+    pub fn set_lsp_servers(&mut self, servers: Vec<LspServerInfo>) {
+        if let Some(ref mut ctx) = self.system_context_cache {
+            ctx.lsp_servers = servers;
+        } else {
+            let mut ctx = SystemContext::default();
+            ctx.lsp_servers = servers;
+            self.system_context_cache = Some(ctx);
+        }
     }
 
     /// Get user context
@@ -315,6 +332,18 @@ impl ContextInjector {
         // Available tools
         if !ctx.available_tools.is_empty() {
             parts.push(format!("<availableTools>\n{}\n</availableTools>", ctx.available_tools.join(", ")));
+        }
+        
+        // LSP servers (dynamic injection)
+        if !ctx.lsp_servers.is_empty() {
+            let servers_info = ctx.lsp_servers.iter()
+                .map(|s| {
+                    let status = s.status.label();
+                    format!("{}: {} [{}]", s.language, s.name, status)
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            parts.push(format!("<lspServers>\n{}\n</lspServers>", servers_info));
         }
         
         parts.join("\n\n")

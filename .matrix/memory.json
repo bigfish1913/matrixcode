@@ -1344,6 +1344,27 @@
         "infrastructure"
       ],
       "is_manual": false
+    },
+    {
+      "id": "e81db449-f64c-499f-9342-eced0867f7da",
+      "created_at": "2026-05-29T04:52:40.286560Z",
+      "last_referenced": "2026-05-29T04:52:40.286560400Z",
+      "category": "decision",
+      "content": "动态上下文注入采用三阶段模式：Condition Detection（条件检测）→ Dynamic Generation（动态生成）→ Dynamic Injection（动态注入）。**Why:** 确保无对应服务时零 token 消耗，架构一致性便于维护。**Context:** LSP 和 CodeGraph 等可选功能的 prompt 注入。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 78.0,
+      "tags": [
+        "三阶段模式",
+        "动态注入",
+        "LSP",
+        "CodeGraph",
+        "token优化",
+        "architecture",
+        "prompt-engineering"
+      ],
+      "is_manual": false
     }
   ],
   "config": {

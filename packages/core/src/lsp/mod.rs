@@ -58,3 +58,22 @@ pub use types::{
     default_lsp_config, default_rust_analyzer_config, default_typescript_config, default_python_config,
 };
 pub use manager::{LspManager, find_lsp_config, load_lsp_config};
+
+// ============================================================================
+// Dynamic Injection Helpers (for Prompt System)
+// ============================================================================
+
+/// Check if LSP context should be injected into system prompt
+/// 
+/// Returns true if any server is connected and working properly.
+/// This is used by the prompt system to conditionally inject LSP-related guidance.
+pub fn should_inject_lsp_context(servers: &[LspServerInfo]) -> bool {
+    servers.iter().any(|s| s.status.is_ok())
+}
+
+/// Get active (connected) LSP servers
+/// 
+/// Filters servers to only those with Connected status.
+pub fn get_active_lsp_servers(servers: &[LspServerInfo]) -> Vec<&LspServerInfo> {
+    servers.iter().filter(|s| s.status.is_ok()).collect()
+}

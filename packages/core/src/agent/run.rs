@@ -135,6 +135,7 @@ impl Agent {
                         self.project_overview.as_deref(),
                         self.memory_summary.as_deref(),
                         Some(path),
+                        None, // LSP servers not available in agent context
                     );
                 } else {
                     // Remove CodeGraph tools
@@ -149,6 +150,7 @@ impl Agent {
                         self.project_overview.as_deref(),
                         self.memory_summary.as_deref(),
                         Some(path),
+                        None, // LSP servers not available in agent context
                     );
                 }
             }
