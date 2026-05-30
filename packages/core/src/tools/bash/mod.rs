@@ -97,7 +97,8 @@ IMPORTANT: 当有相关专用工具时，不要用此工具运行命令。使用
             stdout.push_str(&stderr);
         }
 
-        let stdout = truncate_output(stdout);
+        // Filter out ANSI escape sequences that may have leaked from TUI
+        let stdout = filter_ansi_sequences(&truncate_output(stdout));
 
         let code = output.status.code().unwrap_or(-1);
         if !output.status.success() {
@@ -122,4 +123,29 @@ fn truncate_output(mut s: String) -> String {
         MAX_OUTPUT
     ));
     s
+}
+
+/// Filter ANSI escape sequences from output
+/// These can leak from TUI when bash captures output during rendering
+fn filter_ansi_sequences(s: &str) -> String {
+    // Regex to match ANSI escape sequences: ESC [ ... letter
+    // Also matches cursor movement, color codes, clearing, etc.
+    static ANSI_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = ANSI_RE.get_or_init(|| {
+        regex::Regex::new(r"\x1B\[[0-9;]*[A-Za-z]|\x1B\][^\x07]*\x07|\x1B[()][AB012]").unwrap()
+    });
+    
+    // Also filter common control characters that may appear
+    let mut result = String::with_capacity(s.len());
+    for line in s.lines() {
+        let cleaned = re.replace_all(line, "");
+        let cleaned = cleaned.trim();
+        if !cleaned.is_empty() {
+            if !result.is_empty() {
+                result.push('\n');
+            }
+            result.push_str(cleaned);
+        }
+    }
+    result
 }

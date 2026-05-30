@@ -29,8 +29,8 @@ impl Tool for MonitorTool {
                     },
                     "timeout": {
                         "type": "integer",
-                        "default": 30000,
-                        "description": "超时时间（毫秒，默认 30 秒）"
+                        "default": 10000,
+                        "description": "超时时间（毫秒，默认 10 秒）"
                     },
                     "condition": {
                         "type": "string",
@@ -54,7 +54,7 @@ impl Tool for MonitorTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'mode'"))?;
         let target = params["target"].as_str().map(|s| s.to_string());
-        let timeout_ms = params["timeout"].as_u64().unwrap_or(30000);
+        let timeout_ms = params["timeout"].as_u64().unwrap_or(10000);
         let condition = params["condition"].as_str().unwrap_or("available");
 
         let mode = mode.to_string();
