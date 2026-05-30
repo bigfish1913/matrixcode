@@ -71,10 +71,11 @@ impl TuiApp {
 
         // History mode indicator
         let history_indicator = if self.history_index.is_some() {
-            "📜 "
+            "History "
         } else {
             ""
         };
+
 
         // Ask mode handling
         if self.activity == Activity::Asking && self.waiting_for_ask {

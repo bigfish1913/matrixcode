@@ -32,7 +32,7 @@ pub use agent::{Agent, AgentBuilder};
 pub use approval::ApproveMode;
 pub use config::Config;
 pub use debug::{DebugLog, DebugStats, debug_log, set_debug_event_sender};
-pub use event::{AgentEvent, EventCollector, EventData, EventType};
+pub use event::{AgentEvent, EventCollector, EventData, EventType, SessionListItem};
 pub use lsp::{LspManager, LspServerInfo, LspServerStatus};
 pub use providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, ProviderType, Role,

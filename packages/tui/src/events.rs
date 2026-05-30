@@ -671,6 +671,22 @@ impl TuiApp {
                     self.lsp_servers = servers;
                 }
             }
+            EventType::SessionsList => {
+                if let Some(EventData::SessionsList { sessions }) = e.data {
+                    log::debug!("TUI: Received SessionsList with {} sessions", sessions.len());
+                    // Populate session list for selector
+                    self.session_list = sessions.into_iter().map(|s| crate::app::SessionInfo {
+                        short_id: s.short_id,
+                        title: s.title,
+                        message_count: s.message_count,
+                        created_at: s.created_at,
+                    }).collect();
+                    self.session_selected_index = 0;
+                    log::debug!("TUI: Session list populated, first: {:?}", self.session_list.first());
+                    // Reset waiting state - sessions are ready for display
+                    // The user can now navigate and select
+                }
+            }
             _ => {}
         }
     }

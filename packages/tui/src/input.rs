@@ -30,6 +30,9 @@ impl TuiApp {
                     self.input.insert(self.cursor_pos, '\n');
                     self.cursor_pos += 1; // '\n' is 1 byte
                     self.multiline_confirm_send = false; // Reset confirmation state
+                } else if self.waiting_for_session {
+                    // Handle session selection
+                    self.handle_session_select();
                 } else if self.activity == Activity::Asking && self.waiting_for_ask {
                     // Handle ask confirmation or toggle selection in multi-select
                     self.handle_ask_enter();
@@ -58,10 +61,20 @@ impl TuiApp {
                         let removed = self.pending_messages.remove(0);
                         self.push_message(Message {
                             role: Role::System,
-                            content: format!("🗑️ Removed from queue: {}", truncate(&removed, 50)),
+                            content: format!("Removed from queue: {}", truncate(&removed, 50)),
                             is_pending: false,
                         });
                     }
+                } else if self.waiting_for_session {
+                    // Cancel session selection
+                    self.waiting_for_session = false;
+                    self.activity = Activity::Idle;
+                    self.session_list.clear();
+                    self.push_message(Message {
+                        role: Role::System,
+                        content: "Session selection cancelled".into(),
+                        is_pending: false,
+                    });
                 } else if self.multiline_confirm_send {
                     // Cancel multiline send confirmation
                     self.multiline_confirm_send = false;
@@ -246,10 +259,16 @@ impl TuiApp {
                 }
             }
 
-            // Up arrow: ask selection, history navigation, or multiline cursor
+            // Up arrow: session selection, ask selection, history navigation, or multiline cursor
             KeyCode::Up if !k.modifiers.contains(KeyModifiers::ALT) => {
+                // Session selector mode
+                if self.waiting_for_session && !self.session_list.is_empty() {
+                    if self.session_selected_index > 0 {
+                        self.session_selected_index -= 1;
+                    }
+                }
                 // If in "Other" input mode or multiline input, allow navigation
-                if (self.ask_other_input_active || self.input.contains('\n'))
+                else if (self.ask_other_input_active || self.input.contains('\n'))
                     && self.move_cursor_up_line()
                 {
                     // Cursor moved successfully
@@ -281,10 +300,16 @@ impl TuiApp {
                 }
             }
 
-            // Down arrow: ask selection, history navigation, or multiline cursor
+            // Down arrow: session selection, ask selection, history navigation, or multiline cursor
             KeyCode::Down if !k.modifiers.contains(KeyModifiers::ALT) => {
+                // Session selector mode
+                if self.waiting_for_session && !self.session_list.is_empty() {
+                    if self.session_selected_index < self.session_list.len() - 1 {
+                        self.session_selected_index += 1;
+                    }
+                }
                 // If in "Other" input mode or multiline input, allow navigation
-                if (self.ask_other_input_active || self.input.contains('\n'))
+                else if (self.ask_other_input_active || self.input.contains('\n'))
                     && self.move_cursor_down_line()
                 {
                     // Cursor moved successfully
@@ -656,6 +681,30 @@ impl TuiApp {
             }
             self.auto_scroll = true; // Ensure new message is visible
         }
+    }
+
+    /// Handle Enter key in session selector mode - load selected session
+    pub(crate) fn handle_session_select(&mut self) {
+        if self.session_list.is_empty() {
+            return;
+        }
+
+        let idx = self.session_selected_index;
+        if idx < self.session_list.len() {
+            let session = &self.session_list[idx];
+            // Send /resume command with session ID to backend
+            let _ = self.tx.try_send(format!("/resume {}", session.short_id));
+            self.push_message(Message {
+                role: Role::System,
+                content: format!("Loading session {}...", session.short_id),
+                is_pending: false,
+            });
+        }
+
+        // Exit session selection mode
+        self.waiting_for_session = false;
+        self.activity = Activity::Idle;
+        self.session_list.clear();
     }
 
     /// Handle Enter key in Ask mode - toggle selection in multi-select or confirm

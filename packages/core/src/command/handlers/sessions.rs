@@ -4,6 +4,7 @@
 
 use super::super::backend_context::BackendContext;
 use super::super::command_trait::Command;
+use crate::event::{AgentEvent, EventData, EventType, SessionListItem};
 
 /// Sessions 命令
 ///
@@ -68,17 +69,28 @@ impl Command for Sessions {
                             .send(crate::AgentEvent::progress("No saved sessions", None))
                             .await;
                     } else {
-                        let mut info = format!("📚 Sessions ({}):\n", sessions.len());
-                        for session in sessions.iter().take(DISPLAY_SESSIONS_LIMIT) {
-                            info.push_str(&format!(
-                                "• {} - {} msgs\n",
-                                session.short_id(),
-                                session.message_count
-                            ));
-                        }
+                        // Send SessionsList event for interactive selector
+                        let session_list: Vec<SessionListItem> = sessions
+                            .iter()
+                            .take(DISPLAY_SESSIONS_LIMIT)
+                            .map(|s| {
+                                let local: chrono::DateTime<chrono::Local> = s.created_at.with_timezone(&chrono::Local);
+                                let formatted_time = local.format("%Y-%m-%d %H:%M").to_string();
+                                SessionListItem {
+                                    short_id: s.short_id(),
+                                    title: s.display_name(),
+                                    message_count: s.message_count,
+                                    created_at: formatted_time,
+                                }
+                            })
+                            .collect();
+                        
                         let _ = ctx
                             .event_tx
-                            .send(crate::AgentEvent::progress(info, None))
+                            .send(AgentEvent::with_data(
+                                EventType::SessionsList,
+                                EventData::SessionsList { sessions: session_list },
+                            ))
                             .await;
                     }
                 }

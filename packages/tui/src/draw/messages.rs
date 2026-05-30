@@ -836,6 +836,100 @@ impl TuiApp {
             }
         }
 
+        // Session selector - show in message area
+        if self.waiting_for_session {
+            lines.push(Line::styled("", Style::default()));
+            lines.push(Line::styled(
+                "Session Selector",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            lines.push(Line::styled(
+                "Use arrow keys to navigate, Enter to load, Esc to cancel",
+                Style::default().fg(Color::DarkGray),
+            ));
+            lines.push(Line::raw(""));
+
+            if self.session_list.is_empty() {
+                lines.push(Line::styled(
+                    "Loading sessions...",
+                    Style::default().fg(Color::Yellow),
+                ));
+            } else {
+                for (i, session) in self.session_list.iter().enumerate() {
+                    let is_selected = self.session_selected_index == i;
+
+                    let mut spans: Vec<Span> = Vec::new();
+
+                    // Selection indicator
+                    spans.push(Span::styled(
+                        if is_selected { "▶ " } else { "  " },
+                        Style::default().fg(if is_selected {
+                            Color::Cyan
+                        } else {
+                            Color::DarkGray
+                        }),
+                    ));
+
+                    // Session title (primary display)
+                    spans.push(Span::styled(
+                        session.title.clone(),
+                        Style::default()
+                            .fg(if is_selected {
+                                Color::Yellow
+                            } else {
+                                Color::White
+                            })
+                            .add_modifier(Modifier::BOLD),
+                    ));
+
+                    // Separator
+                    spans.push(Span::styled(
+                        "  │  ",
+                        Style::default().fg(Color::DarkGray),
+                    ));
+
+                    // Session ID (secondary info)
+                    spans.push(Span::styled(
+                        format!("[{}]", session.short_id.clone()),
+                        Style::default().fg(Color::Gray),
+                    ));
+
+                    // Separator
+                    spans.push(Span::styled(
+                        "  │  ",
+                        Style::default().fg(Color::DarkGray),
+                    ));
+
+                    // Message count
+                    spans.push(Span::styled(
+                        format!("{} messages", session.message_count),
+                        Style::default().fg(Color::Gray),
+                    ));
+
+                    // Created at
+                    spans.push(Span::styled(
+                        "  │  ",
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                    spans.push(Span::styled(
+                        session.created_at.clone(),
+                        Style::default().fg(Color::Gray),
+                    ));
+
+                    lines.push(Line::from(spans));
+                }
+
+                // Footer hint
+                lines.push(Line::raw(""));
+                lines.push(Line::styled(
+                    format!("{} sessions found", self.session_list.len()),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+        }
+
         // Thinking content - show as message content (animation is in fixed bottom bar)
         if self.activity == Activity::Thinking && !self.thinking.is_empty() {
             if self.thinking_collapsed && !self.debug_mode {

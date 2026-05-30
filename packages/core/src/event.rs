@@ -54,6 +54,7 @@ pub enum EventType {
     LspServerAdded,    // LSP server added
     LspServerRemoved,  // LSP server removed
     LspServerStatus,   // LSP server status update
+    SessionsList,      // Session list for interactive selector
 }
 
 /// Event data
@@ -170,6 +171,19 @@ pub enum EventData {
     LspServerStatus {
         servers: Vec<LspServerInfo>,
     },
+    /// Session list for interactive selector
+    SessionsList {
+        sessions: Vec<SessionListItem>,
+    },
+}
+
+/// Session list item for display
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SessionListItem {
+    pub short_id: String,
+    pub title: String,      // Session display name
+    pub message_count: usize,
+    pub created_at: String, // Formatted datetime string
 }
 
 impl AgentEvent {

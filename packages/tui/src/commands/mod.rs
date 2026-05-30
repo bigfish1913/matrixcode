@@ -161,6 +161,7 @@ mod mode;
 mod model;
 mod new_cmd;
 mod retry;
+mod session;
 mod workflow;
 
 pub use clear::ClearCommand;
@@ -177,6 +178,7 @@ pub use mode::ModeCommand;
 pub use model::ModelCommand;
 pub use new_cmd::NewCommand;
 pub use retry::RetryCommand;
+pub use session::SessionCommand;
 pub use workflow::WorkflowCommand;
 
 use backend::BackendCommand;
@@ -199,6 +201,7 @@ pub fn create_registry() -> CommandRegistry {
     registry.register(Box::new(NewCommand));
     registry.register(Box::new(CompactCommand));
     registry.register(Box::new(InitCommand));
+    registry.register(Box::new(SessionCommand));
 
     // Complex commands
     registry.register(Box::new(LoopCommand));
@@ -214,10 +217,7 @@ pub fn create_registry() -> CommandRegistry {
     registry.register(Box::new(BackendCommand::new("overview")));
     registry.register(Box::new(BackendCommand::new("config")));
     registry.register(Box::new(BackendCommand::new("save")));
-    registry.register(Box::new(BackendCommand::new_with_aliases(
-        "sessions",
-        &["resume"],
-    )));
+    registry.register(Box::new(BackendCommand::new("sessions")));
 
     registry
 }

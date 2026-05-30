@@ -110,6 +110,19 @@ pub struct TuiApp {
     pub(crate) mcp_servers: Vec<matrixcode_core::event::McpServerInfo>,
     // LSP server status
     pub(crate) lsp_servers: Vec<matrixcode_core::LspServerInfo>,
+    // Session selection state
+    pub(crate) session_list: Vec<SessionInfo>,
+    pub(crate) session_selected_index: usize,
+    pub(crate) waiting_for_session: bool, // Whether session selector is active
+}
+
+/// Session info for display
+#[derive(Clone, Debug)]
+pub struct SessionInfo {
+    pub short_id: String,
+    pub title: String,      // Session display name
+    pub message_count: usize,
+    pub created_at: String,
 }
 
 /// Todo item for progress tracking
@@ -213,6 +226,9 @@ impl TuiApp {
             last_workflow_refresh: Instant::now(),
             mcp_servers: Vec::new(),
             lsp_servers: Vec::new(),
+            session_list: Vec::new(),
+            session_selected_index: 0,
+            waiting_for_session: false,
         }
     }
 
