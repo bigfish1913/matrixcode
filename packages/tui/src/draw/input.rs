@@ -326,79 +326,98 @@ impl TuiApp {
             // Multiline mode
             let mut lines: Vec<Line> = Vec::new();
             let input_lines: Vec<&str> = self.input.split('\n').collect();
-            let cursor_line = self.input[..self.cursor_pos].matches('\n').count();
-            let cursor_col_byte = self.input[..self.cursor_pos]
-                .rfind('\n')
-                .map(|i| self.cursor_pos - i - 1)
-                .unwrap_or(self.cursor_pos);
-
             let total_lines_count = input_lines.len();
-            // Use area height minus 1 for char count line if needed
-            let show_char_count = self.input.chars().count() > 50 || total_lines_count > 1;
-            let max_display_lines =
-                (area.height as usize).saturating_sub(if show_char_count { 1 } else { 0 });
-
-            for (i, line) in input_lines.iter().enumerate().take(max_display_lines) {
-                let line_prompt = if i == 0 { prompt } else { "  " };
-                let line_prompt_color = if i == 0 {
-                    prompt_color
-                } else {
-                    Color::DarkGray
-                };
-
-                // Add line number indicator for multiline
-                let line_num_hint = if i == cursor_line && total_lines_count > 1 {
-                    format!("({}/{}) ", i + 1, total_lines_count)
-                } else {
-                    String::new()
-                };
-
-                if i == cursor_line {
-                    let before = &line[..cursor_col_byte.min(line.len())];
-                    let after = &line[cursor_col_byte.min(line.len())..];
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            line_prompt,
-                            Style::default()
-                                .fg(line_prompt_color)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(line_num_hint, Style::default().fg(Color::DarkGray)),
-                        Span::styled(before.to_string(), Style::default().fg(Color::White)),
-                        Span::styled("▌", Style::default().fg(Color::Cyan)),
-                        Span::styled(after.to_string(), Style::default().fg(Color::White)),
-                    ]));
-                } else {
-                    lines.push(Line::from(vec![
-                        Span::styled(
-                            line_prompt,
-                            Style::default()
-                                .fg(line_prompt_color)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(truncate(line, max_w), Style::default().fg(Color::White)),
-                    ]));
-                }
-            }
-
-            let total_lines = input_lines.len();
-            if total_lines > max_display_lines {
-                lines.push(Line::styled(
-                    format!("  … ({}/{} lines)", max_display_lines, total_lines),
-                    Style::default().fg(Color::DarkGray),
-                ));
-            }
-
-            // Show character count at the bottom for multiline input
-            if show_char_count {
-                lines.push(Line::styled(
-                    format!(
-                        "  {} chars, {} lines",
-                        self.input.chars().count(),
-                        total_lines_count
+            
+            // Auto-collapse if > 3 lines (unless explicitly expanded)
+            let should_collapse = total_lines_count > 3 && self.input_collapsed;
+            
+            if should_collapse {
+                // Collapsed: show only first line + summary
+                let first_line = input_lines.first().map_or("", |v| v);
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        prompt,
+                        Style::default()
+                            .fg(prompt_color)
+                            .add_modifier(Modifier::BOLD),
                     ),
-                    Style::default().fg(Color::DarkGray),
-                ));
+                    Span::styled(truncate(first_line, max_w.saturating_sub(20)), Style::default().fg(Color::White)),
+                    Span::styled(
+                        format!(" … ({}) ▶ Alt+T", total_lines_count),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]));
+            } else {
+                // Expanded: show all lines (with scrolling if needed)
+                let cursor_line = self.input[..self.cursor_pos].matches('\n').count();
+                let cursor_col_byte = self.input[..self.cursor_pos]
+                    .rfind('\n')
+                    .map(|i| self.cursor_pos - i - 1)
+                    .unwrap_or(self.cursor_pos);
+
+                let show_char_count = self.input.chars().count() > 50 || total_lines_count > 1;
+                let max_display_lines =
+                    (area.height as usize).saturating_sub(if show_char_count { 1 } else { 0 });
+
+                for (i, line) in input_lines.iter().enumerate().take(max_display_lines) {
+                    let line_prompt = if i == 0 { prompt } else { "  " };
+                    let line_prompt_color = if i == 0 {
+                        prompt_color
+                    } else {
+                        Color::DarkGray
+                    };
+
+                    let line_num_hint = if i == cursor_line && total_lines_count > 1 {
+                        format!("({}/{}) ", i + 1, total_lines_count)
+                    } else {
+                        String::new()
+                    };
+
+                    if i == cursor_line {
+                        let before = &line[..cursor_col_byte.min(line.len())];
+                        let after = &line[cursor_col_byte.min(line.len())..];
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                line_prompt,
+                                Style::default()
+                                    .fg(line_prompt_color)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(line_num_hint, Style::default().fg(Color::DarkGray)),
+                            Span::styled(before.to_string(), Style::default().fg(Color::White)),
+                            Span::styled("▌", Style::default().fg(Color::Cyan)),
+                            Span::styled(after.to_string(), Style::default().fg(Color::White)),
+                        ]));
+                    } else {
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                line_prompt,
+                                Style::default()
+                                    .fg(line_prompt_color)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(truncate(line, max_w), Style::default().fg(Color::White)),
+                        ]));
+                    }
+                }
+
+                if total_lines_count > max_display_lines {
+                    lines.push(Line::styled(
+                        format!("  … ({}/{} lines)", max_display_lines, total_lines_count),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+
+                if show_char_count {
+                    lines.push(Line::styled(
+                        format!(
+                            "  {} chars, {} lines",
+                            self.input.chars().count(),
+                            total_lines_count
+                        ),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
             }
 
             f.render_widget(Paragraph::new(lines), area);

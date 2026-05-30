@@ -59,6 +59,8 @@ pub struct TuiApp {
     pub(crate) new_message_while_scrolled: std::cell::Cell<bool>, // Flag for notification when scrolled up
     // Thinking display state
     pub(crate) thinking_collapsed: bool,
+    // Input multiline collapse state
+    pub(crate) input_collapsed: bool,
     // Dirty flag for rendering optimization - only redraw when something changed
     pub(crate) dirty: std::cell::Cell<bool>,
     // Approval mode
@@ -180,6 +182,7 @@ impl TuiApp {
             max_scroll: std::cell::Cell::new(0),
             new_message_while_scrolled: std::cell::Cell::new(false),
             thinking_collapsed: false, // Default: expanded to show thinking content
+        input_collapsed: true, // Default: collapsed when > 3 lines
             dirty: std::cell::Cell::new(true), // Initial render needed
             approve_mode: ApproveMode::Ask,
             shared_approve_mode: None,
@@ -485,7 +488,18 @@ impl TuiApp {
                         self.dirty.set(true);
                     }
                     Event::Paste(text) => {
-                        self.on_paste(&text);
+                        // Batch paste events - some terminals split long pastes into multiple events
+                        let mut pasted = text;
+                        // Collect all pending paste events within a short window
+                        while event::poll(Duration::from_millis(5)).unwrap_or(false) {
+                            if let Ok(Event::Paste(next)) = event::read() {
+                                pasted.push_str(&next);
+                            } else {
+                                // Non-paste event, break batching
+                                break;
+                            }
+                        }
+                        self.on_paste(&pasted);
                         self.dirty.set(true);
                     }
                     _ => {}

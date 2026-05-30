@@ -333,9 +333,13 @@ impl TuiApp {
                 self.sync_approve_mode();
             }
 
-            // Alt+T: toggle thinking collapse
+            // Alt+T: toggle thinking and input collapse
             KeyCode::Char('t') if k.modifiers.contains(KeyModifiers::ALT) => {
                 self.thinking_collapsed = !self.thinking_collapsed;
+                // Also toggle input collapse if multiline
+                if self.input.contains('\n') {
+                    self.input_collapsed = !self.input_collapsed;
+                }
             }
 
             // Alt+W: toggle workflow panel
