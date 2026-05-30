@@ -79,3 +79,8 @@
 
 - [MCP Guide](packages/docs/mcp-guide.md) - 现有 MCP 工具集成方案
 - [Custom Tools](packages/docs/CUSTOM_TOOLS.md) - 自定义工具文档
+
+
+## 问题 
+
+1. 避免使用全局搜索文件

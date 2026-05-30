@@ -328,8 +328,8 @@ impl TuiApp {
             let input_lines: Vec<&str> = self.input.split('\n').collect();
             let total_lines_count = input_lines.len();
             
-            // Auto-collapse if > 3 lines (unless explicitly expanded)
-            let should_collapse = total_lines_count > 3 && self.input_collapsed;
+            // Collapse if ≥2 lines and collapsed state is true (auto-set on multiline paste)
+            let should_collapse = total_lines_count >= 2 && self.input_collapsed;
             
             if should_collapse {
                 // Collapsed: show only first line + summary

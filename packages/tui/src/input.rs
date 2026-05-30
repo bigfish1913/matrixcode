@@ -1160,10 +1160,21 @@ impl TuiApp {
     }
 
     pub(crate) fn on_paste(&mut self, text: &str) {
+        log::debug!("Paste event: {} chars, {} lines", text.len(), text.lines().count());
         self.ensure_char_boundary();
         self.input.insert_str(self.cursor_pos, text);
         self.cursor_pos += text.len(); // cursor_pos is byte position
-        // Reset multiline confirmation on paste (user may want to edit before sending)
-        self.multiline_confirm_send = false;
+        
+        // Auto-collapse when pasting multiline content
+        if text.contains('\n') {
+            self.input_collapsed = true;
+            // Set confirmation flag to require double Enter for multiline paste
+            // This prevents accidental send if user presses Enter after paste
+            self.multiline_confirm_send = true;
+            log::debug!("Multiline paste: auto-collapsed input, waiting for confirmation");
+        } else {
+            // Single-line paste: reset confirmation state
+            self.multiline_confirm_send = false;
+        }
     }
 }

@@ -211,6 +211,11 @@ impl TuiApp {
             return (1 + self.ask_options.len() as u16).min(6).max(2);
         }
 
+        // If input is collapsed, show minimal height (first line only)
+        if self.input_collapsed {
+            return base_height;
+        }
+
         // Multiline input: calculate based on line count
         if self.input.contains('\n') {
             let line_count = self.input.lines().count() as u16;
