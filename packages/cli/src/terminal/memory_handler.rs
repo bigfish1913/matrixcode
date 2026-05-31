@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use matrixcode_core::{
     AgentEvent, providers::Provider, providers::Message,
-    memory::{MemoryStorage, AutoMemory},
+    memory::{MemoryStorage, AutoMemory, UnifiedExtractor, UnifiedRegistry},
 };
 use crate::constants::{
     MEMORY_MANIFEST_SIZE, MEMORY_INITIAL_SUMMARY_SIZE,
@@ -147,7 +147,7 @@ pub fn should_extract_memory(turn_count: usize, has_fast_provider: bool) -> bool
     turn_count.is_multiple_of(MEMORY_EXTRACTION_INTERVAL) && has_fast_provider
 }
 
-/// Spawn background task for AI memory extraction
+/// Spawn background task for AI memory extraction (unified extraction)
 pub fn spawn_extraction_task(
     event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
     project_path: Option<PathBuf>,
@@ -176,26 +176,25 @@ pub fn spawn_extraction_task(
         let mut bg_ms = bg_ms.unwrap();
 
         let project_path_str = project_path.as_ref().map(|p: &PathBuf| p.to_string_lossy().to_string());
+
+        // Use UnifiedExtractor for single API call extraction
         let detected = if let Some(model) = fast_model {
             matrixcode_core::debug::debug_log().log(
                 "memory_extract",
-                &format!("Background: extracting with model={}", model)
+                &format!("Background: unified extraction with model={}", model)
             );
-            let extractor = matrixcode_core::memory::AiMemoryExtractor::new_minimal(model);
-            matrixcode_core::memory::detect_memories_smart(
+            let extractor = UnifiedExtractor::new_minimal(model);
+            matrixcode_core::memory::detect_unified_smart(
                 &text, None, project_path_str.as_deref(), Some(&extractor)
             ).await
         } else {
-            matrixcode_core::memory::ExtractionResult {
-                memories: Vec::new(),
-                focus_points: Vec::new(),
-                conversation_patterns: Vec::new(),
-            }
+            matrixcode_core::memory::UnifiedExtractionResult::default()
         };
 
+        // Save memories to storage
         if !detected.memories.is_empty() {
             let detected_count = detected.memories.len();
-            for entry in detected.memories {
+            for entry in detected.memories.clone() {
                 let is_global_category = matches!(
                     entry.category,
                     matrixcode_core::memory::MemoryCategory::Preference
@@ -218,6 +217,26 @@ pub fn spawn_extraction_task(
                     entries_count: detected_count,
                 },
             )).await;
+        }
+
+        // Learn patterns and keywords from unified extraction
+        if !detected.conversation_patterns.is_empty() || !detected.focus_keywords.is_empty() {
+            if let Ok(mut registry) = UnifiedRegistry::load_or_default() {
+                registry.learn_from_extraction(&detected, "background");
+                if let Err(e) = registry.save_all() {
+                    log::warn!("Failed to save unified registry: {}", e);
+                }
+
+                // Log what was learned
+                let patterns_count = detected.conversation_patterns.len();
+                let keywords_count = detected.focus_keywords.total_count();
+                if patterns_count > 0 || keywords_count > 0 {
+                    let _ = event_tx.send(AgentEvent::progress(
+                        format!("🧠 学习了 {} 个模式, {} 个关键词", patterns_count, keywords_count),
+                        None,
+                    )).await;
+                }
+            }
         }
     });
 }

@@ -19,6 +19,8 @@
 //! - **conversation_pattern**: Pattern types (ConversationPattern, PatternType, PatternSource)
 //! - **pattern_registry**: Pattern registry for managing conversation patterns
 //! - **focus_keywords_registry**: Registry for dynamic focus tracking keywords
+//! - **unified_extraction**: Unified extraction result structure
+//! - **unified_registry**: Unified registry for learning from extraction
 
 mod adaptive;
 mod config;
@@ -33,6 +35,8 @@ mod project;
 mod retrieval;
 mod smart_retrieval;
 mod storage;
+mod unified_extraction;
+mod unified_registry;
 
 // Re-export all public items
 pub use adaptive::*;
@@ -48,3 +52,5 @@ pub use project::*;
 pub use retrieval::*;
 pub use smart_retrieval::*;
 pub use storage::*;
+pub use unified_extraction::*;
+pub use unified_registry::*;

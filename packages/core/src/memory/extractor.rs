@@ -8,6 +8,7 @@ use super::config::*;
 use super::entry::{MemoryCategory, MemoryEntry};
 use super::manager::AutoMemory;
 use super::conversation_pattern::{ConversationPattern, PatternType, PatternSource};
+use super::unified_extraction::{UnifiedExtractionResult, ExtractedKeywords};
 use crate::compress::FocusPoint;
 
 // ============================================================================
@@ -607,6 +608,381 @@ pub fn infer_category_from_content(content: &str) -> MemoryCategory {
     MemoryCategory::Finding // Default
 }
 
+// ============================================================================
+// Unified Extraction (One AI Call for All Information)
+// ============================================================================
+
+/// Unified extraction system prompt for extracting all information in one call.
+const UNIFIED_EXTRACTION_PROMPT: &str = r#"你是信息提取助手。从对话中一次性提取以下信息：
+
+## 1. 长期记忆 (memories)
+- decision: 技术决策（如"决定使用 PostgreSQL"、"采用 React 架构"）
+- preference: 用户偏好（如"我喜欢简洁的代码风格"、"习惯用 VS Code"）
+- solution: 解决方案（如"通过添加缓存解决了性能问题"）
+- finding: 重要发现（如"发现内存泄漏的原因"）
+- technical: 技术栈（如"项目使用 Rust + Tokio"）
+- structure: 项目结构（如"主入口是 src/main.rs"）
+
+## 2. 当前焦点 (focus_points)
+- topic: 当前讨论的主题
+- keywords: 相关关键词
+- entities: 涉及的文件/函数/类名
+- core_question: 核心问题（可选）
+
+## 3. 对话模式 (conversation_patterns)
+- reference: 引用模式（如"正如前面所说"、"as mentioned"、"previously"）
+- code: 代码模式（如"fn ", "function", "```", "class "）
+
+## 4. 焦点关键词 (focus_keywords)
+- transition: 话题转换词（如"换个话题", "switching", "however", "等等"）
+- question: 提问词（如"怎么", "how", "为什么", "why", "请问"）
+- task: 任务词（如"帮我", "implement", "创建", "create", "修复"）
+- tech: 技术词（如"rust", "数据库", "api", "性能", "优化"）
+
+## 输出格式（严格 JSON）
+
+```json
+{
+  "memories": [
+    {
+      "category": "decision",
+      "content": "采用 PostgreSQL 作为主数据库。**Why:** 性能要求",
+      "importance": 85,
+      "keywords": ["PostgreSQL", "数据库"],
+      "tags": ["backend", "storage"]
+    }
+  ],
+  "focus_points": [
+    {
+      "topic": "API 设计优化",
+      "keywords": ["API", "REST", "性能"],
+      "entities": ["api.rs", "handler"],
+      "core_question": "如何优化 API 响应时间？",
+      "importance": 0.8,
+      "is_current": true
+    }
+  ],
+  "conversation_patterns": [
+    {
+      "pattern_type": "reference",
+      "pattern": "正如我所说",
+      "confidence": 0.8
+    },
+    {
+      "pattern_type": "code",
+      "pattern": "fn ",
+      "confidence": 0.6
+    }
+  ],
+  "focus_keywords": {
+    "transition": ["换个话题", "switching"],
+    "question": ["怎么", "how"],
+    "task": ["帮我", "implement"],
+    "tech": ["rust", "性能"]
+  }
+}
+```
+
+## 规则
+1. 只提取明确出现的信息，不要推测
+2. 如果某类信息没有，返回空数组/对象
+3. importance 范围：memories 0-100，focus_points 0.0-1.0
+4. confidence 范围：0.0-1.0，常见模式置信度较低
+5. 关键词提取 3-5 个核心关键词
+6. 只返回 JSON，不要其他解释"#;
+
+/// Unified extractor that extracts all information in a single AI call.
+///
+/// This replaces the separate AiMemoryExtractor and FocusExtractor,
+/// reducing API calls and providing consistent extraction.
+pub struct UnifiedExtractor {
+    provider: Box<dyn crate::providers::Provider>,
+    model: String,
+}
+
+impl UnifiedExtractor {
+    /// Create a new unified extractor.
+    pub fn new(provider: Box<dyn crate::providers::Provider>, model: String) -> Self {
+        Self { provider, model }
+    }
+
+    /// Create a minimal unified extractor for background tasks.
+    pub fn new_minimal(model: String) -> Self {
+        Self {
+            provider: crate::create_minimal_provider(&model),
+            model,
+        }
+    }
+
+    /// Extract all information from conversation text in a single AI call.
+    pub async fn extract_unified(
+        &self,
+        text: &str,
+        session_id: Option<&str>,
+        project_path: Option<&str>,
+    ) -> Result<UnifiedExtractionResult> {
+        use crate::providers::{ChatRequest, Message, MessageContent, Role};
+
+        // Safely truncate to ~4000 chars respecting UTF-8 boundaries
+        let truncated = truncate_chars(text, 4000);
+
+        let request = ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text(format!(
+                    "请从以下对话中提取所有信息：\n\n{}",
+                    truncated
+                )),
+            }],
+            tools: vec![],
+            system: Some(UNIFIED_EXTRACTION_PROMPT.to_string()),
+            think: false,
+            max_tokens: 1024, // Larger token limit for unified extraction
+            server_tools: vec![],
+            enable_caching: false,
+        };
+
+        let response = self.provider.chat(request).await?;
+
+        let response_text = response
+            .content
+            .iter()
+            .filter_map(|b| {
+                if let crate::providers::ContentBlock::Text { text } = b {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        parse_unified_response(&response_text, session_id, project_path)
+    }
+
+    /// Get the model name used for extraction.
+    pub fn model_name(&self) -> &str {
+        &self.model
+    }
+}
+
+/// Parse unified extraction response from AI.
+fn parse_unified_response(
+    json_text: &str,
+    session_id: Option<&str>,
+    project_path: Option<&str>,
+) -> Result<UnifiedExtractionResult> {
+    let cleaned = json_text
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    #[derive(Deserialize)]
+    struct UnifiedResponse {
+        #[serde(default)]
+        memories: Vec<MemoryItem>,
+        #[serde(default)]
+        focus_points: Vec<FocusPointItem>,
+        #[serde(default)]
+        conversation_patterns: Vec<ConversationPatternItem>,
+        #[serde(default)]
+        focus_keywords: FocusKeywordsItem,
+    }
+
+    #[derive(Deserialize, Default)]
+    struct FocusKeywordsItem {
+        #[serde(default)]
+        transition: Vec<String>,
+        #[serde(default)]
+        question: Vec<String>,
+        #[serde(default)]
+        task: Vec<String>,
+        #[serde(default)]
+        tech: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct MemoryItem {
+        category: String,
+        content: String,
+        #[serde(default)]
+        importance: f64,
+        #[serde(default)]
+        keywords: Vec<String>,
+        #[serde(default)]
+        tags: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct FocusPointItem {
+        topic: String,
+        #[serde(default)]
+        keywords: Vec<String>,
+        #[serde(default)]
+        entities: Vec<String>,
+        #[serde(default)]
+        core_question: Option<String>,
+        #[serde(default = "default_importance")]
+        importance: f32,
+        #[serde(default = "default_is_current")]
+        is_current: bool,
+    }
+
+    #[derive(Deserialize)]
+    struct ConversationPatternItem {
+        pattern_type: String,
+        pattern: String,
+        #[serde(default)]
+        confidence: f32,
+    }
+
+    fn default_importance() -> f32 { 0.7 }
+    fn default_is_current() -> bool { true }
+
+    let parsed: UnifiedResponse = serde_json::from_str(cleaned)?;
+
+    // Parse memories (reuse existing logic)
+    let entries = parsed
+        .memories
+        .into_iter()
+        .filter_map(|item| {
+            let category = match item.category.to_lowercase().as_str() {
+                "decision" => MemoryCategory::Decision,
+                "preference" => MemoryCategory::Preference,
+                "solution" => MemoryCategory::Solution,
+                "finding" => MemoryCategory::Finding,
+                "technical" => MemoryCategory::Technical,
+                "structure" => MemoryCategory::Structure,
+                _ => return None,
+            };
+
+            if item.content.len() < MIN_MEMORY_CONTENT_LENGTH {
+                return None;
+            }
+
+            let mut entry = MemoryEntry::new(
+                category,
+                item.content,
+                session_id.map(|s| s.to_string()),
+                project_path.map(|p| p.to_string()),
+            );
+            if item.importance > 0.0 {
+                entry.importance = item.importance.clamp(0.0, 100.0);
+            }
+            if !item.keywords.is_empty() {
+                entry.tags.extend(item.keywords);
+            }
+            if !item.tags.is_empty() {
+                entry.tags.extend(item.tags);
+            }
+            entry.tags.dedup();
+
+            Some(entry)
+        })
+        .collect();
+
+    // Parse focus points (reuse existing logic)
+    use chrono::Utc;
+    use crate::compress::FocusStatus;
+
+    let focus_points = parsed
+        .focus_points
+        .into_iter()
+        .map(|item| {
+            let mut focus = FocusPoint::new(
+                format!("focus-{}", Utc::now().timestamp()),
+                item.topic,
+                item.keywords,
+                item.entities,
+                item.core_question,
+                0,
+            );
+            focus.importance = item.importance.clamp(0.0, 1.0);
+            if !item.is_current {
+                focus.status = FocusStatus::Suspended;
+            }
+            focus
+        })
+        .collect();
+
+    // Parse conversation patterns (reuse existing logic)
+    let conversation_patterns = parsed
+        .conversation_patterns
+        .into_iter()
+        .filter_map(|item| {
+            let pattern_type = match item.pattern_type.to_lowercase().as_str() {
+                "reference" => PatternType::Reference,
+                "code" => PatternType::Code,
+                _ => return None,
+            };
+
+            if item.pattern.trim().is_empty() {
+                return None;
+            }
+
+            let mut pattern = ConversationPattern::new(
+                pattern_type,
+                item.pattern,
+                PatternSource::UserConversation {
+                    example: String::new(),
+                },
+            );
+
+            pattern.confidence = if item.confidence > 0.0 {
+                item.confidence.clamp(0.0, 1.0)
+            } else {
+                0.5
+            };
+
+            Some(pattern)
+        })
+        .collect();
+
+    // Parse focus keywords
+    let focus_keywords = ExtractedKeywords {
+        transition: parsed.focus_keywords.transition,
+        question: parsed.focus_keywords.question,
+        task: parsed.focus_keywords.task,
+        tech: parsed.focus_keywords.tech,
+    };
+
+    Ok(UnifiedExtractionResult {
+        memories: deduplicate_entries(entries),
+        focus_points,
+        conversation_patterns,
+        focus_keywords,
+    })
+}
+
+/// Smart unified extraction: AI-first with graceful fallback.
+///
+/// Uses UnifiedExtractor for single API call extraction.
+pub async fn detect_unified_smart(
+    text: &str,
+    session_id: Option<&str>,
+    project_path: Option<&str>,
+    extractor: Option<&UnifiedExtractor>,
+) -> UnifiedExtractionResult {
+    let mode = AiDetectionMode::from_env();
+    let text_len = text.len();
+
+    // Only use AI for text > 200 chars
+    let should_try_ai = mode != AiDetectionMode::Never && extractor.is_some() && text_len > 200;
+
+    if should_try_ai && let Some(ex) = extractor {
+        if let Ok(result) = ex.extract_unified(text, session_id, project_path).await {
+            return result;
+        }
+        // AI failed - skip detection for this turn
+        log::warn!("Unified extraction failed, skipping detection for this turn");
+    }
+
+    // Return empty result for short texts or failed AI
+    UnifiedExtractionResult::default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1143,5 +1519,180 @@ mod tests {
         let debug_str = format!("{:?}", result);
         assert!(debug_str.contains("ExtractionResult"));
         assert!(debug_str.contains("conversation_patterns"));
+    }
+
+    // =========================================================================
+    // Unified Extraction Tests
+    // =========================================================================
+
+    #[test]
+    fn test_parse_unified_response_full() {
+        let json = r#"{
+            "memories": [
+                {
+                    "category": "decision",
+                    "content": "使用 Rust 作为主要语言",
+                    "importance": 85,
+                    "keywords": ["Rust"],
+                    "tags": ["backend"]
+                }
+            ],
+            "focus_points": [
+                {
+                    "topic": "API设计",
+                    "keywords": ["API", "REST"],
+                    "entities": ["User", "Order"],
+                    "core_question": "如何优化 API？",
+                    "importance": 0.8,
+                    "is_current": true
+                }
+            ],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "正如我所说",
+                    "confidence": 0.8
+                }
+            ],
+            "focus_keywords": {
+                "transition": ["换个话题"],
+                "question": ["怎么"],
+                "task": ["帮我"],
+                "tech": ["rust"]
+            }
+        }"#;
+
+        let result = parse_unified_response(json, Some("session-123"), Some("/project")).unwrap();
+
+        // Verify all components
+        assert_eq!(result.memories.len(), 1);
+        assert_eq!(result.memories[0].category, MemoryCategory::Decision);
+        assert!(result.memories[0].content.contains("Rust"));
+
+        assert_eq!(result.focus_points.len(), 1);
+        assert_eq!(result.focus_points[0].topic, "API设计");
+
+        assert_eq!(result.conversation_patterns.len(), 1);
+        assert_eq!(result.conversation_patterns[0].pattern_type, PatternType::Reference);
+
+        assert!(!result.focus_keywords.is_empty());
+        assert_eq!(result.focus_keywords.transition.len(), 1);
+        assert_eq!(result.focus_keywords.question.len(), 1);
+        assert_eq!(result.focus_keywords.task.len(), 1);
+        assert_eq!(result.focus_keywords.tech.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_unified_response_empty() {
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [],
+            "focus_keywords": {
+                "transition": [],
+                "question": [],
+                "task": [],
+                "tech": []
+            }
+        }"#;
+
+        let result = parse_unified_response(json, None, None).unwrap();
+
+        assert!(result.memories.is_empty());
+        assert!(result.focus_points.is_empty());
+        assert!(result.conversation_patterns.is_empty());
+        assert!(result.focus_keywords.is_empty());
+    }
+
+    #[test]
+    fn test_parse_unified_response_partial() {
+        // Test with only memories (no focus_keywords)
+        let json = r#"{
+            "memories": [
+                {
+                    "category": "technical",
+                    "content": "使用 PostgreSQL 作为主数据库存储",
+                    "importance": 70
+                }
+            ]
+        }"#;
+
+        let result = parse_unified_response(json, None, None).unwrap();
+
+        assert_eq!(result.memories.len(), 1);
+        assert!(result.focus_points.is_empty());
+        assert!(result.conversation_patterns.is_empty());
+        assert!(result.focus_keywords.is_empty());
+    }
+
+    #[test]
+    fn test_parse_unified_response_with_code_block() {
+        let json = r#"```json
+{
+    "memories": [],
+    "focus_points": [],
+    "conversation_patterns": [],
+    "focus_keywords": {
+        "transition": ["switching"],
+        "question": [],
+        "task": [],
+        "tech": []
+    }
+}
+```"#;
+
+        let result = parse_unified_response(json, None, None).unwrap();
+
+        assert_eq!(result.focus_keywords.transition.len(), 1);
+        assert_eq!(result.focus_keywords.transition[0], "switching");
+    }
+
+    #[test]
+    fn test_unified_extraction_result_default() {
+        let result = UnifiedExtractionResult::default();
+        assert!(result.memories.is_empty());
+        assert!(result.focus_points.is_empty());
+        assert!(result.conversation_patterns.is_empty());
+        assert!(result.focus_keywords.is_empty());
+    }
+
+    #[test]
+    fn test_unified_extraction_prompt_contains_all_sections() {
+        // Verify the unified prompt contains all extraction sections
+        assert!(UNIFIED_EXTRACTION_PROMPT.contains("长期记忆"));
+        assert!(UNIFIED_EXTRACTION_PROMPT.contains("当前焦点"));
+        assert!(UNIFIED_EXTRACTION_PROMPT.contains("对话模式"));
+        assert!(UNIFIED_EXTRACTION_PROMPT.contains("焦点关键词"));
+    }
+
+    #[test]
+    fn test_unified_extraction_prompt_contains_keyword_categories() {
+        assert!(UNIFIED_EXTRACTION_PROMPT.contains("transition"));
+        assert!(UNIFIED_EXTRACTION_PROMPT.contains("question"));
+        assert!(UNIFIED_EXTRACTION_PROMPT.contains("task"));
+        assert!(UNIFIED_EXTRACTION_PROMPT.contains("tech"));
+    }
+
+    #[test]
+    fn test_parse_unified_response_keywords_merged() {
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [],
+            "focus_keywords": {
+                "transition": ["换个话题", "switching", "however"],
+                "question": ["怎么", "how", "为什么"],
+                "task": ["帮我", "implement", "创建"],
+                "tech": ["rust", "数据库", "api"]
+            }
+        }"#;
+
+        let result = parse_unified_response(json, None, None).unwrap();
+
+        assert_eq!(result.focus_keywords.transition.len(), 3);
+        assert_eq!(result.focus_keywords.question.len(), 3);
+        assert_eq!(result.focus_keywords.task.len(), 3);
+        assert_eq!(result.focus_keywords.tech.len(), 3);
+        assert_eq!(result.focus_keywords.total_count(), 12);
     }
 }
