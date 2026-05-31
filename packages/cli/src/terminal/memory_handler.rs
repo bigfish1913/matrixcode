@@ -186,12 +186,16 @@ pub fn spawn_extraction_task(
                 &text, None, project_path_str.as_deref(), Some(&extractor)
             ).await
         } else {
-            Vec::new()
+            matrixcode_core::memory::ExtractionResult {
+                memories: Vec::new(),
+                focus_points: Vec::new(),
+                conversation_patterns: Vec::new(),
+            }
         };
 
-        if !detected.is_empty() {
-            let detected_count = detected.len();
-            for entry in detected {
+        if !detected.memories.is_empty() {
+            let detected_count = detected.memories.len();
+            for entry in detected.memories {
                 let is_global_category = matches!(
                     entry.category,
                     matrixcode_core::memory::MemoryCategory::Preference

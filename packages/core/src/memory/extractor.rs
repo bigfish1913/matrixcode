@@ -7,6 +7,8 @@ use serde::Deserialize;
 use super::config::*;
 use super::entry::{MemoryCategory, MemoryEntry};
 use super::manager::AutoMemory;
+use super::conversation_pattern::{ConversationPattern, PatternType, PatternSource};
+use crate::compress::FocusPoint;
 
 // ============================================================================
 // Memory Extractor Trait
@@ -15,16 +17,25 @@ use super::manager::AutoMemory;
 /// Trait for memory extraction implementations.
 #[async_trait::async_trait]
 pub trait MemoryExtractor: Send + Sync {
-    /// Extract memories from conversation text using AI.
+    /// Extract memories and focus points from conversation text using AI.
     async fn extract(
         &self,
         text: &str,
         session_id: Option<&str>,
         project_path: Option<&str>,
-    ) -> Result<Vec<MemoryEntry>>;
+    ) -> Result<ExtractionResult>;
 
     /// Get the model name used for extraction.
     fn model_name(&self) -> &str;
+}
+
+/// Result of memory extraction (memories + focus points + conversation patterns).
+#[derive(Debug, Clone)]
+pub struct ExtractionResult {
+    pub memories: Vec<MemoryEntry>,
+    pub focus_points: Vec<FocusPoint>,
+    /// Extracted conversation patterns (reference and code patterns).
+    pub conversation_patterns: Vec<ConversationPattern>,
 }
 
 /// AI-based memory extractor using a fast/cheap model.
@@ -102,6 +113,21 @@ const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是记忆提取助手。从对�
 这些排除规则即使当用户要求保存时也适用。
 如果他们要求保存临时信息，问："有什么 surprising 或 non-obvious 的部分？"
 
+# 对话模式提取
+
+当对话文本较长时（超过500字符），还要提取对话中使用的模式：
+
+1. **引用模式 (reference)**：用户如何引用之前的内容
+   - 示例："正如前面所说"、"接着刚才的话题"、"as mentioned"、"previously"
+
+2. **代码模式 (code)**：对话中涉及的代码风格关键词
+   - 示例：语言关键词（fn, function, class）、代码块标记（```）
+
+模式提取规则：
+- 只提取明确出现的模式，不要推测
+- confidence 范围 0.0-1.0，越常见越低（常见模式置信度低）
+- 只在文本 > 500 字符时提取模式
+
 # 输出格式
 
 严格 JSON：
@@ -113,6 +139,19 @@ const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是记忆提取助手。从对�
       "importance": 85,
       "keywords": ["PostgreSQL", "数据库", "database"],
       "tags": ["backend", "storage"]
+    }
+  ],
+  "focus_points": [],
+  "conversation_patterns": [
+    {
+      "pattern_type": "reference",
+      "pattern": "正如我所说",
+      "confidence": 0.8
+    },
+    {
+      "pattern_type": "code",
+      "pattern": "fn ",
+      "confidence": 0.6
     }
   ]
 }
@@ -129,7 +168,7 @@ impl MemoryExtractor for AiMemoryExtractor {
         text: &str,
         session_id: Option<&str>,
         project_path: Option<&str>,
-    ) -> Result<Vec<MemoryEntry>> {
+    ) -> Result<ExtractionResult> {
         use crate::providers::{ChatRequest, Message, MessageContent, Role};
 
         // Safely truncate to ~4000 chars respecting UTF-8 boundaries
@@ -139,7 +178,7 @@ impl MemoryExtractor for AiMemoryExtractor {
             messages: vec![Message {
                 role: Role::User,
                 content: MessageContent::Text(format!(
-                    "请从以下对话中提取值得记忆的关键信息：\n\n{}",
+                    "请从以下对话中提取值得记忆的关键信息和当前聚焦点：\n\n{}",
                     truncated
                 )),
             }],
@@ -178,7 +217,7 @@ fn parse_memory_response(
     json_text: &str,
     session_id: Option<&str>,
     project_path: Option<&str>,
-) -> Result<Vec<MemoryEntry>> {
+) -> Result<ExtractionResult> {
     let cleaned = json_text
         .trim()
         .trim_start_matches("```json")
@@ -189,6 +228,10 @@ fn parse_memory_response(
     #[derive(Deserialize)]
     struct MemoryResponse {
         memories: Vec<MemoryItem>,
+        #[serde(default)]
+        focus_points: Vec<FocusPointItem>,
+        #[serde(default)]
+        conversation_patterns: Vec<ConversationPatternItem>,
     }
 
     #[derive(Deserialize)]
@@ -203,8 +246,35 @@ fn parse_memory_response(
         tags: Vec<String>,
     }
 
+    #[derive(Deserialize)]
+    struct FocusPointItem {
+        topic: String,
+        #[serde(default)]
+        keywords: Vec<String>,
+        #[serde(default)]
+        entities: Vec<String>,
+        #[serde(default)]
+        core_question: Option<String>,
+        #[serde(default = "default_importance")]
+        importance: f32,
+        #[serde(default = "default_is_current")]
+        is_current: bool,
+    }
+
+    #[derive(Deserialize)]
+    struct ConversationPatternItem {
+        pattern_type: String,
+        pattern: String,
+        #[serde(default)]
+        confidence: f32,
+    }
+
+    fn default_importance() -> f32 { 0.7 }
+    fn default_is_current() -> bool { true }
+
     let parsed: MemoryResponse = serde_json::from_str(cleaned)?;
 
+    // Parse memories
     let entries = parsed
         .memories
         .into_iter()
@@ -245,7 +315,72 @@ fn parse_memory_response(
         })
         .collect();
 
-    Ok(deduplicate_entries(entries))
+    // Parse focus points
+    use chrono::Utc;
+    use crate::compress::FocusStatus;
+
+    let focus_points = parsed
+        .focus_points
+        .into_iter()
+        .map(|item| {
+            let mut focus = FocusPoint::new(
+                format!("focus-{}", Utc::now().timestamp()),
+                item.topic,
+                item.keywords,
+                item.entities,
+                item.core_question,
+                0,
+            );
+            focus.importance = item.importance.clamp(0.0, 1.0);
+            if !item.is_current {
+                focus.status = FocusStatus::Suspended;
+            }
+            focus
+        })
+        .collect();
+
+    // Parse conversation patterns
+    let conversation_patterns = parsed
+        .conversation_patterns
+        .into_iter()
+        .filter_map(|item| {
+            // Parse pattern type
+            let pattern_type = match item.pattern_type.to_lowercase().as_str() {
+                "reference" => PatternType::Reference,
+                "code" => PatternType::Code,
+                _ => return None, // Skip unknown pattern types
+            };
+
+            // Skip empty patterns
+            if item.pattern.trim().is_empty() {
+                return None;
+            }
+
+            // Create pattern with UserConversation source
+            let mut pattern = ConversationPattern::new(
+                pattern_type,
+                item.pattern,
+                PatternSource::UserConversation {
+                    example: String::new(), // Will be filled when pattern is used
+                },
+            );
+
+            // Set confidence (default to 0.5 if not specified or out of range)
+            pattern.confidence = if item.confidence > 0.0 {
+                item.confidence.clamp(0.0, 1.0)
+            } else {
+                0.5
+            };
+
+            Some(pattern)
+        })
+        .collect();
+
+    Ok(ExtractionResult {
+        memories: deduplicate_entries(entries),
+        focus_points,
+        conversation_patterns,
+    })
 }
 
 fn deduplicate_entries(entries: Vec<MemoryEntry>) -> Vec<MemoryEntry> {
@@ -346,7 +481,7 @@ pub async fn detect_memories_smart(
     session_id: Option<&str>,
     project_path: Option<&str>,
     extractor: Option<&AiMemoryExtractor>,
-) -> Vec<MemoryEntry> {
+) -> ExtractionResult {
     let mode = AiDetectionMode::from_env();
     let text_len = text.len();
 
@@ -364,25 +499,33 @@ pub async fn detect_memories_smart(
     );
 
     if should_try_ai && let Some(ex) = extractor {
-        if let Ok(ai_entries) = ex.extract(text, session_id, project_path).await {
+        if let Ok(result) = ex.extract(text, session_id, project_path).await {
             // AI succeeded - use AI results entirely (skip hardcoded rules)
             // Debug log: AI result
             crate::debug::debug_log().memory_ai_detection(
                 ex.model_name(),
-                ai_entries.len(),
+                result.memories.len(),
                 text_len,
                 true,
             );
-            return deduplicate_entries(ai_entries);
+            return result;
         }
         // AI failed - log and skip rule-based fallback (per user request)
         log::warn!("AI memory extraction failed, skipping detection for this turn");
-        return Vec::new();
+        return ExtractionResult {
+            memories: vec![],
+            focus_points: vec![],
+            conversation_patterns: vec![],
+        };
     }
 
     // For short texts (< 200 chars), skip detection entirely (per user request)
     // No rule-based fallback
-    Vec::new()
+    ExtractionResult {
+        memories: vec![],
+        focus_points: vec![],
+        conversation_patterns: vec![],
+    }
 }
 
 fn extract_memory_content(text: &str, keyword: &str) -> String {
@@ -462,4 +605,543 @@ pub fn infer_category_from_content(content: &str) -> MemoryCategory {
     }
 
     MemoryCategory::Finding // Default
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================================
+    // Conversation Pattern Parsing Tests
+    // =========================================================================
+
+    #[test]
+    fn test_parse_memory_response_with_patterns() {
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "正如我所说",
+                    "confidence": 0.8
+                },
+                {
+                    "pattern_type": "code",
+                    "pattern": "fn ",
+                    "confidence": 0.6
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+        assert_eq!(result.memories.len(), 0);
+        assert_eq!(result.focus_points.len(), 0);
+        assert_eq!(result.conversation_patterns.len(), 2);
+
+        // Check first pattern (reference)
+        let ref_pattern = &result.conversation_patterns[0];
+        assert_eq!(ref_pattern.pattern_type, PatternType::Reference);
+        assert_eq!(ref_pattern.pattern, "正如我所说");
+        assert_eq!(ref_pattern.confidence, 0.8);
+        assert!(ref_pattern.is_active);
+
+        // Check second pattern (code)
+        let code_pattern = &result.conversation_patterns[1];
+        assert_eq!(code_pattern.pattern_type, PatternType::Code);
+        assert_eq!(code_pattern.pattern, "fn ");
+        assert_eq!(code_pattern.confidence, 0.6);
+    }
+
+    #[test]
+    fn test_parse_memory_response_patterns_default_confidence() {
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "as mentioned"
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+        assert_eq!(result.conversation_patterns.len(), 1);
+
+        // Default confidence should be 0.5
+        let pattern = &result.conversation_patterns[0];
+        assert_eq!(pattern.confidence, 0.5);
+    }
+
+    #[test]
+    fn test_parse_memory_response_patterns_empty() {
+        let json = r#"{
+            "memories": [],
+            "focus_points": []
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+        assert_eq!(result.conversation_patterns.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_memory_response_patterns_invalid_type() {
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "invalid_type",
+                    "pattern": "test",
+                    "confidence": 0.5
+                },
+                {
+                    "pattern_type": "reference",
+                    "pattern": "valid pattern",
+                    "confidence": 0.7
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+        // Invalid pattern type should be skipped
+        assert_eq!(result.conversation_patterns.len(), 1);
+        assert_eq!(result.conversation_patterns[0].pattern, "valid pattern");
+    }
+
+    #[test]
+    fn test_parse_memory_response_patterns_empty_string() {
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "",
+                    "confidence": 0.5
+                },
+                {
+                    "pattern_type": "code",
+                    "pattern": "   ",
+                    "confidence": 0.5
+                },
+                {
+                    "pattern_type": "reference",
+                    "pattern": "valid",
+                    "confidence": 0.8
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+        // Empty patterns should be skipped
+        assert_eq!(result.conversation_patterns.len(), 1);
+        assert_eq!(result.conversation_patterns[0].pattern, "valid");
+    }
+
+    #[test]
+    fn test_parse_memory_response_patterns_confidence_clamped() {
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "test1",
+                    "confidence": 1.5
+                },
+                {
+                    "pattern_type": "code",
+                    "pattern": "test2",
+                    "confidence": -0.3
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+        assert_eq!(result.conversation_patterns.len(), 2);
+
+        // Confidence should be clamped to [0.0, 1.0]
+        assert_eq!(result.conversation_patterns[0].confidence, 1.0);
+        // Negative confidence should use default 0.5 (since <= 0.0 triggers default)
+        assert_eq!(result.conversation_patterns[1].confidence, 0.5);
+    }
+
+    #[test]
+    fn test_parse_memory_response_patterns_source() {
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "PR #123",
+                    "confidence": 0.9
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+        let pattern = &result.conversation_patterns[0];
+
+        // Source should be UserConversation
+        match &pattern.source {
+            PatternSource::UserConversation { example } => {
+                assert_eq!(example, "");
+            }
+            _ => panic!("Expected UserConversation source"),
+        }
+    }
+
+    #[test]
+    fn test_parse_memory_response_backward_compatible() {
+        // Old format without conversation_patterns should still work
+        let json = r#"{
+            "memories": [
+                {
+                    "category": "decision",
+                    "content": "使用 Rust 作为主要语言",
+                    "importance": 80,
+                    "keywords": ["Rust"],
+                    "tags": ["backend"]
+                }
+            ],
+            "focus_points": [
+                {
+                    "topic": "API设计",
+                    "keywords": ["API", "REST"],
+                    "importance": 0.8
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+        assert_eq!(result.memories.len(), 1);
+        assert_eq!(result.focus_points.len(), 1);
+        assert_eq!(result.conversation_patterns.len(), 0);
+
+        // Verify memory content
+        assert_eq!(result.memories[0].category, MemoryCategory::Decision);
+        assert!(result.memories[0].content.contains("Rust"));
+    }
+
+    #[test]
+    fn test_parse_memory_response_with_code_block_markers() {
+        // JSON wrapped in code block markers should still parse
+        let json = r#"```json
+{
+    "memories": [],
+    "focus_points": [],
+    "conversation_patterns": [
+        {
+            "pattern_type": "code",
+            "pattern": "```",
+            "confidence": 0.7
+        }
+    ]
+}
+```"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+        assert_eq!(result.conversation_patterns.len(), 1);
+        assert_eq!(result.conversation_patterns[0].pattern, "```");
+    }
+
+    // =========================================================================
+    // ExtractionResult Tests
+    // =========================================================================
+
+    #[test]
+    fn test_extraction_result_has_patterns_field() {
+        let result = ExtractionResult {
+            memories: vec![],
+            focus_points: vec![],
+            conversation_patterns: vec![
+                ConversationPattern::new(
+                    PatternType::Reference,
+                    "test pattern",
+                    PatternSource::Manual,
+                ),
+            ],
+        };
+
+        assert_eq!(result.conversation_patterns.len(), 1);
+    }
+
+    #[test]
+    fn test_extraction_result_clone() {
+        let result = ExtractionResult {
+            memories: vec![],
+            focus_points: vec![],
+            conversation_patterns: vec![
+                ConversationPattern::new(
+                    PatternType::Code,
+                    "fn test()",
+                    PatternSource::Manual,
+                ),
+            ],
+        };
+
+        let cloned = result.clone();
+        assert_eq!(cloned.conversation_patterns.len(), 1);
+        assert_eq!(cloned.conversation_patterns[0].pattern, "fn test()");
+    }
+
+    #[test]
+    fn test_extraction_result_empty_patterns() {
+        // Test ExtractionResult with empty patterns
+        let result = ExtractionResult {
+            memories: vec![],
+            focus_points: vec![],
+            conversation_patterns: vec![],
+        };
+
+        assert!(result.conversation_patterns.is_empty());
+        assert!(result.memories.is_empty());
+        assert!(result.focus_points.is_empty());
+    }
+
+    // =========================================================================
+    // AI Prompt Validation Tests
+    // =========================================================================
+
+    #[test]
+    fn test_memory_extract_prompt_contains_patterns_guidance() {
+        // Verify the prompt includes conversation pattern extraction guidance
+        assert!(
+            MEMORY_EXTRACT_SYSTEM_PROMPT.contains("对话模式提取"),
+            "Prompt should contain pattern extraction guidance"
+        );
+        assert!(
+            MEMORY_EXTRACT_SYSTEM_PROMPT.contains("reference"),
+            "Prompt should mention reference pattern type"
+        );
+        assert!(
+            MEMORY_EXTRACT_SYSTEM_PROMPT.contains("code"),
+            "Prompt should mention code pattern type"
+        );
+    }
+
+    #[test]
+    fn test_memory_extract_prompt_contains_trigger_condition() {
+        // Verify the prompt mentions >500 chars trigger condition
+        assert!(
+            MEMORY_EXTRACT_SYSTEM_PROMPT.contains("500"),
+            "Prompt should mention 500 chars trigger condition"
+        );
+        assert!(
+            MEMORY_EXTRACT_SYSTEM_PROMPT.contains("> 500") || MEMORY_EXTRACT_SYSTEM_PROMPT.contains("超过500"),
+            "Prompt should specify > 500 chars condition"
+        );
+    }
+
+    #[test]
+    fn test_memory_extract_prompt_contains_output_format() {
+        // Verify the prompt shows correct JSON output format with patterns
+        assert!(
+            MEMORY_EXTRACT_SYSTEM_PROMPT.contains("conversation_patterns"),
+            "Prompt should show conversation_patterns in output format"
+        );
+        assert!(
+            MEMORY_EXTRACT_SYSTEM_PROMPT.contains("pattern_type"),
+            "Prompt should show pattern_type field"
+        );
+        assert!(
+            MEMORY_EXTRACT_SYSTEM_PROMPT.contains("confidence"),
+            "Prompt should show confidence field"
+        );
+    }
+
+    // =========================================================================
+    // Integration Tests - Combined Extraction
+    // =========================================================================
+
+    #[test]
+    fn test_parse_memory_response_full_integration() {
+        // Test complete extraction with memories, focus_points, and patterns together
+        let json = r#"{
+            "memories": [
+                {
+                    "category": "decision",
+                    "content": "使用 Rust 作为主要语言。**Why:** 性能要求",
+                    "importance": 85,
+                    "keywords": ["Rust"],
+                    "tags": ["backend"]
+                }
+            ],
+            "focus_points": [
+                {
+                    "topic": "API设计",
+                    "keywords": ["API", "REST"],
+                    "entities": ["User", "Order"],
+                    "importance": 0.8
+                }
+            ],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "正如我所说",
+                    "confidence": 0.9
+                },
+                {
+                    "pattern_type": "code",
+                    "pattern": "fn ",
+                    "confidence": 0.7
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, Some("session-123"), Some("/project/path")).unwrap();
+
+        // Verify all three components
+        assert_eq!(result.memories.len(), 1);
+        assert_eq!(result.focus_points.len(), 1);
+        assert_eq!(result.conversation_patterns.len(), 2);
+
+        // Check memory
+        assert_eq!(result.memories[0].category, MemoryCategory::Decision);
+        assert!(result.memories[0].content.contains("Rust"));
+
+        // Check focus point
+        assert_eq!(result.focus_points[0].topic, "API设计");
+
+        // Check patterns
+        assert_eq!(result.conversation_patterns[0].pattern_type, PatternType::Reference);
+        assert_eq!(result.conversation_patterns[1].pattern_type, PatternType::Code);
+    }
+
+    #[test]
+    fn test_parse_memory_response_mixed_valid_invalid_patterns() {
+        // Test with mix of valid and invalid patterns
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "valid pattern 1",
+                    "confidence": 0.8
+                },
+                {
+                    "pattern_type": "unknown_type",
+                    "pattern": "should be skipped",
+                    "confidence": 0.5
+                },
+                {
+                    "pattern_type": "code",
+                    "pattern": "fn valid",
+                    "confidence": 0.6
+                },
+                {
+                    "pattern_type": "reference",
+                    "pattern": "",
+                    "confidence": 0.9
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+
+        // Should only have 2 valid patterns
+        assert_eq!(result.conversation_patterns.len(), 2);
+        assert_eq!(result.conversation_patterns[0].pattern, "valid pattern 1");
+        assert_eq!(result.conversation_patterns[1].pattern, "fn valid");
+    }
+
+    #[test]
+    fn test_parse_memory_response_patterns_with_session_and_project() {
+        // Verify session_id and project_path are passed through correctly
+        // (patterns don't use them, but the function accepts them)
+        let json = r#"{
+            "memories": [
+                {
+                    "category": "technical",
+                    "content": "Using PostgreSQL database",
+                    "importance": 70,
+                    "keywords": ["PostgreSQL"],
+                    "tags": ["database"]
+                }
+            ],
+            "focus_points": [],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "as mentioned",
+                    "confidence": 0.7
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, Some("test-session"), Some("/test/project")).unwrap();
+
+        // Memory should have source_session and project_path
+        assert_eq!(result.memories[0].source_session, Some("test-session".to_string()));
+        assert_eq!(result.memories[0].project_path, Some("/test/project".to_string()));
+
+        // Pattern should be parsed correctly
+        assert_eq!(result.conversation_patterns.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_memory_response_all_pattern_types() {
+        // Test both supported pattern types
+        let json = r#"{
+            "memories": [],
+            "focus_points": [],
+            "conversation_patterns": [
+                {
+                    "pattern_type": "reference",
+                    "pattern": "previously discussed",
+                    "confidence": 0.8
+                },
+                {
+                    "pattern_type": "Reference",
+                    "pattern": "case insensitive",
+                    "confidence": 0.7
+                },
+                {
+                    "pattern_type": "CODE",
+                    "pattern": "function ",
+                    "confidence": 0.6
+                },
+                {
+                    "pattern_type": "code",
+                    "pattern": "class ",
+                    "confidence": 0.5
+                }
+            ]
+        }"#;
+
+        let result = parse_memory_response(json, None, None).unwrap();
+
+        // All should be parsed (case-insensitive pattern_type)
+        assert_eq!(result.conversation_patterns.len(), 4);
+
+        // Check types
+        assert_eq!(result.conversation_patterns[0].pattern_type, PatternType::Reference);
+        assert_eq!(result.conversation_patterns[1].pattern_type, PatternType::Reference);
+        assert_eq!(result.conversation_patterns[2].pattern_type, PatternType::Code);
+        assert_eq!(result.conversation_patterns[3].pattern_type, PatternType::Code);
+    }
+
+    #[test]
+    fn test_extraction_result_debug_trait() {
+        // Test that ExtractionResult implements Debug
+        let result = ExtractionResult {
+            memories: vec![],
+            focus_points: vec![],
+            conversation_patterns: vec![
+                ConversationPattern::new(
+                    PatternType::Reference,
+                    "test",
+                    PatternSource::Manual,
+                ),
+            ],
+        };
+
+        let debug_str = format!("{:?}", result);
+        assert!(debug_str.contains("ExtractionResult"));
+        assert!(debug_str.contains("conversation_patterns"));
+    }
 }

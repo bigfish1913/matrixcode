@@ -14,22 +14,34 @@
 //! - **extractor**: AI and rule-based memory detection
 //! - **learning**: Feedback learning, behavior inference
 //! - **project**: Project structure analysis
+//! - **smart_retrieval**: Advanced retrieval with focus and time decay
+//! - **adaptive**: User feedback learning and system adaptation
+//! - **conversation_pattern**: Pattern types (ConversationPattern, PatternType, PatternSource)
+//! - **pattern_registry**: Pattern registry for managing conversation patterns
 
+mod adaptive;
 mod config;
+mod conversation_pattern;
 mod entry;
 mod extractor;
 mod learning;
 mod manager;
+mod pattern_registry;
 mod project;
 mod retrieval;
+mod smart_retrieval;
 mod storage;
 
 // Re-export all public items
+pub use adaptive::*;
 pub use config::*;
+pub use conversation_pattern::*;
 pub use entry::*;
 pub use extractor::*;
 pub use learning::*;
 pub use manager::*;
+pub use pattern_registry::*;
 pub use project::*;
 pub use retrieval::*;
+pub use smart_retrieval::*;
 pub use storage::*;
