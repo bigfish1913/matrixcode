@@ -365,6 +365,99 @@ impl FocusTracker {
         score
     }
 
+    /// Calculate focus score using real-time extracted keywords.
+    ///
+    /// This method uses keywords extracted by AI (via UnifiedExtractor)
+    /// for more accurate focus scoring, instead of relying on fallback presets.
+    ///
+    /// # Arguments
+    /// * `message` - Message to score.
+    /// * `focus` - Current conversation focus.
+    ///
+    /// # Returns
+    /// Focus relevance score (0.0 to 1.0).
+    pub fn focus_score_with_keywords(&self, message: &Message, focus: &ConversationFocus) -> f32 {
+        let keywords = self.config.get_keywords();
+
+        // Get message text
+        let text = match &message.content {
+            MessageContent::Text(t) => t.clone(),
+            MessageContent::Blocks(blocks) => {
+                blocks.iter()
+                    .filter_map(|b| {
+                        if let ContentBlock::Text { text } = b {
+                            Some(text.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
+        };
+
+        let lower = text.to_lowercase();
+        let mut score = 0.0;
+
+        // Use real-time keywords if available
+        if let Some(kw) = keywords {
+            // Check transition keywords (topic change indicators)
+            for keyword in &kw.transition {
+                if lower.contains(&keyword.to_lowercase()) {
+                    score += 0.2; // Topic transition detection
+                }
+            }
+
+            // Check question keywords (current question indicators)
+            for keyword in &kw.question {
+                if lower.contains(&keyword.to_lowercase()) {
+                    score += 0.3; // Current question relevance
+                }
+            }
+
+            // Check task keywords (current task indicators)
+            for keyword in &kw.task {
+                if lower.contains(&keyword.to_lowercase()) {
+                    score += 0.25; // Current task relevance
+                }
+            }
+
+            // Check tech keywords (domain relevance)
+            for keyword in &kw.tech {
+                if lower.contains(&keyword.to_lowercase()) {
+                    score += 0.15; // Technical domain match
+                }
+            }
+        } else {
+            // No real-time keywords: use traditional focus scoring
+            return self.focus_score(message, focus);
+        }
+
+        // Also consider focus context
+        if let Some(topic) = &focus.current_topic {
+            let topic_keywords: Vec<&str> = topic.split(", ").collect();
+            for kw in topic_keywords {
+                if lower.contains(&kw.to_lowercase()) {
+                    score += 0.1;
+                }
+            }
+        }
+
+        if let Some(question) = &focus.current_question {
+            let question_lower = question.to_lowercase();
+            for word in question_lower.split_whitespace() {
+                if word.len() > 3 && lower.contains(word) {
+                    score += 0.05;
+                }
+            }
+        }
+
+        // Apply configured boost and cap
+        score = (score * self.config.focus_score_boost).min(self.config.max_focus_score);
+
+        score
+    }
+
     /// Create a focus message to inject into compressed conversation.
     pub fn create_focus_message(&self, focus: &ConversationFocus) -> Message {
         let mut content_parts = Vec::new();

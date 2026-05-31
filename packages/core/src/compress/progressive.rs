@@ -5,8 +5,9 @@
 
 use crate::providers::Message;
 use crate::compress::CoherenceDetector;
+use crate::compress::ConversationFocus;
 use crate::compress::complexity::{ComplexityAnalyzer, ComplexityLevel};
-use crate::compress::focus_point::{FocusPoint, FocusStatus, FocusManager};
+use crate::compress::focus_point::{FocusManager};
 use crate::compress::hardcode_config::HardcodeConfig;
 use anyhow::Result;
 
@@ -697,6 +698,127 @@ impl ProgressiveCompressor {
             role: msg.role,
             content: crate::providers::MessageContent::Text(trimmed),
         }
+    }
+
+    /// Compress segments while maintaining coherence and focus priority.
+    ///
+    /// This method is designed to work with the integrated processor,
+    /// compressing pre-segmented messages while considering focus relevance.
+    ///
+    /// # Arguments
+    /// * `segments` - Pre-segmented message groups from CoherenceDetector.
+    /// * `focus` - Current conversation focus.
+    /// * `coherence` - Coherence detector for scoring.
+    ///
+    /// # Returns
+    /// Compressed messages with focus-aware prioritization.
+    pub fn compress_segments(
+        &self,
+        segments: Vec<Vec<Message>>,
+        focus: &ConversationFocus,
+        coherence: &CoherenceDetector,
+    ) -> Result<Vec<Message>> {
+        let mut result = Vec::new();
+
+        for segment in segments {
+            // Calculate coherence score for this segment
+            let coherence_score = coherence.calculate_coherence(&segment);
+
+            // Calculate focus score for this segment
+            let focus_score = self.calculate_segment_focus_score(&segment, focus);
+
+            // Decision logic based on coherence and focus
+            if coherence_score > self.config.coherence_threshold && focus_score > 0.5 {
+                // High coherence + High focus relevance: preserve intact
+                log::debug!(
+                    "Segment preserved: coherence={}, focus={}",
+                    coherence_score, focus_score
+                );
+                result.extend(segment);
+            } else if coherence_score > self.config.coherence_threshold {
+                // High coherence but lower focus: mostly preserve
+                if segment.len() <= 3 {
+                    result.extend(segment);
+                } else {
+                    // Keep first and last, summarize middle
+                    result.push(segment[0].clone());
+                    // Middle messages can be summarized (inline compression)
+                    let middle_indices: Vec<usize> = (1..segment.len() - 1).collect();
+                    let compressed_middle = self.compress_inline(&segment, &middle_indices);
+                    result.extend(compressed_middle.into_iter().skip(1).take(segment.len() - 3));
+                    result.push(segment[segment.len() - 1].clone());
+                }
+            } else if focus_score > 0.5 {
+                // Low coherence but high focus: keep key messages
+                for msg in &segment {
+                    let msg_focus = self.calculate_message_focus_score(msg, focus);
+                    if msg_focus > 0.3 {
+                        result.push(msg.clone());
+                    }
+                }
+            } else {
+                // Low coherence + Low focus: aggressive compression
+                if !segment.is_empty() {
+                    // Create inline summary for the segment
+                    let all_indices: Vec<usize> = (0..segment.len()).collect();
+                    let compressed = self.compress_inline(&segment, &all_indices);
+                    result.extend(compressed);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Calculate focus score for a segment of messages.
+    fn calculate_segment_focus_score(&self, segment: &[Message], focus: &ConversationFocus) -> f32 {
+        if segment.is_empty() {
+            return 0.0;
+        }
+
+        let mut total_score = 0.0;
+        for msg in segment {
+            total_score += self.calculate_message_focus_score(msg, focus);
+        }
+
+        total_score / segment.len() as f32
+    }
+
+    /// Calculate focus score for a single message using keywords.
+    fn calculate_message_focus_score(&self, message: &Message, focus: &ConversationFocus) -> f32 {
+        // Get message content
+        let content = self.get_message_content(message);
+        let content_lower = content.to_lowercase();
+
+        let mut score: f32 = 0.0;
+
+        // Check if message matches current topic
+        if let Some(topic) = &focus.current_topic {
+            let topic_keywords: Vec<&str> = topic.split(", ").collect();
+            for kw in topic_keywords {
+                if content_lower.contains(&kw.to_lowercase()) {
+                    score += 0.2;
+                }
+            }
+        }
+
+        // Check if message matches current question keywords
+        if let Some(question) = &focus.current_question {
+            let question_lower = question.to_lowercase();
+            for word in question_lower.split_whitespace() {
+                if word.len() > 3 && content_lower.contains(word) {
+                    score += 0.1;
+                }
+            }
+        }
+
+        // Check focus manager if available
+        if let Some(focus_manager) = &self.focus_manager {
+            let relevance = self.calculate_message_focus_relevance(&content, focus_manager);
+            score = score.max(relevance);
+        }
+
+        score.min(1.0)
     }
 
     /// Compress inline without AI.

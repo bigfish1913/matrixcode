@@ -44,9 +44,11 @@ mod progressive;
 mod complexity;
 mod hierarchical;
 mod hardcode_config;
+mod integrated_processor;
 
 // Re-export all public items
 pub use compressor::*;
+pub use integrated_processor::*;
 pub use config::*;
 pub use dependency::*;
 pub use phase_detector::*;
