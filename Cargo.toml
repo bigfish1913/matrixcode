@@ -64,6 +64,8 @@ mockito = "1"
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }
 notify = "8.0"
+# Token counting
+tiktoken-rs = "0.5"
 
 # Internal crates
 matrixcode-core = { path = "packages/core", version = "0.4.3" }

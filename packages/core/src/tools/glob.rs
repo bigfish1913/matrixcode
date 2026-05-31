@@ -50,7 +50,7 @@ impl Tool for GlobTool {
                     },
                     "path": {
                         "type": "string",
-                        "description": "搜索的基础目录（默认 '.'）"
+                        "description": "搜索的基础目录（默认 '.'）。⚠️ 尽量指定路径避免全目录搜索，如 'src' 而非 '.'"
                     }
                 },
                 "required": ["pattern"]

@@ -95,16 +95,16 @@ impl Tool for GrepTool {
                     },
                     "path": {
                         "type": "string",
-                        "description": "搜索的文件或目录（默认当前目录）"
+                        "description": "搜索的文件或目录（默认当前目录）。⚠️ 尽量指定路径避免全目录搜索，如 'src/api' 而非 '.'"
                     },
                     "glob": {
                         "type": "string",
-                        "description": "Glob 文件过滤模式（如 '*.ts'、'**/*.rs'）"
+                        "description": "Glob 文件过滤模式（如 '*.ts'、'**/*.rs'）。推荐使用以缩小搜索范围"
                     },
                     "type": {
                         "type": "string",
                         "enum": ["js", "ts", "py", "rs", "go", "java", "c", "cpp", "md", "json", "yaml", "html", "css"],
-                        "description": "按文件类型搜索（映射到常用扩展名）"
+                        "description": "按文件类型搜索（映射到常用扩展名）。推荐使用以提升搜索速度"
                     },
                     "output_mode": {
                         "type": "string",

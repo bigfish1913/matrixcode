@@ -10,6 +10,9 @@
 //! - **compressor**: AI compressor and compression functions
 //! - **phase_detector**: Conversation phase detection
 //! - **dependency**: Message dependency tracking
+//! - **semantic**: Semantic compression using AI summarization
+//! - **priority**: Dynamic priority scoring for messages
+//! - **cache**: Compression cache for performance optimization
 
 mod compressor;
 mod config;
@@ -20,6 +23,10 @@ mod scorer;
 mod summarizer;
 mod tool_compressor;
 mod types;
+mod semantic;
+mod priority;
+mod cache;
+mod integration;
 
 // Re-export all public items
 pub use compressor::*;
@@ -31,3 +38,7 @@ pub use scorer::*;
 pub use summarizer::*;
 pub use tool_compressor::*;
 pub use types::*;
+pub use semantic::*;
+pub use priority::*;
+pub use cache::*;
+pub use integration::*;

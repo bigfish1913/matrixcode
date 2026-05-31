@@ -41,6 +41,9 @@ toml = "0.8"
 # LSP dependencies
 lsp-types = "0.95"
 
+# Token counting
+tiktoken-rs = { workspace = true }
+
 [dev-dependencies]
 mockito = { workspace = true }
 tempfile = { workspace = true }

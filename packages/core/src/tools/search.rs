@@ -46,11 +46,11 @@ impl Tool for SearchTool {
                     },
                     "path": {
                         "type": "string",
-                        "description": "搜索的目录或文件路径（默认 '.'）"
+                        "description": "搜索的目录或文件路径（默认 '.'）。⚠️ 尽量指定路径避免全目录搜索，如 'src' 而非 '.'"
                     },
                     "glob": {
                         "type": "string",
-                        "description": "文件过滤的 glob 模式（如 '*.rs'）"
+                        "description": "文件过滤的 glob 模式（如 '*.rs'）。推荐使用以缩小搜索范围"
                     }
                 },
                 "required": ["pattern"]

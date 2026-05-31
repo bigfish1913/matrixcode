@@ -22,6 +22,7 @@ pub mod prompt;
 pub mod providers;
 pub mod session;
 pub mod skills;
+pub mod tokenizer;
 pub mod tools;
 pub mod truncate;
 pub mod workflow;

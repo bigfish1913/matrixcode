@@ -3,6 +3,7 @@
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role,
 };
+use crate::tokenizer::{count_tokens, message_overhead};
 use crate::truncate::truncate_with_suffix;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -449,50 +450,49 @@ fn sliding_window_compress(
 // Token Estimation
 // ============================================================================
 
-/// Estimate token count for a message.
+/// Count tokens for a message using tiktoken (accurate).
 pub fn estimate_tokens(message: &Message) -> u32 {
-    let (ascii, non_ascii) = match &message.content {
-        MessageContent::Text(t) => count_chars(t),
+    let content_text = match &message.content {
+        MessageContent::Text(t) => t.clone(),
         MessageContent::Blocks(blocks) => {
-            let mut a = 0u32;
-            let mut n = 0u32;
+            let mut text = String::new();
             for block in blocks {
                 match block {
-                    ContentBlock::Text { text } => {
-                        let (ca, cn) = count_chars(text);
-                        a += ca;
-                        n += cn;
+                    ContentBlock::Text { text: t } => {
+                        text.push_str(t);
+                        text.push(' '); // Separator
                     }
                     ContentBlock::ToolUse { name, input, .. } => {
-                        let (ca, cn) = count_chars(name);
-                        a += ca;
-                        n += cn;
-                        let (ja, jn) = count_chars(&input.to_string());
-                        a += ja;
-                        n += jn;
+                        text.push_str(name);
+                        text.push(' '); // Separator
+                        text.push_str(&input.to_string());
+                        text.push(' '); // Separator
                     }
                     ContentBlock::ToolResult { content, .. } => {
-                        let (ca, cn) = count_chars(content);
-                        a += ca;
-                        n += cn;
+                        text.push_str(content);
+                        text.push(' '); // Separator
                     }
                     ContentBlock::Thinking { thinking, .. } => {
-                        let (ca, cn) = count_chars(thinking);
-                        a += ca;
-                        n += cn;
+                        text.push_str(thinking);
+                        text.push(' '); // Separator
                     }
                     _ => {}
                 }
             }
-            (a, n)
+            text
         }
     };
 
-    let ascii_tokens = (ascii as f64 * 0.25).ceil() as u32;
-    let non_ascii_tokens = (non_ascii as f64 * 0.67).ceil() as u32;
-    (ascii_tokens + non_ascii_tokens + 10).max(1)
+    // Use tiktoken for accurate token counting
+    let content_tokens = count_tokens(&content_text);
+    let role_tokens = count_tokens(&format!("{:?}: ", message.role));
+    
+    // Total = content + role prefix + overhead
+    content_tokens + role_tokens + message_overhead()
 }
 
+/// Legacy char counting function (deprecated, kept for backward compatibility).
+#[deprecated(note = "Use estimate_tokens with tiktoken instead")]
 fn count_chars(s: &str) -> (u32, u32) {
     let mut ascii = 0u32;
     let mut non_ascii = 0u32;
