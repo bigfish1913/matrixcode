@@ -1,8 +1,8 @@
 //! Pattern registry for managing conversation patterns.
 //!
 //! This module provides the central registry for storing, retrieving, and
-//! learning conversation patterns. It supports preset loading, pattern
-//! activation/deactivation, and persistence.
+//! learning conversation patterns. All patterns are learned from conversations,
+//! no hardcoded presets are loaded.
 
 use std::collections::HashMap;
 use std::fs;
@@ -12,9 +12,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::conversation_pattern::{
-    get_default_code_patterns, get_default_reference_patterns, ConversationPattern, PatternType,
-};
+use super::conversation_pattern::{ConversationPattern, PatternType};
 use crate::constants::MATRIX_DIR;
 
 // ============================================================================
@@ -76,7 +74,8 @@ impl PatternRegistryConfig {
 /// Central registry for conversation patterns.
 ///
 /// Manages a collection of patterns organized by type, supports
-/// preset loading, pattern learning, and persistence.
+/// pattern learning, and persistence. All patterns are learned
+/// from conversations, no hardcoded presets are loaded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatternRegistry {
     /// All patterns indexed by ID.
@@ -87,9 +86,6 @@ pub struct PatternRegistry {
     /// Index for fast type-based lookup.
     #[serde(skip)]
     type_index: HashMap<PatternType, Vec<usize>>,
-    /// Last time presets were loaded.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_preset_load: Option<DateTime<Utc>>,
 }
 
 impl Default for PatternRegistry {
@@ -100,63 +96,25 @@ impl Default for PatternRegistry {
 
 impl PatternRegistry {
     /// Create a new empty pattern registry.
+    ///
+    /// All patterns are learned from conversations, no presets are loaded.
     pub fn new() -> Self {
-        let mut registry = Self {
+        Self {
             patterns: Vec::new(),
             config: PatternRegistryConfig::default(),
             type_index: HashMap::new(),
-            last_preset_load: None,
-        };
-        registry.load_presets();
-        registry
+        }
     }
 
     /// Create a registry with custom configuration.
+    ///
+    /// All patterns are learned from conversations, no presets are loaded.
     pub fn with_config(config: PatternRegistryConfig) -> Self {
-        let mut registry = Self {
+        Self {
             patterns: Vec::new(),
             config,
             type_index: HashMap::new(),
-            last_preset_load: None,
-        };
-        registry.load_presets();
-        registry
-    }
-
-    /// Load preset patterns (built-in defaults).
-    ///
-    /// Presets are only loaded once; subsequent calls are no-ops
-    /// unless force is true.
-    pub fn load_presets(&mut self) {
-        self.load_presets_force(false);
-    }
-
-    /// Load presets with option to force reload.
-    fn load_presets_force(&mut self, force: bool) {
-        if !force && self.last_preset_load.is_some() {
-            return;
         }
-
-        // Add default reference patterns
-        for pattern in get_default_reference_patterns() {
-            self.add_pattern_internal(pattern);
-        }
-
-        // Add default code patterns
-        for pattern in get_default_code_patterns() {
-            self.add_pattern_internal(pattern);
-        }
-
-        self.last_preset_load = Some(Utc::now());
-        self.rebuild_index();
-    }
-
-    /// Force reload presets (clears existing presets first).
-    pub fn reload_presets(&mut self) {
-        // Remove existing presets
-        self.patterns.retain(|p| !p.source.is_preset());
-        self.last_preset_load = None;
-        self.load_presets_force(true);
     }
 
     /// Rebuild the type index after modifications.
@@ -401,60 +359,35 @@ impl PatternRegistry {
 
     /// Load patterns from a JSON file.
     ///
-    /// If the file doesn't exist, returns a registry with presets loaded.
-    /// If the file exists but is empty or malformed, returns defaults.
+    /// If the file doesn't exist, returns an empty registry.
+    /// If the file exists but is empty or malformed, returns an empty registry.
     pub fn from_file(path: &Path) -> Result<Self> {
         if !path.exists() {
-            // File doesn't exist - create new registry with presets
-            let mut registry = Self {
-                patterns: Vec::new(),
-                config: PatternRegistryConfig::default(),
-                type_index: HashMap::new(),
-                last_preset_load: None,
-            };
-            registry.load_presets();
-            return Ok(registry);
+            // File doesn't exist - create empty registry
+            return Ok(Self::new());
         }
 
         let data = fs::read_to_string(path)?;
 
         // Handle empty file
         if data.trim().is_empty() {
-            let mut registry = Self {
-                patterns: Vec::new(),
-                config: PatternRegistryConfig::default(),
-                type_index: HashMap::new(),
-                last_preset_load: None,
-            };
-            registry.load_presets();
-            return Ok(registry);
+            return Ok(Self::new());
         }
 
         // Try to parse JSON
         match serde_json::from_str::<PatternRegistry>(&data) {
             Ok(mut registry) => {
-                // Ensure presets are loaded if they weren't in the file
-                if registry.last_preset_load.is_none() {
-                    registry.load_presets();
-                }
                 registry.rebuild_index();
                 Ok(registry)
             }
             Err(e) => {
-                // JSON parse error - log and return defaults
+                // JSON parse error - log and return empty registry
                 tracing::warn!(
-                    "Failed to parse patterns file {:?}: {}. Using defaults.",
+                    "Failed to parse patterns file {:?}: {}. Using empty registry.",
                     path,
                     e
                 );
-                let mut registry = Self {
-                    patterns: Vec::new(),
-                    config: PatternRegistryConfig::default(),
-                    type_index: HashMap::new(),
-                    last_preset_load: None,
-                };
-                registry.load_presets();
-                Ok(registry)
+                Ok(Self::new())
             }
         }
     }
@@ -590,16 +523,16 @@ mod tests {
     #[test]
     fn test_registry_creation() {
         let registry = PatternRegistry::new();
-        // Should have presets loaded
-        assert!(!registry.is_empty());
-        assert!(registry.count_by_type(PatternType::Reference) > 0);
-        assert!(registry.count_by_type(PatternType::Code) > 0);
+        // Should be empty - no presets loaded
+        assert!(registry.is_empty());
+        assert_eq!(registry.count_by_type(PatternType::Reference), 0);
+        assert_eq!(registry.count_by_type(PatternType::Code), 0);
     }
 
     #[test]
     fn test_registry_default() {
         let registry = PatternRegistry::default();
-        assert!(!registry.is_empty());
+        assert!(registry.is_empty());
     }
 
     #[test]
@@ -608,13 +541,7 @@ mod tests {
         let registry = PatternRegistry::with_config(config);
 
         assert_eq!(registry.config.max_patterns_per_type, 50);
-        assert!(!registry.is_empty()); // Presets should still be loaded
-    }
-
-    #[test]
-    fn test_registry_last_preset_load() {
-        let registry = PatternRegistry::new();
-        assert!(registry.last_preset_load.is_some());
+        assert!(registry.is_empty()); // No presets loaded
     }
 
     // =========================================================================
@@ -624,7 +551,7 @@ mod tests {
     #[test]
     fn test_add_pattern() {
         let mut registry = PatternRegistry::new();
-        let initial_count = registry.len();
+        assert!(registry.is_empty());
 
         let pattern = ConversationPattern::new(
             PatternType::Reference,
@@ -633,13 +560,13 @@ mod tests {
         );
         registry.add_pattern(pattern);
 
-        assert_eq!(registry.len(), initial_count + 1);
+        assert_eq!(registry.len(), 1);
     }
 
     #[test]
     fn test_add_patterns_batch() {
         let mut registry = PatternRegistry::new();
-        let initial_count = registry.len();
+        assert!(registry.is_empty());
 
         let patterns = vec![
             ConversationPattern::new(PatternType::Reference, "batch-1", PatternSource::Manual),
@@ -649,13 +576,13 @@ mod tests {
 
         registry.add_patterns(patterns);
 
-        assert_eq!(registry.len(), initial_count + 3);
+        assert_eq!(registry.len(), 3);
     }
 
     #[test]
     fn test_duplicate_prevention() {
         let mut registry = PatternRegistry::new();
-        let initial_count = registry.len();
+        assert!(registry.is_empty());
 
         let pattern1 = ConversationPattern::new(
             PatternType::Reference,
@@ -671,13 +598,13 @@ mod tests {
         registry.add_pattern(pattern1);
         registry.add_pattern(pattern2);
 
-        assert_eq!(registry.len(), initial_count + 1);
+        assert_eq!(registry.len(), 1);
     }
 
     #[test]
     fn test_duplicate_prevention_in_batch() {
         let mut registry = PatternRegistry::new();
-        let initial_count = registry.len();
+        assert!(registry.is_empty());
 
         let patterns = vec![
             ConversationPattern::new(PatternType::Reference, "same-pattern", PatternSource::Manual),
@@ -687,17 +614,13 @@ mod tests {
         registry.add_patterns(patterns);
 
         // Only one should be added
-        assert_eq!(registry.len(), initial_count + 1);
+        assert_eq!(registry.len(), 1);
     }
 
     #[test]
     fn test_capacity_limit_removes_lowest_frequency() {
         let config = PatternRegistryConfig::with_max_patterns(2);
         let mut registry = PatternRegistry::with_config(config);
-
-        // Clear presets first
-        registry.patterns.clear();
-        registry.rebuild_index();
         assert!(registry.is_empty());
 
         // Add patterns with different frequencies
@@ -723,25 +646,39 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_get_active_patterns() {
+    fn test_get_active_patterns_empty() {
         let registry = PatternRegistry::new();
 
         let refs = registry.get_active_reference_patterns();
         let codes = registry.get_active_code_patterns();
 
-        assert!(!refs.is_empty());
-        assert!(!codes.is_empty());
+        assert!(refs.is_empty());
+        assert!(codes.is_empty());
     }
 
     #[test]
-    fn test_get_active_patterns_by_type() {
+    fn test_get_active_patterns_by_type_empty() {
         let registry = PatternRegistry::new();
 
         let ref_patterns = registry.get_active_patterns_by_type(PatternType::Reference);
         let code_patterns = registry.get_active_patterns_by_type(PatternType::Code);
 
-        assert!(!ref_patterns.is_empty());
-        assert!(!code_patterns.is_empty());
+        assert!(ref_patterns.is_empty());
+        assert!(code_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_get_active_patterns_with_added_patterns() {
+        let mut registry = PatternRegistry::new();
+
+        registry.add_pattern(ConversationPattern::manual(PatternType::Reference, "ref-pattern"));
+        registry.add_pattern(ConversationPattern::manual(PatternType::Code, "code-pattern"));
+
+        let ref_patterns = registry.get_active_patterns_by_type(PatternType::Reference);
+        let code_patterns = registry.get_active_patterns_by_type(PatternType::Code);
+
+        assert_eq!(ref_patterns.len(), 1);
+        assert_eq!(code_patterns.len(), 1);
 
         // All returned patterns should be active and of correct type
         for p in &ref_patterns {
@@ -792,12 +729,21 @@ mod tests {
     }
 
     #[test]
-    fn test_all_patterns() {
+    fn test_all_patterns_empty() {
         let registry = PatternRegistry::new();
         let patterns = registry.all_patterns();
 
-        assert!(!patterns.is_empty());
+        assert!(patterns.is_empty());
         assert_eq!(patterns.len(), registry.len());
+    }
+
+    #[test]
+    fn test_all_patterns_with_added() {
+        let mut registry = PatternRegistry::new();
+        registry.add_pattern(ConversationPattern::manual(PatternType::Code, "test-pattern"));
+
+        let patterns = registry.all_patterns();
+        assert_eq!(patterns.len(), 1);
     }
 
     // =========================================================================
@@ -949,16 +895,16 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_stats() {
+    fn test_stats_empty() {
         let registry = PatternRegistry::new();
         let stats = registry.stats();
 
-        assert!(stats.total > 0);
-        assert!(stats.presets > 0);
-        assert_eq!(stats.active, stats.total); // All presets are active
+        assert_eq!(stats.total, 0);
+        assert_eq!(stats.presets, 0);
+        assert_eq!(stats.active, 0);
         assert_eq!(stats.inactive, 0);
-        assert_eq!(stats.total, stats.reference_count + stats.code_count);
-        assert_eq!(stats.learned, stats.total - stats.presets - stats.manual);
+        assert_eq!(stats.reference_count, 0);
+        assert_eq!(stats.code_count, 0);
     }
 
     #[test]
@@ -969,7 +915,9 @@ mod tests {
         registry.add_pattern(ConversationPattern::manual(PatternType::Reference, "manual-2"));
 
         let stats = registry.stats();
-        assert!(stats.manual >= 2);
+        assert_eq!(stats.total, 2);
+        assert_eq!(stats.manual, 2);
+        assert_eq!(stats.presets, 0);
     }
 
     #[test]
@@ -1049,19 +997,7 @@ mod tests {
         let len_after = registry.len();
 
         // Active patterns should be kept
-        assert!(len_after >= len_before);
-    }
-
-    #[test]
-    fn test_prune_keeps_presets() {
-        let registry = PatternRegistry::new();
-        let preset_count = registry.patterns.iter().filter(|p| p.source.is_preset()).count();
-
-        let mut registry_clone = registry;
-        registry_clone.prune();
-
-        let preset_count_after = registry_clone.patterns.iter().filter(|p| p.source.is_preset()).count();
-        assert_eq!(preset_count, preset_count_after);
+        assert_eq!(len_after, len_before);
     }
 
     #[test]
@@ -1075,30 +1011,7 @@ mod tests {
         registry.prune();
         let manual_count_after = registry.patterns.iter().filter(|p| p.source.is_manual()).count();
 
-        assert!(manual_count_after >= manual_count_before);
-    }
-
-    // =========================================================================
-    // Reload Presets Tests
-    // =========================================================================
-
-    #[test]
-    fn test_reload_presets() {
-        let mut registry = PatternRegistry::new();
-        let initial_count = registry.len();
-
-        // Remove all presets
-        registry.patterns.retain(|p| !p.source.is_preset());
-        registry.rebuild_index();
-
-        assert!(registry.count_by_type(PatternType::Reference) == 0 || registry.len() < initial_count);
-
-        // Reload presets
-        registry.reload_presets();
-
-        // Should have presets again
-        assert!(registry.count_by_type(PatternType::Reference) > 0);
-        assert!(registry.count_by_type(PatternType::Code) > 0);
+        assert_eq!(manual_count_after, manual_count_before);
     }
 
     // =========================================================================
@@ -1108,20 +1021,30 @@ mod tests {
     #[test]
     fn test_len_and_is_empty() {
         let registry = PatternRegistry::new();
-        assert!(!registry.is_empty());
-        assert!(registry.len() > 0);
+        assert!(registry.is_empty());
+        assert_eq!(registry.len(), 0);
     }
 
     #[test]
-    fn test_count_by_type() {
+    fn test_count_by_type_empty() {
         let registry = PatternRegistry::new();
 
         let ref_count = registry.count_by_type(PatternType::Reference);
         let code_count = registry.count_by_type(PatternType::Code);
 
-        assert!(ref_count > 0);
-        assert!(code_count > 0);
+        assert_eq!(ref_count, 0);
+        assert_eq!(code_count, 0);
         assert_eq!(ref_count + code_count, registry.len());
+    }
+
+    #[test]
+    fn test_count_by_type_with_patterns() {
+        let mut registry = PatternRegistry::new();
+        registry.add_pattern(ConversationPattern::manual(PatternType::Reference, "ref-1"));
+        registry.add_pattern(ConversationPattern::manual(PatternType::Code, "code-1"));
+
+        assert_eq!(registry.count_by_type(PatternType::Reference), 1);
+        assert_eq!(registry.count_by_type(PatternType::Code), 1);
     }
 
     // =========================================================================
@@ -1139,7 +1062,7 @@ mod tests {
     #[test]
     fn test_add_pattern_same_pattern_different_types() {
         let mut registry = PatternRegistry::new();
-        let initial_total = registry.len();
+        assert!(registry.is_empty());
 
         // Same pattern string but different types
         // Note: The current implementation checks duplicates by pattern string only,
@@ -1151,7 +1074,7 @@ mod tests {
         registry.add_pattern(p2);
 
         // Only one should be added since duplicates are detected by pattern string
-        assert_eq!(registry.len(), initial_total + 1);
+        assert_eq!(registry.len(), 1);
         // The first pattern (Reference type) should be the one added
         assert!(registry.all_patterns().iter().any(|p| p.pattern == "same-text" && p.pattern_type == PatternType::Reference));
     }
@@ -1251,11 +1174,10 @@ mod tests {
 
         let registry = PatternRegistry::from_file(&nonexistent_path).unwrap();
 
-        // Should have presets loaded
-        assert!(!registry.is_empty());
-        assert!(registry.count_by_type(PatternType::Reference) > 0);
-        assert!(registry.count_by_type(PatternType::Code) > 0);
-        assert!(registry.last_preset_load.is_some());
+        // Should be empty - no presets loaded
+        assert!(registry.is_empty());
+        assert_eq!(registry.count_by_type(PatternType::Reference), 0);
+        assert_eq!(registry.count_by_type(PatternType::Code), 0);
     }
 
     #[test]
@@ -1268,9 +1190,8 @@ mod tests {
 
         let registry = PatternRegistry::from_file(&empty_path).unwrap();
 
-        // Should have presets loaded
-        assert!(!registry.is_empty());
-        assert!(registry.last_preset_load.is_some());
+        // Should be empty - no presets loaded
+        assert!(registry.is_empty());
     }
 
     #[test]
@@ -1302,11 +1223,10 @@ mod tests {
         // Create file with malformed JSON
         fs::write(&malformed_path, "{ not valid json }").unwrap();
 
-        // Should return defaults with presets (logged warning)
+        // Should return empty registry (logged warning)
         let registry = PatternRegistry::from_file(&malformed_path).unwrap();
 
-        assert!(!registry.is_empty());
-        assert!(registry.last_preset_load.is_some());
+        assert!(registry.is_empty());
     }
 
     #[test]
@@ -1381,29 +1301,10 @@ mod tests {
 
     #[test]
     fn test_from_default_file() {
-        // This test verifies the method works, but doesn't modify the actual default file
+        // This test verifies the method works
+        // The default file may or may not exist, so we just verify the method doesn't error
         let result = PatternRegistry::from_default_file();
         assert!(result.is_ok());
-
-        let registry = result.unwrap();
-        assert!(!registry.is_empty());
-    }
-
-    #[test]
-    fn test_save_and_load_preserves_presets() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let file_path = temp_dir.path().join("preset_patterns.json");
-
-        let original = PatternRegistry::new();
-        let preset_count = original.patterns.iter().filter(|p| p.source.is_preset()).count();
-
-        original.save_to_file(&file_path).unwrap();
-
-        let loaded = PatternRegistry::from_file(&file_path).unwrap();
-        let loaded_preset_count = loaded.patterns.iter().filter(|p| p.source.is_preset()).count();
-
-        // Presets should be preserved
-        assert_eq!(preset_count, loaded_preset_count);
     }
 
     #[test]
@@ -1411,9 +1312,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let file_path = temp_dir.path().join("integration_patterns.json");
 
-        // Start with empty file scenario
+        // Start with empty registry
         let mut registry = PatternRegistry::from_file(&file_path).unwrap();
-        assert!(!registry.is_empty()); // Presets loaded
+        assert!(registry.is_empty());
 
         // Add custom patterns
         let custom = ConversationPattern::manual(PatternType::Code, "integration-test")
@@ -1430,9 +1331,6 @@ mod tests {
         // Custom pattern should be present
         assert!(reloaded.patterns.iter().any(|p| p.pattern == "integration-test"));
         assert!(reloaded.patterns.iter().any(|p| p.tags.contains(&"integration".to_string())));
-
-        // Presets should still be present
-        assert!(reloaded.patterns.iter().any(|p| p.source.is_preset()));
     }
 
     // =========================================================================
@@ -1444,9 +1342,8 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let file_path = temp_dir.path().join("large_patterns.json");
 
-        // Create registry with many patterns
+        // Create empty registry and add patterns
         let mut registry = PatternRegistry::new();
-        let initial_count = registry.len();
 
         // Add 50 patterns of each type
         for i in 0..50 {
@@ -1461,7 +1358,7 @@ mod tests {
             registry.add_pattern(code_pattern);
         }
 
-        let expected_count = initial_count + 100;
+        let expected_count = 100;
         assert_eq!(registry.len(), expected_count);
 
         // Save
@@ -1550,49 +1447,18 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let file_path = temp_dir.path().join("empty_registry.json");
 
-        // Create registry and clear patterns (but last_preset_load remains Some)
-        let mut registry = PatternRegistry::new();
-        registry.patterns.clear();
-        registry.rebuild_index();
+        // Create empty registry
+        let registry = PatternRegistry::new();
         assert!(registry.is_empty());
-        // last_preset_load is still Some because presets were loaded before clearing
-        assert!(registry.last_preset_load.is_some());
 
         // Save empty registry
         registry.save_to_file(&file_path).unwrap();
 
-        // Load - since last_preset_load is serialized as Some, presets won't be reloaded
+        // Load
         let loaded = PatternRegistry::from_file(&file_path).unwrap();
 
-        // The loaded registry should be empty because last_preset_load was preserved
+        // The loaded registry should be empty
         assert!(loaded.is_empty());
-        assert!(loaded.last_preset_load.is_some());
-    }
-
-    #[test]
-    fn test_registry_with_none_preset_load_reloads_presets() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let file_path = temp_dir.path().join("no_preset_load.json");
-
-        // Manually create a JSON file with patterns but no last_preset_load
-        let json_content = r#"{
-            "patterns": [],
-            "config": {
-                "max_patterns_per_type": 100,
-                "min_confidence_threshold": 0.3,
-                "min_frequency": 2,
-                "auto_learn": true,
-                "inactive_after_days": 90
-            }
-        }"#;
-        fs::write(&file_path, json_content).unwrap();
-
-        // Load - should reload presets because last_preset_load is None (not in file)
-        let loaded = PatternRegistry::from_file(&file_path).unwrap();
-
-        // Should have presets loaded
-        assert!(!loaded.is_empty());
-        assert!(loaded.last_preset_load.is_some());
     }
 
     #[test]
@@ -1605,9 +1471,8 @@ mod tests {
 
         let registry = PatternRegistry::from_file(&file_path).unwrap();
 
-        // Should have presets loaded (empty file handling)
-        assert!(!registry.is_empty());
-        assert!(registry.last_preset_load.is_some());
+        // Should be empty (empty file handling)
+        assert!(registry.is_empty());
     }
 
     #[test]

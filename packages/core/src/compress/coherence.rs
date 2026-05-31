@@ -432,7 +432,15 @@ mod tests {
 
     #[test]
     fn test_reference_patterns() {
-        let detector = CoherenceDetector::default();
+        // Create registry with custom reference pattern
+        let mut registry = PatternRegistry::new();
+        let pattern = crate::memory::ConversationPattern::manual(
+            crate::memory::PatternType::Reference,
+            "as i mentioned",
+        );
+        registry.add_pattern(pattern);
+
+        let detector = CoherenceDetector::new_with_registry(0.7, registry);
         let messages = vec![
             create_text_message("We decided to use PostgreSQL"),
             create_text_message("As I mentioned, PostgreSQL is the choice"),
@@ -445,15 +453,24 @@ mod tests {
 
     #[test]
     fn test_code_context() {
-        let detector = CoherenceDetector::default();
+        // Create registry with custom code pattern
+        let mut registry = PatternRegistry::new();
+        let pattern = crate::memory::ConversationPattern::manual(
+            crate::memory::PatternType::Code,
+            "fn ",
+        );
+        registry.add_pattern(pattern);
+
+        let detector = CoherenceDetector::new_with_registry(0.7, registry);
         let messages = vec![
             create_text_message("Here's the function:\n```rust\nfn test() {}\n```"),
             create_text_message("This function needs optimization"),
         ];
 
         let score = detector.calculate_coherence(&messages);
-        // Code patterns should boost coherence
-        assert!(score > 0.45, "Expected coherence > 0.45 for code context, got {}", score);
+        // Code patterns should boost coherence (reference score = 0.5 neutral when patterns match)
+        // Without presets, coherence depends on topic overlap and entity consistency
+        assert!(score >= 0.35, "Expected coherence >= 0.35 for code context, got {}", score);
     }
 
     #[test]
@@ -480,36 +497,36 @@ mod tests {
         let detector = CoherenceDetector::new_with_registry(0.8, registry);
 
         assert_eq!(detector.threshold, 0.8);
-        assert!(!detector.pattern_registry().is_empty());
+        assert!(detector.pattern_registry().is_empty());
     }
 
     #[test]
     fn test_backward_compatible_new() {
-        // new() should work exactly like before, auto-loading presets
+        // new() should work with empty registry
         let detector = CoherenceDetector::new(0.7);
 
         assert_eq!(detector.threshold, 0.7);
-        // PatternRegistry::new() loads presets, so it should not be empty
-        assert!(!detector.pattern_registry().is_empty());
+        // PatternRegistry::new() is now empty, no presets loaded
+        assert!(detector.pattern_registry().is_empty());
 
-        // Should have reference and code patterns from presets
+        // Should have no patterns from presets
         let ref_patterns = detector.pattern_registry().get_active_reference_patterns();
         let code_patterns = detector.pattern_registry().get_active_code_patterns();
 
-        assert!(!ref_patterns.is_empty(), "Reference patterns should be loaded from presets");
-        assert!(!code_patterns.is_empty(), "Code patterns should be loaded from presets");
+        assert!(ref_patterns.is_empty(), "Reference patterns should be empty");
+        assert!(code_patterns.is_empty(), "Code patterns should be empty");
     }
 
     #[test]
     fn test_default_uses_pattern_registry() {
         let detector = CoherenceDetector::default();
 
-        // Default should load presets automatically
+        // Default should have empty registry (no presets)
         let ref_patterns = detector.pattern_registry().get_active_reference_patterns();
         let code_patterns = detector.pattern_registry().get_active_code_patterns();
 
-        assert!(!ref_patterns.is_empty());
-        assert!(!code_patterns.is_empty());
+        assert!(ref_patterns.is_empty());
+        assert!(code_patterns.is_empty());
     }
 
     #[test]
@@ -518,17 +535,17 @@ mod tests {
 
         // Should be able to access the registry
         let registry = detector.pattern_registry();
-        assert!(!registry.is_empty());
+        assert!(registry.is_empty());
 
-        // Should have patterns loaded
-        assert!(registry.count_by_type(crate::memory::PatternType::Reference) > 0);
-        assert!(registry.count_by_type(crate::memory::PatternType::Code) > 0);
+        // No patterns loaded
+        assert_eq!(registry.count_by_type(crate::memory::PatternType::Reference), 0);
+        assert_eq!(registry.count_by_type(crate::memory::PatternType::Code), 0);
     }
 
     #[test]
     fn test_pattern_registry_mut_accessor() {
         let mut detector = CoherenceDetector::default();
-        let initial_count = detector.pattern_registry().len();
+        assert!(detector.pattern_registry().is_empty());
 
         // Should be able to mutate the registry
         let pattern = crate::memory::ConversationPattern::manual(
@@ -537,7 +554,7 @@ mod tests {
         );
         detector.pattern_registry_mut().add_pattern(pattern);
 
-        assert!(detector.pattern_registry().len() > initial_count);
+        assert_eq!(detector.pattern_registry().len(), 1);
     }
 
     #[test]
@@ -550,9 +567,17 @@ mod tests {
 
     #[test]
     fn test_reference_patterns_from_registry() {
-        let detector = CoherenceDetector::default();
+        // Create registry with custom reference pattern
+        let mut registry = PatternRegistry::new();
+        let pattern = crate::memory::ConversationPattern::manual(
+            crate::memory::PatternType::Reference,
+            "as i mentioned",
+        );
+        registry.add_pattern(pattern);
 
-        // Test with a message that should match preset reference patterns
+        let detector = CoherenceDetector::new_with_registry(0.7, registry);
+
+        // Test with a message that should match custom reference pattern
         let messages = vec![
             create_text_message("Let's implement feature X"),
             create_text_message("As I mentioned earlier, feature X is important"),
@@ -565,9 +590,17 @@ mod tests {
 
     #[test]
     fn test_code_patterns_from_registry() {
-        let detector = CoherenceDetector::default();
+        // Create registry with custom code pattern
+        let mut registry = PatternRegistry::new();
+        let pattern = crate::memory::ConversationPattern::manual(
+            crate::memory::PatternType::Code,
+            "fn ",
+        );
+        registry.add_pattern(pattern);
 
-        // Test with messages containing code patterns from presets
+        let detector = CoherenceDetector::new_with_registry(0.7, registry);
+
+        // Test with messages containing code patterns
         let messages = vec![
             create_text_message("Here is a function:\n```rust\nfn example() {}\n```"),
             create_text_message("This function does something"),
@@ -575,19 +608,14 @@ mod tests {
 
         let score = detector.calculate_coherence(&messages);
         // Should have reasonable coherence due to code pattern match
-        assert!(score > 0.4, "Expected coherence > 0.4 for code patterns, got {}", score);
+        assert!(score >= 0.35, "Expected coherence >= 0.35 for code patterns, got {}", score);
     }
 
     #[test]
     fn test_empty_registry_graceful_handling() {
-        // Create a registry and deactivate all patterns to simulate empty active patterns
-        let mut registry = PatternRegistry::new();
-        // Collect all IDs first to avoid borrow checker issue
-        let ids: Vec<String> = registry.all_patterns().iter().map(|p| p.id.clone()).collect();
-        // Deactivate all patterns to simulate empty active patterns
-        for id in ids {
-            registry.deactivate_pattern(&id);
-        }
+        // Create an empty registry (no presets)
+        let registry = PatternRegistry::new();
+        assert!(registry.is_empty());
 
         let detector = CoherenceDetector::new_with_registry(0.7, registry);
 
@@ -599,15 +627,23 @@ mod tests {
 
         // Should not panic
         let score = detector.calculate_coherence(&messages);
-        // Should get a valid score (neutral or based on other factors)
+        // Should get a valid score (neutral 0.5 for empty pattern registry)
         assert!(score >= 0.0 && score <= 1.0);
     }
 
     #[test]
     fn test_chinese_reference_patterns() {
-        let detector = CoherenceDetector::default();
+        // Create registry with Chinese reference pattern
+        let mut registry = PatternRegistry::new();
+        let pattern = crate::memory::ConversationPattern::manual(
+            crate::memory::PatternType::Reference,
+            "正如我所说",
+        );
+        registry.add_pattern(pattern);
 
-        // Test Chinese reference patterns that should be in presets
+        let detector = CoherenceDetector::new_with_registry(0.7, registry);
+
+        // Test Chinese reference patterns
         let messages = vec![
             create_text_message("我们决定使用 PostgreSQL"),
             create_text_message("正如我所说，PostgreSQL 是最佳选择"),
@@ -686,7 +722,15 @@ mod tests {
 
     #[test]
     fn test_simple_pattern_matching() {
-        let detector = CoherenceDetector::default();
+        // Create registry with custom reference pattern
+        let mut registry = PatternRegistry::new();
+        let pattern = crate::memory::ConversationPattern::manual(
+            crate::memory::PatternType::Reference,
+            "as mentioned",
+        );
+        registry.add_pattern(pattern);
+
+        let detector = CoherenceDetector::new_with_registry(0.7, registry);
 
         // Test with simple text patterns
         let messages = vec![
@@ -695,7 +739,7 @@ mod tests {
         ];
 
         let score = detector.calculate_coherence(&messages);
-        // Should detect "as mentioned above" reference pattern
+        // Should detect "as mentioned" reference pattern
         assert!(score > 0.5, "Expected high coherence for reference pattern match, got {}", score);
     }
 

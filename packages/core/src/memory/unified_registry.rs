@@ -126,13 +126,15 @@ mod tests {
     #[test]
     fn test_unified_registry_new() {
         let registry = UnifiedRegistry::new();
-        assert!(!registry.pattern_registry().is_empty());
+        // PatternRegistry is now empty - no presets loaded
+        assert!(registry.pattern_registry().is_empty());
     }
 
     #[test]
     fn test_unified_registry_default() {
         let registry = UnifiedRegistry::default();
-        assert!(!registry.pattern_registry().is_empty());
+        // PatternRegistry is now empty - no presets loaded
+        assert!(registry.pattern_registry().is_empty());
     }
 
     #[test]
@@ -140,7 +142,8 @@ mod tests {
         let registry = UnifiedRegistry::new();
         let stats = registry.stats();
 
-        assert!(stats.total_patterns > 0);
+        // PatternRegistry is empty, so total_patterns should be 0
+        assert_eq!(stats.total_patterns, 0);
     }
 
     #[test]
@@ -156,9 +159,17 @@ mod tests {
     #[test]
     fn test_unified_registry_prune() {
         let mut registry = UnifiedRegistry::new();
+        // Add a pattern first
+        registry.pattern_registry_mut().add_pattern(
+            crate::memory::ConversationPattern::manual(
+                crate::memory::PatternType::Code,
+                "test-pattern",
+            ),
+        );
+
         registry.prune();
 
-        // After prune, presets should still be present
+        // After prune, manually added patterns should still be present
         assert!(!registry.pattern_registry().is_empty());
     }
 
@@ -166,8 +177,17 @@ mod tests {
     fn test_unified_registry_mut_accessors() {
         let mut registry = UnifiedRegistry::new();
 
-        // Test mutable accessor works
+        // PatternRegistry is now empty - no presets loaded
         let patterns = registry.pattern_registry_mut();
-        assert!(!patterns.is_empty());
+        assert!(patterns.is_empty());
+
+        // Test mutable accessor works - add a pattern
+        registry.pattern_registry_mut().add_pattern(
+            crate::memory::ConversationPattern::manual(
+                crate::memory::PatternType::Code,
+                "test-pattern",
+            ),
+        );
+        assert!(!registry.pattern_registry().is_empty());
     }
 }
