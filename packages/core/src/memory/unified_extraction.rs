@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 
 use super::entry::MemoryEntry;
 use super::conversation_pattern::ConversationPattern;
-use super::focus_keywords_registry::KeywordCategory;
 use crate::compress::FocusPoint;
 
 /// Result of unified extraction from conversation.
@@ -26,12 +25,15 @@ pub struct UnifiedExtractionResult {
     /// Extracted conversation patterns.
     pub conversation_patterns: Vec<ConversationPattern>,
     /// Extracted focus keywords organized by category.
+    /// These keywords are used in real-time for focus tracking,
+    /// not persisted in the registry.
     pub focus_keywords: ExtractedKeywords,
 }
 
 /// Extracted keywords organized by category.
 ///
 /// These keywords are used for focus tracking and topic detection.
+/// They are passed to FocusTracker in real-time and not persisted.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExtractedKeywords {
     /// Keywords indicating topic transition/change.
@@ -67,24 +69,28 @@ impl ExtractedKeywords {
         self.transition.len() + self.question.len() + self.task.len() + self.tech.len()
     }
 
-    /// Convert to a list of (keyword, category) pairs for registry learning.
-    pub fn to_keyword_pairs(&self) -> Vec<(String, KeywordCategory)> {
-        let mut pairs = Vec::new();
-
-        for keyword in &self.transition {
-            pairs.push((keyword.clone(), KeywordCategory::Transition));
+    /// Merge with another ExtractedKeywords, combining all categories.
+    pub fn merge(&mut self, other: &ExtractedKeywords) {
+        for kw in &other.transition {
+            if !self.transition.contains(kw) {
+                self.transition.push(kw.clone());
+            }
         }
-        for keyword in &self.question {
-            pairs.push((keyword.clone(), KeywordCategory::Question));
+        for kw in &other.question {
+            if !self.question.contains(kw) {
+                self.question.push(kw.clone());
+            }
         }
-        for keyword in &self.task {
-            pairs.push((keyword.clone(), KeywordCategory::Task));
+        for kw in &other.task {
+            if !self.task.contains(kw) {
+                self.task.push(kw.clone());
+            }
         }
-        for keyword in &self.tech {
-            pairs.push((keyword.clone(), KeywordCategory::Tech));
+        for kw in &other.tech {
+            if !self.tech.contains(kw) {
+                self.tech.push(kw.clone());
+            }
         }
-
-        pairs
     }
 }
 
@@ -125,20 +131,28 @@ mod tests {
     }
 
     #[test]
-    fn test_extracted_keywords_to_keyword_pairs() {
-        let keywords = ExtractedKeywords {
+    fn test_extracted_keywords_merge() {
+        let mut keywords1 = ExtractedKeywords {
             transition: vec!["switch".to_string()],
             question: vec!["how".to_string()],
             task: vec!["create".to_string()],
             tech: vec!["rust".to_string()],
         };
 
-        let pairs = keywords.to_keyword_pairs();
-        assert_eq!(pairs.len(), 4);
-        assert!(pairs.contains(&("switch".to_string(), KeywordCategory::Transition)));
-        assert!(pairs.contains(&("how".to_string(), KeywordCategory::Question)));
-        assert!(pairs.contains(&("create".to_string(), KeywordCategory::Task)));
-        assert!(pairs.contains(&("rust".to_string(), KeywordCategory::Tech)));
+        let keywords2 = ExtractedKeywords {
+            transition: vec!["switch".to_string(), "new".to_string()],
+            question: vec!["why".to_string()],
+            task: vec!["create".to_string(), "delete".to_string()],
+            tech: vec!["python".to_string()],
+        };
+
+        keywords1.merge(&keywords2);
+
+        // Should have unique keywords
+        assert_eq!(keywords1.transition.len(), 2); // "switch", "new"
+        assert_eq!(keywords1.question.len(), 2); // "how", "why"
+        assert_eq!(keywords1.task.len(), 2); // "create", "delete"
+        assert_eq!(keywords1.tech.len(), 2); // "rust", "python"
     }
 
     #[test]

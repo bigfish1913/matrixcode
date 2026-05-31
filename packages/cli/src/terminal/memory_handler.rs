@@ -148,6 +148,9 @@ pub fn should_extract_memory(turn_count: usize, has_fast_provider: bool) -> bool
 }
 
 /// Spawn background task for AI memory extraction (unified extraction)
+///
+/// Note: Keywords are now used in real-time only, not persisted.
+/// Only patterns are saved to the registry.
 pub fn spawn_extraction_task(
     event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
     project_path: Option<PathBuf>,
@@ -219,25 +222,28 @@ pub fn spawn_extraction_task(
             )).await;
         }
 
-        // Learn patterns and keywords from unified extraction
-        if !detected.conversation_patterns.is_empty() || !detected.focus_keywords.is_empty() {
+        // Learn patterns only (keywords are used in real-time, not persisted)
+        if !detected.conversation_patterns.is_empty() {
             if let Ok(mut registry) = UnifiedRegistry::load_or_default() {
                 registry.learn_from_extraction(&detected, "background");
                 if let Err(e) = registry.save_all() {
-                    log::warn!("Failed to save unified registry: {}", e);
+                    log::warn!("Failed to save pattern registry: {}", e);
                 }
 
                 // Log what was learned
                 let patterns_count = detected.conversation_patterns.len();
-                let keywords_count = detected.focus_keywords.total_count();
-                if patterns_count > 0 || keywords_count > 0 {
+                if patterns_count > 0 {
                     let _ = event_tx.send(AgentEvent::progress(
-                        format!("🧠 学习了 {} 个模式, {} 个关键词", patterns_count, keywords_count),
+                        format!("🧠 学习了 {} 个对话模式", patterns_count),
                         None,
                     )).await;
                 }
             }
         }
+
+        // Note: focus_keywords are used in real-time by FocusTracker,
+        // not persisted. They will be passed directly to FocusTracker
+        // in the main conversation flow.
     });
 }
 

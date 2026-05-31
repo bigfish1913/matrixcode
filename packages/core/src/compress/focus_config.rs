@@ -1,19 +1,19 @@
 //! Focus tracker configuration - eliminates hardcoded values.
 //!
 //! This module provides configurable settings for focus tracking,
-//! using FocusKeywordsRegistry for dynamic keywords.
+//! using real-time extracted keywords from AI instead of persistent registry.
 
 use serde::{Deserialize, Serialize};
 
-use crate::memory::FocusKeywordsRegistry;
+use crate::memory::ExtractedKeywords;
 
 /// Focus tracker configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FocusTrackerConfig {
-    /// Keywords registry for dynamic keyword management.
-    /// This replaces the previously hardcoded keyword lists.
+    /// Current keywords extracted from the conversation (real-time, not persisted).
+    /// These are set by AI extraction and used for focus detection.
     #[serde(skip)]
-    keywords_registry: Option<FocusKeywordsRegistry>,
+    current_keywords: Option<ExtractedKeywords>,
 
     /// Number of words to extract when no keywords found
     pub fallback_topic_word_count: usize,
@@ -40,8 +40,8 @@ pub struct FocusTrackerConfig {
 impl Default for FocusTrackerConfig {
     fn default() -> Self {
         Self {
-            // Keywords registry will be initialized lazily
-            keywords_registry: None,
+            // Keywords are set in real-time via set_keywords()
+            current_keywords: None,
 
             // Fallback: extract N words when no keywords found
             fallback_topic_word_count: 3,
@@ -91,97 +91,118 @@ impl FocusTrackerConfig {
         }
     }
 
-    /// Get or initialize the keywords registry.
+    /// Set keywords extracted from AI (real-time).
     ///
-    /// The registry is loaded lazily to avoid file I/O during struct creation.
-    /// Uses default presets if file doesn't exist.
-    pub fn keywords_registry(&mut self) -> &FocusKeywordsRegistry {
-        if self.keywords_registry.is_none() {
-            self.keywords_registry = Some(
-                FocusKeywordsRegistry::from_default_file()
-                    .unwrap_or_else(|_| FocusKeywordsRegistry::new())
-            );
+    /// These keywords are used for focus tracking in the current conversation
+    /// and are not persisted.
+    pub fn set_keywords(&mut self, keywords: &ExtractedKeywords) {
+        self.current_keywords = Some(keywords.clone());
+    }
+
+    /// Get current keywords (if set).
+    pub fn get_keywords(&self) -> Option<&ExtractedKeywords> {
+        self.current_keywords.as_ref()
+    }
+
+    /// Get transition keywords (from AI extraction or fallback presets).
+    pub fn transition_keywords(&self) -> Vec<String> {
+        if let Some(kw) = &self.current_keywords {
+            kw.transition.clone()
+        } else {
+            // Fallback to hardcoded presets
+            vec![
+                "however".to_string(), "but".to_string(), "switching".to_string(),
+                "转换".to_string(), "切换".to_string(), "换个话题".to_string(),
+            ]
         }
-        self.keywords_registry.as_ref().unwrap()
     }
 
-    /// Get keywords registry (immutable, must be initialized).
-    pub fn get_keywords_registry(&self) -> Option<&FocusKeywordsRegistry> {
-        self.keywords_registry.as_ref()
+    /// Get question keywords (from AI extraction or fallback presets).
+    pub fn question_keywords(&self) -> Vec<String> {
+        if let Some(kw) = &self.current_keywords {
+            kw.question.clone()
+        } else {
+            // Fallback to hardcoded presets
+            vec![
+                "how".to_string(), "what".to_string(), "why".to_string(),
+                "如何".to_string(), "什么".to_string(), "为什么".to_string(),
+            ]
+        }
     }
 
-    /// Set a custom keywords registry.
-    pub fn with_keywords_registry(mut self, registry: FocusKeywordsRegistry) -> Self {
-        self.keywords_registry = Some(registry);
-        self
+    /// Get task keywords (from AI extraction or fallback presets).
+    pub fn task_keywords(&self) -> Vec<String> {
+        if let Some(kw) = &self.current_keywords {
+            kw.task.clone()
+        } else {
+            // Fallback to hardcoded presets
+            vec![
+                "implement".to_string(), "create".to_string(), "fix".to_string(),
+                "实现".to_string(), "创建".to_string(), "修复".to_string(),
+            ]
+        }
     }
 
-    /// Get transition keywords from the registry.
-    pub fn transition_keywords(&mut self) -> Vec<String> {
-        use crate::memory::KeywordCategory;
-        self.keywords_registry().get_keywords(KeywordCategory::Transition)
-    }
-
-    /// Get question keywords from the registry.
-    pub fn question_keywords(&mut self) -> Vec<String> {
-        use crate::memory::KeywordCategory;
-        self.keywords_registry().get_keywords(KeywordCategory::Question)
-    }
-
-    /// Get task keywords from the registry.
-    pub fn task_keywords(&mut self) -> Vec<String> {
-        use crate::memory::KeywordCategory;
-        self.keywords_registry().get_keywords(KeywordCategory::Task)
-    }
-
-    /// Get tech keywords from the registry.
-    pub fn tech_keywords(&mut self) -> Vec<String> {
-        use crate::memory::KeywordCategory;
-        self.keywords_registry().get_keywords(KeywordCategory::Tech)
+    /// Get tech keywords (from AI extraction or fallback presets).
+    pub fn tech_keywords(&self) -> Vec<String> {
+        if let Some(kw) = &self.current_keywords {
+            kw.tech.clone()
+        } else {
+            // Fallback to hardcoded presets
+            vec![
+                "rust".to_string(), "python".to_string(), "javascript".to_string(),
+                "api".to_string(), "database".to_string(), "performance".to_string(),
+            ]
+        }
     }
 
     /// Check if text matches transition keywords.
-    pub fn matches_transition(&mut self, text: &str) -> bool {
-        use crate::memory::KeywordCategory;
-        self.keywords_registry().matches(KeywordCategory::Transition, text)
+    pub fn matches_transition(&self, text: &str) -> bool {
+        let lower = text.to_lowercase();
+        self.transition_keywords().iter().any(|kw| lower.contains(&kw.to_lowercase()))
     }
 
     /// Check if text matches question keywords.
-    pub fn matches_question(&mut self, text: &str) -> bool {
-        use crate::memory::KeywordCategory;
-        self.keywords_registry().matches(KeywordCategory::Question, text)
+    pub fn matches_question(&self, text: &str) -> bool {
+        let lower = text.to_lowercase();
+        self.question_keywords().iter().any(|kw| lower.contains(&kw.to_lowercase()))
     }
 
     /// Check if text matches task keywords.
-    pub fn matches_task(&mut self, text: &str) -> bool {
-        use crate::memory::KeywordCategory;
-        self.keywords_registry().matches(KeywordCategory::Task, text)
+    pub fn matches_task(&self, text: &str) -> bool {
+        let lower = text.to_lowercase();
+        self.task_keywords().iter().any(|kw| lower.contains(&kw.to_lowercase()))
     }
 
     /// Find matching tech keywords in text.
-    pub fn find_tech_keywords(&mut self, text: &str) -> Vec<String> {
-        use crate::memory::KeywordCategory;
-        self.keywords_registry().find_matches(KeywordCategory::Tech, text)
+    pub fn find_tech_keywords(&self, text: &str) -> Vec<String> {
+        let lower = text.to_lowercase();
+        self.tech_keywords()
+            .iter()
+            .filter(|kw| lower.contains(&kw.to_lowercase()))
+            .cloned()
+            .collect()
     }
 
-    /// Learn new keywords from a session.
-    pub fn learn_keywords(&mut self, keywords: &[(&str, crate::memory::KeywordCategory)], session_id: &str) {
-        // Ensure registry is initialized (lazy init)
-        self.keywords_registry();
-        if let Some(registry) = self.keywords_registry.as_mut() {
-            registry.learn_keywords(keywords, session_id);
+    /// Merge additional keywords into current keywords.
+    pub fn merge_keywords(&mut self, additional: &ExtractedKeywords) {
+        match self.current_keywords.take() {
+            Some(mut current) => {
+                current.merge(additional);
+                self.current_keywords = Some(current);
+            }
+            None => {
+                self.current_keywords = Some(additional.clone());
+            }
         }
     }
 
-    /// Save keywords registry to file.
-    pub fn save_keywords(&self) -> anyhow::Result<()> {
-        if let Some(registry) = &self.keywords_registry {
-            registry.save_to_default_file()?;
-        }
-        Ok(())
+    /// Clear current keywords (start fresh for new conversation).
+    pub fn clear_keywords(&mut self) {
+        self.current_keywords = None;
     }
 
-    /// Validate configuration (basic parameters, not keywords).
+    /// Validate configuration (basic parameters).
     pub fn validate(&self) -> bool {
         self.focus_window_size > 0 &&
         self.max_recent_context_count > 0 &&
@@ -190,11 +211,6 @@ impl FocusTrackerConfig {
         self.focus_score_boost > 0.0 &&
         self.max_focus_score > 0.0 &&
         self.fallback_topic_word_count > 0
-    }
-
-    /// Full validation including keywords registry.
-    pub fn validate_full(&mut self) -> bool {
-        self.validate() && !self.transition_keywords().is_empty()
     }
 }
 
@@ -205,17 +221,6 @@ pub enum KeywordType {
     Question,
     Task,
     Tech,
-}
-
-impl From<KeywordType> for crate::memory::KeywordCategory {
-    fn from(kw: KeywordType) -> Self {
-        match kw {
-            KeywordType::Transition => crate::memory::KeywordCategory::Transition,
-            KeywordType::Question => crate::memory::KeywordCategory::Question,
-            KeywordType::Task => crate::memory::KeywordCategory::Task,
-            KeywordType::Tech => crate::memory::KeywordCategory::Tech,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -245,23 +250,32 @@ mod tests {
     }
 
     #[test]
-    fn test_keywords_registry_lazy_init() {
+    fn test_set_keywords() {
         let mut config = FocusTrackerConfig::default();
 
-        // Registry should be None initially
-        assert!(config.get_keywords_registry().is_none());
+        // Initially no keywords
+        assert!(config.get_keywords().is_none());
 
-        // Accessing keywords should initialize registry
-        let keywords = config.transition_keywords();
-        assert!(!keywords.is_empty());
-        assert!(config.get_keywords_registry().is_some());
+        // Set keywords
+        let keywords = ExtractedKeywords {
+            transition: vec!["new_transition".to_string()],
+            question: vec!["new_question".to_string()],
+            task: vec!["new_task".to_string()],
+            tech: vec!["new_tech".to_string()],
+        };
+        config.set_keywords(&keywords);
+
+        // Should now have keywords
+        assert!(config.get_keywords().is_some());
+        assert_eq!(config.transition_keywords(), vec!["new_transition".to_string()]);
+        assert_eq!(config.question_keywords(), vec!["new_question".to_string()]);
     }
 
     #[test]
-    fn test_keywords_from_registry() {
-        let mut config = FocusTrackerConfig::default();
+    fn test_fallback_keywords() {
+        let config = FocusTrackerConfig::default();
 
-        // Should have preset keywords
+        // Should use fallback presets when no keywords set
         assert!(!config.transition_keywords().is_empty());
         assert!(!config.question_keywords().is_empty());
         assert!(!config.task_keywords().is_empty());
@@ -276,8 +290,9 @@ mod tests {
 
     #[test]
     fn test_matches_keywords() {
-        let mut config = FocusTrackerConfig::default();
+        let config = FocusTrackerConfig::default();
 
+        // Should match fallback presets
         assert!(config.matches_question("How do I do this?"));
         assert!(config.matches_task("Please implement this"));
         assert!(config.matches_transition("However, let's move on"));
@@ -285,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_find_tech_keywords() {
-        let mut config = FocusTrackerConfig::default();
+        let config = FocusTrackerConfig::default();
 
         let found = config.find_tech_keywords("Using Rust and Python for development");
         assert!(found.contains(&"rust".to_string()));
@@ -293,27 +308,54 @@ mod tests {
     }
 
     #[test]
-    fn test_with_custom_registry() {
-        let registry = FocusKeywordsRegistry::new();
-        let config = FocusTrackerConfig::default()
-            .with_keywords_registry(registry);
-
-        assert!(config.get_keywords_registry().is_some());
-    }
-
-    #[test]
-    fn test_validate_full() {
+    fn test_merge_keywords() {
         let mut config = FocusTrackerConfig::default();
-        assert!(config.validate_full());
+
+        // Set initial keywords
+        let initial = ExtractedKeywords {
+            transition: vec!["switch".to_string()],
+            question: vec!["how".to_string()],
+            task: vec!["create".to_string()],
+            tech: vec!["rust".to_string()],
+        };
+        config.set_keywords(&initial);
+
+        // Merge additional keywords
+        let additional = ExtractedKeywords {
+            transition: vec!["new".to_string()],
+            question: vec!["why".to_string()],
+            task: vec!["delete".to_string()],
+            tech: vec!["python".to_string()],
+        };
+        config.merge_keywords(&additional);
+
+        // Should have merged keywords
+        let merged = config.get_keywords().unwrap();
+        assert!(merged.transition.contains(&"switch".to_string()));
+        assert!(merged.transition.contains(&"new".to_string()));
+        assert!(merged.tech.contains(&"rust".to_string()));
+        assert!(merged.tech.contains(&"python".to_string()));
     }
 
     #[test]
-    fn test_keyword_type_conversion() {
-        use crate::memory::KeywordCategory;
+    fn test_clear_keywords() {
+        let mut config = FocusTrackerConfig::default();
 
-        assert_eq!(KeywordCategory::from(KeywordType::Transition), KeywordCategory::Transition);
-        assert_eq!(KeywordCategory::from(KeywordType::Question), KeywordCategory::Question);
-        assert_eq!(KeywordCategory::from(KeywordType::Task), KeywordCategory::Task);
-        assert_eq!(KeywordCategory::from(KeywordType::Tech), KeywordCategory::Tech);
+        // Set keywords
+        let keywords = ExtractedKeywords {
+            transition: vec!["test".to_string()],
+            question: vec![],
+            task: vec![],
+            tech: vec![],
+        };
+        config.set_keywords(&keywords);
+        assert!(config.get_keywords().is_some());
+
+        // Clear keywords
+        config.clear_keywords();
+        assert!(config.get_keywords().is_none());
+
+        // Should use fallback again
+        assert!(config.transition_keywords().contains(&"however".to_string()));
     }
 }

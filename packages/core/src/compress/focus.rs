@@ -3,7 +3,7 @@
 //! Problem: After compression, AI may focus on old topics instead of the latest question.
 //! Solution: Track conversation focus and ensure recent context is prioritized.
 
-use crate::memory::KeywordCategory;
+use crate::memory::ExtractedKeywords;
 use crate::providers::{ContentBlock, Message, MessageContent, Role};
 use super::focus_config::FocusTrackerConfig;
 
@@ -66,13 +66,30 @@ impl FocusTracker {
         &mut self.config
     }
 
+    /// Set current keywords from AI extraction (real-time, not persisted).
+    ///
+    /// These keywords are used for focus tracking in the current conversation.
+    pub fn set_current_keywords(&mut self, keywords: &ExtractedKeywords) {
+        self.config.set_keywords(keywords);
+    }
+
+    /// Merge additional keywords into current keywords.
+    pub fn merge_keywords(&mut self, additional: &ExtractedKeywords) {
+        self.config.merge_keywords(additional);
+    }
+
+    /// Clear current keywords (start fresh for new conversation).
+    pub fn clear_keywords(&mut self) {
+        self.config.clear_keywords();
+    }
+
     /// Detect current focus from recent messages.
-    pub fn detect_focus(&mut self, messages: &[Message]) -> ConversationFocus {
+    pub fn detect_focus(&self, messages: &[Message]) -> ConversationFocus {
         self.detect_focus_with_window(messages, self.config.focus_window_size)
     }
 
     /// Detect current focus with custom window size
-    pub fn detect_focus_with_window(&mut self, messages: &[Message], window_size: usize) -> ConversationFocus {
+    pub fn detect_focus_with_window(&self, messages: &[Message], window_size: usize) -> ConversationFocus {
         let recent_start = messages.len().saturating_sub(window_size);
         let recent_messages = &messages[recent_start..];
 
@@ -143,10 +160,10 @@ impl FocusTracker {
     }
 
     /// Extract current question or task from a message.
-    fn extract_current_question(&mut self, message: &Message) -> Option<String> {
+    fn extract_current_question(&self, message: &Message) -> Option<String> {
         match &message.content {
             MessageContent::Text(text) => {
-                // Check if it's a question using registry
+                // Check if it's a question using keywords
                 if self.config.matches_question(text) {
                     // Extract the question (up to configured max length)
                     let question = text.chars()
@@ -155,7 +172,7 @@ impl FocusTracker {
                     return Some(question.trim().to_string());
                 }
 
-                // Check if it's a task request using registry
+                // Check if it's a task request using keywords
                 if self.config.matches_task(text) {
                     let task = text.chars()
                         .take(self.config.max_question_extract_length)
@@ -190,11 +207,11 @@ impl FocusTracker {
     }
 
     /// Detect topic transitions throughout conversation.
-    fn detect_topic_transitions(&mut self, messages: &[Message]) -> Vec<TopicTransition> {
+    fn detect_topic_transitions(&self, messages: &[Message]) -> Vec<TopicTransition> {
         let mut transitions = Vec::new();
         let mut prev_topic = String::new();
 
-        // Get transition keywords from registry
+        // Get transition keywords
         let transition_keywords = self.config.transition_keywords();
 
         for (idx, msg) in messages.iter().enumerate() {
@@ -217,9 +234,9 @@ impl FocusTracker {
 
                 let lower = text.to_lowercase();
 
-                // Check for transition keywords from registry
+                // Check for transition keywords
                 for keyword in &transition_keywords {
-                    if lower.contains(keyword.as_str()) {
+                    if lower.contains(&keyword.to_lowercase()) {
                         // Extract new topic
                         let new_topic = self.extract_topic_from_message(&text);
 
@@ -248,8 +265,8 @@ impl FocusTracker {
     }
 
     /// Extract topic from a message (keyword extraction).
-    fn extract_topic_from_message(&mut self, text: &str) -> String {
-        // Find matching tech keywords from registry
+    fn extract_topic_from_message(&self, text: &str) -> String {
+        // Find matching tech keywords
         let found = self.config.find_tech_keywords(text);
 
         if found.is_empty() {
@@ -264,7 +281,7 @@ impl FocusTracker {
     }
 
     /// Extract initial topic from first substantial message.
-    fn extract_initial_topic(&mut self, messages: &[Message]) -> Option<String> {
+    fn extract_initial_topic(&self, messages: &[Message]) -> Option<String> {
         for msg in messages {
             if matches!(msg.role, Role::User) {
                 let text = match &msg.content {
@@ -386,16 +403,6 @@ impl FocusTracker {
             content: MessageContent::Text(content),
         }
     }
-
-    /// Learn keywords from a conversation session.
-    pub fn learn_from_session(&mut self, keywords: &[(&str, KeywordCategory)], session_id: &str) {
-        self.config.learn_keywords(keywords, session_id);
-    }
-
-    /// Save learned keywords to file.
-    pub fn save_keywords(&self) -> anyhow::Result<()> {
-        self.config.save_keywords()
-    }
 }
 
 #[cfg(test)]
@@ -417,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_detect_focus() {
-        let mut tracker = FocusTracker::new();
+        let tracker = FocusTracker::new();
         let messages = vec![
             Message {
                 role: Role::User,
@@ -440,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_focus_score() {
-        let mut tracker = FocusTracker::new();
+        let tracker = FocusTracker::new();
         let messages = vec![
             Message {
                 role: Role::User,
@@ -460,42 +467,46 @@ mod tests {
     }
 
     #[test]
-    fn test_keywords_registry_integration() {
+    fn test_keywords_integration() {
         let mut tracker = FocusTracker::new();
 
-        // Should have keywords loaded
-        let keywords = tracker.config_mut().transition_keywords();
-        assert!(!keywords.is_empty());
+        // Set keywords from AI extraction
+        let keywords = ExtractedKeywords {
+            transition: vec!["custom_transition".to_string()],
+            question: vec!["custom_question".to_string()],
+            task: vec!["custom_task".to_string()],
+            tech: vec!["customtech".to_string()],
+        };
+        tracker.set_current_keywords(&keywords);
 
-        // Should match question keywords
-        assert!(tracker.config_mut().matches_question("如何解决这个问题？"));
-
-        // Should match task keywords
-        assert!(tracker.config_mut().matches_task("实现一个新功能"));
-
-        // Should find tech keywords
-        let tech = tracker.config_mut().find_tech_keywords("使用 Rust 开发");
-        assert!(tech.contains(&"rust".to_string()));
+        // Should use custom keywords
+        let tech_keywords = tracker.config().tech_keywords();
+        assert!(tech_keywords.contains(&"customtech".to_string()));
     }
 
     #[test]
-    fn test_learn_keywords() {
-        let mut tracker = FocusTracker::new();
+    fn test_fallback_keywords() {
+        let tracker = FocusTracker::new();
 
-        // Learn a new keyword
-        tracker.learn_from_session(
-            &[("brand-new-tech", KeywordCategory::Tech)],
-            "test-session"
-        );
+        // Should have fallback presets
+        let keywords = tracker.config().transition_keywords();
+        assert!(!keywords.is_empty());
+        assert!(keywords.contains(&"however".to_string()));
+    }
 
-        // Should now contain the learned keyword
-        let tech_keywords = tracker.config_mut().tech_keywords();
-        assert!(tech_keywords.contains(&"brand-new-tech".to_string()));
+    #[test]
+    fn test_matches_keywords() {
+        let tracker = FocusTracker::new();
+
+        // Should match fallback presets
+        assert!(tracker.config().matches_question("How do I do this?"));
+        assert!(tracker.config().matches_task("Please implement this"));
+        assert!(tracker.config().matches_transition("However, let's move on"));
     }
 
     #[test]
     fn test_topic_extraction() {
-        let mut tracker = FocusTracker::new();
+        let tracker = FocusTracker::new();
 
         // Topic with tech keywords
         let topic = tracker.extract_topic_from_message("使用 Rust 和 Python 开发项目");
@@ -505,5 +516,27 @@ mod tests {
         // Topic without tech keywords (fallback)
         let topic = tracker.extract_topic_from_message("随便聊聊天气");
         assert!(!topic.is_empty());
+    }
+
+    #[test]
+    fn test_clear_keywords() {
+        let mut tracker = FocusTracker::new();
+
+        // Set keywords
+        let keywords = ExtractedKeywords {
+            transition: vec!["test".to_string()],
+            question: vec![],
+            task: vec![],
+            tech: vec![],
+        };
+        tracker.set_current_keywords(&keywords);
+        assert!(tracker.config().get_keywords().is_some());
+
+        // Clear keywords
+        tracker.clear_keywords();
+        assert!(tracker.config().get_keywords().is_none());
+
+        // Should use fallback again
+        assert!(tracker.config().transition_keywords().contains(&"however".to_string()));
     }
 }
