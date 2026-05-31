@@ -1,5 +1,5 @@
 use matrixcode_core::event::McpServerInfo;
-use matrixcode_core::{AgentEvent, EventData, EventType};
+use matrixcode_core::{AgentEvent, EventData, EventType, HistoryMessage};
 use serde_json::Value;
 
 use crate::app::{TodoItem, TuiApp};
@@ -271,6 +271,32 @@ impl TuiApp {
                 {
                     self.tokens_in = input_tokens;
                     self.session_total_out = total_output_tokens;
+                }
+            }
+            EventType::HistoryLoaded => {
+                if let Some(EventData::HistoryMessages { messages }) = e.data {
+                    // Clear existing messages and load history
+                    self.messages.clear();
+                    self.streaming.clear();
+                    self.thinking.clear();
+
+                    // Add all history messages to display
+                    for msg in messages {
+                        let role = if msg.is_thinking {
+                            Role::Thinking
+                        } else {
+                            match msg.role.as_str() {
+                                "user" => Role::User,
+                                "assistant" => Role::Assistant,
+                                _ => continue, // Skip unknown roles
+                            }
+                        };
+                        self.push_message(Message {
+                            role,
+                            content: msg.content,
+                            is_pending: false,
+                        });
+                    }
                 }
             }
             EventType::Error => {

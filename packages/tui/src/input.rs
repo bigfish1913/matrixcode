@@ -693,7 +693,7 @@ impl TuiApp {
         if idx < self.session_list.len() {
             let session = &self.session_list[idx];
             // Send /resume command with session ID to backend
-            let _ = self.tx.try_send(format!("/resume {}", session.short_id));
+            let _ = self.tx.try_send(format!("/load {}", session.short_id));
             self.push_message(Message {
                 role: Role::System,
                 content: format!("Loading session {}...", session.short_id),

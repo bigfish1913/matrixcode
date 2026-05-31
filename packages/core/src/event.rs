@@ -31,6 +31,7 @@ pub enum EventType {
     SessionStarted,
     SessionEnded,
     SessionRestored, // Session loaded from file with token stats
+    HistoryLoaded,   // History messages loaded from session
     NewSession,
     CompressionTriggered,
     CompressionCompleted,
@@ -99,6 +100,10 @@ pub enum EventData {
         input_tokens: u64,
         total_output_tokens: u64,
         message_count: usize,
+    },
+    /// History messages loaded from session
+    HistoryMessages {
+        messages: Vec<HistoryMessage>,
     },
     Progress {
         message: String,
@@ -184,6 +189,14 @@ pub struct SessionListItem {
     pub title: String,      // Session display name
     pub message_count: usize,
     pub created_at: String, // Formatted datetime string
+}
+
+/// History message for loading session
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HistoryMessage {
+    pub role: String,       // "user", "assistant", "thinking"
+    pub content: String,
+    pub is_thinking: bool,  // Mark thinking blocks from assistant message
 }
 
 impl AgentEvent {
