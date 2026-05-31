@@ -18,12 +18,14 @@
 //! - **adaptive**: User feedback learning and system adaptation
 //! - **conversation_pattern**: Pattern types (ConversationPattern, PatternType, PatternSource)
 //! - **pattern_registry**: Pattern registry for managing conversation patterns
+//! - **focus_keywords_registry**: Registry for dynamic focus tracking keywords
 
 mod adaptive;
 mod config;
 mod conversation_pattern;
 mod entry;
 mod extractor;
+mod focus_keywords_registry;
 mod learning;
 mod manager;
 mod pattern_registry;
@@ -38,6 +40,7 @@ pub use config::*;
 pub use conversation_pattern::*;
 pub use entry::*;
 pub use extractor::*;
+pub use focus_keywords_registry::*;
 pub use learning::*;
 pub use manager::*;
 pub use pattern_registry::*;

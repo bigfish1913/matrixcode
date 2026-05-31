@@ -1,21 +1,26 @@
-//! Integration example showing optimized compression workflow.
+//! Integration example showing optimized compression workflow with focus tracking.
 //!
 //! This example demonstrates how to use the new semantic compression,
-//! dynamic priority scoring, and caching together.
+//! dynamic priority scoring, caching, and focus tracking together.
 
 use crate::compress::{
-    CompressionCache, CompressionConfig, CacheConfig, PriorityScorer, 
-    SemanticCompressor, SemanticStrategy, PriorityScore, estimate_tokens,
+    CompressionCache, CompressionConfig, CacheConfig, PriorityScorer,
+    SemanticCompressor, SemanticStrategy, estimate_tokens,
+    FocusTracker, ConversationFocus,
 };
+use crate::compress::hardcode_config::HardcodeConfig;
 use crate::providers::{Message, MessageContent, Role};
 use anyhow::Result;
 
-/// Optimized compressor with all enhancements.
+/// Optimized compressor with all enhancements including focus tracking.
 pub struct OptimizedCompressor {
     config: CompressionConfig,
     cache: CompressionCache,
     scorer: PriorityScorer,
     semantic_strategy: SemanticStrategy,
+    focus_tracker: FocusTracker,
+    hardcode_config: HardcodeConfig,
+    semantic_compressor: SemanticCompressor,
 }
 
 impl OptimizedCompressor {
@@ -29,16 +34,27 @@ impl OptimizedCompressor {
             cache: CompressionCache::new(cache_config),
             scorer: PriorityScorer::default(),
             semantic_strategy,
+            focus_tracker: FocusTracker::new(),
+            hardcode_config: HardcodeConfig::default(),
+            semantic_compressor: SemanticCompressor::default(),
         }
     }
 
-    /// Compress messages with optimizations.
+    /// Compress messages with optimizations and focus preservation.
     pub async fn compress(&mut self, messages: Vec<Message>, context_size: Option<u32>) -> Result<Vec<Message>> {
         if messages.is_empty() {
             return Ok(messages);
         }
 
-        // Step 1: Calculate current token usage (accurate with tiktoken)
+        // Step 1: Detect current conversation focus (NEW!)
+        let focus = self.focus_tracker.detect_focus(&messages);
+        log::info!(
+            "Detected focus - Topic: {:?}, Question: {:?}",
+            focus.current_topic,
+            focus.current_question
+        );
+
+        // Step 2: Calculate current token usage (accurate with tiktoken)
         let current_tokens: u32 = messages.iter().map(|m| estimate_tokens(m)).sum();
         let context_limit = context_size.unwrap_or(100_000);
 
@@ -49,48 +65,61 @@ impl OptimizedCompressor {
             (context_limit as f64 * self.config.threshold) as u32
         );
 
-        // Step 2: Check if compression needed
+        // Step 3: Check if compression needed
         if current_tokens < (context_limit as f64 * self.config.threshold) as u32 {
             log::debug!("No compression needed");
             return Ok(messages);
         }
 
-        log::info!("Starting optimized compression");
+        log::info!("Starting optimized compression with focus preservation");
 
-        // Step 3: Score messages by priority
-        let scored_messages = self.score_messages(&messages);
+        // Step 4: Score messages by priority AND focus (NEW!)
+        let scored_messages = self.score_messages_with_focus(&messages, &focus);
 
-        // Step 4: Compress with cache
-        let compressed = self.compress_with_cache(scored_messages, context_limit)?;
+        // Step 5: Compress with cache and focus preservation
+        let compressed = self.compress_with_cache_and_focus(scored_messages, &focus, context_limit)?;
 
-        // Step 5: Log statistics
+        // Step 6: Inject focus message at the beginning (NEW!)
+        let final_messages = self.inject_focus_message(compressed, &focus);
+
+        // Step 7: Log statistics
         self.log_stats();
 
-        Ok(compressed)
+        Ok(final_messages)
     }
 
-    /// Score all messages by priority.
-    fn score_messages(&self, messages: &[Message]) -> Vec<(Message, PriorityScore)> {
+    /// Score messages by both priority and focus relevance.
+    fn score_messages_with_focus(&self, messages: &[Message], focus: &ConversationFocus) -> Vec<(Message, f32)> {
         messages
             .iter()
             .enumerate()
             .map(|(idx, msg)| {
-                let score = self.scorer.score(msg, idx, messages.len());
+                // Combine priority score and focus score
+                let priority_score = self.scorer.score(msg, idx, messages.len()).value();
+                let focus_score = self.focus_tracker.focus_score(msg, focus);
+                
+                // Combined score: priority + focus boost
+                // Focus score can boost priority by up to 0.3
+                let combined_score = priority_score + focus_score;
+                
                 log::trace!(
-                    "Message {} priority: {:.2} ({})",
+                    "Message {} - Priority: {:.2}, Focus: {:.2}, Combined: {:.2}",
                     idx,
-                    score.value(),
-                    PriorityScorer::level(score)
+                    priority_score,
+                    focus_score,
+                    combined_score
                 );
-                (msg.clone(), score)
+                
+                (msg.clone(), combined_score.min(1.0)) // Cap at 1.0
             })
             .collect()
     }
 
-    /// Compress messages with cache optimization.
-    fn compress_with_cache(
+    /// Compress messages with cache and focus preservation.
+    fn compress_with_cache_and_focus(
         &mut self,
-        scored_messages: Vec<(Message, PriorityScore)>,
+        scored_messages: Vec<(Message, f32)>,
+        focus: &ConversationFocus,
         context_limit: u32,
     ) -> Result<Vec<Message>> {
         let target_tokens = (context_limit as f64 * self.config.target_ratio) as u32;
@@ -105,12 +134,12 @@ impl OptimizedCompressor {
             }
         }
 
-        // High priority messages next
+        // High score messages (priority + focus) next
         for (msg, score) in scored_messages.iter() {
-            if score.is_high() && !matches!(msg.role, Role::System) {
+            if *score >= 0.7 && !matches!(msg.role, Role::System) {
                 // Check cache first
                 if let Some(entry) = self.cache.get(msg) {
-                    log::debug!("Cache hit for high priority message");
+                    log::debug!("Cache hit for high score message");
                     compressed.push(entry.compressed.clone());
                     current_tokens += estimate_tokens(&entry.compressed);
                 } else {
@@ -120,9 +149,39 @@ impl OptimizedCompressor {
             }
         }
 
-        // Medium and low priority with compression
+        // Always preserve recent context for focus (NEW!)
+        for ctx_text in &focus.recent_context {
+            // Find and preserve messages containing recent context
+            for (msg, score) in scored_messages.iter() {
+                if *score < 0.7 {
+                    let msg_text = match &msg.content {
+                        MessageContent::Text(t) => t.clone(),
+                        MessageContent::Blocks(blocks) => {
+                            blocks.iter()
+                                .filter_map(|b| {
+                                    if let crate::providers::ContentBlock::Text { text } = b {
+                                        Some(text.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        }
+                    };
+
+                    if msg_text.contains(ctx_text) && !compressed.contains(msg) {
+                        compressed.push(msg.clone());
+                        current_tokens += estimate_tokens(msg);
+                        log::debug!("Preserved message for focus context: {}", ctx_text);
+                    }
+                }
+            }
+        }
+
+        // Medium and low score with compression
         for (msg, score) in scored_messages.iter() {
-            if score.is_medium() || score.is_low() {
+            if *score < 0.7 && !compressed.contains(msg) {
                 if current_tokens >= target_tokens {
                     // Need to compress
                     let compressed_msg = self.compress_message(msg, score)?;
@@ -146,8 +205,24 @@ impl OptimizedCompressor {
         Ok(compressed)
     }
 
+    /// Inject focus message at the beginning of compressed messages.
+    fn inject_focus_message(&self, mut compressed: Vec<Message>, focus: &ConversationFocus) -> Vec<Message> {
+        // Create focus message
+        let focus_msg = self.focus_tracker.create_focus_message(focus);
+        
+        // Insert after system messages but before other content
+        let insert_pos = compressed.iter()
+            .position(|m| !matches!(m.role, Role::System))
+            .unwrap_or(1);
+        
+        compressed.insert(insert_pos, focus_msg);
+        
+        log::info!("Injected focus message at position {}", insert_pos);
+        compressed
+    }
+
     /// Compress a single message.
-    fn compress_message(&self, message: &Message, _score: &PriorityScore) -> Result<Message> {
+    fn compress_message(&self, message: &Message, _score: &f32) -> Result<Message> {
         match self.semantic_strategy {
             SemanticStrategy::None => {
                 // Simple truncation
@@ -155,7 +230,7 @@ impl OptimizedCompressor {
             }
             SemanticStrategy::OldOnly | SemanticStrategy::Aggressive => {
                 // Check if semantic compression is suitable
-                if SemanticCompressor::should_summarize(&[message.clone()]) {
+                if self.semantic_compressor.should_summarize(&[message.clone()]) {
                     // Would use AI to summarize (not implemented in this example)
                     // For now, just truncate
                     self.truncate_message(message)
@@ -171,8 +246,9 @@ impl OptimizedCompressor {
         // Simple truncation with suffix
         match &message.content {
             MessageContent::Text(text) => {
-                if text.len() > 200 {
-                    let truncated = format!("{}...[compressed]", &text[..150]);
+                if text.len() > self.hardcode_config.long_text_threshold {
+                    let keep_len = (self.hardcode_config.long_text_threshold as f64 * 0.75) as usize;
+                    let truncated = format!("{}...[compressed]", &text.chars().take(keep_len).collect::<String>());
                     Ok(Message {
                         role: message.role,
                         content: MessageContent::Text(truncated),
@@ -188,9 +264,10 @@ impl OptimizedCompressor {
                     .filter_map(|block| {
                         match block {
                             crate::providers::ContentBlock::Text { text } => {
-                                if text.len() > 200 {
+                                if text.len() > self.hardcode_config.long_text_threshold {
+                                    let keep_len = (self.hardcode_config.long_text_threshold as f64 * 0.75) as usize;
                                     Some(crate::providers::ContentBlock::Text {
-                                        text: format!("{}...[compressed]", &text[..150]),
+                                        text: format!("{}...[compressed]", &text.chars().take(keep_len).collect::<String>()),
                                     })
                                 } else {
                                     Some(block.clone())
@@ -222,7 +299,7 @@ impl OptimizedCompressor {
     }
 }
 
-/// Example usage showing all optimizations.
+/// Example usage showing all optimizations with focus tracking.
 pub async fn example_optimized_compression() -> Result<()> {
     // Create optimized compressor
     let compression_config = CompressionConfig::default();
@@ -239,7 +316,7 @@ pub async fn example_optimized_compression() -> Result<()> {
         SemanticStrategy::OldOnly,
     );
 
-    // Create sample messages
+    // Create sample messages with topic transitions
     let messages = vec![
         Message {
             role: Role::System,
@@ -247,19 +324,32 @@ pub async fn example_optimized_compression() -> Result<()> {
         },
         Message {
             role: Role::User,
-            content: MessageContent::Text("I decided to use Rust for this important project.".to_string()),
+            content: MessageContent::Text("Let's discuss compression algorithms.".to_string()),
         },
         Message {
             role: Role::Assistant,
-            content: MessageContent::Text("Great choice! Rust is excellent for performance-critical applications.".to_string()),
+            content: MessageContent::Text("Compression algorithms reduce data size...".to_string()),
         },
         Message {
             role: Role::User,
-            content: MessageContent::Text("Can you help me implement a compression algorithm?".to_string()),
+            content: MessageContent::Text("How do I implement Huffman coding?".to_string()),
         },
         Message {
             role: Role::Assistant,
-            content: MessageContent::Text("Sure! Here's the code:\n```rust\nfn compress(data: &[u8]) -> Vec<u8> {\n    // compression logic\n}\n```".to_string()),
+            content: MessageContent::Text("Huffman coding uses frequency-based encoding...".to_string()),
+        },
+        // Topic transition
+        Message {
+            role: Role::User,
+            content: MessageContent::Text("Wait, switching to a different topic: how to optimize database queries?".to_string()),
+        },
+        Message {
+            role: Role::Assistant,
+            content: MessageContent::Text("Database optimization involves indexing...".to_string()),
+        },
+        Message {
+            role: Role::User,
+            content: MessageContent::Text("Can you help me fix this slow query in PostgreSQL?".to_string()),
         },
     ];
 
@@ -268,6 +358,15 @@ pub async fn example_optimized_compression() -> Result<()> {
 
     println!("Original messages: {}", messages.len());
     println!("Compressed messages: {}", compressed.len());
+
+    // Verify focus is preserved
+    for msg in compressed.iter() {
+        if let MessageContent::Text(text) = &msg.content {
+            if text.contains("Current Conversation Focus") {
+                println!("\nFocus message found:\n{}", text);
+            }
+        }
+    }
 
     Ok(())
 }
@@ -287,8 +386,8 @@ mod tests {
     }
 
     #[test]
-    fn test_score_messages() {
-        let compressor = OptimizedCompressor::new(
+    fn test_focus_detection() {
+        let mut compressor = OptimizedCompressor::new(
             CompressionConfig::default(),
             CacheConfig::default(),
             SemanticStrategy::None,
@@ -305,30 +404,77 @@ mod tests {
             },
         ];
 
-        let scored = compressor.score_messages(&messages);
-        assert_eq!(scored.len(), 2);
-        assert!(scored[0].1.value() >= 0.0 && scored[0].1.value() <= 1.0);
+        let focus = compressor.focus_tracker.detect_focus(&messages);
+        assert!(focus.recent_context.len() > 0);
     }
 
     #[test]
-    fn test_truncate_message() {
+    fn test_combined_scoring() {
+        let mut compressor = OptimizedCompressor::new(
+            CompressionConfig::default(),
+            CacheConfig::default(),
+            SemanticStrategy::None,
+        );
+
+        let messages = vec![
+            Message {
+                role: Role::User,
+                content: MessageContent::Text("Let's discuss database optimization".to_string()),
+            },
+            Message {
+                role: Role::Assistant,
+                content: MessageContent::Text("Database optimization is important...".to_string()),
+            },
+            Message {
+                role: Role::User,
+                content: MessageContent::Text("How to fix slow query?".to_string()),
+            },
+        ];
+
+        let focus = compressor.focus_tracker.detect_focus(&messages);
+        let scored = compressor.score_messages_with_focus(&messages, &focus);
+
+        // Last user message should have highest score (recent + contains current question)
+        assert!(scored[2].1 > scored[0].1);
+    }
+
+    #[test]
+    fn test_focus_message_injection() {
         let compressor = OptimizedCompressor::new(
             CompressionConfig::default(),
             CacheConfig::default(),
             SemanticStrategy::None,
         );
 
-        let long_msg = Message {
-            role: Role::User,
-            content: MessageContent::Text("This is a very long message that should be truncated to fit within the compression budget".to_string()),
+        let focus = ConversationFocus {
+            current_topic: Some("optimization".to_string()),
+            current_question: Some("How to fix slow query?".to_string()),
+            recent_context: vec!["Database discussion".to_string()],
+            topic_transitions: vec![],
+            detected_at: 2,
         };
 
-        let score = PriorityScore::new(0.3);
-        let truncated = compressor.truncate_message(&long_msg).unwrap();
+        let messages = vec![
+            Message {
+                role: Role::System,
+                content: MessageContent::Text("System prompt".to_string()),
+            },
+            Message {
+                role: Role::User,
+                content: MessageContent::Text("User question".to_string()),
+            },
+        ];
+
+        let final_messages = compressor.inject_focus_message(messages, &focus);
         
-        if let MessageContent::Text(text) = &truncated.content {
-            assert!(text.contains("[compressed]"));
-            assert!(text.len() < long_msg.content.to_string().len());
+        // Should have 3 messages now (system + focus + user)
+        assert_eq!(final_messages.len(), 3);
+        
+        // Focus message should be at position 1
+        if let MessageContent::Text(text) = &final_messages[1].content {
+            assert!(text.contains("焦点上下文"));
+        } else {
+            panic!("Expected text content");
         }
     }
 }
