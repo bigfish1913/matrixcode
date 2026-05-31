@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use crate::constants::{ANTHROPIC_DEFAULT_BASE_URL, OPENAI_DEFAULT_BASE_URL};
 use crate::tools::ToolDefinition;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Message {
     pub role: Role,
     pub content: MessageContent,
@@ -35,7 +35,7 @@ pub enum MessageContent {
     Blocks(Vec<ContentBlock>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ContentBlock {
     #[serde(rename = "text")]
@@ -67,12 +67,45 @@ pub enum ContentBlock {
         name: String,
         input: serde_json::Value,
     },
+    #[serde(rename = "server_tool_result")]
+    ServerToolResult {
+        tool_use_id: String,
+        content: String,
+    },
     /// Result from a server-side web search tool.
     #[serde(rename = "web_search_tool_result")]
     WebSearchResult {
         tool_use_id: String,
         content: WebSearchContent,
     },
+}
+
+// Manual PartialEq implementation for ContentBlock (serde_json::Value doesn't derive PartialEq)
+impl PartialEq for ContentBlock {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ContentBlock::Text { text: a }, ContentBlock::Text { text: b }) => a == b,
+            (ContentBlock::ToolUse { id: a, name: b, .. }, ContentBlock::ToolUse { id: c, name: d, .. }) => {
+                a == c && b == d
+            },
+            (ContentBlock::ToolResult { tool_use_id: a, content: b }, ContentBlock::ToolResult { tool_use_id: c, content: d }) => {
+                a == c && b == d
+            },
+            (ContentBlock::Thinking { thinking: a, signature: b }, ContentBlock::Thinking { thinking: c, signature: d }) => {
+                a == c && b == d
+            },
+            (ContentBlock::ServerToolUse { id: a, name: b, .. }, ContentBlock::ServerToolUse { id: c, name: d, .. }) => {
+                a == c && b == d
+            },
+            (ContentBlock::ServerToolResult { tool_use_id: a, content: b }, ContentBlock::ServerToolResult { tool_use_id: c, content: d }) => {
+                a == c && b == d
+            },
+            (ContentBlock::WebSearchResult { tool_use_id: a, .. }, ContentBlock::WebSearchResult { tool_use_id: b, .. }) => {
+                a == b  // Compare by tool_use_id only for web search results
+            },
+            _ => false,
+        }
+    }
 }
 
 /// Content returned by the server-side web search tool.

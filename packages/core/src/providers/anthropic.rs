@@ -159,6 +159,9 @@ impl AnthropicProvider {
                                 ContentBlock::ServerToolUse { id, name, input } => {
                                     json!({"type": "server_tool_use", "id": id, "name": name, "input": input})
                                 }
+                                ContentBlock::ServerToolResult { tool_use_id, content } => {
+                                    json!({"type": "server_tool_result", "tool_use_id": tool_use_id, "content": content})
+                                }
                                 ContentBlock::WebSearchResult { tool_use_id, content } => {
                                     json!({"type": "web_search_tool_result", "tool_use_id": tool_use_id, "content": content})
                                 }

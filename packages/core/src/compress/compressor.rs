@@ -34,11 +34,22 @@ pub trait Compressor: Send + Sync {
 pub struct AiCompressor {
     provider: Box<dyn Provider>,
     model: String,
+    hardcode_config: crate::compress::hardcode_config::HardcodeConfig,
 }
 
 impl AiCompressor {
     pub fn new(provider: Box<dyn Provider>, model: String) -> Self {
-        Self { provider, model }
+        Self {
+            provider,
+            model,
+            hardcode_config: crate::compress::hardcode_config::HardcodeConfig::default(),
+        }
+    }
+    
+    /// Set custom hardcode config
+    pub fn with_hardcode_config(mut self, config: crate::compress::hardcode_config::HardcodeConfig) -> Self {
+        self.hardcode_config = config;
+        self
     }
 }
 
@@ -108,7 +119,7 @@ impl Compressor for AiCompressor {
 
         let response = self.provider.chat(request).await?;
         let summary_text = extract_text_from_response(&response);
-        let (summary, key_points) = parse_summary_response(&summary_text);
+        let (summary, key_points) = parse_summary_response(&summary_text, &self.hardcode_config);
 
         Ok(SummarizedSegment {
             time_range: (chrono::Utc::now(), chrono::Utc::now()),
@@ -138,7 +149,7 @@ fn extract_text_from_response(response: &ChatResponse) -> String {
         .join("\n")
 }
 
-fn parse_summary_response(text: &str) -> (String, Vec<String>) {
+fn parse_summary_response(text: &str, config: &crate::compress::hardcode_config::HardcodeConfig) -> (String, Vec<String>) {
     let mut summary = String::new();
     let mut key_points: Vec<String> = Vec::new();
 
@@ -194,8 +205,8 @@ fn parse_summary_response(text: &str) -> (String, Vec<String>) {
     // Fallback if no structured format found
     if summary.is_empty() && !text.is_empty() {
         summary = text.lines().take(3).collect::<Vec<_>>().join(" ");
-        if summary.len() > 200 {
-            summary = truncate_with_suffix(&summary, 200);
+        if summary.len() > config.summary_length_threshold {
+            summary = truncate_with_suffix(&summary, config.summary_length_threshold);
         }
     }
 

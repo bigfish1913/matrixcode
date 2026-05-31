@@ -14,6 +14,21 @@
       "is_manual": false
     },
     {
+      "id": "101f37f2-7b78-4bfe-82ba-0763c23d7384",
+      "created_at": "2026-05-30T09:46:33.035721200Z",
+      "last_referenced": "2026-05-30T09:46:33.035721500Z",
+      "category": "technical",
+      "content": "项目技术栈: Node.js",
+      "source_session": null,
+      "project_path": "C:\\Users\\bigfish",
+      "reference_count": 0,
+      "importance": 45.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "edb7e85d-cf51-4091-9cf1-b409ef357c07",
       "created_at": "2026-05-29T11:30:17.968934700Z",
       "last_referenced": "2026-05-29T11:30:17.968936800Z",
@@ -136,6 +151,20 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 55.0,
+      "tags": [
+        "project"
+      ],
+      "is_manual": false
+    },
+    {
+      "id": "4734ed4d-bca5-4d53-bd41-56cc4befd494",
+      "created_at": "2026-05-31T06:57:54.266627500Z",
+      "last_referenced": "2026-05-31T06:57:54.266627900Z",
+      "category": "solution",
+      "content": "最新的问题 ，这个如何解决",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 70.0,
       "tags": [],
       "is_manual": false
     }

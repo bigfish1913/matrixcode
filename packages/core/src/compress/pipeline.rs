@@ -7,6 +7,7 @@
 use anyhow::Result;
 
 use crate::providers::{ContentBlock, Message, MessageContent, Provider, Role};
+use super::hardcode_config::HardcodeConfig;
 
 use super::compressor::{compress_messages, estimate_total_tokens};
 use super::config::{
@@ -31,6 +32,8 @@ pub struct CompressionPipeline {
     tool_compressor: ToolCompressor,
     /// Circuit breaker state for preventing infinite retries.
     circuit_breaker: CircuitBreakerState,
+    /// Hardcoded configuration values.
+    hardcode_config: HardcodeConfig,
 }
 
 /// Result of compression with metadata.
@@ -75,6 +78,7 @@ impl CompressionPipeline {
             scorer: Scorer::new_rule_only(),
             tool_compressor: ToolCompressor::new_truncate_only(thresholds),
             circuit_breaker: CircuitBreakerState::new(),
+            hardcode_config: HardcodeConfig::default(),
         }
     }
 
@@ -88,6 +92,7 @@ impl CompressionPipeline {
             scorer: Scorer::new_with_ai(fast_model),
             tool_compressor: ToolCompressor::new_with_ai(summarizer, thresholds),
             circuit_breaker: CircuitBreakerState::new(),
+            hardcode_config: HardcodeConfig::default(),
         }
     }
 
@@ -105,6 +110,7 @@ impl CompressionPipeline {
             scorer: Scorer::new_with_ai(fast_model),
             tool_compressor: ToolCompressor::new_with_ai(summarizer, thresholds),
             circuit_breaker: CircuitBreakerState::new(),
+            hardcode_config: HardcodeConfig::default(),
         }
     }
 
@@ -143,6 +149,7 @@ impl CompressionPipeline {
 
     /// Execute time-based microcompact: clear old tool results.
     pub fn time_based_microcompact(messages: &[Message]) -> Vec<Message> {
+        let config = HardcodeConfig::default();
         messages
             .iter()
             .map(|msg| {
@@ -162,7 +169,7 @@ impl CompressionPipeline {
                                 } = b
                                 {
                                     // Clear if content is large and not already cleared
-                                    if content.len() > 500
+                                    if content.len() > config.preserve_content_threshold
                                         && content != TIME_BASED_MC_CLEARED_MESSAGE
                                     {
                                         ContentBlock::ToolResult {
@@ -237,6 +244,7 @@ impl CompressionPipeline {
 
     /// Clear specific tool types (more targeted than time-based).
     pub fn clear_tool_results(messages: &[Message], _tool_names: &[&str]) -> Vec<Message> {
+        let config = HardcodeConfig::default();
         messages
             .iter()
             .map(|msg| {
@@ -256,7 +264,7 @@ impl CompressionPipeline {
                                 {
                                     // Check if the corresponding tool is in the list
                                     // We need to find the tool_use block to check the name
-                                    if content.len() > 500
+                                    if content.len() > config.preserve_content_threshold
                                         && content != TIME_BASED_MC_CLEARED_MESSAGE
                                     {
                                         ContentBlock::ToolResult {

@@ -2,10 +2,19 @@
 //!
 //! This module provides caching for compression results to improve
 //! performance when dealing with repeated compression of similar content.
+//!
+//! # Extended Cache Features
+//! - 焦点预测缓存
+//! - 优先级分数缓存
+//! - Coherence 分段缓存
+//! - 复杂度分析缓存
 
 use crate::providers::Message;
+use crate::compress::complexity::ComplexityLevel;
+use crate::compress::focus_point::FocusPoint;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use chrono::{DateTime, Utc};
 
 /// Cache entry for a compressed message.
 #[derive(Debug, Clone)]
@@ -35,6 +44,74 @@ impl CacheStats {
             0.0
         } else {
             self.hits as f32 / (self.hits + self.misses) as f32
+        }
+    }
+}
+
+/// Cached priority score with validity tracking
+#[derive(Debug, Clone)]
+pub struct CachedPriorityScore {
+    /// Priority score value
+    pub score: f32,
+    /// When the score was calculated
+    pub calculated_at: DateTime<Utc>,
+    /// How long the score remains valid
+    pub valid_for: Duration,
+    /// Keywords that influenced this score
+    pub keywords: Vec<String>,
+}
+
+impl CachedPriorityScore {
+    pub fn new(score: f32, keywords: Vec<String>, valid_for: Duration) -> Self {
+        Self {
+            score,
+            calculated_at: Utc::now(),
+            valid_for,
+            keywords,
+        }
+    }
+    
+    pub fn is_valid(&self) -> bool {
+        let now = Utc::now();
+        now - self.calculated_at < chrono::Duration::from_std(self.valid_for).unwrap()
+    }
+}
+
+/// Cached focus prediction
+#[derive(Debug, Clone)]
+pub struct CachedFocusPrediction {
+    /// Predicted focus point
+    pub focus: FocusPoint,
+    /// Prediction confidence
+    pub confidence: f32,
+    /// When the prediction was made
+    pub predicted_at: DateTime<Utc>,
+}
+
+impl CachedFocusPrediction {
+    pub fn new(focus: FocusPoint, confidence: f32) -> Self {
+        Self {
+            focus,
+            confidence,
+            predicted_at: Utc::now(),
+        }
+    }
+}
+
+/// Cached complexity level
+#[derive(Debug, Clone)]
+pub struct CachedComplexity {
+    /// Complexity level
+    pub level: ComplexityLevel,
+    /// When the analysis was performed
+    pub analyzed_at: DateTime<Utc>,
+}
+
+impl CachedComplexity {
+    pub fn new(level: ComplexityLevel) -> Self {
+        Self {
+            level,
+            analyzed_at: Utc::now(),
         }
     }
 }
@@ -215,6 +292,204 @@ impl CompressionCache {
     pub fn record_token_savings(&mut self, tokens: u32) {
         self.stats.total_saved_tokens += tokens;
     }
+}
+
+/// 扩展压缩缓存：支持多种类型的缓存
+/// 
+/// 包括：焦点预测、优先级分数、复杂度分析等
+#[derive(Debug)]
+pub struct ExtendedCompressionCache {
+    /// 基础摘要缓存（现有）
+    base_cache: CompressionCache,
+    
+    /// 焦点预测缓存：message_id -> predicted focus
+    focus_predictions: HashMap<String, CachedFocusPrediction>,
+    
+    /// 优先级分数缓存：message_id -> priority score
+    priority_scores: HashMap<String, CachedPriorityScore>,
+    
+    /// 复杂度分析缓存：conversation_id -> complexity
+    complexity_cache: HashMap<String, CachedComplexity>,
+    
+    /// 配置
+    config: ExtendedCacheConfig,
+}
+
+/// 扩展缓存配置
+#[derive(Debug, Clone)]
+pub struct ExtendedCacheConfig {
+    /// 优先级分数缓存有效期
+    priority_validity: Duration,
+    /// 焦点预测缓存最大数量
+    max_focus_predictions: usize,
+    /// 复杂度缓存最大数量
+    max_complexity_entries: usize,
+}
+
+impl Default for ExtendedCacheConfig {
+    fn default() -> Self {
+        Self {
+            priority_validity: Duration::from_secs(600),  // 10 minutes
+            max_focus_predictions: 50,
+            max_complexity_entries: 20,
+        }
+    }
+}
+
+impl Default for ExtendedCompressionCache {
+    fn default() -> Self {
+        Self::new(ExtendedCacheConfig::default())
+    }
+}
+
+impl ExtendedCompressionCache {
+    pub fn new(config: ExtendedCacheConfig) -> Self {
+        Self {
+            base_cache: CompressionCache::default(),
+            focus_predictions: HashMap::new(),
+            priority_scores: HashMap::new(),
+            complexity_cache: HashMap::new(),
+            config,
+        }
+    }
+    
+    /// 获取优先级分数（如果缓存有效）
+    pub fn get_priority_score(&self, message_id: &str) -> Option<&CachedPriorityScore> {
+        self.priority_scores.get(message_id)
+            .filter(|cached| cached.is_valid())
+    }
+    
+    /// 添加优先级分数缓存
+    pub fn put_priority_score(&mut self, message_id: String, score: CachedPriorityScore) {
+        // 如果超出容量，移除最旧的
+        if self.priority_scores.len() >= self.config.max_focus_predictions {
+            self.evict_oldest_priority();
+        }
+        
+        self.priority_scores.insert(message_id, score);
+    }
+    
+    /// 获取焦点预测
+    pub fn get_focus_prediction(&self, message_id: &str) -> Option<&CachedFocusPrediction> {
+        self.focus_predictions.get(message_id)
+    }
+    
+    /// 添加焦点预测缓存
+    pub fn put_focus_prediction(&mut self, message_id: String, prediction: CachedFocusPrediction) {
+        if self.focus_predictions.len() >= self.config.max_focus_predictions {
+            self.evict_oldest_focus();
+        }
+        
+        self.focus_predictions.insert(message_id, prediction);
+    }
+    
+    /// 获取复杂度分析
+    pub fn get_complexity(&self, conversation_id: &str) -> Option<&CachedComplexity> {
+        self.complexity_cache.get(conversation_id)
+    }
+    
+    /// 添加复杂度缓存
+    pub fn put_complexity(&mut self, conversation_id: String, complexity: CachedComplexity) {
+        if self.complexity_cache.len() >= self.config.max_complexity_entries {
+            self.evict_oldest_complexity();
+        }
+        
+        self.complexity_cache.insert(conversation_id, complexity);
+    }
+    
+    /// 增量更新优先级分数（基于新消息）
+    pub fn update_priority_incremental(&mut self, new_keywords: &[String], existing_messages: &[Message]) {
+        let now = Utc::now();
+        
+        for (id, cached) in &mut self.priority_scores {
+            // 检查关键词重叠
+            let overlap_count = cached.keywords.iter()
+                .filter(|kw| new_keywords.contains(kw))
+                .count();
+            
+            // 如果有重叠，更新相关性分数
+            if overlap_count > 0 {
+                cached.score += overlap_count as f32 * 0.1;
+                cached.calculated_at = now;
+            }
+        }
+    }
+    
+    /// 清理过期缓存
+    pub fn cleanup_expired(&mut self) {
+        // 清理过期的优先级分数
+        self.priority_scores.retain(|_, cached| cached.is_valid());
+        
+        // 清理基础缓存过期项
+        self.base_cache.evict_expired();
+    }
+    
+    /// 移除最旧的优先级分数
+    fn evict_oldest_priority(&mut self) {
+        if let Some((oldest_id, _)) = self.priority_scores.iter()
+            .min_by_key(|(_, cached)| cached.calculated_at)
+        {
+            let id = oldest_id.clone();
+            self.priority_scores.remove(&id);
+        }
+    }
+    
+    /// 移除最旧的焦点预测
+    fn evict_oldest_focus(&mut self) {
+        if let Some((oldest_id, _)) = self.focus_predictions.iter()
+            .min_by_key(|(_, cached)| cached.predicted_at)
+        {
+            let id = oldest_id.clone();
+            self.focus_predictions.remove(&id);
+        }
+    }
+    
+    /// 移除最旧的复杂度缓存
+    fn evict_oldest_complexity(&mut self) {
+        if let Some((oldest_id, _)) = self.complexity_cache.iter()
+            .min_by_key(|(_, cached)| cached.analyzed_at)
+        {
+            let id = oldest_id.clone();
+            self.complexity_cache.remove(&id);
+        }
+    }
+    
+    /// 获取基础缓存
+    pub fn base_cache(&self) -> &CompressionCache {
+        &self.base_cache
+    }
+    
+    /// 获取基础缓存（可变）
+    pub fn base_cache_mut(&mut self) -> &mut CompressionCache {
+        &mut self.base_cache
+    }
+    
+    /// 清空所有缓存
+    pub fn clear_all(&mut self) {
+        self.base_cache.clear();
+        self.focus_predictions.clear();
+        self.priority_scores.clear();
+        self.complexity_cache.clear();
+    }
+    
+    /// 获取缓存统计
+    pub fn extended_stats(&self) -> ExtendedCacheStats {
+        ExtendedCacheStats {
+            base_stats: self.base_cache.stats().clone(),
+            focus_prediction_count: self.focus_predictions.len(),
+            priority_score_count: self.priority_scores.len(),
+            complexity_cache_count: self.complexity_cache.len(),
+        }
+    }
+}
+
+/// 扩展缓存统计
+#[derive(Debug, Clone)]
+pub struct ExtendedCacheStats {
+    pub base_stats: CacheStats,
+    pub focus_prediction_count: usize,
+    pub priority_score_count: usize,
+    pub complexity_cache_count: usize,
 }
 
 #[cfg(test)]

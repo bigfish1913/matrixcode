@@ -4,7 +4,8 @@
 //! historical messages while preserving key information.
 
 use crate::providers::{Message, MessageContent, Role};
-use anyhow::Result;
+use crate::compress::hardcode_config::HardcodeConfig;
+use super::prompts_zh::SUMMARY_PROMPT;
 use serde::{Deserialize, Serialize};
 
 /// Summary of a conversation segment.
@@ -43,6 +44,8 @@ pub struct SemanticCompressor {
     min_tokens_for_summary: u32,
     /// Target compression ratio for summarization
     target_ratio: f32,
+    /// Hardcode configuration
+    hardcode_config: HardcodeConfig,
 }
 
 impl Default for SemanticCompressor {
@@ -50,6 +53,7 @@ impl Default for SemanticCompressor {
         Self {
             min_tokens_for_summary: 1000, // Don't summarize small segments
             target_ratio: 0.3,            // Compress to 30% of original
+            hardcode_config: HardcodeConfig::default(),
         }
     }
 }
@@ -59,6 +63,7 @@ impl SemanticCompressor {
         Self {
             min_tokens_for_summary: min_tokens,
             target_ratio,
+            hardcode_config: HardcodeConfig::default(),
         }
     }
 
@@ -68,13 +73,15 @@ impl SemanticCompressor {
 
         // Check content for important patterns
         if let MessageContent::Text(text) = &message.content {
-            // Detect decisions
-            if text.contains("决定") || text.contains("choose") || text.contains("selected") {
+            // Detect decisions (中英文)
+            if text.contains("decided") || text.contains("decision") 
+                || text.contains("决定") || text.contains("choose") || text.contains("selected") {
                 info.has_decision = true;
             }
 
-            // Detect errors
-            if text.contains("error") || text.contains("failed") || text.contains("错误") {
+            // Detect errors (中英文)
+            if text.contains("error") || text.contains("failed") 
+                || text.contains("错误") || text.contains("失败") || text.contains("异常") {
                 info.has_error = true;
             }
 
@@ -111,14 +118,14 @@ impl SemanticCompressor {
     }
 
     /// Check if messages should be semantically compressed.
-    pub fn should_summarize(messages: &[Message]) -> bool {
+    pub fn should_summarize(&self, messages: &[Message]) -> bool {
         if messages.is_empty() {
             return false;
         }
 
         // Check if there's enough content to summarize
         let has_substantial_content = messages.iter().any(|m| {
-            matches!(&m.content, MessageContent::Text(t) if t.len() > 200)
+            matches!(&m.content, MessageContent::Text(t) if t.len() > self.hardcode_config.summary_length_threshold)
         });
 
         // Check if there are multiple messages
@@ -127,47 +134,37 @@ impl SemanticCompressor {
 
     /// Generate a summary prompt for the messages.
     pub fn create_summary_prompt(messages: &[Message]) -> String {
-        let mut prompt = String::new();
-        prompt.push_str("Please summarize the following conversation segment concisely.\n\n");
-        prompt.push_str("Focus on:\n");
-        prompt.push_str("1. Key decisions made\n");
-        prompt.push_str("2. Important facts discovered\n");
-        prompt.push_str("3. Tools used and their outcomes\n");
-        prompt.push_str("4. Problems encountered and solutions\n\n");
-        prompt.push_str("Conversation:\n");
-        prompt.push_str("---\n");
-
+        let mut conversation = String::new();
+        
         for msg in messages {
             let role = match msg.role {
-                Role::User => "User",
-                Role::Assistant => "Assistant",
-                Role::System => "System",
-                Role::Tool => "Tool",
+                Role::User => "用户",
+                Role::Assistant => "助手",
+                Role::System => "系统",
+                Role::Tool => "工具",
             };
 
             if let MessageContent::Text(text) = &msg.content {
-                prompt.push_str(&format!("{}: {}\n", role, text));
+                conversation.push_str(&format!("{}: {}\n", role, text));
             } else if let MessageContent::Blocks(blocks) = &msg.content {
                 for block in blocks {
                     if let crate::providers::ContentBlock::Text { text } = block {
-                        prompt.push_str(&format!("{}: {}\n", role, text));
+                        conversation.push_str(&format!("{}: {}\n", role, text));
                     }
                 }
             }
         }
 
-        prompt.push_str("---\n\n");
-        prompt.push_str("Summary:");
-        prompt
+        SUMMARY_PROMPT.replace("{conversation}", &conversation)
     }
 
     /// Create a compressed summary message.
     pub fn create_summary_message(summary: ConversationSummary) -> Message {
         let mut content = String::new();
-        content.push_str("📝 **Conversation Summary**\n\n");
+        content.push_str("📝 **对话摘要**\n\n");
 
         if !summary.decisions.is_empty() {
-            content.push_str("**Decisions:**\n");
+            content.push_str("**决策：**\n");
             for decision in &summary.decisions {
                 content.push_str(&format!("- {}\n", decision));
             }
@@ -175,7 +172,7 @@ impl SemanticCompressor {
         }
 
         if !summary.facts.is_empty() {
-            content.push_str("**Key Facts:**\n");
+            content.push_str("**关键事实：**\n");
             for fact in &summary.facts {
                 content.push_str(&format!("- {}\n", fact));
             }
@@ -183,7 +180,7 @@ impl SemanticCompressor {
         }
 
         if !summary.tool_usage.is_empty() {
-            content.push_str("**Tools Used:**\n");
+            content.push_str("**使用的工具：**\n");
             for tool in &summary.tool_usage {
                 content.push_str(&format!("- {}: {}\n", tool.tool_name, tool.outcome));
             }
@@ -191,9 +188,9 @@ impl SemanticCompressor {
         }
 
         if !summary.issues.is_empty() {
-            content.push_str("**Issues Resolved:**\n");
+            content.push_str("**解决的问题：**\n");
             for issue in &summary.issues {
-                content.push_str(&format!("- Problem: {}\n  Solution: {}\n", issue.problem, issue.solution));
+                content.push_str(&format!("- 问题: {}\n  解决: {}\n", issue.problem, issue.solution));
             }
             content.push('\n');
         }
@@ -281,13 +278,14 @@ mod tests {
             role: Role::User,
             content: MessageContent::Text("Hello".to_string()),
         }];
-        assert!(!SemanticCompressor::should_summarize(&messages));
+        let compressor = SemanticCompressor::default();
+        assert!(!compressor.should_summarize(&messages));
 
-        // Enough messages with substantial content
+        // Enough messages with substantial content (需要超过 200 字符)
         let messages = vec![
             Message {
                 role: Role::User,
-                content: MessageContent::Text("This is a longer message with more than two hundred characters to test the substantial content check. We need to make sure it's long enough.".to_string()),
+                content: MessageContent::Text("This is a longer message with more than two hundred characters to test the substantial content check. We need to make sure it's long enough. Adding more text to ensure the message has sufficient length for the test requirement.".to_string()),
             },
             Message {
                 role: Role::Assistant,
@@ -298,7 +296,8 @@ mod tests {
                 content: MessageContent::Text("Query 2".to_string()),
             },
         ];
-        assert!(SemanticCompressor::should_summarize(&messages));
+        let compressor = SemanticCompressor::default();
+        assert!(compressor.should_summarize(&messages));
     }
 
     #[test]
@@ -322,10 +321,10 @@ mod tests {
         assert!(matches!(msg.role, Role::System));
         
         if let MessageContent::Text(text) = &msg.content {
-            assert!(text.contains("Decisions"));
-            assert!(text.contains("Key Facts"));
-            assert!(text.contains("Tools Used"));
-            assert!(text.contains("Issues Resolved"));
+            assert!(text.contains("决策"));
+            assert!(text.contains("关键事实"));
+            assert!(text.contains("使用的工具"));
+            assert!(text.contains("解决的问题"));
         } else {
             panic!("Expected text content");
         }
