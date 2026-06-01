@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 use super::entry::{MemoryCategory, MemoryEntry};
-use super::retrieval::{TfIdfSearch, compute_relevance, expand_semantic_keywords};
+use super::retrieval::{TfIdfSearch, expand_semantic_keywords};
 use crate::compress::{FocusPoint, FocusStatus};
 
 /// Smart memory retriever with advanced scoring.
@@ -106,7 +106,7 @@ impl SmartMemoryRetriever {
         let expanded_keywords = expand_semantic_keywords(context_keywords);
 
         // Build TF-IDF index
-        let mut tfidf = TfIdfSearch::new();
+        let _tfidf = TfIdfSearch::new();
         // Note: We need to adapt TfIdfSearch to work with entries directly
         // For now, we'll use a simplified approach
 

@@ -504,6 +504,7 @@ pub fn estimate_tokens(message: &Message) -> u32 {
 
 /// Legacy char counting function (deprecated, kept for backward compatibility).
 #[deprecated(note = "Use estimate_tokens with tiktoken instead")]
+#[allow(dead_code)]
 fn count_chars(s: &str) -> (u32, u32) {
     let mut ascii = 0u32;
     let mut non_ascii = 0u32;

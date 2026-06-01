@@ -11,7 +11,6 @@
 use crate::providers::{Message, MessageContent, Role};
 use crate::compress::priority::PriorityScore;
 use crate::compress::hardcode_config::HardcodeConfig;
-use std::collections::HashSet;
 
 /// Summarization level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use super::conversation_pattern::{ConversationPattern, PatternType};
@@ -1553,6 +1553,7 @@ mod tests {
 
 // Helper method for tests - get pattern by pattern string
 impl PatternRegistry {
+    #[allow(dead_code)]
     fn get_pattern_by_pattern(&self, pattern_str: &str) -> Option<&ConversationPattern> {
         self.patterns.iter().find(|p| p.pattern == pattern_str)
     }

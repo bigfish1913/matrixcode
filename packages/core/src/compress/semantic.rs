@@ -39,6 +39,7 @@ pub struct Issue {
 }
 
 /// Semantic compressor that uses AI to summarize messages.
+#[allow(dead_code)]
 pub struct SemanticCompressor {
     /// Minimum tokens to trigger summarization
     min_tokens_for_summary: u32,

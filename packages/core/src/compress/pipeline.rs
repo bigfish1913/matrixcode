@@ -33,6 +33,7 @@ pub struct CompressionPipeline {
     /// Circuit breaker state for preventing infinite retries.
     circuit_breaker: CircuitBreakerState,
     /// Hardcoded configuration values.
+    #[allow(dead_code)]
     hardcode_config: HardcodeConfig,
 }
 

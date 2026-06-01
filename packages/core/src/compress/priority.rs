@@ -89,6 +89,7 @@ impl Default for PriorityWeights {
 }
 
 /// Dynamic priority scorer.
+#[allow(dead_code)]
 pub struct PriorityScorer {
     weights: PriorityWeights,
     important_keywords: HashSet<String>,
@@ -313,7 +314,8 @@ impl PriorityScorer {
 
 /// Message with priority score.
 #[derive(Debug, Clone)]
-pub struct ScoredMessage {
+#[allow(dead_code)]
+pub struct PriorityScoredMessage {
     pub message: Message,
     pub score: PriorityScore,
     pub position: usize,

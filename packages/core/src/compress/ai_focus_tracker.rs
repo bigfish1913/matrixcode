@@ -84,6 +84,7 @@ impl Default for FocusAnalysisResult {
 }
 
 /// AI-driven focus tracker using LLM for intelligent analysis.
+#[allow(dead_code)]
 pub struct AiFocusTracker {
     /// Provider for AI calls.
     provider: Box<dyn Provider>,

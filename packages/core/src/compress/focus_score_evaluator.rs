@@ -6,13 +6,13 @@
 
 use crate::providers::{Message, MessageContent, ContentBlock, Role};
 use crate::compress::{ConversationFocus, FocusPoint, FocusManager};
-use anyhow::Result;
 
 /// Focus score evaluator for message relevance assessment.
 ///
 /// This evaluator provides two scoring modes:
 /// 1. Fast rule-based scoring (for compression efficiency)
 /// 2. AI-based scoring (for critical decisions, optional)
+#[allow(dead_code)]
 pub struct FocusScoreEvaluator {
     /// Whether to use AI for scoring (expensive but more accurate)
     use_ai: bool,

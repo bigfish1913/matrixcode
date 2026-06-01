@@ -114,6 +114,7 @@ impl ProcessorConfig {
 /// 4. Progressive compression with focus priority
 /// 5. Focus message injection
 /// 6. Pattern learning
+#[allow(dead_code)]
 pub struct IntegratedLongContextProcessor {
     /// Unified extractor for one-time extraction.
     unified_extractor: UnifiedExtractor,
@@ -510,7 +511,7 @@ impl IntegratedLongContextProcessor {
 
         // Step 5: Check if compression is needed
         let current_tokens = estimate_tokens(&messages);
-        let target_tokens = (self.config.max_tokens_before_compression as f32 * self.config.target_ratio) as u32;
+        let _target_tokens = (self.config.max_tokens_before_compression as f32 * self.config.target_ratio) as u32;
 
         let compressed_messages = if current_tokens > self.config.max_tokens_before_compression {
             // Compress using progressive compressor with provider
@@ -712,6 +713,7 @@ impl IntegratedLongContextProcessor {
     ///
     /// This method analyzes key messages using the AI focus tracker
     /// to determine relevance and update focus intelligently.
+    #[allow(dead_code)]
     async fn process_with_ai_focus(
         &mut self,
         messages: &[Message],

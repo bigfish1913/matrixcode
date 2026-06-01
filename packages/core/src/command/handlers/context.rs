@@ -104,7 +104,7 @@ impl Context {
         }
 
         // Memory storage status
-        if let Some(storage) = &ctx.memory_storage {
+        if let Some(_storage) = &ctx.memory_storage {
             output.push_str("\n**记忆存储**: ✅ 已初始化\n");
         } else {
             output.push_str("\n**记忆存储**: ❌ 未初始化\n");
@@ -191,7 +191,7 @@ impl Context {
         }
 
         // Memory storage details
-        if let Some(storage) = &ctx.memory_storage {
+        if let Some(_storage) = &ctx.memory_storage {
             output.push_str("\n**记忆存储状态**:\n");
             output.push_str("  ✅ 已初始化\n");
             // Could add more details here if needed

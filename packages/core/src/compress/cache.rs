@@ -319,6 +319,7 @@ pub struct ExtendedCompressionCache {
 #[derive(Debug, Clone)]
 pub struct ExtendedCacheConfig {
     /// 优先级分数缓存有效期
+    #[allow(dead_code)]
     priority_validity: Duration,
     /// 焦点预测缓存最大数量
     max_focus_predictions: usize,
@@ -398,10 +399,10 @@ impl ExtendedCompressionCache {
     }
     
     /// 增量更新优先级分数（基于新消息）
-    pub fn update_priority_incremental(&mut self, new_keywords: &[String], existing_messages: &[Message]) {
+    pub fn update_priority_incremental(&mut self, new_keywords: &[String], _existing_messages: &[Message]) {
         let now = Utc::now();
-        
-        for (id, cached) in &mut self.priority_scores {
+
+        for (_id, cached) in &mut self.priority_scores {
             // 检查关键词重叠
             let overlap_count = cached.keywords.iter()
                 .filter(|kw| new_keywords.contains(kw))
