@@ -459,9 +459,22 @@ pub fn all_tools_with_project_path(
     skills: Arc<Vec<Skill>>,
     project_path: PathBuf,
 ) -> Vec<Box<dyn Tool>> {
+    all_tools_with_project_path_and_lsp(skills, project_path, None)
+}
+
+/// Build toolset with project path and optional LSP registry.
+pub fn all_tools_with_project_path_and_lsp(
+    skills: Arc<Vec<Skill>>,
+    project_path: PathBuf,
+    lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
+) -> Vec<Box<dyn Tool>> {
     let mut tools = base_tools(skills);
     // Add CodeGraph tools
     tools.extend(codegraph::codegraph_tools(&project_path));
+    // Add LSP tools if registry is provided
+    if let Some(registry) = lsp_registry {
+        tools.extend(crate::lsp::tools::lsp_tools(registry));
+    }
     // Add workflow tools
     tools.extend(workflow::workflow_tools());
     tools
@@ -473,10 +486,24 @@ pub fn all_tools_full(
     provider: Arc<dyn crate::providers::Provider>,
     project_path: PathBuf,
 ) -> Vec<Box<dyn Tool>> {
+    all_tools_full_with_lsp(skills, provider, project_path, None)
+}
+
+/// Build full toolset with provider, project path, and optional LSP registry.
+pub fn all_tools_full_with_lsp(
+    skills: Arc<Vec<Skill>>,
+    provider: Arc<dyn crate::providers::Provider>,
+    project_path: PathBuf,
+    lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
+) -> Vec<Box<dyn Tool>> {
     let mut tools = base_tools(skills);
     // Add CodeGraph tools only if initialized (CLI installed + .codegraph exists)
     if codegraph::should_inject_codegraph_tools(&project_path) {
         tools.extend(codegraph::codegraph_tools(&project_path));
+    }
+    // Add LSP tools if registry is provided
+    if let Some(registry) = lsp_registry {
+        tools.extend(crate::lsp::tools::lsp_tools(registry));
     }
     // Add AI-powered workflow tools
     tools.extend(workflow::workflow_tools_with_provider(provider));
