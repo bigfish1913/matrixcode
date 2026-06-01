@@ -35,7 +35,7 @@ pub use dump::{
 pub use orchestrator::{
     AssembledPrompt, CACHE_BOUNDARY, PromptBuilder, PromptOrchestrator, PromptProfile,
 };
-pub use preprocess::{PreProcessHook, ProcessResult, SkillPattern, WorkflowTrigger, preprocess};
+pub use preprocess::{PreProcessHook, ProcessResult, SkillPattern, WorkflowTrigger, preprocess, preprocess_with_skills};
 pub use section::{PromptSection, SectionBuilder, SectionContent};
 
 // Re-export constants (includes SECTION_*, MEMORY_*, MSG_*)

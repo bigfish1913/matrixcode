@@ -8,7 +8,7 @@ use matrixcode_core::{
     AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
     create_provider_with_headers, infer_provider_type, providers::Provider,
     tools::all_tools_full_with_lsp, approval::ApproveMode, skills::Skill,
-    memory::AutoMemory,
+    memory::AutoMemory, prompt::preprocess_with_skills, prompt::ProcessResult,
 };
 use crate::constants::{
     MEMORY_SUMMARY_SIZE, MEMORY_INITIAL_SUMMARY_SIZE,
@@ -282,10 +282,40 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
             }
         }
 
+        // Pre-process: detect skill/workflow triggers with skills
+        let processed_msg = match preprocess_with_skills(&msg, &ctx.skills) {
+            ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
+                log::info!("Skill triggered: {}", skill_id);
+                // If skill body is auto-loaded, inject it directly
+                if let Some(body) = skill_body {
+                    format!(
+                        "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
+                        skill_id, body, msg
+                    )
+                } else {
+                    // Skill not auto-loaded, inject skill call prompt
+                    format!(
+                        "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
+                        skill_id, msg
+                    )
+                }
+            }
+            ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
+                log::info!("Workflow triggered: {} (inputs: {:?})", workflow_id, inputs);
+                // Inject workflow call prompt into the message
+                let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
+                format!(
+                    "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
+                    workflow_id, inputs_json, msg
+                )
+            }
+            ProcessResult::Continue => msg.clone(),
+        };
+
         // Run agent
         turn_count += 1;
 
-        match agent.run(msg.clone()).await {
+        match agent.run(processed_msg).await {
             Ok(_) => {
                 // Auto-save session
                 save_after_turn(&ctx.event_tx, &mut ctx.session_mgr, &mut agent).await;

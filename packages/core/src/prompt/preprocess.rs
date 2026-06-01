@@ -6,16 +6,34 @@
 //! - Provides deterministic behavior
 //! - Reduces prompt token cost (~100 lines removed from prompt)
 //! - Enables easier testing and debugging
+//!
+//! # Dynamic Trigger Loading
+//!
+//! Triggers are now loaded dynamically from skill files' `trigger` field,
+//! instead of being hardcoded. This allows skills to define their own
+//! trigger patterns without modifying this code.
+//!
+//! # Auto-loading Skills
+//!
+//! When a skill is triggered, the system can optionally auto-load the
+//! skill content, saving an extra round-trip.
 
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::skills::Skill;
+
 /// Trigger type detection result
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProcessResult {
     /// A skill was triggered
-    SkillTriggered { skill_id: String, confidence: f32 },
+    SkillTriggered {
+        skill_id: String,
+        confidence: f32,
+        /// Auto-loaded skill body (if available)
+        skill_body: Option<String>,
+    },
     /// A workflow was triggered
     WorkflowTriggered {
         workflow_id: String,
@@ -45,6 +63,8 @@ pub struct SkillPattern {
     pub compiled: Vec<Regex>,
     /// Confidence weight (0.0 - 1.0)
     pub weight: f32,
+    /// Reference to the skill (for auto-loading)
+    pub skill: Option<Skill>,
 }
 
 impl SkillPattern {
@@ -60,7 +80,49 @@ impl SkillPattern {
             patterns,
             compiled,
             weight,
+            skill: None,
         }
+    }
+
+    /// Create from a Skill with trigger field
+    pub fn from_skill(skill: &Skill) -> Option<Self> {
+        let trigger = skill.trigger.as_ref()?;
+
+        // Parse trigger field: comma-separated patterns
+        // Format: "/review, 审查代码, review"
+        let patterns: Vec<&str> = trigger
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if patterns.is_empty() {
+            return None;
+        }
+
+        let compiled = patterns
+            .iter()
+            .filter_map(|p| {
+                // If pattern starts with '/', treat as slash command
+                // Otherwise, treat as keyword match
+                let regex_pattern = if p.starts_with('/') {
+                    // Exact match for slash commands
+                    format!("^{}(?:\\s|$)", p)
+                } else {
+                    // Contains match for keywords
+                    format!("(?i){}", p)
+                };
+                Regex::new(&regex_pattern).ok()
+            })
+            .collect();
+
+        Some(Self {
+            skill_id: skill.name.clone(),
+            patterns: patterns.iter().map(|s| s.to_string()).collect(),
+            compiled,
+            weight: 0.9, // High confidence for skill-defined triggers
+            skill: Some(skill.clone()),
+        })
     }
 
     /// Check if user message matches this skill
@@ -71,6 +133,11 @@ impl SkillPattern {
             }
         }
         None
+    }
+
+    /// Get skill body if available
+    pub fn get_skill_body(&self) -> Option<&str> {
+        self.skill.as_ref().map(|s| s.body.as_str())
     }
 }
 
@@ -147,10 +214,33 @@ impl Default for PreProcessHook {
 }
 
 impl PreProcessHook {
-    /// Create with default patterns (from claude-code-analysis)
+    /// Create with default patterns (fallback when no skills loaded)
     pub fn new() -> Self {
         Self {
             skills: Self::default_skill_patterns(),
+            workflows: Self::default_workflow_triggers(),
+            confidence_threshold: 0.7,
+        }
+    }
+
+    /// Create from loaded skills (dynamic trigger loading)
+    /// This is the preferred way to create a PreProcessHook.
+    pub fn from_skills(skills: &[Skill]) -> Self {
+        // Convert skills with triggers to patterns
+        let skill_patterns: Vec<SkillPattern> = skills
+            .iter()
+            .filter_map(|s| SkillPattern::from_skill(s))
+            .collect();
+
+        // If no skills have triggers, fall back to default patterns
+        let skills = if skill_patterns.is_empty() {
+            Self::default_skill_patterns()
+        } else {
+            skill_patterns
+        };
+
+        Self {
+            skills,
             workflows: Self::default_workflow_triggers(),
             confidence_threshold: 0.7,
         }
@@ -241,9 +331,12 @@ impl PreProcessHook {
         for skill in &self.skills {
             if let Some(confidence) = skill.matches(message) {
                 if confidence >= self.confidence_threshold {
+                    // Auto-load skill body if available
+                    let skill_body = skill.get_skill_body().map(|s| s.to_string());
                     return ProcessResult::SkillTriggered {
                         skill_id: skill.skill_id.clone(),
                         confidence,
+                        skill_body,
                     };
                 }
             }
@@ -336,9 +429,26 @@ pub fn global_preprocessor() -> Arc<PreProcessHook> {
         .clone()
 }
 
-/// Process message with global preprocessor
+/// Process message with global preprocessor (without skills)
+/// Use `preprocess_with_skills` for dynamic trigger loading.
 pub fn preprocess(message: &str) -> ProcessResult {
     global_preprocessor().process(message)
+}
+
+/// Process message with skills for dynamic trigger loading.
+/// This is the preferred function when skills are available.
+///
+/// # Arguments
+/// * `message` - User message to process
+/// * `skills` - Loaded skills to extract triggers from
+///
+/// # Returns
+/// * `SkillTriggered` - If a skill trigger matches, includes auto-loaded skill body
+/// * `WorkflowTriggered` - If a workflow trigger matches
+/// * `Continue` - If no triggers match
+pub fn preprocess_with_skills(message: &str, skills: &[Skill]) -> ProcessResult {
+    let hook = PreProcessHook::from_skills(skills);
+    hook.process(message)
 }
 
 #[cfg(test)]

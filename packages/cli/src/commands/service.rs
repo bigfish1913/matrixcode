@@ -8,7 +8,7 @@ use matrixcode_core::{
     create_provider_with_headers,
     providers::{MessageContent, Role, ContentBlock},
     tools::all_tools_full,
-    prompt::{build_system_prompt_with_workflows, PromptProfile},
+    prompt::{build_system_prompt_with_workflows, PromptProfile, preprocess_with_skills, ProcessResult},
     approval::ApproveMode,
     session::SessionManager,
     memory::MemoryStorage,
@@ -127,7 +127,32 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                         .event_tx(event_tx)
                         .build();
 
-                    let run_result = agent.run(msg).await;
+                    // Pre-process: detect skill/workflow triggers with skills
+                    let processed_msg = match preprocess_with_skills(&msg, &skills) {
+                        ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
+                            if let Some(body) = skill_body {
+                                format!(
+                                    "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
+                                    skill_id, body, msg
+                                )
+                            } else {
+                                format!(
+                                    "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
+                                    skill_id, msg
+                                )
+                            }
+                        }
+                        ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
+                            let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
+                            format!(
+                                "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
+                                workflow_id, inputs_json, msg
+                            )
+                        }
+                        ProcessResult::Continue => msg.clone(),
+                    };
+
+                    let run_result = agent.run(processed_msg).await;
 
                     while let Some(event) = event_rx.recv().await {
                         match event.event_type {
@@ -245,7 +270,32 @@ async fn handle_chat(
         )
         .build();
 
-    let run_future = agent.run(msg);
+    // Pre-process: detect skill/workflow triggers with skills
+    let processed_msg = match preprocess_with_skills(&msg, &skills) {
+        ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
+            if let Some(body) = skill_body {
+                format!(
+                    "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
+                    skill_id, body, msg
+                )
+            } else {
+                format!(
+                    "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
+                    skill_id, msg
+                )
+            }
+        }
+        ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
+            let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
+            format!(
+                "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
+                workflow_id, inputs_json, msg
+            )
+        }
+        ProcessResult::Continue => msg.clone(),
+    };
+
+    let run_future = agent.run(processed_msg);
     let event_task = tokio::spawn(async move {
         while let Some(event) = event_rx.recv().await {
             if event.event_type == matrixcode_core::EventType::Error
@@ -313,7 +363,32 @@ async fn handle_quick_action(
         .approve_mode(ApproveMode::Auto)
         .build();
 
-    match agent.run(prompt).await {
+    // Pre-process: detect skill/workflow triggers with skills
+    let processed_prompt = match preprocess_with_skills(&prompt, &skills) {
+        ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
+            if let Some(body) = skill_body {
+                format!(
+                    "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
+                    skill_id, body, prompt
+                )
+            } else {
+                format!(
+                    "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
+                    skill_id, prompt
+                )
+            }
+        }
+        ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
+            let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
+            format!(
+                "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
+                workflow_id, inputs_json, prompt
+            )
+        }
+        ProcessResult::Continue => prompt.clone(),
+    };
+
+    match agent.run(processed_prompt).await {
         Ok(_) => {
             show_agent_response(&agent);
             let (input, output) = agent.get_token_counts();
@@ -504,7 +579,32 @@ async fn handle_quick_action_json(
         .approve_mode(ApproveMode::Auto)
         .build();
 
-    agent.run(prompt).await?;
+    // Pre-process: detect skill/workflow triggers with skills
+    let processed_prompt = match preprocess_with_skills(&prompt, &skills) {
+        ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
+            if let Some(body) = skill_body {
+                format!(
+                    "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
+                    skill_id, body, prompt
+                )
+            } else {
+                format!(
+                    "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
+                    skill_id, prompt
+                )
+            }
+        }
+        ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
+            let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
+            format!(
+                "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
+                workflow_id, inputs_json, prompt
+            )
+        }
+        ProcessResult::Continue => prompt.clone(),
+    };
+
+    agent.run(processed_prompt).await?;
     println!("{}", AgentEvent::progress("Action completed".to_string(), None).to_json()?);
 
     Ok(())
