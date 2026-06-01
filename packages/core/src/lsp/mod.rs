@@ -52,6 +52,7 @@
 pub mod client;
 pub mod manager;
 pub mod registry;
+pub mod tools;
 pub mod transport;
 pub mod types;
 
@@ -59,6 +60,7 @@ pub mod types;
 pub use client::{LspClient, HoverResult, format_location, format_diagnostic, format_hover_result, path_to_uri};
 pub use manager::{LspManager, find_lsp_config, load_lsp_config};
 pub use registry::LspClientRegistry;
+pub use tools::{lsp_tools, detect_language_from_path, LspHoverTool, LspDefinitionTool, LspReferencesTool, LspDiagnosticsTool};
 pub use transport::LspTransport;
 pub use types::{
     LspConfig, LspServerConfig, LspServerInfo, LspServerStatus, default_lsp_config,
