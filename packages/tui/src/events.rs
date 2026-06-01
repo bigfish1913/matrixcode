@@ -1,5 +1,5 @@
 use matrixcode_core::event::McpServerInfo;
-use matrixcode_core::{AgentEvent, EventData, EventType, HistoryMessage};
+use matrixcode_core::{AgentEvent, EventData, EventType};
 use serde_json::Value;
 
 use crate::app::{TodoItem, TuiApp};

@@ -14,6 +14,7 @@ impl BackendCommand {
         Self { name, aliases: &[] }
     }
 
+    #[allow(dead_code)]
     pub fn new_with_aliases(name: &'static str, aliases: &'static [&'static str]) -> Self {
         Self { name, aliases }
     }
