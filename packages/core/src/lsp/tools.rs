@@ -494,7 +494,7 @@ mod tests {
         let def = tool.definition();
         assert_eq!(def.name, "lsp_hover");
         assert!(def.description.contains("类型签名"));
-        assert_eq!(def.risk_level, RiskLevel::Safe);
+        assert_eq!(tool.risk_level(), RiskLevel::Safe);
     }
 
     #[test]
