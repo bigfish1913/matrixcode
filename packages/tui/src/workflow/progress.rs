@@ -7,6 +7,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
+    prelude::Stylize,
 };
 
 /// Render compact progress view

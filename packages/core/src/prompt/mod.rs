@@ -162,6 +162,7 @@ pub fn build_system_prompt(
 ///
 /// # Arguments
 /// - `lsp_servers`: Optional LSP server info list for dynamic injection
+/// - `lsp_registry`: Optional LSP registry for tool prompt generation
 pub fn build_system_prompt_with_workflows(
     profile: &PromptProfile,
     skills: &[Skill],
@@ -169,6 +170,31 @@ pub fn build_system_prompt_with_workflows(
     memory_summary: Option<&str>,
     project_path: Option<&PathBuf>,
     lsp_servers: Option<&[crate::lsp::LspServerInfo]>,
+) -> String {
+    build_system_prompt_with_workflows_and_lsp(
+        profile,
+        skills,
+        project_overview,
+        memory_summary,
+        project_path,
+        lsp_servers,
+        None,
+    )
+}
+
+/// Build system prompt with workflow support and full LSP integration
+///
+/// # Arguments
+/// - `lsp_servers`: Optional LSP server info list for dynamic injection
+/// - `lsp_registry`: Optional LSP registry for tool prompt generation
+pub fn build_system_prompt_with_workflows_and_lsp(
+    profile: &PromptProfile,
+    skills: &[Skill],
+    project_overview: Option<&str>,
+    memory_summary: Option<&str>,
+    project_path: Option<&PathBuf>,
+    lsp_servers: Option<&[crate::lsp::LspServerInfo]>,
+    lsp_registry: Option<std::sync::Arc<crate::lsp::LspClientRegistry>>,
 ) -> String {
     // Determine if CodeGraph is available
     let has_codegraph = project_path
@@ -201,8 +227,8 @@ pub fn build_system_prompt_with_workflows(
     let assembled = orchestrator.assemble();
     let mut parts = vec![assembled.prompt];
 
-    // Add tools prompt (dynamic based on project_path)
-    let tools_prompt = crate::tools::generate_tools_prompt_with_path(project_path);
+    // Add tools prompt (dynamic based on project_path and LSP registry)
+    let tools_prompt = crate::tools::generate_tools_prompt_with_path_and_lsp(project_path, lsp_registry);
     parts.push(tools_prompt);
 
     // Add Skills section if available

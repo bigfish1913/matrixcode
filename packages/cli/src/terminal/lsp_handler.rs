@@ -33,7 +33,9 @@ impl LspHandler {
                 log::warn!("Failed to start LSP client '{}': {}", name, e);
                 manager.mark_error(&config.language, e.to_string());
             } else {
-                log::info!("LSP client '{}' started", name);
+                log::info!("LSP client '{}' started successfully", name);
+                // Mark as connected immediately after successful spawn
+                manager.mark_connected(&config.language);
             }
         }
     }

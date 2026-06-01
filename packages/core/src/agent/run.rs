@@ -26,6 +26,10 @@ impl Agent {
             tx
         });
 
+        // Note: LSP tools should be injected via all_tools_full_with_lsp or similar
+        // before calling .tools() on the builder, not here.
+        // The lsp_registry field is kept for future dynamic tool injection.
+
         Self {
             provider: builder.provider,
             model_name: builder.model_name,
@@ -51,6 +55,7 @@ impl Agent {
             proxy_tool_defs: builder.proxy_tool_defs,
             proxy_executor: builder.proxy_executor,
             mcp_registry: builder.mcp_registry,
+            lsp_registry: builder.lsp_registry,
             pending_input_rx: builder.pending_input_rx,
             pending_inputs: Vec::new(),
             previewed_tool_inputs: std::collections::HashSet::new(),

@@ -34,6 +34,7 @@ impl AgentBuilder {
             proxy_tool_defs: Vec::new(),
             proxy_executor: None,
             mcp_registry: None,
+            lsp_registry: None,
             pending_input_rx: None,
         }
     }
@@ -165,6 +166,23 @@ impl AgentBuilder {
         registry: Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>,
     ) -> Self {
         self.mcp_registry = Some(registry);
+        self
+    }
+
+    /// 设置 LSP 客户端注册表
+    ///
+    /// # Example
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use matrixcode_core::lsp::LspClientRegistry;
+    ///
+    /// let registry = Arc::new(LspClientRegistry::new());
+    /// // 启动 LSP 服务器
+    /// registry.register(&config, &project_root).await?;
+    /// builder.lsp_registry(registry)
+    /// ```
+    pub fn lsp_registry(mut self, registry: Arc<crate::lsp::LspClientRegistry>) -> Self {
+        self.lsp_registry = Some(registry);
         self
     }
 

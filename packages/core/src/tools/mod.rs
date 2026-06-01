@@ -160,11 +160,19 @@ pub fn all_tools_with_provider(
 
 /// Generate tools description for system prompt
 pub fn generate_tools_prompt() -> String {
-    generate_tools_prompt_with_path(None)
+    generate_tools_prompt_with_path_and_lsp(None, None)
 }
 
 /// Generate tools description with optional CodeGraph support
 pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String {
+    generate_tools_prompt_with_path_and_lsp(project_path, None)
+}
+
+/// Generate tools description with optional CodeGraph and LSP support
+pub fn generate_tools_prompt_with_path_and_lsp(
+    project_path: Option<&PathBuf>,
+    lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
+) -> String {
     // Build tool context based on CodeGraph availability
     let ctx = ToolContext {
         codegraph_available: project_path
@@ -179,6 +187,11 @@ pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String
         if let Some(path) = project_path {
             tools.extend(codegraph::codegraph_tools_with_auto_detect(path));
         }
+    }
+
+    // Add LSP tools if registry is provided
+    if let Some(registry) = lsp_registry {
+        tools.extend(crate::lsp::tools::lsp_tools(registry));
     }
 
     // Add workflow tools

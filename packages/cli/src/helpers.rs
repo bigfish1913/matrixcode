@@ -364,19 +364,21 @@ pub fn prepare_lsp_servers(
 /// Check if a command is available in the system.
 fn is_command_available(command: &str) -> bool {
     // Try to find the command using 'which' on Unix or 'where' on Windows
-    let check_cmd = if cfg!(target_os = "windows") {
-        format!("where {}", command)
+    if cfg!(target_os = "windows") {
+        // On Windows, use cmd /C where command
+        std::process::Command::new("cmd")
+            .args(["/C", "where", command])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
     } else {
-        format!("which {}", command)
-    };
-    
-    // Execute and check if successful
-    std::process::Command::new("sh")
-        .arg("-c")
-        .arg(&check_cmd)
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+        // On Unix, use which command
+        std::process::Command::new("sh")
+            .args(["-c", &format!("which {}", command)])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
 }
 
 /// Build quick action prompt from action type and file

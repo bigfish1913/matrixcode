@@ -124,22 +124,12 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
         matrixcode_core::debug::debug_log().log("overview", &format!("Loaded project overview: {} chars", overview.content.len()));
     }
 
-    // Build system prompt
-    let system_prompt = matrixcode_core::prompt::build_system_prompt_with_workflows(
-        &matrixcode_core::prompt::PromptProfile::Default,
-        &ctx.skills,
-        project_overview.as_ref().map(|o| o.content.as_str()),
-        if initial_memory_summary.is_empty() { None } else { Some(&initial_memory_summary) },
-        ctx.project_path.as_ref(),
-        None, // LSP servers will be injected dynamically when available
-    );
-
     // Create MCP manager and start servers
     let mcp_manager = McpManager::new();
     mcp_manager.add_servers(ctx.mcp_servers).await;
     let mcp_tools = mcp_manager.start_all(&ctx.event_tx).await;
 
-    // Create LSP handler and start servers
+    // Create LSP handler and start servers (before building system prompt)
     let project_root = ctx.project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let lsp_handler = LspHandler::new();
     lsp_handler.add_servers(ctx.lsp_servers, project_root.clone()).await;
@@ -147,6 +137,20 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
 
     // Get LSP registry for tool injection
     let lsp_registry = lsp_handler.registry();
+
+    // Get LSP server status for prompt injection
+    let lsp_servers = lsp_handler.get_status().await;
+
+    // Build system prompt with LSP integration
+    let system_prompt = matrixcode_core::prompt::build_system_prompt_with_workflows_and_lsp(
+        &matrixcode_core::prompt::PromptProfile::Default,
+        &ctx.skills,
+        project_overview.as_ref().map(|o| o.content.as_str()),
+        if initial_memory_summary.is_empty() { None } else { Some(&initial_memory_summary) },
+        ctx.project_path.as_ref(),
+        Some(&lsp_servers),
+        Some(lsp_registry.clone()),
+    );
 
     // Build agent with tools
     let project_path_for_tools = project_root.clone();

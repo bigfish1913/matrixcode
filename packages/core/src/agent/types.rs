@@ -74,6 +74,8 @@ pub struct Agent {
     pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
     /// MCP 工具注册表（动态管理）
     pub(crate) mcp_registry: Option<Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>>,
+    /// LSP 客户端注册表（用于 LSP 工具）
+    pub(crate) lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
     /// 实时追加消息接收器（用于在处理过程中接收新消息）
     pub(crate) pending_input_rx: Option<mpsc::Receiver<String>>,
     /// 缓存的追加消息（在当前轮完成后处理）
@@ -107,6 +109,8 @@ pub struct AgentBuilder {
     pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
     /// MCP 工具注册表（动态管理）
     pub(crate) mcp_registry: Option<Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>>,
+    /// LSP 客户端注册表
+    pub(crate) lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
     /// 实时追加消息接收器
     pub(crate) pending_input_rx: Option<mpsc::Receiver<String>>,
 }

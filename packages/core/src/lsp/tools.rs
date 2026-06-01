@@ -150,7 +150,11 @@ impl Tool for LspHoverTool {
             .ok_or_else(|| anyhow!("无法识别文件类型: {}", file_path))?;
 
         let client = self.registry.get_client(&language).await
-            .ok_or_else(|| anyhow!("语言 '{}' 的 LSP 客户端未启动", language))?;
+            .ok_or_else(|| anyhow!(
+                "语言 '{}' 的 LSP 客户端未启动。\n\
+                提示：检查 TUI 状态栏 LSP 颜色（红=失败），确保 LSP 服务器已安装",
+                language
+            ))?;
 
         // Open file first
         let uri = path_to_uri(&path)?;
@@ -237,7 +241,11 @@ impl Tool for LspDefinitionTool {
             .ok_or_else(|| anyhow!("无法识别文件类型: {}", file_path))?;
 
         let client = self.registry.get_client(&language).await
-            .ok_or_else(|| anyhow!("语言 '{}' 的 LSP 客户端未启动", language))?;
+            .ok_or_else(|| anyhow!(
+                "语言 '{}' 的 LSP 客户端未启动。\n\
+                提示：检查 TUI 状态栏 LSP 颜色（红=失败），确保 LSP 服务器已安装",
+                language
+            ))?;
 
         // Open file first
         let uri = path_to_uri(&path)?;
@@ -336,7 +344,11 @@ impl Tool for LspReferencesTool {
             .ok_or_else(|| anyhow!("无法识别文件类型: {}", file_path))?;
 
         let client = self.registry.get_client(&language).await
-            .ok_or_else(|| anyhow!("语言 '{}' 的 LSP 客户端未启动", language))?;
+            .ok_or_else(|| anyhow!(
+                "语言 '{}' 的 LSP 客户端未启动。\n\
+                提示：检查 TUI 状态栏 LSP 颜色（红=失败），确保 LSP 服务器已安装",
+                language
+            ))?;
 
         // Open file first
         let uri = path_to_uri(&path)?;
@@ -410,7 +422,11 @@ impl Tool for LspDiagnosticsTool {
             .ok_or_else(|| anyhow!("无法识别文件类型: {}", file_path))?;
 
         let client = self.registry.get_client(&language).await
-            .ok_or_else(|| anyhow!("语言 '{}' 的 LSP 客户端未启动", language))?;
+            .ok_or_else(|| anyhow!(
+                "语言 '{}' 的 LSP 客户端未启动。\n\
+                提示：检查 TUI 状态栏 LSP 颜色（红=失败），确保 LSP 服务器已安装",
+                language
+            ))?;
 
         // Open file first to trigger diagnostics
         let uri = path_to_uri(&path)?;
