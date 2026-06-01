@@ -63,7 +63,7 @@ impl TuiApp {
             }
             spans.push(Span::styled("💡 ", Style::default().fg(Color::Cyan)));
             spans.push(Span::styled(
-                "Commands: ",
+                "命令: ",
                 Style::default().fg(Color::DarkGray),
             ));
 
@@ -99,7 +99,7 @@ impl TuiApp {
 
             if matching.is_empty() {
                 spans.push(Span::styled(
-                    "No matching commands",
+                    "无匹配命令",
                     Style::default().fg(Color::Red),
                 ));
             }
@@ -109,7 +109,7 @@ impl TuiApp {
             }
             spans.push(Span::styled("⚡ ", Style::default().fg(Color::Red)));
             spans.push(Span::styled(
-                "Awaiting response...",
+                "等待响应...",
                 Style::default().fg(Color::DarkGray),
             ));
         }
@@ -119,12 +119,12 @@ impl TuiApp {
             if self.multiline_confirm_send {
                 // Multiline input waiting for confirmation
                 spans.push(Span::styled(
-                    "⚠️ Press Enter again to send, or Esc to cancel",
+                    "⚠️ 再次按 [Enter] 发送，或 [Esc] 取消",
                     Style::default().fg(Color::Yellow),
                 ));
             } else {
                 spans.push(Span::styled(
-                    "Shift+Enter: multiline │ ↑↓: history │ Tab: complete",
+                    "[Shift+Enter] 换行 │ [↑↓] 历史 │ [Tab] 补全",
                     Style::default().fg(Color::DarkGray),
                 ));
             }

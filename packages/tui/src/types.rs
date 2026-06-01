@@ -23,17 +23,17 @@ pub enum Activity {
 impl Activity {
     pub fn label(&self) -> String {
         match self {
-            Activity::Idle => "Ready".into(),
-            Activity::Thinking => "Thinking".into(),
-            Activity::Reading => "read".into(),
-            Activity::Writing => "write".into(),
-            Activity::Editing => "edit".into(),
-            Activity::Searching => "search".into(),
-            Activity::Running => "bash".into(),
-            Activity::WebSearch => "websearch".into(),
-            Activity::WebFetch => "webfetch".into(),
+            Activity::Idle => "就绪".into(),
+            Activity::Thinking => "思考中".into(),
+            Activity::Reading => "读取".into(),
+            Activity::Writing => "写入".into(),
+            Activity::Editing => "编辑".into(),
+            Activity::Searching => "搜索".into(),
+            Activity::Running => "执行".into(),
+            Activity::WebSearch => "网络搜索".into(),
+            Activity::WebFetch => "网络获取".into(),
             Activity::Tool(name) => name.clone(),
-            Activity::Asking => "AWAITING".into(),
+            Activity::Asking => "等待响应".into(),
         }
     }
 
@@ -111,7 +111,7 @@ impl AskOption {
     pub fn other_option() -> Self {
         Self {
             id: "other".to_string(),
-            label: "其他 (自定义输入)".to_string(),
+            label: "其他 (自定义)".to_string(),
             description: Some("输入自定义内容".to_string()),
             selected: false,
             is_submit: false,

@@ -1,6 +1,6 @@
 //! TUI drawing module.
 
-mod helpers;
+pub mod helpers; // Public for use in events.rs
 mod hint; // New hint bar module
 mod input;
 mod messages;
@@ -38,7 +38,8 @@ impl TuiApp {
         let status_height: u16 = 1;
         let hint_height: u16 = if self.should_show_hint() { 1 } else { 0 };
         let gap_height: u16 = 0;
-        let queue_height: u16 = 0;
+        // Queue height: show when there are pending messages
+        let queue_height: u16 = if !self.pending_messages.is_empty() { 1 } else { 0 };
 
         // Activity indicator height: 1 line when thinking or tool activity
         // Tool activities show animation in message area when auto_scroll is on,
@@ -155,7 +156,7 @@ impl TuiApp {
                 ),
                 Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    format!("Thinking{}", elapsed),
+                    format!("思考中{}", elapsed),
                     Style::default().fg(Color::DarkGray),
                 ),
             ])
@@ -245,7 +246,7 @@ impl TuiApp {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Yellow))
             .title(Span::styled(
-                " 🔍 Debug Logs (Shift+D to hide, Shift+C to clear) ",
+                " 🔍 调试日志 [Shift+D] 隐藏 [Shift+C] 清除 ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
@@ -256,7 +257,7 @@ impl TuiApp {
 
         if self.debug_logs.is_empty() {
             let empty_msg =
-                Paragraph::new("No debug logs yet...").style(Style::default().fg(Color::DarkGray));
+                Paragraph::new("暂无调试日志...").style(Style::default().fg(Color::DarkGray));
             f.render_widget(empty_msg, inner_area);
             return;
         }

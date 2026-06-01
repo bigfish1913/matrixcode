@@ -61,7 +61,7 @@ impl TuiApp {
                         let removed = self.pending_messages.remove(0);
                         self.push_message(Message {
                             role: Role::System,
-                            content: format!("Removed from queue: {}", truncate(&removed, 50)),
+                            content: format!("已从队列移除: {}", truncate(&removed, 50)),
                             is_pending: false,
                         });
                     }
@@ -72,7 +72,7 @@ impl TuiApp {
                     self.session_list.clear();
                     self.push_message(Message {
                         role: Role::System,
-                        content: "Session selection cancelled".into(),
+                        content: "会话选择已取消".into(),
                         is_pending: false,
                     });
                 } else if self.multiline_confirm_send {
@@ -111,7 +111,7 @@ impl TuiApp {
                     self.cancel.cancel();
                     self.push_message(Message {
                         role: Role::System,
-                        content: "⚡ Interrupted".into(),
+                        content: "⚡ 已中断".into(),
                         is_pending: false,
                     });
                 } else if !self.input.is_empty() {
@@ -476,6 +476,7 @@ impl TuiApp {
     /// Sync approve_mode to the shared atomic and notify agent task.
     /// If switching to Auto and there's a pending approval, auto-approve it.
     pub(crate) fn sync_approve_mode(&mut self) {
+        let old_mode = self.approve_mode;
         if let Some(ref shared) = self.shared_approve_mode {
             shared.store(
                 self.approve_mode.to_u8(),
@@ -493,6 +494,18 @@ impl TuiApp {
         self.tx
             .try_send(format!("/mode:{}", self.approve_mode))
             .ok();
+
+        // Show mode change notification
+        let mode_desc = match self.approve_mode {
+            ApproveMode::Auto => "自动执行，无需确认",
+            ApproveMode::Ask => "询问确认危险操作",
+            ApproveMode::Strict => "严格确认所有操作",
+        };
+        self.push_message(Message {
+            role: Role::System,
+            content: format!("⚡ 批准模式: {} → {} ({})", old_mode, self.approve_mode, mode_desc),
+            is_pending: false,
+        });
     }
 
     /// Find the byte position of the previous character boundary.
@@ -696,7 +709,7 @@ impl TuiApp {
             let _ = self.tx.try_send(format!("/load {}", session.short_id));
             self.push_message(Message {
                 role: Role::System,
-                content: format!("Loading session {}...", session.short_id),
+                content: format!("加载会话 {}...", session.short_id),
                 is_pending: false,
             });
         }
@@ -805,7 +818,7 @@ impl TuiApp {
 
         content.push_str("┌──────────────────────────────────────┐\n");
         content.push_str(&format!(
-            "│  ⚡ 问题 {} / {} (Tab切换) ⚡          │\n",
+            "│  ⚡ 问题 {} / {} ([Tab] 切换) ⚡          │\n",
             self.current_question_idx + 1,
             self.ask_questions.len()
         ));
@@ -830,23 +843,23 @@ impl TuiApp {
             match q.submit_mode {
                 SubmitMode::Direct => {
                     if self.current_question_idx < self.ask_questions.len() - 1 {
-                        content.push_str("选项 (↑↓导航 Space/Enter切换 Enter下一题):\n");
+                        content.push_str("选项 ([↑↓] 导航 [Space/Enter] 切换 [Enter] 下一题):\n");
                     } else {
-                        content.push_str("选项 (↑↓导航 Space/Enter切换 Enter提交):\n");
+                        content.push_str("选项 ([↑↓] 导航 [Space/Enter] 切换 [Enter] 提交):\n");
                     }
                 }
                 SubmitMode::Option => {
-                    content.push_str("选项 (↑↓导航 Space/Enter切换 选中[✓提交]):\n")
+                    content.push_str("选项 ([↑↓] 导航 [Space/Enter] 切换 选中 [✓提交]):\n")
                 }
                 SubmitMode::Button => {
-                    content.push_str("选项 (↑↓导航 Space/Enter切换 Enter提交):\n")
+                    content.push_str("选项 ([↑↓] 导航 [Space/Enter] 切换 [Enter] 提交):\n")
                 }
             }
         } else {
             if self.current_question_idx < self.ask_questions.len() - 1 {
-                content.push_str("选项 (↑↓选择 Enter下一题):\n");
+                content.push_str("选项 ([↑↓] 选择 [Enter] 下一题):\n");
             } else {
-                content.push_str("选项 (↑↓选择 Enter提交):\n");
+                content.push_str("选项 ([↑↓] 选择 [Enter] 提交):\n");
             }
         }
 

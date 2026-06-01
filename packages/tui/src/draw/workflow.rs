@@ -82,7 +82,7 @@ impl TuiApp {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan))
             .title(Span::styled(
-                " ⚙ Workflow (Alt+W) ",
+                " ⚙ 工作流 [Alt+W] ",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
@@ -121,7 +121,7 @@ impl TuiApp {
     /// Draw workflow node detail view
     fn draw_workflow_detail(&self, f: &mut ratatui::Frame, area: Rect) {
         if self.workflow_state.selected_node.is_none() {
-            let text = Paragraph::new("No node selected\n\nUse ↑↓ to select node");
+            let text = Paragraph::new("未选择节点\n\n[↑↓] 选择节点");
             f.render_widget(text, area);
             return;
         }
@@ -137,7 +137,7 @@ impl TuiApp {
                 // Build detail info
                 let lines = vec![
                     Line::from(Span::styled(
-                        format!("Node: {}", node.name),
+                        format!("节点: {}", node.name),
                         Style::default()
                             .fg(Color::White)
                             .add_modifier(Modifier::BOLD),
@@ -147,11 +147,11 @@ impl TuiApp {
                         Style::default().fg(Color::Gray),
                     )),
                     Line::from(Span::styled(
-                        format!("Type: {:?}", node.node_type),
+                        format!("类型: {:?}", node.node_type),
                         Style::default().fg(Color::Gray),
                     )),
                     Line::from(Span::styled(
-                        format!("Status: {}", status.icon()),
+                        format!("状态: {}", status.icon()),
                         Style::default().fg(status_to_color(status.color())),
                     )),
                 ];

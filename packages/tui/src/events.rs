@@ -6,14 +6,28 @@ use crate::app::{TodoItem, TuiApp};
 use crate::types::{Activity, Message, Role, SubmitMode};
 use crate::utils::{extract_tool_detail, fmt_tokens};
 
+use crate::draw::helpers::estimate_message_tokens;
+
 impl TuiApp {
     /// Push a message and set notification flag if user is scrolled up.
+    /// Also updates the cached token count.
     pub(crate) fn push_message(&mut self, msg: Message) {
         // If user has scrolled up, mark that new message arrived
         if !self.auto_scroll {
             self.new_message_while_scrolled.set(true);
         }
+        // Update cached token count incrementally
+        self.cached_actual_tokens += estimate_message_tokens(&msg.content) as u64;
         self.messages.push(msg);
+    }
+
+    /// Recalculate cached token count from all messages (used when loading session)
+    pub(crate) fn recalculate_cached_tokens(&mut self) {
+        self.cached_actual_tokens = self
+            .messages
+            .iter()
+            .map(|m| estimate_message_tokens(&m.content) as u64)
+            .sum();
     }
 
     /// Update todo items from todo_write tool input

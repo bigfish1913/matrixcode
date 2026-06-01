@@ -103,9 +103,9 @@ impl ApproveMode {
 impl fmt::Display for ApproveMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ApproveMode::Auto => write!(f, "auto"),
-            ApproveMode::Ask => write!(f, "ask"),
-            ApproveMode::Strict => write!(f, "strict"),
+            ApproveMode::Auto => write!(f, "自动"),
+            ApproveMode::Ask => write!(f, "询问"),
+            ApproveMode::Strict => write!(f, "严格"),
         }
     }
 }

@@ -17,7 +17,7 @@ impl TuiApp {
         let mut spans: Vec<Span> = vec![
             Span::styled("⏳ ", Style::default().fg(Color::Magenta)),
             Span::styled(
-                format!("Queue ({}): ", self.pending_messages.len()),
+                format!("队列 ({}): ", self.pending_messages.len()),
                 Style::default()
                     .fg(Color::Magenta)
                     .add_modifier(Modifier::BOLD),
@@ -71,9 +71,9 @@ impl TuiApp {
 
         // History mode indicator
         let history_indicator = if self.history_index.is_some() {
-            "History "
+            format!("历史({}) ", self.input_history.len())
         } else {
-            ""
+            String::new()
         };
 
 
@@ -93,9 +93,9 @@ impl TuiApp {
                 // Show compact instruction
                 spans.push(Span::styled(
                     if self.ask_multi_select {
-                        "↑↓选择  Space切换  Enter确认"
+                        "[↑↓] 选择  [Space] 切换  [Enter] 确认"
                     } else {
-                        "↑↓选择  Enter确认"
+                        "[↑↓] 选择  [Enter] 确认"
                     },
                     Style::default().fg(Color::DarkGray),
                 ));
@@ -174,7 +174,7 @@ impl TuiApp {
                     // Other option hint
                     if is_other && is_selected && !is_checked {
                         opt_spans.push(Span::styled(
-                            " ✏️自定义",
+                            " ✏️ [Enter] 自定义",
                             Style::default().fg(Color::Yellow),
                         ));
                     }
@@ -186,7 +186,7 @@ impl TuiApp {
                 if self.input.is_empty() {
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                     spans.push(Span::styled(
-                        "Type y/n, Enter to submit  ESC abort",
+                        "输入 y/n  [Enter] 提交  [Esc] 取消",
                         Style::default().fg(Color::DarkGray),
                     ));
                 } else {
@@ -196,7 +196,7 @@ impl TuiApp {
                     ));
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                     spans.push(Span::styled(
-                        "  Enter to submit  ESC abort",
+                        "  [Enter] 提交  [Esc] 取消",
                         Style::default().fg(Color::DarkGray),
                     ));
                 }
@@ -224,7 +224,7 @@ impl TuiApp {
                 };
                 lines.push(input_line);
                 lines.push(Line::styled(
-                    "  [Enter确认  Esc取消]",
+                    "  [Enter] 确认  [Esc] 取消",
                     Style::default().fg(Color::DarkGray),
                 ));
             }
@@ -256,16 +256,16 @@ impl TuiApp {
                 // Show helpful shortcuts hints
                 if self.history_index.is_some() {
                     spans.push(Span::styled(
-                        "↑↓ navigate  Enter use  Esc back",
+                        "[↑↓] 导航  [Enter] 使用  [Esc] 返回",
                         Style::default().fg(Color::DarkGray),
                     ));
                 } else {
                     spans.push(Span::styled(
-                        " Ask anything... ",
+                        " 输入问题... ",
                         Style::default().fg(Color::DarkGray),
                     ));
                     spans.push(Span::styled(
-                        "(Ctrl+V paste │ ↑↓ history │ Shift+Enter newline)",
+                        "[Ctrl+V] 粘贴 │ [↑↓] 历史 │ [Shift+Enter] 换行",
                         Style::default().fg(Color::DarkGray),
                     ));
                 }
@@ -342,10 +342,22 @@ impl TuiApp {
                             .fg(prompt_color)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(truncate(first_line, max_w.saturating_sub(20)), Style::default().fg(Color::White)),
+                    Span::styled(truncate(first_line, max_w.saturating_sub(25)), Style::default().fg(Color::White)),
                     Span::styled(
-                        format!(" … ({}) ▶ Alt+T", total_lines_count),
+                        format!(" … ({}) ", total_lines_count),
                         Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(
+                        if self.multiline_confirm_send {
+                            "⏎ 再次 Enter 发送"
+                        } else {
+                            "[Alt+T] 展开"
+                        },
+                        Style::default().fg(if self.multiline_confirm_send {
+                            Color::Yellow
+                        } else {
+                            Color::DarkGray
+                        }),
                     ),
                 ]));
             } else {
@@ -404,20 +416,28 @@ impl TuiApp {
 
                 if total_lines_count > max_display_lines {
                     lines.push(Line::styled(
-                        format!("  … ({}/{} lines)", max_display_lines, total_lines_count),
+                        format!("  … ({}/{} 行)", max_display_lines, total_lines_count),
                         Style::default().fg(Color::DarkGray),
                     ));
                 }
 
                 if show_char_count {
-                    lines.push(Line::styled(
-                        format!(
-                            "  {} chars, {} lines",
-                            self.input.chars().count(),
-                            total_lines_count
-                        ),
-                        Style::default().fg(Color::DarkGray),
-                    ));
+                    // Show confirmation state when multiline_confirm_send is true
+                    if self.multiline_confirm_send {
+                        lines.push(Line::styled(
+                            "  ⏎ 再次按 [Enter] 发送，或 [Esc] 取消",
+                            Style::default().fg(Color::Yellow),
+                        ));
+                    } else {
+                        lines.push(Line::styled(
+                            format!(
+                                "  {} 字符, {} 行",
+                                self.input.chars().count(),
+                                total_lines_count
+                            ),
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
                 }
             }
 

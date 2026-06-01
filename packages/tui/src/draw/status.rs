@@ -7,20 +7,14 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use super::helpers::estimate_message_tokens;
 use crate::app::TuiApp;
 use crate::types::{Activity, ApproveMode};
 use crate::utils::{fmt_tokens, progress_bar, truncate};
 
 impl TuiApp {
     pub(crate) fn draw_status(&self, f: &mut ratatui::Frame, area: Rect) {
-        // Always estimate actual context size from messages (like debug panel)
-        // This gives accurate current context usage, not cumulative API tokens
-        let actual_tokens = self
-            .messages
-            .iter()
-            .map(|m| estimate_message_tokens(&m.content) as u64)
-            .sum::<u64>();
+        // Use cached token count instead of recalculating every frame
+        let actual_tokens = self.cached_actual_tokens;
 
         let context_pct = if self.context_size > 0 {
             (actual_tokens as f64 / self.context_size as f64 * 100.0).min(100.0)
@@ -54,7 +48,7 @@ impl TuiApp {
         );
 
         let status_text = if self.activity == Activity::Idle {
-            "Ready".to_string()
+            "就绪".to_string()
         } else if is_tool_activity {
             if !self.activity_detail.is_empty() {
                 format!("{} {}", self.activity.label(), self.activity_detail)
@@ -62,7 +56,7 @@ impl TuiApp {
                 self.activity.label().to_string()
             }
         } else if self.current_request_tokens > 0 {
-            format!("{} tok", fmt_tokens(self.current_request_tokens))
+            format!("{} token", fmt_tokens(self.current_request_tokens))
         } else {
             "...".to_string()
         };
@@ -124,7 +118,7 @@ impl TuiApp {
         // Output tokens
         if width >= 55 {
             spans.push(Span::styled(
-                format!(" out {} ", fmt_tokens(self.session_total_out)),
+                format!(" 输出 {} ", fmt_tokens(self.session_total_out)),
                 Style::default().fg(Color::DarkGray),
             ));
         }
@@ -133,7 +127,7 @@ impl TuiApp {
         if width >= 65 {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
-                format!(" msg:{} ", self.messages.len()),
+                format!(" 消息:{} ", self.messages.len()),
                 Style::default().fg(Color::DarkGray),
             ));
         }
@@ -170,7 +164,7 @@ impl TuiApp {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             spans.push(Span::styled(
                 format!(
-                    " c {}k/{}k ",
+                    " 缓存 {}k/{}k ",
                     self.cache_read / 1000,
                     self.cache_created / 1000
                 ),

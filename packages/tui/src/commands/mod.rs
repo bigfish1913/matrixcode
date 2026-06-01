@@ -163,6 +163,7 @@ mod model;
 mod new_cmd;
 mod retry;
 mod session;
+mod shortcuts;
 mod workflow;
 
 pub use clear::ClearCommand;
@@ -180,6 +181,7 @@ pub use model::ModelCommand;
 pub use new_cmd::NewCommand;
 pub use retry::RetryCommand;
 pub use session::SessionCommand;
+pub use shortcuts::ShortcutsCommand;
 pub use workflow::WorkflowCommand;
 
 use backend::BackendCommand;
@@ -193,6 +195,7 @@ pub fn create_registry() -> CommandRegistry {
     registry.register(Box::new(ClearCommand));
     registry.register(Box::new(HelpCommand));
     registry.register(Box::new(DebugCommand));
+    registry.register(Box::new(ShortcutsCommand));
 
     // Medium commands
     registry.register(Box::new(ModeCommand));

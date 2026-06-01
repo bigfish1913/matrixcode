@@ -33,6 +33,8 @@ pub struct TuiApp {
     pub(crate) cache_read: u64,
     pub(crate) cache_created: u64,
     pub(crate) context_size: u64,
+    // Cached context token count (avoid recalculating every frame)
+    pub(crate) cached_actual_tokens: u64,
     // Debug stats
     pub(crate) api_calls: u64,
     pub(crate) compressions: u64,
@@ -176,6 +178,7 @@ impl TuiApp {
             cache_read: 0,
             cache_created: 0,
             context_size: 200_000,
+            cached_actual_tokens: 0,
             api_calls: 0,
             compressions: 0,
             memory_saves: 0,
@@ -457,6 +460,8 @@ impl TuiApp {
         if !self.messages.is_empty() {
             self.show_welcome = false;
         }
+        // Recalculate cached token count after loading all messages
+        self.recalculate_cached_tokens();
     }
 
     /// Set token stats from restored session metadata.

@@ -156,7 +156,7 @@ impl TuiApp {
                 ]));
                 // Subtitle below
                 lines.push(Line::styled(
-                    "    AI coding assistant | /help for commands",
+                    "    AI 编码助手 | /help 帮助 | /shortcuts 快捷键",
                     Style::default().fg(Color::Gray),
                 ));
             } else {
@@ -170,12 +170,12 @@ impl TuiApp {
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        "  AI coding assistant",
+                        "  AI 编码助手",
                         Style::default().fg(Color::DarkGray),
                     ),
                 ]));
                 lines.push(Line::styled(
-                    "  /help for commands | Ctrl+V paste | ↑↓ history",
+                    "  /help 帮助 | /shortcuts 快捷键 | [Ctrl+V] 粘贴",
                     Style::default().fg(Color::DarkGray),
                 ));
             }
@@ -219,22 +219,22 @@ impl TuiApp {
                             ),
                             Span::styled(
                                 format!(
-                                    "({} lines) {}",
+                                    "({} 行) {}",
                                     line_count,
-                                    truncate(preview, max_w.saturating_sub(35))
+                                    truncate(preview, max_w.saturating_sub(30))
                                 ),
                                 Style::default().fg(Color::DarkGray),
                             ),
-                            Span::styled(" [Alt+T展开]", Style::default().fg(Color::DarkGray)),
+                            Span::styled(" [Alt+T] 展开", Style::default().fg(Color::DarkGray)),
                         ]));
                     } else {
                         // Expanded mode: show full content
                         // In debug mode, show extra info like token count
                         let debug_info = if self.debug_mode {
                             let tok = estimate_message_tokens(&msg.content) as u64;
-                            format!(" ({} lines, ~{}tok)", line_count, fmt_tokens(tok))
+                            format!(" ({} 行, ~{}tok)", line_count, fmt_tokens(tok))
                         } else {
-                            format!(" ({} lines)", line_count)
+                            format!(" ({} 行)", line_count)
                         };
                         lines.push(Line::from(vec![
                             Span::styled(
@@ -242,11 +242,11 @@ impl TuiApp {
                                 Style::default().fg(Color::DarkGray),
                             ),
                             Span::styled(
-                                format!("Thinking{}", debug_info),
+                                format!("思考内容{}", debug_info),
                                 Style::default().fg(Color::DarkGray),
                             ),
                             if !self.debug_mode {
-                                Span::styled(" [Alt+T折叠]", Style::default().fg(Color::DarkGray))
+                                Span::styled(" [Alt+T] 折叠", Style::default().fg(Color::DarkGray))
                             } else {
                                 Span::raw("")
                             },
@@ -303,17 +303,17 @@ impl TuiApp {
                         truncate(preview, max_w.saturating_sub(name.len() + 10))
                     } else {
                         match name.as_str() {
-                            "read" => format!("{} lines", line_count),
-                            "write" => "written".into(),
-                            "edit" | "multi_edit" => "applied".into(),
+                            "read" => format!("{} 行", line_count),
+                            "write" => "已写入".into(),
+                            "edit" | "multi_edit" => "已应用".into(),
                             "bash" => {
                                 if line_count <= 1 {
                                     truncate(preview, max_w.saturating_sub(name.len() + 10))
                                 } else {
-                                    format!("{} lines output", line_count)
+                                    format!("{} 行输出", line_count)
                                 }
                             }
-                            "search" | "glob" | "ls" => format!("{} results", line_count),
+                            "search" | "glob" | "ls" => format!("{} 结果", line_count),
                             _ => truncate(preview, max_w.saturating_sub(name.len() + 10)),
                         }
                     };
@@ -401,7 +401,7 @@ impl TuiApp {
                     } else if *is_error {
                         // Error: show with red border for prominence (single-line style)
                         lines.push(Line::styled(
-                            "  ┌─ ERROR ───────────────────────────┐",
+                            "  ┌─ 错误 ───────────────────────────┐",
                             Style::default().fg(Color::Red),
                         ));
                         for line in msg.content.lines().take(preview_count) {
@@ -414,7 +414,7 @@ impl TuiApp {
                         let total_lines = msg.content.lines().count();
                         if total_lines > preview_count {
                             lines.push(Line::styled(
-                                format!("  │ ... ({} more lines)", total_lines - preview_count),
+                                format!("  │ ... ({} 更多行)", total_lines - preview_count),
                                 Style::default().fg(Color::DarkGray),
                             ));
                         }
@@ -438,7 +438,7 @@ impl TuiApp {
                             let total_lines = msg.content.lines().count();
                             if total_lines > preview_count {
                                 lines.push(Line::styled(
-                                    format!("    … ({} more)", total_lines - preview_count),
+                                    format!("    … ({} 更多)", total_lines - preview_count),
                                     Style::default().fg(Color::DarkGray),
                                 ));
                             }
@@ -464,7 +464,7 @@ impl TuiApp {
                             let total_lines = msg.content.lines().skip(1).count();
                             if total_lines > preview_count {
                                 lines.push(Line::styled(
-                                    format!("    … ({} more lines)", total_lines - preview_count),
+                                    format!("    … ({} 更多行)", total_lines - preview_count),
                                     Style::default().fg(Color::DarkGray),
                                 ));
                             }
@@ -481,7 +481,7 @@ impl TuiApp {
                             let total_lines = msg.content.lines().skip(1).count();
                             if total_lines > preview_count {
                                 lines.push(Line::styled(
-                                    format!("    … ({} more lines)", total_lines - preview_count),
+                                    format!("    … ({} 更多行)", total_lines - preview_count),
                                     Style::default().fg(Color::DarkGray),
                                 ));
                             }
@@ -560,7 +560,7 @@ impl TuiApp {
                             }
                         }
                         all_spans.push(Span::styled(
-                            "  [Tab切换]",
+                            "  [Tab] 切换",
                             Style::default().fg(Color::DarkGray),
                         ));
 
@@ -651,7 +651,7 @@ impl TuiApp {
                                     && option_idx == self.ask_selected_index
                                     && !actually_checked
                                 {
-                                    " ✏️Enter自定义"
+                                    " ✏️ [Enter] 自定义"
                                 } else {
                                     ""
                                 };
@@ -792,7 +792,7 @@ impl TuiApp {
                             ));
                         } else {
                             lines.push(Line::styled(
-                                "  ◇ 无选中项",
+                                "  ◇ 未选择",
                                 Style::default().fg(Color::DarkGray),
                             ));
                         }
@@ -840,20 +840,20 @@ impl TuiApp {
         if self.waiting_for_session {
             lines.push(Line::styled("", Style::default()));
             lines.push(Line::styled(
-                "Session Selector",
+                "会话选择器",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ));
             lines.push(Line::styled(
-                "Use arrow keys to navigate, Enter to load, Esc to cancel",
+                "[↑↓] 导航  [Enter] 加载  [Esc] 取消",
                 Style::default().fg(Color::DarkGray),
             ));
             lines.push(Line::raw(""));
 
             if self.session_list.is_empty() {
                 lines.push(Line::styled(
-                    "Loading sessions...",
+                    "加载会话列表...",
                     Style::default().fg(Color::Yellow),
                 ));
             } else {
@@ -904,7 +904,7 @@ impl TuiApp {
 
                     // Message count
                     spans.push(Span::styled(
-                        format!("{} messages", session.message_count),
+                        format!("{} 条消息", session.message_count),
                         Style::default().fg(Color::Gray),
                     ));
 
@@ -924,7 +924,7 @@ impl TuiApp {
                 // Footer hint
                 lines.push(Line::raw(""));
                 lines.push(Line::styled(
-                    format!("{} sessions found", self.session_list.len()),
+                    format!("找到 {} 个会话", self.session_list.len()),
                     Style::default().fg(Color::DarkGray),
                 ));
             }
@@ -1043,7 +1043,7 @@ impl TuiApp {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
-                Span::styled(" [Esc取消]", Style::default().fg(Color::DarkGray)),
+                Span::styled(" [Esc] 取消", Style::default().fg(Color::DarkGray)),
             ]));
 
             // Show full command/input details on separate lines
@@ -1097,15 +1097,11 @@ impl TuiApp {
 
         // Render with scroll indicator
         if !self.auto_scroll && max_scroll > 0 {
-            let pct = (scroll_offset as f64 / max_scroll as f64 * 100.0) as u16;
             // Show notification if new message arrived while scrolled
             let notification = if self.new_message_while_scrolled.get() {
-                " 📥 新消息! (按End跳转)".to_string()
+                " 📥 新消息! [End] 查看"
             } else {
-                format!(
-                    " ↑ {}/{} ({:.0}%) — End to bottom",
-                    scroll_offset, max_scroll, pct
-                )
+                " ↑ 滚动中 [End] 底部"
             };
             let notification_color = if self.new_message_while_scrolled.get() {
                 Color::Yellow
