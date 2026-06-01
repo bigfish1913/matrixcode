@@ -164,11 +164,9 @@ impl Agent {
                                 preview.push_str(content);
                                 preview.push_str("\n");
                             }
-                            // Handle other block types
-                            ContentBlock::Thinking { thinking, .. } => {
-                                preview.push_str("[Thinking]\n");
-                                preview.push_str(thinking);
-                                preview.push_str("\n");
+                            // Thinking blocks are NOT sent to LLM, skip them
+                            ContentBlock::Thinking { .. } => {
+                                continue;
                             }
                             ContentBlock::ServerToolUse { name, .. } => {
                                 preview.push_str(&format!("[Server Tool: {}]\n", name));
@@ -179,7 +177,7 @@ impl Agent {
                                 preview.push_str("\n");
                             }
                             _ => {
-                                preview.push_str("[Other Content]\n");
+                                continue; // Skip other non-sendable content
                             }
                         }
                     }
