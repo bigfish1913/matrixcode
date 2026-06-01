@@ -76,13 +76,15 @@ impl OpenAIProvider {
                 (Role::Assistant, MessageContent::Blocks(blocks)) => {
                     let mut tool_calls = Vec::new();
                     let mut text_parts = Vec::new();
-                    let mut reasoning_parts = Vec::new();
+                    // Note: We intentionally DO NOT include thinking/reasoning blocks from history
+                    // to prevent the model from repeating similar thinking patterns.
+                    // Thinking blocks are for user visibility only, not for API context.
 
                     for block in blocks {
                         match block {
-                            ContentBlock::Thinking { thinking, .. } => {
-                                // DeepSeek requires reasoning_content before content
-                                reasoning_parts.push(thinking.clone());
+                            // Skip thinking blocks - they should not be sent back to the API
+                            ContentBlock::Thinking { .. } => {
+                                continue;
                             }
                             ContentBlock::Text { text } => text_parts.push(text.clone()),
                             ContentBlock::ToolUse { id, name, input } => {
@@ -100,10 +102,7 @@ impl OpenAIProvider {
                     }
 
                     let mut msg_obj = json!({"role": "assistant"});
-                    // DeepSeek: reasoning_content must be before content
-                    if !reasoning_parts.is_empty() {
-                        msg_obj["reasoning_content"] = json!(reasoning_parts.join("\n"));
-                    }
+                    // Note: reasoning_content is NOT included from history to prevent repeated thinking
                     if !text_parts.is_empty() {
                         msg_obj["content"] = json!(text_parts.join("\n"));
                     }

@@ -206,18 +206,39 @@ impl OptimizedCompressor {
     }
 
     /// Inject focus message at the beginning of compressed messages.
+    /// If a focus message already exists, it will be replaced (not duplicated).
     fn inject_focus_message(&self, mut compressed: Vec<Message>, focus: &ConversationFocus) -> Vec<Message> {
         // Create focus message
         let focus_msg = self.focus_tracker.create_focus_message(focus);
-        
-        // Insert after system messages but before other content
-        let insert_pos = compressed.iter()
-            .position(|m| !matches!(m.role, Role::System))
-            .unwrap_or(1);
-        
-        compressed.insert(insert_pos, focus_msg);
-        
-        log::info!("Injected focus message at position {}", insert_pos);
+
+        // Check if a focus message already exists
+        let existing_focus_pos = compressed.iter().position(|m| {
+            if matches!(m.role, Role::System) {
+                match &m.content {
+                    MessageContent::Text(t) => {
+                        t.contains("焦点") || t.contains("Focus") || t.contains("【焦点上下文】")
+                    }
+                    _ => false
+                }
+            } else {
+                false
+            }
+        });
+
+        if let Some(pos) = existing_focus_pos {
+            // Replace existing focus message
+            compressed[pos] = focus_msg;
+            log::info!("Replaced existing focus message at position {}", pos);
+        } else {
+            // Insert after system messages but before other content
+            let insert_pos = compressed.iter()
+                .position(|m| !matches!(m.role, Role::System))
+                .unwrap_or(1);
+
+            compressed.insert(insert_pos, focus_msg);
+            log::info!("Injected new focus message at position {}", insert_pos);
+        }
+
         compressed
     }
 

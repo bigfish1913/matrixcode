@@ -696,18 +696,40 @@ impl IntegratedLongContextProcessor {
     ///
     /// The focus message is inserted after system messages to provide
     /// context about the current conversation focus.
+    /// If a focus message already exists, it will be replaced (not duplicated).
     fn inject_focus_message(&self, messages: Vec<Message>, focus: &ConversationFocus) -> Vec<Message> {
         let focus_msg = self.focus_tracker.create_focus_message(focus);
 
-        // Find insertion point: after system messages
-        let insert_pos = messages.iter()
-            .position(|m| !matches!(m.role, crate::providers::Role::System))
-            .unwrap_or(0);
+        // Check if a focus message already exists (System message containing "焦点" or "Focus")
+        let existing_focus_pos = messages.iter().position(|m| {
+            if matches!(m.role, crate::providers::Role::System) {
+                match &m.content {
+                    crate::providers::MessageContent::Text(t) => {
+                        t.contains("焦点") || t.contains("Focus") || t.contains("【焦点上下文】")
+                    }
+                    _ => false
+                }
+            } else {
+                false
+            }
+        });
 
         let mut result = messages;
-        result.insert(insert_pos, focus_msg);
 
-        log::debug!("Focus message injected at position {}", insert_pos);
+        if let Some(pos) = existing_focus_pos {
+            // Replace existing focus message
+            result[pos] = focus_msg;
+            log::debug!("Focus message replaced at position {}", pos);
+        } else {
+            // Insert new focus message after system messages
+            let insert_pos = result.iter()
+                .position(|m| !matches!(m.role, crate::providers::Role::System))
+                .unwrap_or(0);
+
+            result.insert(insert_pos, focus_msg);
+            log::debug!("Focus message injected at position {}", insert_pos);
+        }
+
         result
     }
 

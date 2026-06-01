@@ -87,13 +87,14 @@ impl AnthropicProvider {
     }
 
     fn convert_messages(&self, messages: &[Message]) -> Vec<Value> {
-        // For non-official APIs (like glm-5/DashScope), filter out thinking blocks
-        // to prevent API from entering extended thinking mode and hanging
-        // This is necessary because some APIs don't properly support thinking blocks
-        let filter_thinking = !self.is_official_anthropic();
+        // Always filter out thinking blocks from message history.
+        // Thinking blocks should NOT be sent back to the API because:
+        // 1. They consume significant tokens without adding value
+        // 2. They can cause the model to repeat similar thinking patterns
+        // 3. Anthropic's thinking is meant for user visibility, not for context
+        // Note: The current turn's thinking is handled separately by the API
         log::debug!(
-            "convert_messages: filter_thinking={}, base_url={}",
-            filter_thinking,
+            "convert_messages: always filtering thinking blocks, base_url={}",
             self.base_url
         );
 
@@ -110,10 +111,9 @@ impl AnthropicProvider {
         }
         if thinking_count > 0 {
             log::debug!(
-                "convert_messages: Found {} thinking blocks in {} messages, filter_thinking={}",
+                "convert_messages: Filtering {} thinking blocks from {} messages",
                 thinking_count,
-                messages.len(),
-                filter_thinking
+                messages.len()
             );
         }
 
@@ -133,8 +133,8 @@ impl AnthropicProvider {
                         let converted: Vec<Value> = blocks
                             .iter()
                             .filter(|b| {
-                                // Skip thinking blocks for non-official APIs
-                                if filter_thinking && matches!(b, ContentBlock::Thinking { .. }) {
+                                // Always skip thinking blocks - they should not be sent back
+                                if matches!(b, ContentBlock::Thinking { .. }) {
                                     return false;
                                 }
                                 true
