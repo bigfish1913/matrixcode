@@ -142,11 +142,11 @@ impl Agent {
                                 // Content will be added from Done event's resp.content
                                 if !current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_end())?;
-                                    // Don't push - will be added from resp.content
+                                    current_thinking.clear();
                                 }
                                 if !current_text.is_empty() {
                                     self.emit(AgentEvent::text_end())?;
-                                    // Don't push - will be added from resp.content
+                                    current_text.clear();
                                 }
                                 self.emit(AgentEvent::tool_use_start(&id, &name, None))?;
                             }
@@ -175,19 +175,40 @@ impl Agent {
                                 // Final drain of pending inputs before completing
                                 self.drain_pending_inputs();
 
-                                // Don't add current_thinking/current_text here - use resp.content directly
-                                // This avoids duplicates since resp.content contains everything
-                                // Just emit events for UI updates if we have pending content
+                                // IMPORTANT: Add current_thinking/current_text to response_content FIRST
+                                // before checking for duplicates from resp.content
+                                // This ensures all streamed content is preserved
                                 if !current_thinking.is_empty() {
                                     self.emit(AgentEvent::thinking_end())?;
-                                    // Don't push to response_content - will be added from resp.content
+                                    // Add to response_content with signature from resp if available
+                                    let signature = resp.content.iter()
+                                        .find_map(|b| {
+                                            if let ContentBlock::Thinking { thinking, signature } = b {
+                                                if thinking == &current_thinking {
+                                                    signature.clone()
+                                                } else {
+                                                    None
+                                                }
+                                            } else {
+                                                None
+                                            }
+                                        });
+                                    response_content.push(ContentBlock::Thinking {
+                                        thinking: current_thinking.clone(),
+                                        signature,
+                                    });
+                                    current_thinking.clear();
                                 }
                                 if !current_text.is_empty() {
                                     self.emit(AgentEvent::text_end())?;
-                                    // Don't push to response_content - will be added from resp.content
+                                    // Add to response_content
+                                    response_content.push(ContentBlock::Text {
+                                        text: current_text.clone(),
+                                    });
+                                    current_text.clear();
                                 }
 
-                                // Add all blocks from final response with smart deduplication
+                                // Then add any additional blocks from final response that are NOT duplicates
                                 for block in &resp.content {
                                     // Smart deduplication: compare content, not entire block
                                     let is_duplicate = response_content.iter().any(|b| {
