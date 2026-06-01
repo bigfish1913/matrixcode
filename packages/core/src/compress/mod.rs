@@ -21,7 +21,6 @@
 //! - **complexity**: Complexity analysis for adaptive compression
 //! - **hierarchical**: Hierarchical summarization strategies
 
-mod ai_focus_tracker;
 mod compressor;
 mod config;
 mod dependency;
@@ -39,7 +38,6 @@ mod focus;
 mod focus_config;
 mod focus_point;
 mod focus_extractor;
-mod focus_score_evaluator;
 mod prompts_zh;
 mod coherence;
 mod progressive;
@@ -49,7 +47,6 @@ mod hardcode_config;
 mod integrated_processor;
 
 // Re-export all public items
-pub use ai_focus_tracker::*;
 pub use compressor::*;
 pub use integrated_processor::*;
 pub use config::*;
@@ -68,7 +65,6 @@ pub use focus::*;
 pub use focus_config::*;
 pub use focus_point::*;
 pub use focus_extractor::*;
-pub use focus_score_evaluator::*;
 pub use coherence::*;
 pub use progressive::*;
 pub use complexity::*;

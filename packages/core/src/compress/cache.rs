@@ -318,9 +318,6 @@ pub struct ExtendedCompressionCache {
 /// 扩展缓存配置
 #[derive(Debug, Clone)]
 pub struct ExtendedCacheConfig {
-    /// 优先级分数缓存有效期
-    #[allow(dead_code)]
-    priority_validity: Duration,
     /// 焦点预测缓存最大数量
     max_focus_predictions: usize,
     /// 复杂度缓存最大数量
@@ -330,7 +327,6 @@ pub struct ExtendedCacheConfig {
 impl Default for ExtendedCacheConfig {
     fn default() -> Self {
         Self {
-            priority_validity: Duration::from_secs(600),  // 10 minutes
             max_focus_predictions: 50,
             max_complexity_entries: 20,
         }

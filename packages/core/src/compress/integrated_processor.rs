@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::memory::{PatternRegistry, UnifiedExtractor, UnifiedExtractionResult, FocusDecision, FocusType as MemoryFocusType};
 use crate::providers::{Message, Provider};
 use crate::compress::{
-    AiFocusTracker, CoherenceDetector, ConversationFocus,
+    CoherenceDetector, ConversationFocus,
     FocusTracker, ProgressiveCompressor, FocusManager, FocusPoint, FocusStatus,
     TopicTransition, FocusType,
     hardcode_config::HardcodeConfig,
@@ -109,7 +109,7 @@ impl ProcessorConfig {
 ///
 /// This processor coordinates:
 /// 1. Unified extraction (one AI call for all information)
-/// 2. AI-driven focus tracking with intelligent analysis
+/// 2. Rule-based focus tracking
 /// 3. Coherence-based segmentation
 /// 4. Progressive compression with focus priority
 /// 5. Focus message injection
@@ -120,9 +120,7 @@ pub struct IntegratedLongContextProcessor {
     unified_extractor: UnifiedExtractor,
     /// Pattern registry for learning patterns.
     pattern_registry: PatternRegistry,
-    /// AI-driven focus tracker for intelligent focus analysis.
-    ai_focus_tracker: Option<AiFocusTracker>,
-    /// Rule-based focus tracker (fallback when AI is not available).
+    /// Rule-based focus tracker.
     focus_tracker: FocusTracker,
     /// Focus manager for multi-focus tracking and selection.
     focus_manager: FocusManager,
@@ -134,8 +132,6 @@ pub struct IntegratedLongContextProcessor {
     config: ProcessorConfig,
     /// Hardcode configuration.
     hardcode_config: HardcodeConfig,
-    /// Whether to use AI-driven focus tracking.
-    use_ai_focus: bool,
 }
 
 impl IntegratedLongContextProcessor {
@@ -147,12 +143,10 @@ impl IntegratedLongContextProcessor {
     /// * `config` - Processor configuration.
     pub fn new(provider: Box<dyn Provider>, model: String, config: ProcessorConfig) -> Self {
         let hardcode_config = HardcodeConfig::default();
-        let ai_focus_tracker = AiFocusTracker::new(provider.clone_box(), model.clone());
 
         Self {
             unified_extractor: UnifiedExtractor::new(provider, model),
             pattern_registry: PatternRegistry::new(),
-            ai_focus_tracker: Some(ai_focus_tracker),
             focus_tracker: FocusTracker::new(),
             focus_manager: FocusManager::new(),
             coherence_detector: CoherenceDetector::new_with_registry(
@@ -162,7 +156,6 @@ impl IntegratedLongContextProcessor {
             progressive_compressor: ProgressiveCompressor::default_config(),
             config,
             hardcode_config,
-            use_ai_focus: true,
         }
     }
 
@@ -188,7 +181,6 @@ impl IntegratedLongContextProcessor {
         Self {
             unified_extractor: UnifiedExtractor::new(provider, model),
             pattern_registry: PatternRegistry::new(),
-            ai_focus_tracker: None,
             focus_tracker: FocusTracker::new(),
             focus_manager: FocusManager::new(),
             coherence_detector: CoherenceDetector::new_with_registry(
@@ -198,7 +190,6 @@ impl IntegratedLongContextProcessor {
             progressive_compressor: ProgressiveCompressor::default_config(),
             config: ProcessorConfig::default(),
             hardcode_config,
-            use_ai_focus: false,
         }
     }
 
@@ -282,22 +273,12 @@ impl IntegratedLongContextProcessor {
 
         // Step 2: One-time extraction with focus selection
         let text = self.format_messages(&messages);
-        let extraction = if self.use_ai_focus {
-            // Use new method that includes focus selection
-            self.unified_extractor.extract_unified_with_foci(
-                &text,
-                &existing_foci,
-                session_id,
-                project_path,
-            ).await?
-        } else {
-            // Fallback: use old method without focus selection
-            self.unified_extractor.extract_unified(
-                &text,
-                session_id,
-                project_path,
-            ).await?
-        };
+        let extraction = self.unified_extractor.extract_unified_with_foci(
+            &text,
+            &existing_foci,
+            session_id,
+            project_path,
+        ).await?;
 
         // Step 3: Update FocusManager based on AI's focus_decision
         let focus = if let Some(decision) = &extraction.focus_decision {
@@ -709,77 +690,6 @@ impl IntegratedLongContextProcessor {
         }
     }
 
-    /// Process messages with AI-driven focus tracking.
-    ///
-    /// This method analyzes key messages using the AI focus tracker
-    /// to determine relevance and update focus intelligently.
-    #[allow(dead_code)]
-    async fn process_with_ai_focus(
-        &mut self,
-        messages: &[Message],
-        extraction: &UnifiedExtractionResult,
-    ) -> Result<ConversationFocus> {
-        let tracker = self.ai_focus_tracker.as_mut().ok_or_else(|| {
-            anyhow::anyhow!("AI focus tracker not available")
-        })?;
-
-        // Initialize focus from extraction if available
-        if !extraction.focus_points.is_empty() {
-            let latest_focus = extraction.focus_points.last().unwrap();
-            let focus = ConversationFocus {
-                current_topic: Some(latest_focus.topic.clone()),
-                current_question: latest_focus.core_question.clone(),
-                recent_context: latest_focus.keywords.iter()
-                    .take(self.config.preserve_last_n)
-                    .cloned()
-                    .collect(),
-                topic_transitions: Vec::new(),
-                detected_at: 0,
-            };
-            tracker.set_focus(focus);
-        }
-
-        // Analyze key messages (only user messages and important ones)
-        // Limit to avoid excessive API calls
-        let max_analysis = std::cmp::min(5, messages.len());
-        let key_indices: Vec<usize> = messages.iter()
-            .enumerate()
-            .filter(|(idx, msg)| {
-                // Analyze: user messages, first message, last message
-                matches!(msg.role, crate::providers::Role::User)
-                    || *idx == 0
-                    || *idx == messages.len() - 1
-            })
-            .map(|(idx, _)| idx)
-            .take(max_analysis)
-            .collect();
-
-        // Analyze each key message
-        for idx in key_indices {
-            let msg = &messages[idx];
-            let result = tracker.analyze_message(msg).await?;
-
-            log::debug!(
-                "Focus analysis for message {}: relevance={}, is_update={}, reason={}",
-                idx, result.relevance, result.is_focus_update, result.reason
-            );
-
-            // Update focus based on analysis
-            if result.is_focus_update {
-                log::info!(
-                    "Focus updated: new_topic={}, new_question={}",
-                    result.new_topic.as_ref().unwrap_or(&"none".to_string()),
-                    result.new_question.as_ref().unwrap_or(&"none".to_string())
-                );
-            }
-        }
-
-        // Return current focus (or fallback if none established)
-        Ok(tracker.current_focus()
-            .cloned()
-            .unwrap_or_else(|| tracker.detect_focus_fallback(messages)))
-    }
-
     /// Inject focus message into the message list.
     ///
     /// The focus message is inserted after system messages to provide
@@ -1114,21 +1024,19 @@ mod tests {
     }
 
     fn create_test_processor() -> IntegratedLongContextProcessor {
-        // Create a minimal processor for testing (without AI focus)
+        // Create a minimal processor for testing
         let config = ProcessorConfig::default();
         let hardcode_config = HardcodeConfig::default();
 
         IntegratedLongContextProcessor {
             unified_extractor: UnifiedExtractor::new_minimal("test-model".to_string()),
             pattern_registry: PatternRegistry::new(),
-            ai_focus_tracker: None,
             focus_tracker: FocusTracker::new(),
             focus_manager: FocusManager::new(),
             coherence_detector: CoherenceDetector::new(config.coherence_threshold),
             progressive_compressor: ProgressiveCompressor::default_config(),
             config,
             hardcode_config,
-            use_ai_focus: false,
         }
     }
 }

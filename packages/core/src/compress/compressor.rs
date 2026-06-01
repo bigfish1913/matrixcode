@@ -502,22 +502,6 @@ pub fn estimate_tokens(message: &Message) -> u32 {
     content_tokens + role_tokens + message_overhead()
 }
 
-/// Legacy char counting function (deprecated, kept for backward compatibility).
-#[deprecated(note = "Use estimate_tokens with tiktoken instead")]
-#[allow(dead_code)]
-fn count_chars(s: &str) -> (u32, u32) {
-    let mut ascii = 0u32;
-    let mut non_ascii = 0u32;
-    for ch in s.chars() {
-        if ch.is_ascii() {
-            ascii += 1;
-        } else {
-            non_ascii += 1;
-        }
-    }
-    (ascii, non_ascii)
-}
-
 /// Estimate total tokens for a message list.
 pub fn estimate_total_tokens(messages: &[Message]) -> u32 {
     messages.iter().map(estimate_tokens).sum()

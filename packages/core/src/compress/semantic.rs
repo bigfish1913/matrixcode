@@ -39,12 +39,7 @@ pub struct Issue {
 }
 
 /// Semantic compressor that uses AI to summarize messages.
-#[allow(dead_code)]
 pub struct SemanticCompressor {
-    /// Minimum tokens to trigger summarization
-    min_tokens_for_summary: u32,
-    /// Target compression ratio for summarization
-    target_ratio: f32,
     /// Hardcode configuration
     hardcode_config: HardcodeConfig,
 }
@@ -52,18 +47,14 @@ pub struct SemanticCompressor {
 impl Default for SemanticCompressor {
     fn default() -> Self {
         Self {
-            min_tokens_for_summary: 1000, // Don't summarize small segments
-            target_ratio: 0.3,            // Compress to 30% of original
             hardcode_config: HardcodeConfig::default(),
         }
     }
 }
 
 impl SemanticCompressor {
-    pub fn new(min_tokens: u32, target_ratio: f32) -> Self {
+    pub fn new() -> Self {
         Self {
-            min_tokens_for_summary: min_tokens,
-            target_ratio,
             hardcode_config: HardcodeConfig::default(),
         }
     }

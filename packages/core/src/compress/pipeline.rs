@@ -32,9 +32,6 @@ pub struct CompressionPipeline {
     tool_compressor: ToolCompressor,
     /// Circuit breaker state for preventing infinite retries.
     circuit_breaker: CircuitBreakerState,
-    /// Hardcoded configuration values.
-    #[allow(dead_code)]
-    hardcode_config: HardcodeConfig,
 }
 
 /// Result of compression with metadata.
@@ -79,7 +76,6 @@ impl CompressionPipeline {
             scorer: Scorer::new_rule_only(),
             tool_compressor: ToolCompressor::new_truncate_only(thresholds),
             circuit_breaker: CircuitBreakerState::new(),
-            hardcode_config: HardcodeConfig::default(),
         }
     }
 
@@ -93,7 +89,6 @@ impl CompressionPipeline {
             scorer: Scorer::new_with_ai(fast_model),
             tool_compressor: ToolCompressor::new_with_ai(summarizer, thresholds),
             circuit_breaker: CircuitBreakerState::new(),
-            hardcode_config: HardcodeConfig::default(),
         }
     }
 
@@ -111,7 +106,6 @@ impl CompressionPipeline {
             scorer: Scorer::new_with_ai(fast_model),
             tool_compressor: ToolCompressor::new_with_ai(summarizer, thresholds),
             circuit_breaker: CircuitBreakerState::new(),
-            hardcode_config: HardcodeConfig::default(),
         }
     }
 

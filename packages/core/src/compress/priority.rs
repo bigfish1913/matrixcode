@@ -4,7 +4,6 @@
 //! multiple factors such as importance, recency, tool usage, and code content.
 
 use crate::providers::{ContentBlock, Message, MessageContent, Role};
-use std::collections::HashSet;
 
 /// Priority score for a message (0.0 to 1.0).
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -89,10 +88,8 @@ impl Default for PriorityWeights {
 }
 
 /// Dynamic priority scorer.
-#[allow(dead_code)]
 pub struct PriorityScorer {
     weights: PriorityWeights,
-    important_keywords: HashSet<String>,
 }
 
 impl Default for PriorityScorer {
@@ -103,30 +100,9 @@ impl Default for PriorityScorer {
 
 impl PriorityScorer {
     pub fn new(weights: PriorityWeights) -> Self {
-        let important_keywords = Self::build_keyword_set();
         Self {
             weights,
-            important_keywords,
         }
-    }
-
-    /// Build a set of important keywords that indicate high priority.
-    fn build_keyword_set() -> HashSet<String> {
-        let keywords = [
-            // Decision keywords
-            "important", "critical", "essential", "必须", "重要",
-            "决定", "选择", "decided", "chose", "selected",
-            // Action keywords
-            "fix", "解决", "修复", "implement", "实现", "create", "创建",
-            // Error keywords
-            "error", "错误", "failed", "失败", "exception", "异常",
-            // Success keywords
-            "success", "成功", "completed", "完成", "done", "完成",
-            // Requirement keywords
-            "requirement", "需求", "spec", "规范", "constraint", "约束",
-        ];
-
-        keywords.iter().map(|s| s.to_lowercase()).collect()
     }
 
     /// Extract priority factors from a message.
@@ -310,16 +286,6 @@ impl PriorityScorer {
             "Low"
         }
     }
-}
-
-/// Message with priority score.
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct PriorityScoredMessage {
-    pub message: Message,
-    pub score: PriorityScore,
-    pub position: usize,
-    pub factors: PriorityFactors,
 }
 
 #[cfg(test)]
