@@ -49,11 +49,15 @@
 //! }
 //! ```
 
+pub mod client;
 pub mod manager;
+pub mod transport;
 pub mod types;
 
 // Re-export main types
+pub use client::{LspClient, HoverResult, format_location, format_diagnostic, format_hover_result, path_to_uri};
 pub use manager::{LspManager, find_lsp_config, load_lsp_config};
+pub use transport::LspTransport;
 pub use types::{
     LspConfig, LspServerConfig, LspServerInfo, LspServerStatus, default_lsp_config,
     default_python_config, default_rust_analyzer_config, default_typescript_config,
