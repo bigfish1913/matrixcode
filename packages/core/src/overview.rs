@@ -638,18 +638,6 @@ pub fn truncate_content(content: &str, max_len: usize) -> String {
     }
 }
 
-/// Extract content from AI response.
-#[allow(dead_code)]
-fn extract_response_content(response: &crate::providers::ChatResponse) -> String {
-    let mut content = String::new();
-    for block in &response.content {
-        if let crate::providers::ContentBlock::Text { text } = block {
-            content.push_str(text);
-        }
-    }
-    content
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

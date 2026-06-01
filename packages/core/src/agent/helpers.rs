@@ -309,39 +309,6 @@ impl Agent {
         }
         false
     }
-    
-    /// Legacy method for backwards compatibility
-    #[allow(dead_code)]
-    pub(crate) fn get_pending_todos(&self) -> Vec<(String, String)> {
-        // Find the most recent todo_write (current state)
-        for msg in self.messages.iter().rev().take(10) {
-            if let MessageContent::Blocks(blocks) = &msg.content {
-                for block in blocks {
-                    if let ContentBlock::ToolUse { name, input, .. } = block
-                        && name == "todo_write"
-                    {
-                        // Extract non-completed todos from this todo_write
-                        if let Some(todos) = input.get("todos").and_then(|t| t.as_array()) {
-                            let pending: Vec<(String, String)> = todos
-                                .iter()
-                                .filter_map(|todo| {
-                                    let status = todo.get("status").and_then(|s| s.as_str())?;
-                                    let content = todo.get("content").and_then(|c| c.as_str())?;
-                                    if status != "completed" {
-                                        Some((status.to_string(), content.to_string()))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-                            return pending; // Return immediately - this is the current state
-                        }
-                    }
-                }
-            }
-        }
-        Vec::new()
-    }
 }
 
 /// Extract tool detail for display

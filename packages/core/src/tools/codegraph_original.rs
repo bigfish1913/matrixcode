@@ -646,36 +646,6 @@ fn get_git_head_sha(project_path: &Path) -> Option<String> {
         })
 }
 
-/// Get all Git tracked files (for efficient init).
-#[allow(dead_code)]
-fn get_git_tracked_files(project_path: &Path) -> Vec<PathBuf> {
-    std::process::Command::new("git")
-        .args(["ls-files"])
-        .current_dir(project_path)
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(
-                    String::from_utf8_lossy(&o.stdout)
-                        .lines()
-                        .filter_map(|line| {
-                            let path = project_path.join(line);
-                            if is_source_file(&path) {
-                                Some(path)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect(),
-                )
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default()
-}
-
 /// Get changed files via git status --porcelain.
 /// Returns (modified, added, deleted) file lists.
 fn get_git_status_changes(project_path: &Path) -> GitStatusChanges {
@@ -760,11 +730,6 @@ struct GitStatusChanges {
 impl GitStatusChanges {
     fn has_changes(&self) -> bool {
         !self.modified.is_empty() || !self.added.is_empty() || !self.deleted.is_empty()
-    }
-
-    #[allow(dead_code)]
-    fn total_count(&self) -> usize {
-        self.modified.len() + self.added.len() + self.deleted.len()
     }
 }
 

@@ -46,7 +46,6 @@ pub(crate) const MAX_ITERATIONS: usize = 200;
 /// - Complex task (build system): ~40-50 iterations (may hit limit)
 ///
 /// Full Agent with event output
-#[allow(dead_code)]
 pub struct Agent {
     pub(crate) provider: Box<dyn Provider>,
     pub(crate) model_name: String,

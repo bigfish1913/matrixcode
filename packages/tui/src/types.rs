@@ -85,60 +85,10 @@ pub enum Role {
     Ask, // Approval/question requests - needs prominent display
 }
 
-impl Role {
-    #[allow(dead_code)]
-    pub fn icon(&self) -> &'static str {
-        match self {
-            Role::User => "👤",
-            Role::Assistant => "🤖",
-            Role::Thinking => "💭",
-            Role::Tool { is_error, .. } => {
-                if *is_error {
-                    "❌"
-                } else {
-                    "✅"
-                }
-            }
-            Role::System => "⚠️",
-            Role::Ask => "⚡",
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn label(&self) -> String {
-        match self {
-            Role::User => "You".into(),
-            Role::Assistant => "Assistant".into(),
-            Role::Thinking => "Thinking".into(),
-            Role::Tool { name, .. } => name.clone(),
-            Role::System => "System".into(),
-            Role::Ask => "AWAITING".into(),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn color(&self) -> Color {
-        match self {
-            Role::User => Color::Green,
-            Role::Assistant => Color::Blue,
-            Role::Thinking => Color::Magenta,
-            Role::Tool { is_error, .. } => {
-                if *is_error {
-                    Color::Red
-                } else {
-                    Color::Cyan
-                }
-            }
-            Role::System => Color::Yellow,
-            Role::Ask => Color::Yellow,
-        }
-    }
-}
+impl Role {}
 
 /// Ask option for interactive selection
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct AskOption {
     pub id: String,
     pub label: String,

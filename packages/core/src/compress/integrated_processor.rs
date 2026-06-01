@@ -114,7 +114,9 @@ impl ProcessorConfig {
 /// 4. Progressive compression with focus priority
 /// 5. Focus message injection
 /// 6. Pattern learning
-#[allow(dead_code)]
+///
+/// Note: This processor is fully implemented and tested but not yet integrated
+/// into the main agent loop. Reserved for future use.
 pub struct IntegratedLongContextProcessor {
     /// Unified extractor for one-time extraction.
     unified_extractor: UnifiedExtractor,

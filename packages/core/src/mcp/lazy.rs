@@ -169,7 +169,7 @@ pub struct LazyMcpLoader {
     /// MCP 配置
     config: McpConfig,
 
-    /// 预先创建的懒加载工具（预留字段）
+    /// 预先创建的懒加载工具（预留字段，未来用于缓存已发现的工具）
     #[allow(dead_code)]
     tools: Vec<LazyMcpTool>,
 }

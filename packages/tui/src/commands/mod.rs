@@ -85,7 +85,8 @@ pub trait Command: Send + Sync {
         &[]
     }
 
-    /// Help text for the command
+    /// Help text for the command (optional, for documentation).
+    /// Implemented by many commands but not yet displayed in UI.
     #[allow(dead_code)]
     fn help(&self) -> Option<&'static str> {
         None

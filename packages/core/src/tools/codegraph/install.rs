@@ -121,25 +121,6 @@ pub async fn install_codegraph() -> Result<()> {
     }
 }
 
-/// CodeGraph installation status.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum CodeGraphInstallStatus {
-    /// Already installed and available.
-    Installed(String),
-    /// Not installed, needs user approval to install.
-    NotInstalled,
-}
-
-/// Check CodeGraph installation status (no auto-install).
-#[allow(dead_code)]
-pub fn check_codegraph_status() -> CodeGraphInstallStatus {
-    match get_codegraph_path() {
-        Some(path) => CodeGraphInstallStatus::Installed(path),
-        None => CodeGraphInstallStatus::NotInstalled,
-    }
-}
-
 /// Ensure CodeGraph is available with optional auto-install.
 pub async fn ensure_codegraph() -> Result<String> {
     if let Some(path) = get_codegraph_path() {
