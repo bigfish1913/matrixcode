@@ -187,52 +187,79 @@ pub fn prepare_mcp_tools(
 
 /// Auto-detect project languages from project files.
 ///
-/// Checks for common project files to determine which languages are used.
+/// Checks common project files to determine which languages are used.
+/// Also checks immediate subdirectories for monorepo/multi-project scenarios.
 ///
 /// Returns set of language identifiers (e.g., "rust", "go", "typescript").
 fn detect_project_languages(project_path: &Path) -> HashSet<&'static str> {
     let mut languages = HashSet::new();
-    
+
+    // First check root directory
+    check_languages_in_dir(project_path, &mut languages);
+
+    // If no languages found at root, check immediate subdirectories
+    // This handles monorepo scenarios like:
+    // - matrixdocs/ (root) -> compile-server/go.mod (subdir)
+    // - matrixcode/ (root) -> packages/cli/Cargo.toml (subdir)
+    if languages.is_empty() {
+        if let Ok(entries) = std::fs::read_dir(project_path) {
+            for entry in entries.flatten() {
+                let subdir = entry.path();
+                if subdir.is_dir() {
+                    // Skip hidden directories and common non-project directories
+                    let dir_name = subdir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if dir_name.starts_with('.') || dir_name == "node_modules" || dir_name == "vendor" {
+                        continue;
+                    }
+                    check_languages_in_dir(&subdir, &mut languages);
+                }
+            }
+        }
+    }
+
+    languages
+}
+
+/// Check for language marker files in a single directory.
+fn check_languages_in_dir(dir: &Path, languages: &mut HashSet<&'static str>) {
     // Rust: Cargo.toml
-    if project_path.join("Cargo.toml").exists() {
+    if dir.join("Cargo.toml").exists() {
         languages.insert("rust");
     }
-    
+
     // Go: go.mod
-    if project_path.join("go.mod").exists() {
+    if dir.join("go.mod").exists() {
         languages.insert("go");
     }
-    
+
     // TypeScript: package.json + tsconfig.json
-    if project_path.join("package.json").exists() {
-        if project_path.join("tsconfig.json").exists() {
+    if dir.join("package.json").exists() {
+        if dir.join("tsconfig.json").exists() {
             languages.insert("typescript");
         } else {
             languages.insert("javascript");
         }
     }
-    
+
     // Python: pyproject.toml, setup.py, requirements.txt
-    if project_path.join("pyproject.toml").exists()
-        || project_path.join("setup.py").exists()
-        || project_path.join("requirements.txt").exists() {
+    if dir.join("pyproject.toml").exists()
+        || dir.join("setup.py").exists()
+        || dir.join("requirements.txt").exists() {
         languages.insert("python");
     }
-    
+
     // C/C++: CMakeLists.txt, Makefile, or .c/.cpp files
-    if project_path.join("CMakeLists.txt").exists()
-        || project_path.join("Makefile").exists()
-        || has_cpp_files(project_path) {
+    if dir.join("CMakeLists.txt").exists()
+        || dir.join("Makefile").exists()
+        || has_cpp_files(dir) {
         languages.insert("cpp");
     }
-    
+
     // Java: pom.xml, build.gradle
-    if project_path.join("pom.xml").exists()
-        || project_path.join("build.gradle").exists() {
+    if dir.join("pom.xml").exists()
+        || dir.join("build.gradle").exists() {
         languages.insert("java");
     }
-    
-    languages
 }
 
 /// Check if project has C/C++ source files.
@@ -269,30 +296,35 @@ fn has_cpp_files(project_path: &Path) -> bool {
 pub fn prepare_lsp_servers(
     _config: &Config,
     project_path: Option<&Path>,
+    start_path: Option<&Path>,
 ) -> Vec<(String, matrixcode_core::lsp::LspServerConfig)> {
     use matrixcode_core::lsp::LspServerConfig;
-    
-    // Detect project languages (if project path provided)
-    let project_languages = project_path
-        .map(|p| detect_project_languages(p))
-        .unwrap_or_else(|| {
-            // No project path: return all available (backward compatibility)
-            log::info!("No project path provided, detecting all installed LSP servers");
-            HashSet::new() // Empty set = detect all
-        });
-    
-    // If no languages detected and project path exists, default to rust
-    if project_path.is_some() && project_languages.is_empty() {
-        log::info!("No project languages detected, defaulting to rust");
-        // Still check if rust-analyzer is installed
-        if is_command_available("rust-analyzer") {
-            return vec![
-                ("rust-analyzer".to_string(), LspServerConfig::new("rust-analyzer", "rust"))
-            ];
+
+    // Detect project languages from both project_root and start_path
+    // This handles the case where a Go project is in a subdirectory of a Rust monorepo
+    let mut project_languages = HashSet::new();
+
+    if let Some(p) = project_path {
+        project_languages.extend(detect_project_languages(p));
+    }
+
+    // Also detect from start_path (original directory where user ran the command)
+    // This is crucial for detecting the correct language in monorepo scenarios
+    if let Some(s) = start_path {
+        let start_languages = detect_project_languages(s);
+        // If start_path detected different languages, prefer those (user is working there)
+        if !start_languages.is_empty() {
+            log::info!("Languages detected from start_path: {:?}", start_languages);
+            project_languages.extend(start_languages);
         }
+    }
+
+    // If no languages detected at all, don't load any LSP (show gray status)
+    if project_languages.is_empty() {
+        log::info!("No project languages detected, skipping LSP server loading");
         return vec![];
     }
-    
+
     // Common LSP servers to check
     let common_servers = [
         // Rust
@@ -309,13 +341,13 @@ pub fn prepare_lsp_servers(
         // Java
         ("jdtls", "java", "jdtls", vec![]),
     ];
-    
+
     let mut servers: Vec<(String, LspServerConfig)> = Vec::new();
-    
+
     for (name, language, command, args) in &common_servers {
-        // Filter: must be installed AND (in project languages OR no project path)
-        let in_project = project_languages.contains(language) || project_path.is_none();
-        
+        // Filter: must be installed AND in project languages
+        let in_project = project_languages.contains(language);
+
         if in_project && is_command_available(command) {
             log::info!("LSP server '{}' detected and available for project", name);
             servers.push((
@@ -325,7 +357,7 @@ pub fn prepare_lsp_servers(
             ));
         }
     }
-    
+
     servers
 }
 

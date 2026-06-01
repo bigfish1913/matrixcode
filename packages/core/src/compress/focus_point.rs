@@ -498,7 +498,14 @@ impl FocusManager {
             .as_ref()
             .and_then(|id| self.foci.get(id))
     }
-    
+
+    /// 获取当前聚焦点的可变引用
+    pub fn current_focus_mut(&mut self) -> Option<&mut FocusPoint> {
+        self.current_focus_id
+            .as_ref()
+            .and_then(|id| self.foci.get_mut(id))
+    }
+
     /// 添加新聚焦点
     pub fn add_focus(&mut self, focus: FocusPoint) {
         // 如果超过最大活跃数量，暂停最旧的

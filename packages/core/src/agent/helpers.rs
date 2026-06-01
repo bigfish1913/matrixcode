@@ -10,7 +10,185 @@ use crate::truncate::truncate_chars;
 
 use super::types::Agent;
 
+/// Context information for display
+pub struct ContextInfo {
+    /// Message count
+    pub message_count: usize,
+    /// Estimated input tokens
+    pub estimated_input_tokens: u64,
+    /// Total input tokens (lifetime)
+    pub total_input_tokens: u64,
+    /// Total output tokens (lifetime)
+    pub total_output_tokens: u64,
+    /// System prompt preview
+    pub system_prompt_preview: String,
+    /// Memory summary
+    pub memory_summary: Option<String>,
+    /// Project overview preview
+    pub project_overview_preview: Option<String>,
+    /// Last few messages preview
+    pub recent_messages_preview: Vec<String>,
+    /// Model name
+    pub model_name: String,
+    /// Max tokens setting
+    pub max_tokens: u32,
+}
+
 impl Agent {
+    /// Get context information for display
+    pub fn get_context_info(&self) -> ContextInfo {
+        // Estimate tokens from messages
+        let estimated_tokens = self.messages.iter()
+            .map(|m| {
+                let content = match &m.content {
+                    MessageContent::Text(t) => t.len(),
+                    MessageContent::Blocks(blocks) => {
+                        blocks.iter()
+                            .filter_map(|b| {
+                                if let ContentBlock::Text { text } = b {
+                                    Some(text.len())
+                                } else {
+                                    None
+                                }
+                            })
+                            .sum::<usize>()
+                    }
+                };
+                // Rough estimate: ~3 chars per token + 50 for metadata
+                (content / 3 + 50) as u64
+            })
+            .sum();
+
+        // System prompt preview (first 500 chars)
+        let system_preview = truncate_chars(&self.system_prompt, 500);
+
+        // Project overview preview
+        let project_preview = self.project_overview.as_ref()
+            .map(|o| truncate_chars(o, 300));
+
+        // Recent messages preview (last 5 messages)
+        let recent_preview = self.messages.iter().rev().take(5).rev()
+            .map(|m| {
+                let role = match m.role {
+                    Role::User => "User",
+                    Role::Assistant => "Assistant",
+                    Role::System => "System",
+                    Role::Tool => "Tool",
+                };
+                let content_preview = match &m.content {
+                    MessageContent::Text(t) => truncate_chars(t, 100),
+                    MessageContent::Blocks(blocks) => {
+                        let text = blocks.iter()
+                            .filter_map(|b| {
+                                if let ContentBlock::Text { text } = b {
+                                    Some(text.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        truncate_chars(&text, 100)
+                    }
+                };
+                format!("{}: {}", role, content_preview)
+            })
+            .collect();
+
+        ContextInfo {
+            message_count: self.messages.len(),
+            estimated_input_tokens: estimated_tokens,
+            total_input_tokens: self.total_input_tokens.load(Ordering::Relaxed),
+            total_output_tokens: self.total_output_tokens.load(Ordering::Relaxed),
+            system_prompt_preview: system_preview,
+            memory_summary: self.memory_summary.clone(),
+            project_overview_preview: project_preview,
+            recent_messages_preview: recent_preview,
+            model_name: self.model_name.clone(),
+            max_tokens: self.max_tokens,
+        }
+    }
+
+    /// Get full context preview (everything that will be sent to LLM)
+    pub fn get_full_context_preview(&self) -> String {
+        let mut preview = String::new();
+
+        // System prompt
+        preview.push_str("=== SYSTEM PROMPT ===\n");
+        preview.push_str(&self.system_prompt);
+        preview.push_str("\n\n");
+
+        // Memory summary
+        if let Some(memory) = &self.memory_summary {
+            preview.push_str("=== MEMORY SUMMARY ===\n");
+            preview.push_str(memory);
+            preview.push_str("\n\n");
+        }
+
+        // Project overview
+        if let Some(overview) = &self.project_overview {
+            preview.push_str("=== PROJECT OVERVIEW ===\n");
+            preview.push_str(overview);
+            preview.push_str("\n\n");
+        }
+
+        // Messages
+        preview.push_str("=== MESSAGES ===\n");
+        for (i, msg) in self.messages.iter().enumerate() {
+            let role = match msg.role {
+                Role::User => "User",
+                Role::Assistant => "Assistant",
+                Role::System => "System",
+                Role::Tool => "Tool",
+            };
+            preview.push_str(&format!("\n[{}] {}:\n", i + 1, role));
+
+            match &msg.content {
+                MessageContent::Text(t) => {
+                    preview.push_str(t);
+                }
+                MessageContent::Blocks(blocks) => {
+                    for block in blocks {
+                        match block {
+                            ContentBlock::Text { text } => {
+                                preview.push_str(text);
+                                preview.push_str("\n");
+                            }
+                            ContentBlock::ToolUse { name, input, .. } => {
+                                preview.push_str(&format!("[Tool: {}]\n", name));
+                                preview.push_str(&serde_json::to_string_pretty(input).unwrap_or_default());
+                                preview.push_str("\n");
+                            }
+                            ContentBlock::ToolResult { tool_use_id, content } => {
+                                preview.push_str(&format!("[Tool Result: {}]\n", tool_use_id));
+                                preview.push_str(content);
+                                preview.push_str("\n");
+                            }
+                            // Handle other block types
+                            ContentBlock::Thinking { thinking, .. } => {
+                                preview.push_str("[Thinking]\n");
+                                preview.push_str(thinking);
+                                preview.push_str("\n");
+                            }
+                            ContentBlock::ServerToolUse { name, .. } => {
+                                preview.push_str(&format!("[Server Tool: {}]\n", name));
+                            }
+                            ContentBlock::ServerToolResult { tool_use_id, content, .. } => {
+                                preview.push_str(&format!("[Server Tool Result: {}]\n", tool_use_id));
+                                preview.push_str(content);
+                                preview.push_str("\n");
+                            }
+                            _ => {
+                                preview.push_str("[Other Content]\n");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        preview
+    }
     /// Track token usage
     pub(crate) fn track_usage(&self, usage: &Usage) {
         self.total_input_tokens

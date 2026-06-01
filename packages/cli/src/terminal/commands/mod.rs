@@ -29,20 +29,21 @@ pub fn is_backend_command(msg: &str, skills: &[matrixcode_core::skills::Skill]) 
         "/init", "/skills", "/workflow", "/compact", "/compress",
         "/memory", "/overview", "/save", "/sessions", "/resume",
         "/load", "/config", "/tools", "/system", "/new", "/mode:",
+        "/context", "/ctx",
     ];
-    
+
     for cmd in known_commands {
         if msg.starts_with(cmd) || msg == cmd {
             return true;
         }
     }
-    
+
     // Skill activation (matches skill name but not other commands)
     if msg.starts_with('/') && !msg.starts_with("/skills") {
         let skill_name = msg.trim_start_matches('/');
         return skills.iter().any(|s| s.name == skill_name);
     }
-    
+
     false
 }
 

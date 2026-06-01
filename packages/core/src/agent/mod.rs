@@ -11,3 +11,4 @@ mod types;
 
 // Re-export public items from types directly
 pub use types::{Agent, AgentBuilder};
+pub use helpers::ContextInfo;

@@ -691,6 +691,88 @@ const UNIFIED_EXTRACTION_PROMPT: &str = r#"你是信息提取助手。从对话�
 5. 关键词提取 3-5 个核心关键词
 6. 只返回 JSON，不要其他解释"#;
 
+/// Unified extraction prompt with focus selection.
+/// This prompt includes existing focuses and asks AI to select or create focus.
+const UNIFIED_EXTRACTION_WITH_FOCUS_PROMPT: &str = r#"你是信息提取和焦点决策助手。从对话中一次性完成以下任务：
+
+## 1. 焦点决策 (focus_decision) - 最重要！
+
+你会收到当前已有的焦点列表。请判断：
+
+### 选择现有焦点
+如果最新对话与某个现有焦点匹配：
+- selected_focus_id: 该焦点的 ID
+- need_new_focus: false
+- confidence: 匹配置信度 (0.0-1.0)
+
+### 创建新焦点
+如果没有任何现有焦点匹配：
+- selected_focus_id: null
+- need_new_focus: true
+- new_focus_topic: 新焦点主题
+- new_core_question: 核心问题
+- confidence: 创建置信度
+
+### 判断话题切换
+- is_topic_switch: 是否从某焦点切换到另一焦点
+- previous_focus_id: 切换前的焦点 ID（如果有）
+
+### 焦点类型 (focus_type)
+- problem_solving: 修复 bug、解决错误
+- task_execution: 实现功能、完成任务
+- knowledge_exploration: 学习、研究、探索
+- decision_making: 技术选型、架构设计
+- code_optimization: 性能优化、重构
+- general: 一般对话
+
+## 2. 长期记忆 (memories)
+- decision: 技术决策
+- preference: 用户偏好
+- solution: 解决方案
+- finding: 重要发现
+- technical: 技术栈
+- structure: 项目结构
+
+## 3. 焦点关键词 (focus_keywords)
+- transition: 话题转换词
+- question: 提问词
+- task: 任务词
+- tech: 技术词
+
+## 输出格式（严格 JSON）
+
+```json
+{
+  "focus_decision": {
+    "selected_focus_id": "focus-1",
+    "need_new_focus": false,
+    "new_focus_topic": null,
+    "new_core_question": null,
+    "confidence": 0.85,
+    "focus_type": "code_optimization",
+    "is_topic_switch": true,
+    "previous_focus_id": "focus-2",
+    "focus_keywords": ["API", "latency", "performance"],
+    "related_entities": ["api.rs", "handle_request()"],
+    "reasoning": "用户从数据库切换到 API 性能话题"
+  },
+  "memories": [...],
+  "focus_keywords": {
+    "transition": ["换个话题"],
+    "question": ["怎么"],
+    "task": ["优化"],
+    "tech": ["api", "性能"]
+  }
+}
+```
+
+## 规则
+1. focus_decision 是最重要的输出，必须仔细判断
+2. 现有焦点列表会随对话文本一起提供
+3. 如果现有焦点都不匹配，必须标记 need_new_focus=true
+4. confidence 反映你对决策的确信程度
+5. 只返回 JSON，不要其他解释"#;
+
 /// Unified extractor that extracts all information in a single AI call.
 ///
 /// This replaces the separate AiMemoryExtractor and FocusExtractor,
@@ -758,6 +840,84 @@ impl UnifiedExtractor {
             .join("");
 
         parse_unified_response(&response_text, session_id, project_path)
+    }
+
+    /// Extract all information WITH focus selection in a single AI call.
+    ///
+    /// This method receives existing focuses and asks AI to select the best match
+    /// or create a new focus if none matches. This ensures focus continuity.
+    ///
+    /// # Arguments
+    /// * `text` - Conversation text to analyze
+    /// * `existing_foci` - Current focus points from FocusManager (id, topic, keywords)
+    /// * `session_id` - Optional session ID
+    /// * `project_path` - Optional project path
+    ///
+    /// # Returns
+    /// UnifiedExtractionResult with focus_decision field populated
+    pub async fn extract_unified_with_foci(
+        &self,
+        text: &str,
+        existing_foci: &[(&str, &str, &[String])], // (id, topic, keywords)
+        session_id: Option<&str>,
+        project_path: Option<&str>,
+    ) -> Result<UnifiedExtractionResult> {
+        use crate::providers::{ChatRequest, Message, MessageContent, Role};
+
+        // Safely truncate to ~4000 chars respecting UTF-8 boundaries
+        let truncated = truncate_chars(text, 4000);
+
+        // Format existing focuses for AI
+        let foci_text = if existing_foci.is_empty() {
+            "（当前没有现有焦点）".to_string()
+        } else {
+            let mut foci_list = Vec::new();
+            for (id, topic, keywords) in existing_foci {
+                foci_list.push(format!(
+                    "- ID: {}\n  主题: {}\n  关键词: {}",
+                    id,
+                    topic,
+                    keywords.join(", ")
+                ));
+            }
+            format!("现有焦点列表：\n{}", foci_list.join("\n"))
+        };
+
+        let user_prompt = format!(
+            "{}\n\n最新对话：\n{}\n\n请判断最新对话与现有焦点的匹配关系，并做出焦点决策。",
+            foci_text,
+            truncated
+        );
+
+        let request = ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text(user_prompt),
+            }],
+            tools: vec![],
+            system: Some(UNIFIED_EXTRACTION_WITH_FOCUS_PROMPT.to_string()),
+            think: false,
+            max_tokens: 1024,
+            server_tools: vec![],
+            enable_caching: false,
+        };
+
+        let response = self.provider.chat(request).await?;
+
+        let response_text = response
+            .content
+            .iter()
+            .filter_map(|b| {
+                if let crate::providers::ContentBlock::Text { text } = b {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        parse_unified_response_with_focus(&response_text, session_id, project_path)
     }
 
     /// Get the model name used for extraction.
@@ -953,6 +1113,167 @@ fn parse_unified_response(
         focus_points,
         conversation_patterns,
         focus_keywords,
+        focus_decision: None, // Not populated in basic extraction
+    })
+}
+
+/// Parse unified extraction response with focus decision from AI.
+fn parse_unified_response_with_focus(
+    json_text: &str,
+    session_id: Option<&str>,
+    project_path: Option<&str>,
+) -> Result<UnifiedExtractionResult> {
+    let cleaned = json_text
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    #[derive(Deserialize)]
+    struct UnifiedResponseWithFocus {
+        #[serde(default)]
+        focus_decision: Option<FocusDecisionItem>,
+        #[serde(default)]
+        memories: Vec<MemoryItem>,
+        #[serde(default)]
+        focus_keywords: FocusKeywordsItem,
+    }
+
+    #[derive(Deserialize)]
+    struct FocusDecisionItem {
+        #[serde(default)]
+        selected_focus_id: Option<String>,
+        #[serde(default)]
+        need_new_focus: bool,
+        #[serde(default)]
+        new_focus_topic: Option<String>,
+        #[serde(default)]
+        new_core_question: Option<String>,
+        #[serde(default)]
+        confidence: f32,
+        #[serde(default)]
+        focus_type: String,
+        #[serde(default)]
+        is_topic_switch: bool,
+        #[serde(default)]
+        previous_focus_id: Option<String>,
+        #[serde(default)]
+        focus_keywords: Vec<String>,
+        #[serde(default)]
+        related_entities: Vec<String>,
+        #[serde(default)]
+        reasoning: String,
+    }
+
+    #[derive(Deserialize, Default)]
+    struct FocusKeywordsItem {
+        #[serde(default)]
+        transition: Vec<String>,
+        #[serde(default)]
+        question: Vec<String>,
+        #[serde(default)]
+        task: Vec<String>,
+        #[serde(default)]
+        tech: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct MemoryItem {
+        category: String,
+        content: String,
+        #[serde(default)]
+        importance: f64,
+        #[serde(default)]
+        keywords: Vec<String>,
+        #[serde(default)]
+        tags: Vec<String>,
+    }
+
+    let parsed: UnifiedResponseWithFocus = serde_json::from_str(cleaned)?;
+
+    // Parse focus decision
+    let focus_decision = parsed.focus_decision.map(|item| {
+        use super::unified_extraction::{FocusDecision, FocusType};
+
+        let focus_type = match item.focus_type.to_lowercase().as_str() {
+            "problem_solving" => FocusType::ProblemSolving,
+            "task_execution" => FocusType::TaskExecution,
+            "knowledge_exploration" => FocusType::KnowledgeExploration,
+            "decision_making" => FocusType::DecisionMaking,
+            "code_optimization" => FocusType::CodeOptimization,
+            _ => FocusType::General,
+        };
+
+        FocusDecision {
+            selected_focus_id: item.selected_focus_id,
+            need_new_focus: item.need_new_focus,
+            new_focus_topic: item.new_focus_topic,
+            new_core_question: item.new_core_question,
+            confidence: item.confidence.clamp(0.0, 1.0),
+            focus_type,
+            is_topic_switch: item.is_topic_switch,
+            previous_focus_id: item.previous_focus_id,
+            focus_keywords: item.focus_keywords,
+            related_entities: item.related_entities,
+            reasoning: item.reasoning,
+        }
+    });
+
+    // Parse memories (reuse existing logic)
+    let entries = parsed
+        .memories
+        .into_iter()
+        .filter_map(|item| {
+            let category = match item.category.to_lowercase().as_str() {
+                "decision" => MemoryCategory::Decision,
+                "preference" => MemoryCategory::Preference,
+                "solution" => MemoryCategory::Solution,
+                "finding" => MemoryCategory::Finding,
+                "technical" => MemoryCategory::Technical,
+                "structure" => MemoryCategory::Structure,
+                _ => return None,
+            };
+
+            if item.content.len() < MIN_MEMORY_CONTENT_LENGTH {
+                return None;
+            }
+
+            let mut entry = MemoryEntry::new(
+                category,
+                item.content,
+                session_id.map(|s| s.to_string()),
+                project_path.map(|p| p.to_string()),
+            );
+            if item.importance > 0.0 {
+                entry.importance = item.importance.clamp(0.0, 100.0);
+            }
+            if !item.keywords.is_empty() {
+                entry.tags.extend(item.keywords);
+            }
+            if !item.tags.is_empty() {
+                entry.tags.extend(item.tags);
+            }
+            entry.tags.dedup();
+
+            Some(entry)
+        })
+        .collect();
+
+    // Parse focus keywords
+    let focus_keywords = ExtractedKeywords {
+        transition: parsed.focus_keywords.transition,
+        question: parsed.focus_keywords.question,
+        task: parsed.focus_keywords.task,
+        tech: parsed.focus_keywords.tech,
+    };
+
+    Ok(UnifiedExtractionResult {
+        memories: deduplicate_entries(entries),
+        focus_points: Vec::new(), // Not used in focus selection mode
+        conversation_patterns: Vec::new(), // Not used in focus selection mode
+        focus_keywords,
+        focus_decision,
     })
 }
 

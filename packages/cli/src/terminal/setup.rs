@@ -81,7 +81,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
 
     // Load session BEFORE spawning agent task so TUI can also display restored messages
     let current_dir = std::env::current_dir().ok();
-    let (full_messages, api_messages, session_mgr_state, session_metadata, effective_project_path) = 
+    let (full_messages, api_messages, session_mgr_state, session_metadata, project_root, start_path, watcher_project_root) =
         load_session_state(&cli, current_dir.clone());
 
     // Prepare agent context
@@ -93,7 +93,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_think = cli.think.unwrap_or(config.think);
     let agent_max_tokens = cli.max_tokens;
     let agent_restored_messages = api_messages.clone();
-    let agent_project_path = effective_project_path.clone();
+    let agent_project_path = project_root.clone();
     let agent_approve_mode = config
         .approve_mode
         .as_ref()
@@ -119,11 +119,11 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_mcp_servers = prepare_mcp_tools(
         &cli.mcp,
         cli.no_mcp,
-        effective_project_path.as_ref(),
+        project_root.as_ref(),
     );
 
-    // Prepare LSP servers configuration
-    let agent_lsp_servers = prepare_lsp_servers(&config, effective_project_path.as_ref().map(|v| v.as_path()));
+    // Prepare LSP servers configuration - pass both project_root and start_path
+    let agent_lsp_servers = prepare_lsp_servers(&config, project_root.as_ref().map(|v| v.as_path()), start_path.as_ref().map(|v| v.as_path()));
 
     // Enter runtime context BEFORE spawning agent task
     let _guard = rt.enter();
@@ -133,7 +133,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
 
     // Start CodeGraph watcher for auto-sync (with hidden window on Windows)
     start_watcher_if_needed(
-        effective_project_path.as_ref(),
+        watcher_project_root.as_ref(),
         cancel_token.clone(),
         watcher_handle_arc.clone(),
     );
@@ -244,7 +244,9 @@ fn load_session_state(
     Vec<matrixcode_core::providers::Message>,  // api_messages
     Option<SessionManager>,  // session_mgr_state
     Option<matrixcode_core::session::SessionMetadata>,  // session_metadata
-    Option<PathBuf>,  // effective_project_path
+    Option<PathBuf>,  // project_root (for general use)
+    Option<PathBuf>,  // start_path (original path, for LSP detection)
+    Option<PathBuf>,  // project_root again (for watcher)
 ) {
     let mut mgr = SessionManager::new().ok();
     let mut full = Vec::new();
@@ -293,12 +295,15 @@ fn load_session_state(
     }
 
     // Find the true project root (git root or project marker files)
-    if let Some(ref start_path) = effective_path {
+    // Keep both: project_root for general use, start_path for LSP detection
+    let project_root = if let Some(ref start_path) = effective_path {
         use matrixcode_core::tools::codegraph::find_project_root;
-        let project_root = find_project_root(start_path);
-        log::info!("Project root detected: {} (from start path: {})", project_root.display(), start_path.display());
-        effective_path = Some(project_root);
-    }
+        let root = find_project_root(start_path);
+        log::info!("Project root detected: {} (from start path: {})", root.display(), start_path.display());
+        Some(root)
+    } else {
+        None
+    };
 
-    (full, api, mgr, metadata, effective_path)
+    (full, api, mgr, metadata, project_root.clone(), effective_path, project_root)
 }

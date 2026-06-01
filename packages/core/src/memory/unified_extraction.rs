@@ -16,6 +16,7 @@ use crate::compress::FocusPoint;
 /// - Current focus points (topics being discussed)
 /// - Conversation patterns (reference patterns, code patterns)
 /// - Focus keywords (transition, question, task, tech keywords)
+/// - Focus decision (AI's selection/creation of focus)
 #[derive(Debug, Clone, Default)]
 pub struct UnifiedExtractionResult {
     /// Extracted long-term memories.
@@ -28,6 +29,83 @@ pub struct UnifiedExtractionResult {
     /// These keywords are used in real-time for focus tracking,
     /// not persisted in the registry.
     pub focus_keywords: ExtractedKeywords,
+
+    /// AI focus decision: which existing focus matches, or need to create new.
+    /// This is the primary output for focus tracking.
+    pub focus_decision: Option<FocusDecision>,
+}
+
+/// AI focus decision - the AI's judgment on current conversation focus.
+///
+/// Instead of extracting focus from scratch, the AI selects from existing
+/// focuses or decides to create a new one. This ensures focus continuity
+/// and proper history tracking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FocusDecision {
+    /// ID of the selected existing focus (if matched).
+    /// None if need_new_focus is true.
+    pub selected_focus_id: Option<String>,
+
+    /// Whether none of the existing focuses match and a new focus is needed.
+    pub need_new_focus: bool,
+
+    /// New focus topic (only if need_new_focus is true).
+    pub new_focus_topic: Option<String>,
+
+    /// Core question/task for the new focus.
+    pub new_core_question: Option<String>,
+
+    /// Confidence of the selection/creation (0.0-1.0).
+    pub confidence: f32,
+
+    /// Focus type classification.
+    pub focus_type: FocusType,
+
+    /// Whether this is a topic switch from a previous focus.
+    pub is_topic_switch: bool,
+
+    /// The previous focus being switched from (if is_topic_switch).
+    pub previous_focus_id: Option<String>,
+
+    /// Core keywords for this focus (3-5 keywords).
+    pub focus_keywords: Vec<String>,
+
+    /// Related entities (files, functions, modules).
+    pub related_entities: Vec<String>,
+
+    /// AI's reasoning for this decision.
+    pub reasoning: String,
+}
+
+/// Focus type classification.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FocusType {
+    #[default]
+    General,
+    /// Fixing bugs, resolving errors.
+    ProblemSolving,
+    /// Implementing features, completing tasks.
+    TaskExecution,
+    /// Learning, researching, exploring.
+    KnowledgeExploration,
+    /// Technical choices, architecture design.
+    DecisionMaking,
+    /// Performance optimization, refactoring.
+    CodeOptimization,
+}
+
+impl std::fmt::Display for FocusType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FocusType::General => write!(f, "general"),
+            FocusType::ProblemSolving => write!(f, "problem_solving"),
+            FocusType::TaskExecution => write!(f, "task_execution"),
+            FocusType::KnowledgeExploration => write!(f, "knowledge_exploration"),
+            FocusType::DecisionMaking => write!(f, "decision_making"),
+            FocusType::CodeOptimization => write!(f, "code_optimization"),
+        }
+    }
 }
 
 /// Extracted keywords organized by category.
@@ -162,5 +240,92 @@ mod tests {
         assert!(result.focus_points.is_empty());
         assert!(result.conversation_patterns.is_empty());
         assert!(result.focus_keywords.is_empty());
+        assert!(result.focus_decision.is_none());
+    }
+
+    #[test]
+    fn test_focus_decision_select_existing() {
+        let decision = FocusDecision {
+            selected_focus_id: Some("focus-1".to_string()),
+            need_new_focus: false,
+            new_focus_topic: None,
+            new_core_question: None,
+            confidence: 0.85,
+            focus_type: FocusType::CodeOptimization,
+            is_topic_switch: false,
+            previous_focus_id: None,
+            focus_keywords: vec!["API".to_string(), "performance".to_string()],
+            related_entities: vec!["api.rs".to_string()],
+            reasoning: "User is continuing API optimization discussion".to_string(),
+        };
+
+        assert!(decision.selected_focus_id.is_some());
+        assert!(!decision.need_new_focus);
+        assert_eq!(decision.confidence, 0.85);
+    }
+
+    #[test]
+    fn test_focus_decision_create_new() {
+        let decision = FocusDecision {
+            selected_focus_id: None,
+            need_new_focus: true,
+            new_focus_topic: Some("Database schema design".to_string()),
+            new_core_question: Some("How to design user table?".to_string()),
+            confidence: 0.9,
+            focus_type: FocusType::DecisionMaking,
+            is_topic_switch: true,
+            previous_focus_id: Some("focus-1".to_string()),
+            focus_keywords: vec!["database".to_string(), "schema".to_string()],
+            related_entities: vec!["user.rs".to_string()],
+            reasoning: "User switched to new database topic".to_string(),
+        };
+
+        assert!(decision.selected_focus_id.is_none());
+        assert!(decision.need_new_focus);
+        assert!(decision.new_focus_topic.is_some());
+        assert!(decision.is_topic_switch);
+    }
+
+    #[test]
+    fn test_focus_type_display() {
+        assert_eq!(FocusType::General.to_string(), "general");
+        assert_eq!(FocusType::ProblemSolving.to_string(), "problem_solving");
+        assert_eq!(FocusType::TaskExecution.to_string(), "task_execution");
+        assert_eq!(FocusType::KnowledgeExploration.to_string(), "knowledge_exploration");
+        assert_eq!(FocusType::DecisionMaking.to_string(), "decision_making");
+        assert_eq!(FocusType::CodeOptimization.to_string(), "code_optimization");
+    }
+
+    #[test]
+    fn test_focus_type_default() {
+        let focus_type = FocusType::default();
+        assert_eq!(focus_type, FocusType::General);
+    }
+
+    #[test]
+    fn test_focus_decision_serialization() {
+        let decision = FocusDecision {
+            selected_focus_id: Some("focus-1".to_string()),
+            need_new_focus: false,
+            new_focus_topic: None,
+            new_core_question: None,
+            confidence: 0.85,
+            focus_type: FocusType::CodeOptimization,
+            is_topic_switch: false,
+            previous_focus_id: None,
+            focus_keywords: vec!["API".to_string()],
+            related_entities: vec![],
+            reasoning: "test".to_string(),
+        };
+
+        // Serialize
+        let json = serde_json::to_string(&decision).unwrap();
+        assert!(json.contains("focus-1"));
+        assert!(json.contains("code_optimization"));
+
+        // Deserialize
+        let parsed: FocusDecision = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.selected_focus_id, Some("focus-1".to_string()));
+        assert_eq!(parsed.focus_type, FocusType::CodeOptimization);
     }
 }

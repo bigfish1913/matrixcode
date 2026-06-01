@@ -4,6 +4,7 @@
 
 mod compact;
 mod config;
+mod context;
 mod load;
 mod memory;
 mod mode;
@@ -21,6 +22,7 @@ use std::sync::Arc;
 
 pub use compact::Compact;
 pub use config::Config;
+pub use context::Context;
 pub use load::Load;
 pub use memory::Memory;
 pub use mode::Mode;
@@ -48,4 +50,5 @@ pub fn register_commands(registry: &mut CommandRegistry) {
     registry.register(Arc::new(Load));
     registry.register(Arc::new(New));
     registry.register(Arc::new(Mode));
+    registry.register(Arc::new(Context));
 }
