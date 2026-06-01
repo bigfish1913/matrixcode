@@ -2,12 +2,14 @@
 //!
 //! Handles LSP server startup, status, and lifecycle management.
 
+use std::path::PathBuf;
 use std::sync::Arc;
-use matrixcode_core::{AgentEvent, lsp::{LspManager, LspServerInfo}};
+use matrixcode_core::{AgentEvent, lsp::{LspClientRegistry, LspManager, LspServerInfo}};
 
 /// LSP manager that handles server lifecycle
 pub struct LspHandler {
     manager: Arc<tokio::sync::RwLock<LspManager>>,
+    registry: Arc<LspClientRegistry>,
 }
 
 impl LspHandler {
@@ -15,16 +17,30 @@ impl LspHandler {
     pub fn new() -> Self {
         Self {
             manager: Arc::new(tokio::sync::RwLock::new(LspManager::new())),
+            registry: Arc::new(LspClientRegistry::new()),
         }
     }
 
-    /// Add servers from config
-    pub async fn add_servers(&self, lsp_servers: Vec<(String, matrixcode_core::lsp::LspServerConfig)>) {
+    /// Add servers from config and spawn actual LSP clients
+    pub async fn add_servers(&self, lsp_servers: Vec<(String, matrixcode_core::lsp::LspServerConfig)>, project_root: PathBuf) {
         let mut manager = self.manager.write().await;
-        for (_name, config) in lsp_servers {
-            manager.add_server(config);
-            log::info!("LSP server '{}' added to manager", _name);
+        for (name, config) in lsp_servers {
+            manager.add_server(config.clone());
+            log::info!("LSP server '{}' added to manager", name);
+
+            // Spawn actual LSP client
+            if let Err(e) = self.registry.register(&config, &project_root).await {
+                log::warn!("Failed to start LSP client '{}': {}", name, e);
+                manager.mark_error(&config.language, e.to_string());
+            } else {
+                log::info!("LSP client '{}' started", name);
+            }
         }
+    }
+
+    /// Get registry for tool injection
+    pub fn registry(&self) -> Arc<LspClientRegistry> {
+        self.registry.clone()
     }
 
     /// Start all LSP servers and notify UI

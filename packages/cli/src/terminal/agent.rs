@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use matrixcode_core::{
     AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
     create_provider_with_headers, infer_provider_type, providers::Provider,
-    tools::all_tools_full, approval::ApproveMode, skills::Skill,
+    tools::all_tools_full_with_lsp, approval::ApproveMode, skills::Skill,
     memory::AutoMemory,
 };
 use crate::constants::{
@@ -140,16 +140,21 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
     let mcp_tools = mcp_manager.start_all(&ctx.event_tx).await;
 
     // Create LSP handler and start servers
+    let project_root = ctx.project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let lsp_handler = LspHandler::new();
-    lsp_handler.add_servers(ctx.lsp_servers).await;
+    lsp_handler.add_servers(ctx.lsp_servers, project_root.clone()).await;
     lsp_handler.start_all(&ctx.event_tx).await;
 
+    // Get LSP registry for tool injection
+    let lsp_registry = lsp_handler.registry();
+
     // Build agent with tools
-    let project_path_for_tools = ctx.project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let mut base_tools = all_tools_full(
+    let project_path_for_tools = project_root.clone();
+    let mut base_tools = all_tools_full_with_lsp(
         Arc::new(ctx.skills.clone()),
         provider.clone_arc(),
         project_path_for_tools.clone(),
+        Some(lsp_registry),
     );
     base_tools.extend(mcp_tools);
 
