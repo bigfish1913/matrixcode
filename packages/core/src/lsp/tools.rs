@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use crate::approval::RiskLevel;
 use crate::tools::{Tool, ToolDefinition};
-use super::client::{format_diagnostic, format_hover_result, format_location, path_to_uri, LspClient};
+use super::client::{format_diagnostic, format_location, path_to_uri};
 use super::registry::LspClientRegistry;
 
 // ============================================================================

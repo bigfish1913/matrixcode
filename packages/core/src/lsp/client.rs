@@ -103,6 +103,7 @@ impl LspClient {
     }
 
     /// Send LSP initialize request
+    #[allow(deprecated)] // root_path and root_uri are deprecated but needed for LSP server compatibility
     pub async fn initialize(&self) -> Result<()> {
         let transport = self.transport.lock().await;
         let transport = transport.as_ref().ok_or_else(|| anyhow!("Transport not initialized"))?;
