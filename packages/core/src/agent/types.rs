@@ -75,6 +75,7 @@ pub struct Agent {
     /// MCP 工具注册表（动态管理）
     pub(crate) mcp_registry: Option<Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>>,
     /// LSP 客户端注册表（用于 LSP 工具）
+    #[allow(dead_code)] // TODO: 实现 LSP 工具集成后移除
     pub(crate) lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
     /// 实时追加消息接收器（用于在处理过程中接收新消息）
     pub(crate) pending_input_rx: Option<mpsc::Receiver<String>>,
