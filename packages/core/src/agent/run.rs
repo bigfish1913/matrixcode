@@ -12,6 +12,7 @@ use crate::compress::{
 };
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::prompt;
+use crate::prompt::preprocess::{preprocess_with_skills, ProcessResult};
 use crate::providers::{ChatRequest, Message, MessageContent, Role};
 use crate::tools::Tool;
 use crate::tools::ToolDefinition;
@@ -60,6 +61,7 @@ impl Agent {
             pending_inputs: Vec::new(),
             previewed_tool_inputs: std::collections::HashSet::new(),
             todo_reminder_count: std::collections::HashMap::new(),
+            read_history: crate::tools::ReadHistoryTracker::new(),
         }
     }
 
@@ -180,9 +182,76 @@ impl Agent {
     pub async fn run(&mut self, user_input: String) -> Result<Vec<AgentEvent>> {
         self.emit(AgentEvent::session_started())?;
 
+        // Step 1: 预处理 - 检测技能/工作流触发
+        let preprocess_result = self.preprocess_input(&user_input);
+
+        // Step 2: 如果有阻塞触发的技能，先注入技能内容
+        let processed_input = match preprocess_result {
+            ProcessResult::SkillTriggered {
+                skill_id,
+                confidence,
+                skill_body,
+            } => {
+                log::info!(
+                    "Skill triggered: {} (confidence: {:.2})",
+                    skill_id,
+                    confidence
+                );
+                self.emit(AgentEvent::progress(
+                    format!("🎯 触发技能: {}", skill_id),
+                    None,
+                ))?;
+
+                // 注入技能内容作为系统提示上下文
+                if let Some(body) = skill_body {
+                    // 技能内容已自动加载，直接注入到用户输入前
+                    let enhanced_input = format!(
+                        "<command-name>{}</command-name>\n\n{}\n\n---\n\nUser request: {}",
+                        skill_id,
+                        body,
+                        user_input
+                    );
+                    enhanced_input
+                } else {
+                    // 技能未自动加载，添加提示让模型调用 skill 工具
+                    let enhanced_input = format!(
+                        "User invoked skill '{}'. Use the `skill` tool with name '{}' to load its instructions before proceeding.\n\nUser request: {}",
+                        skill_id,
+                        skill_id,
+                        user_input
+                    );
+                    enhanced_input
+                }
+            }
+            ProcessResult::WorkflowTriggered {
+                workflow_id,
+                inputs,
+            } => {
+                log::info!("Workflow triggered: {} with inputs: {:?}", workflow_id, inputs);
+                self.emit(AgentEvent::progress(
+                    format!("🔄 触发工作流: {}", workflow_id),
+                    None,
+                ))?;
+                // 工作流触发：注入提示让模型知道应该执行工作流
+                let inputs_json = serde_json::to_string_pretty(&inputs).unwrap_or_default();
+                let enhanced_input = format!(
+                    "Workflow '{}' triggered with extracted inputs:\n{}\n\nUser request: {}",
+                    workflow_id,
+                    inputs_json,
+                    user_input
+                );
+                enhanced_input
+            }
+            ProcessResult::Continue => {
+                // 无触发，正常处理
+                user_input
+            }
+        };
+
+        // Step 3: 添加处理后的用户消息
         self.messages.push(Message {
             role: Role::User,
-            content: MessageContent::Text(user_input.clone()),
+            content: MessageContent::Text(processed_input),
         });
 
         let mut iterations = 0;
@@ -526,6 +595,53 @@ impl Agent {
     /// Get message count
     pub fn message_count(&self) -> usize {
         self.messages.len()
+    }
+
+    // ========================================================================
+    // Skill/Workflow Trigger Detection
+    // ========================================================================
+
+    /// 预处理用户输入，检测技能/工作流触发
+    ///
+    /// # 触发类型处理
+    /// - **slash_command** (/review, /debug): 阻塞调用，自动注入技能内容
+    /// - **keyword** ("审查代码", "调试问题"): 阻塞调用，自动注入技能内容
+    /// - **workflow**: 注入工作流上下文，让模型执行工作流
+    ///
+    /// # Returns
+    /// - `SkillTriggered`: 技能被触发，包含技能ID、置信度和可选的技能内容
+    /// - `WorkflowTriggered`: 工作流被触发，包含工作流ID和提取的输入
+    /// - `Continue`: 无触发，继续正常处理
+    pub fn preprocess_input(&self, user_input: &str) -> ProcessResult {
+        // 使用动态触发加载：从已加载的技能中提取触发模式
+        preprocess_with_skills(user_input, &self.skills)
+    }
+
+    /// 强制执行触发的技能（注入技能内容到消息历史）
+    ///
+    /// 当技能触发时，此方法将技能内容作为系统上下文注入，
+    /// 确保模型在处理用户请求之前已经加载了技能指令。
+    ///
+    /// # Arguments
+    /// * `skill_id` - 技能标识符
+    /// * `skill_body` - 技能内容（如果已自动加载）
+    ///
+    /// # Returns
+    /// 注入后的增强消息内容
+    pub fn inject_skill_context(&self, skill_id: &str, skill_body: Option<&str>) -> String {
+        if let Some(body) = skill_body {
+            format!(
+                "<command-name>{}</command-name>\n\n{}\n\n**Important**: Follow the skill instructions above before responding to the user request below.",
+                skill_id,
+                body.trim_end()
+            )
+        } else {
+            format!(
+                "Skill '{}' was triggered but not auto-loaded. The model should call the `skill` tool with name '{}' to load its instructions.",
+                skill_id,
+                skill_id
+            )
+        }
     }
 
     // ========================================================================

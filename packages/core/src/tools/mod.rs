@@ -10,9 +10,11 @@ pub mod monitor;
 pub mod multi_edit;
 pub mod plan_mode;
 pub mod read;
+pub mod read_history; // 读取历史追踪
 pub mod registry; // 工具注册中心
 pub mod search;
 pub mod skill;
+pub mod subagent_executor; // 子代理执行器
 pub mod task;
 pub mod todo_write;
 pub mod toolproxy; // 代理工具模块
@@ -20,6 +22,9 @@ pub mod webfetch;
 pub mod websearch;
 pub mod workflow;
 pub mod write;
+
+// Re-export read history types
+pub use read_history::{MustReadFirstError, ReadHistoryTracker};
 
 // Re-export proxy types for convenience
 pub use toolproxy::{

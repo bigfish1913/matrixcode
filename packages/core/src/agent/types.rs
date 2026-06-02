@@ -14,7 +14,7 @@ use crate::prompt::PromptProfile;
 use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, StreamEvent, Usage};
 use crate::providers::{Message, Provider};
 use crate::skills::Skill;
-use crate::tools::Tool;
+use crate::tools::{ReadHistoryTracker, Tool};
 #[cfg(test)]
 use async_trait::async_trait;
 
@@ -85,6 +85,9 @@ pub struct Agent {
     /// Todo reminder count: maps todo content hash to reminder count.
     /// Used to prevent infinite loops when model doesn't update todo status.
     pub(crate) todo_reminder_count: HashMap<String, usize>,
+    /// Read history tracker: tracks files that have been read in this session.
+    /// Used to enforce "read before edit/write" rule.
+    pub(crate) read_history: ReadHistoryTracker,
 }
 
 /// Agent builder

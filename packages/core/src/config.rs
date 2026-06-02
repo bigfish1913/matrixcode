@@ -99,6 +99,11 @@ pub struct MatrixConfig {
     /// Format: {"server_name": LspServerConfig}
     #[serde(default)]
     pub lsp_servers: Option<HashMap<String, crate::lsp::LspServerConfig>>,
+
+    /// Enable LSP tools globally
+    /// If false, LSP servers won't be loaded and LSP tools won't be available
+    #[serde(default = "default_true")]
+    pub enable_lsp: bool,
 }
 
 fn default_true() -> bool {
@@ -220,6 +225,7 @@ impl MatrixConfig {
             extra_headers: None,
             mcp_servers: None,
             lsp_servers: None,
+            enable_lsp: true,
         })
     }
 
@@ -263,6 +269,7 @@ impl MatrixConfig {
             extra_headers,
             mcp_servers: None,
             lsp_servers: None,
+            enable_lsp: true,
         }
     }
 
@@ -343,6 +350,10 @@ impl MatrixConfig {
             merged.extra_headers = merged.extra_headers.or(mx.extra_headers);
             // MCP servers from matrix config
             merged.mcp_servers = mx.mcp_servers;
+            // LSP servers from matrix config
+            merged.lsp_servers = mx.lsp_servers;
+            // enable_lsp from matrix config
+            merged.enable_lsp = mx.enable_lsp;
         }
 
         // Env config (highest priority, overrides everything)
@@ -530,6 +541,7 @@ pub fn create_default_config() -> anyhow::Result<()> {
         extra_headers: None,
         mcp_servers: None,
         lsp_servers: None,
+        enable_lsp: true,
     };
 
     config.save()?;
@@ -597,7 +609,10 @@ pub fn create_example_config() -> anyhow::Result<()> {
 
   "extra_headers": {},
   "_extra_headers_comment": "Custom HTTP headers for API requests (useful for proxy services)",
-  "_extra_headers_example": {"X-DashScope-SSE": "enable"}
+  "_extra_headers_example": {"X-DashScope-SSE": "enable"},
+
+  "enable_lsp": true,
+  "_enable_lsp_comment": "Enable LSP tools. Set false to disable LSP loading (faster startup, less memory)"
 }"#;
 
     std::fs::write(&path, example)?;
@@ -627,12 +642,14 @@ mod tests {
             extra_headers: None,
             mcp_servers: None,
             lsp_servers: None,
+            enable_lsp: true,
         };
         assert!(config.api_key.is_none());
         assert!(config.model.is_none());
         assert!(config.think);
         assert!(config.markdown);
         assert_eq!(config.max_tokens, 16384);
+        assert!(config.enable_lsp);
     }
 
     #[test]

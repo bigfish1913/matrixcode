@@ -7,6 +7,7 @@ use tokio::time::{Duration, sleep};
 use crate::approval::{ApproveMode, needs_approval};
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role};
+use crate::tools::MustReadFirstError;
 use crate::truncate::truncate_with_suffix;
 
 use super::helpers::extract_tool_detail;
@@ -151,6 +152,27 @@ impl Agent {
         {
             log::info!("Executing proxy tool: {}", name);
             return self.handle_proxy_tool(name, input).await;
+        }
+
+        // === Read history precondition check ===
+        // For edit/write tools, check if the file has been read first
+        if matches!(name, "edit" | "multi_edit" | "write") {
+            let file_path = input["path"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("missing 'path' parameter for {} tool", name))?;
+
+            // Check if file exists (only enforce read-first for existing files)
+            let file_exists = tokio::fs::try_exists(file_path).await.unwrap_or(false);
+
+            if file_exists && !self.read_history.has_read(file_path) {
+                log::warn!(
+                    "Tool '{}' rejected: file '{}' not read in this session",
+                    name,
+                    file_path
+                );
+                let error = MustReadFirstError::new(file_path);
+                return Err(anyhow::anyhow!("{}", error.message()));
+            }
         }
 
         let tool = self.tools.iter().find(|t| t.definition().name == name);
@@ -320,7 +342,18 @@ impl Agent {
             }
 
             self.emit(AgentEvent::progress(format!("Executing: {}", name), None))?;
-            tool.execute(input).await
+            let result = tool.execute(input.clone()).await;
+
+            // === Read history post-action ===
+            // For read tool, mark the file as read on success
+            if name == "read" && result.is_ok() {
+                if let Some(file_path) = input["path"].as_str() {
+                    self.read_history.mark_read(file_path);
+                    log::info!("File '{}' marked as read in session history", file_path);
+                }
+            }
+
+            result
         } else {
             Err(anyhow::anyhow!("Tool '{}' not found", name))
         }
