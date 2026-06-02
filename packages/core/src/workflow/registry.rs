@@ -150,6 +150,7 @@ impl WorkflowRegistry {
                 super::def::NodeType::Task => "task",
                 super::def::NodeType::Condition => "condition",
                 super::def::NodeType::Parallel => "parallel",
+                super::def::NodeType::Pipeline => "pipeline",
                 super::def::NodeType::Approval => "approval",
                 super::def::NodeType::Wait => "wait",
                 super::def::NodeType::SubWorkflow => "subworkflow",

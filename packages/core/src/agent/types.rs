@@ -1,24 +1,31 @@
 //! Agent type definitions.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU64};
+use std::sync::atomic::AtomicU8;
 use tokio::sync::mpsc;
 
 use crate::cancel::CancellationToken;
 use crate::compress::CompressionConfig;
 use crate::event::AgentEvent;
 use crate::prompt::PromptProfile;
+use crate::providers::Message;
 #[cfg(test)]
 use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, StreamEvent, Usage};
-use crate::providers::{Message, Provider};
+use crate::providers::Provider;
 use crate::skills::Skill;
 use crate::tools::{ReadHistoryTracker, Tool};
 #[cfg(test)]
 use async_trait::async_trait;
 
-pub(crate) const MAX_ITERATIONS: usize = 200;
+// Import new modular components
+use super::core::{AgentConfig, AgentState};
+use super::context::AgentContext;
+use super::session::SessionManager;
+
+// Re-export for backward compatibility
+pub use super::core::MAX_ITERATIONS;
 
 /// **MAX_ITERATIONS Documentation**:
 ///
@@ -46,77 +53,117 @@ pub(crate) const MAX_ITERATIONS: usize = 200;
 /// - Complex task (build system): ~40-50 iterations (may hit limit)
 ///
 /// Full Agent with event output
+///
+/// # Architecture (Refactored)
+/// The Agent now uses modular components:
+/// - `config`: Configuration constants (max iterations, retries, etc.)
+/// - `state`: Mutable state (messages, tokens, todos)
+/// - `context`: Context management (system prompt, skills, memory)
+/// - `session`: Session lifecycle (events, cancellation)
 pub struct Agent {
+    // === Core Components (New) ===
+    /// Configuration constants
+    pub(crate) config: AgentConfig,
+    /// Mutable state management (kept for future use)
+    pub(crate) state: AgentState,
+    /// Context management
+    pub(crate) context: AgentContext,
+    /// Session lifecycle
+    pub(crate) session: SessionManager,
+
+    // === Provider & Tools ===
     pub(crate) provider: Box<dyn Provider>,
     pub(crate) model_name: String,
     pub(crate) tools: Vec<Arc<dyn Tool>>,
-    pub(crate) messages: Vec<Message>,
-    pub(crate) system_prompt: String,
-    pub(crate) max_tokens: u32,
-    pub(crate) context_size_override: Option<u32>,
-    pub(crate) think: bool,
-    pub(crate) approve_mode: Arc<AtomicU8>,
+
+    // === Event Channel ===
+    /// Event sender (kept for frequent access)
     pub(crate) event_tx: mpsc::Sender<AgentEvent>,
-    pub(crate) skills: Vec<Skill>,
-    pub(crate) profile: PromptProfile,
-    pub(crate) project_overview: Option<String>,
-    pub(crate) memory_summary: Option<String>,
-    pub(crate) project_path: Option<PathBuf>,
-    pub(crate) total_input_tokens: AtomicU64,
-    pub(crate) total_output_tokens: AtomicU64,
-    pub(crate) last_input_tokens: AtomicU64,
-    pub(crate) cancel_token: Option<CancellationToken>,
+
+    // === Approval & Permissions ===
+    pub(crate) approve_mode: Arc<AtomicU8>,
+
+    // === Legacy Fields (will be migrated to components in future phases) ===
+    /// Messages history (TODO: migrate to AgentState in Phase 4)
+    pub(crate) messages: Vec<Message>,
+    /// System prompt (TODO: migrate to AgentContext accessor)
+    pub(crate) system_prompt: String,
+    /// Compression config (TODO: use AgentConfig.compression_config)
     pub(crate) compression_config: CompressionConfig,
+    /// Cancellation token (TODO: use SessionManager.cancel_token)
+    pub(crate) cancel_token: Option<CancellationToken>,
+    /// Token tracking (TODO: migrate to AgentState in Phase 4)
+    pub(crate) total_input_tokens: std::sync::atomic::AtomicU64,
+    pub(crate) total_output_tokens: std::sync::atomic::AtomicU64,
+    pub(crate) last_input_tokens: std::sync::atomic::AtomicU64,
+    /// Todo reminders (TODO: migrate to AgentState in Phase 4)
+    pub(crate) todo_reminder_count: std::collections::HashMap<String, usize>,
+    /// Pending inputs (TODO: migrate to AgentState in Phase 4)
+    pub(crate) pending_inputs: Vec<String>,
+    /// Ask response channel (TODO: use SessionManager.ask_rx)
     pub(crate) ask_rx: Option<mpsc::Receiver<String>>,
+
+    // === Tool Tracking ===
+    /// Tool ids whose full input was already sent to the UI during streaming.
+    pub(crate) previewed_tool_inputs: HashSet<String>,
+    /// Read history tracker: tracks files that have been read in this session.
+    /// Used to enforce "read before edit/write" rule.
+    pub(crate) read_history: ReadHistoryTracker,
+
+    // === Proxy Tools ===
     /// 代理工具定义列表（发送给 LLM）
     pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
     /// 代理工具执行器
     pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
+
+    // === External Registries ===
     /// MCP 工具注册表（动态管理）
     pub(crate) mcp_registry: Option<Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>>,
     /// LSP 客户端注册表（用于 LSP 工具）
     #[allow(dead_code)] // TODO: 实现 LSP 工具集成后移除
     pub(crate) lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
+
+    // === Input Channels ===
     /// 实时追加消息接收器（用于在处理过程中接收新消息）
     pub(crate) pending_input_rx: Option<mpsc::Receiver<String>>,
-    /// 缓存的追加消息（在当前轮完成后处理）
-    pub(crate) pending_inputs: Vec<String>,
-    /// Tool ids whose full input was already sent to the UI during streaming.
-    pub(crate) previewed_tool_inputs: HashSet<String>,
-    /// Todo reminder count: maps todo content hash to reminder count.
-    /// Used to prevent infinite loops when model doesn't update todo status.
-    pub(crate) todo_reminder_count: HashMap<String, usize>,
-    /// Read history tracker: tracks files that have been read in this session.
-    /// Used to enforce "read before edit/write" rule.
-    pub(crate) read_history: ReadHistoryTracker,
 }
 
 /// Agent builder
+///
+/// Simplified builder that constructs Agent using modular components.
 pub struct AgentBuilder {
+    // === Provider & Tools ===
     pub(crate) provider: Box<dyn Provider>,
     pub(crate) model_name: String,
     pub(crate) tools: Vec<Arc<dyn Tool>>,
-    pub(crate) system_prompt: String,
+
+    // === Config (AgentConfig) ===
     pub(crate) max_tokens: u32,
     pub(crate) context_size_override: Option<u32>,
     pub(crate) think: bool,
-    pub(crate) approve_mode: crate::approval::ApproveMode,
-    pub(crate) event_tx: Option<mpsc::Sender<AgentEvent>>,
-    pub(crate) skills: Vec<Skill>,
+    pub(crate) compression_config: CompressionConfig,
+
+    // === Context (AgentContext) ===
     pub(crate) profile: PromptProfile,
+    pub(crate) skills: Vec<Skill>,
     pub(crate) project_overview: Option<String>,
     pub(crate) memory_summary: Option<String>,
     pub(crate) project_path: Option<PathBuf>,
-    /// 代理工具定义列表
-    pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
-    /// 代理工具执行器
-    pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
-    /// MCP 工具注册表（动态管理）
-    pub(crate) mcp_registry: Option<Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>>,
-    /// LSP 客户端注册表
-    pub(crate) lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
-    /// 实时追加消息接收器
+
+    // === Session (SessionManager) ===
+    pub(crate) event_tx: Option<mpsc::Sender<AgentEvent>>,
     pub(crate) pending_input_rx: Option<mpsc::Receiver<String>>,
+
+    // === Approval ===
+    pub(crate) approve_mode: crate::approval::ApproveMode,
+
+    // === Proxy Tools ===
+    pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
+    pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
+
+    // === External Registries ===
+    pub(crate) mcp_registry: Option<Arc<tokio::sync::RwLock<crate::mcp::McpToolRegistry>>>,
+    pub(crate) lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
 }
 
 // 注意：AgentBuilder 必须通过 AgentBuilder::new(provider) 创建

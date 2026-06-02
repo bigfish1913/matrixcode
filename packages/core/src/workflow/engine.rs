@@ -3,7 +3,7 @@
 //! 工作流引擎，实现状态机的基础结构和主运行循环。
 
 use super::context::WorkflowContext;
-use super::def::{FailureStrategy, NodeDef, NodeType, WorkflowDef};
+use super::def::{ExecutionMode, FailureStrategy, NodeDef, NodeType, WorkflowDef};
 use super::executors::{ExecutorFactory, NodeExecutor};
 use super::rule_engine::evaluate_expression;
 use super::template::TemplateRenderer;
@@ -382,6 +382,7 @@ impl WorkflowEngine {
             NodeType::Task => self.execute_task(node, context).await,
             NodeType::Condition => self.execute_condition(node, context).await,
             NodeType::Parallel => self.execute_parallel(node, context).await,
+            NodeType::Pipeline => self.execute_pipeline(node, context).await,
             NodeType::SubWorkflow => self.execute_subworkflow(node, context).await,
             NodeType::Wait => self.execute_wait(node, context).await,
             NodeType::Approval => self.execute_approval(node, context).await,
@@ -472,6 +473,52 @@ impl WorkflowEngine {
                 "status": "completed"
             }));
         }
+
+        Ok(Some(serde_json::Value::Array(outputs)))
+    }
+
+    /// 执行流式节点 (Pipeline 模式)
+    ///
+    /// Pipeline 模式特点：
+    /// - 任务完成后立即流转到下一阶段
+    /// - 不等待其他任务完成（无屏障）
+    /// - Wall-clock = 最慢的单任务链
+    async fn execute_pipeline(
+        &self,
+        node: &NodeDef,
+        _context: &mut WorkflowContext,
+    ) -> Result<Option<serde_json::Value>> {
+        let branches = node
+            .parallel_branches
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Pipeline node '{}' has no branches", node.id))?;
+
+        // Pipeline 模式：流式处理，无屏障等待
+        // 每个分支独立流转，不等待其他分支完成
+        let mut outputs = Vec::new();
+        for branch in branches {
+            // 验证分支的执行模式
+            if branch.mode != ExecutionMode::Pipeline {
+                log::warn!(
+                    "Pipeline node '{}' branch '{}' has mode '{}', expected Pipeline",
+                    node.id, branch.name, branch.mode.display_name()
+                );
+            }
+
+            // 流式处理：立即返回，不等待
+            outputs.push(serde_json::json!({
+                "branch": branch.name,
+                "mode": "pipeline",
+                "status": "streaming",
+                "has_barrier": false
+            }));
+        }
+
+        log::info!(
+            "Pipeline node '{}' executing {} branches in streaming mode (no barrier)",
+            node.id,
+            branches.len()
+        );
 
         Ok(Some(serde_json::Value::Array(outputs)))
     }
@@ -628,6 +675,7 @@ mod tests {
                     timeout_ms: None,
                     branches: None,
                     parallel_branches: None,
+                    execution_mode: None,
                     workflow: None,
                     wait_ms: None,
                     approvers: None,
@@ -643,6 +691,7 @@ mod tests {
                     timeout_ms: None,
                     branches: None,
                     parallel_branches: None,
+                    execution_mode: None,
                     workflow: None,
                     wait_ms: None,
                     approvers: None,
@@ -658,6 +707,7 @@ mod tests {
                     timeout_ms: None,
                     branches: None,
                     parallel_branches: None,
+                    execution_mode: None,
                     workflow: None,
                     wait_ms: None,
                     approvers: None,

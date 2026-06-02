@@ -588,6 +588,7 @@ impl WorkflowCreateTool {
                 NodeType::Task => "task",
                 NodeType::Condition => "condition",
                 NodeType::Parallel => "parallel",
+                NodeType::Pipeline => "pipeline",
                 NodeType::Wait => "wait",
                 NodeType::Approval => "approval",
                 NodeType::SubWorkflow => "subworkflow",

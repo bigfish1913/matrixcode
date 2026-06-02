@@ -3,6 +3,11 @@
 //! Each section can be:
 //! - Static: constant string, cacheable
 //! - Dynamic: computed at runtime, not cacheable
+//!
+//! Predefined sections are available for common prompt components:
+//! - Red flags warning table
+//! - Skill priority rules
+//! - Tool usage guidelines
 
 use std::sync::Arc;
 
@@ -73,6 +78,136 @@ pub struct PromptSection {
     /// Section priority/order (lower = earlier in prompt)
     pub order: usize,
 }
+
+// ============================================================================
+// Predefined Sections - Common prompt components
+// ============================================================================
+
+/// Red flags warning section - prevents common AI reasoning errors
+///
+/// This section should be included early in the prompt to help the AI
+/// avoid common pitfalls like bypassing skill checks or acting before thinking.
+pub fn red_flags_section() -> PromptSection {
+    PromptSection::static_section("red_flags", RED_FLAGS_CONTENT).with_order(10)
+}
+
+/// Skill priority rules section - defines skill invocation order
+///
+/// Process skills (brainstorming, debugging) should be invoked before
+/// Implementation skills (frontend, code-review).
+pub fn skill_priority_section() -> PromptSection {
+    PromptSection::static_section("skill_priority", SKILL_PRIORITY_CONTENT).with_order(15)
+}
+
+/// Skill invocation rules section - mandatory skill check before action
+///
+/// This enforces the "1% rule": if there's even a 1% chance a skill applies,
+/// it MUST be invoked before any other response.
+pub fn skill_rules_section() -> PromptSection {
+    PromptSection::static_section("skill_rules", SKILL_RULES_CONTENT).with_order(5)
+}
+
+/// Tool usage guidelines section - how to use tools effectively
+pub fn tool_guidelines_section() -> PromptSection {
+    PromptSection::static_section("tool_guidelines", TOOL_GUIDELINES_CONTENT).with_order(20)
+}
+
+/// Predefined red flags content
+const RED_FLAGS_CONTENT: &'static str = "
+## Red Flags - STOP and reconsider
+
+These thoughts mean STOP — you're rationalizing:
+
+| Thought | Reality |
+|---------|---------|
+| \"This is just a simple question\" | Questions are tasks. Check for skills. |
+| \"I need more context first\" | Skill check comes BEFORE clarifying questions. |
+| \"Let me explore the codebase first\" | Skills tell you HOW to explore. Check first. |
+| \"I can check git/files quickly\" | Files lack conversation context. Check for skills. |
+| \"Let me gather information first\" | Skills tell you HOW to gather information. |
+| \"This doesn't need a formal skill\" | If a skill exists, use it. |
+| \"I remember this skill\" | Skills evolve. Read current version. |
+| \"This doesn't count as a task\" | Action = task. Check for skills. |
+| \"The skill is overkill\" | Simple things become complex. Use it. |
+| \"I'll just do this one thing first\" | Check BEFORE doing anything. |
+| \"This feels productive\" | Undisciplined action wastes time. Skills prevent this. |
+| \"I know what that means\" | Knowing the concept ≠ using the skill. Invoke it. |
+
+**When you catch yourself thinking these, STOP and invoke the relevant skill.**
+";
+
+/// Predefined skill priority content
+const SKILL_PRIORITY_CONTENT: &'static str = "
+## Skill Priority
+
+When multiple skills could apply, use this order:
+
+1. **Process skills first** (brainstorming, debugging, planning) - these determine HOW to approach the task
+2. **Implementation skills second** (frontend-design, mcp-builder, code-review) - these guide execution
+
+Examples:
+- \"Let's build X\" → brainstorming first, then implementation skills
+- \"Fix this bug\" → debugging first, then domain-specific skills
+- \"Review this code\" → code-review skill directly (domain-specific)
+
+## Skill Types
+
+- **Rigid skills** (TDD, debugging): Follow exactly. Don't adapt away discipline.
+- **Flexible skills** (patterns): Adapt principles to context.
+
+The skill itself tells you which type it is.
+";
+
+/// Predefined skill rules content
+const SKILL_RULES_CONTENT: &'static str = "
+<EXTREMELY-IMPORTANT>
+If you think there is even a **1% chance** a skill might apply to what you are doing,
+you **ABSOLUTELY MUST** invoke the skill.
+
+IF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.
+
+This is not negotiable. This is not optional. You cannot rationalize your way out of this.
+</EXTREMELY-IMPORTANT>
+
+## The Rule
+
+**Invoke relevant or requested skills BEFORE any response or action.**
+Even a 1% chance a skill might apply means that you should invoke the skill to check.
+If an invoked skill turns out to be wrong for the situation, you don't need to use it.
+";
+
+/// Predefined tool guidelines content
+const TOOL_GUIDELINES_CONTENT: &'static str = "
+## Tool Usage Guidelines
+
+### When to use tools
+
+| Task | Preferred Tool |
+|------|----------------|
+| Find files by pattern | `Glob` (not `find` command) |
+| Search file contents | `Grep` (not `grep` command) |
+| Read a specific file | `Read` (not `cat` command) |
+| Search code symbols | `codegraph_search` (not `grep`) |
+| Find function callers | `codegraph_callers` (not manual search) |
+| Trace code flow | `codegraph_trace` (one call = full path) |
+
+### CodeGraph vs Native Search
+
+Use **CodeGraph** for structural questions:
+- \"Where is X defined?\" → `codegraph_search`
+- \"What calls Y?\" → `codegraph_callers`
+- \"How does X reach Y?\" → `codegraph_trace`
+
+Use **native grep/read** for literal text:
+- String contents, comments, log messages
+- After you already have a specific file open
+
+### Rules of thumb
+
+- **Don't grep first** when looking up a symbol by name
+- **Trust CodeGraph results** — they come from full AST parse
+- **Don't re-verify** CodeGraph results with grep (slower, less accurate)
+";
 
 impl PromptSection {
     /// Create a new static section
@@ -239,5 +374,64 @@ mod tests {
         assert_eq!(sections[0].name, "first");
         assert_eq!(sections[1].name, "middle");
         assert_eq!(sections[2].name, "last");
+    }
+
+    #[test]
+    fn test_predefined_red_flags_section() {
+        let section = red_flags_section();
+        assert_eq!(section.name, "red_flags");
+        assert!(section.cacheable);
+        assert!(section.order == 10);
+        let content = section.compute_content();
+        assert!(content.contains("Red Flags"));
+        assert!(content.contains("STOP"));
+        assert!(content.contains("This is just a simple question"));
+    }
+
+    #[test]
+    fn test_predefined_skill_priority_section() {
+        let section = skill_priority_section();
+        assert_eq!(section.name, "skill_priority");
+        assert!(section.cacheable);
+        assert!(section.order == 15);
+        let content = section.compute_content();
+        assert!(content.contains("Skill Priority"));
+        assert!(content.contains("Process skills first"));
+    }
+
+    #[test]
+    fn test_predefined_skill_rules_section() {
+        let section = skill_rules_section();
+        assert_eq!(section.name, "skill_rules");
+        assert!(section.cacheable);
+        assert!(section.order == 5); // Should be earliest
+        let content = section.compute_content();
+        assert!(content.contains("1%"));
+        assert!(content.contains("MUST"));
+    }
+
+    #[test]
+    fn test_predefined_tool_guidelines_section() {
+        let section = tool_guidelines_section();
+        assert_eq!(section.name, "tool_guidelines");
+        assert!(section.cacheable);
+        let content = section.compute_content();
+        assert!(content.contains("Glob"));
+        assert!(content.contains("Grep"));
+        assert!(content.contains("CodeGraph"));
+    }
+
+    #[test]
+    fn test_predefined_sections_order() {
+        // Verify predefined sections have correct order
+        let rules = skill_rules_section();
+        let flags = red_flags_section();
+        let priority = skill_priority_section();
+        let tools = tool_guidelines_section();
+
+        // Rules should come first (lowest order)
+        assert!(rules.order < flags.order);
+        assert!(flags.order < priority.order);
+        assert!(priority.order < tools.order);
     }
 }

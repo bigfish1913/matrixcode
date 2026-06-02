@@ -82,26 +82,37 @@ impl Agent {
                     let mut should_retry = false;
 
                     loop {
-                        // Use select! with cancellation and pending input checks
+                        // Use biased select! to prioritize stream events over pending input checks
+                        // This prevents losing stream events when sleep completes first
                         let event = if let Some(token) = &self.cancel_token {
                             tokio::select! {
-                                // Primary: receive stream event
+                                biased;
+
+                                // Primary: receive stream event (highest priority)
                                 event = rx.recv() => event,
-                                // Check for pending inputs periodically
-                                _ = sleep(Duration::from_millis(50)) => {
-                                    self.drain_pending_inputs();
-                                    continue;
-                                }
-                                // Cancellation signal
+
+                                // Cancellation signal (second priority)
                                 _ = wait_for_cancel_stream(token) => {
                                     return Err(anyhow::anyhow!("Operation cancelled"));
+                                }
+
+                                // Check for pending inputs periodically (lowest priority)
+                                // Increased interval to reduce competition with stream events
+                                _ = sleep(Duration::from_millis(200)) => {
+                                    self.drain_pending_inputs();
+                                    continue;
                                 }
                             }
                         } else {
                             // No cancellation token, but still check pending inputs
                             tokio::select! {
+                                biased;
+
+                                // Primary: receive stream event (highest priority)
                                 event = rx.recv() => event,
-                                _ = sleep(Duration::from_millis(50)) => {
+
+                                // Check for pending inputs periodically (lower priority)
+                                _ = sleep(Duration::from_millis(200)) => {
                                     self.drain_pending_inputs();
                                     continue;
                                 }

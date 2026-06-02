@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::approval::ApproveMode;
+use crate::compress::CompressionConfig;
 use crate::constants::QUICK_ACTION_MAX_TOKENS;
 use crate::event::AgentEvent;
 use crate::prompt::PromptProfile;
@@ -20,28 +21,23 @@ impl AgentBuilder {
             provider,
             model_name: "unknown".to_string(),
             tools: Vec::new(),
-            system_prompt: "You are a helpful AI coding assistant.".to_string(),
             max_tokens: QUICK_ACTION_MAX_TOKENS,
             context_size_override: None,
             think: false,
-            approve_mode: ApproveMode::Ask,
-            event_tx: None,
-            skills: Vec::new(),
+            compression_config: CompressionConfig::default(),
             profile: PromptProfile::Default,
+            skills: Vec::new(),
             project_overview: None,
             memory_summary: None,
             project_path: None,
+            event_tx: None,
+            pending_input_rx: None,
+            approve_mode: ApproveMode::Ask,
             proxy_tool_defs: Vec::new(),
             proxy_executor: None,
             mcp_registry: None,
             lsp_registry: None,
-            pending_input_rx: None,
         }
-    }
-
-    pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.system_prompt = prompt.into();
-        self
     }
 
     pub fn model_name(mut self, name: impl Into<String>) -> Self {
@@ -57,6 +53,12 @@ impl AgentBuilder {
     /// Override provider-inferred context window size.
     pub fn context_size(mut self, context_size: Option<u32>) -> Self {
         self.context_size_override = context_size;
+        self
+    }
+
+    /// Set compression config
+    pub fn compression_config(mut self, config: CompressionConfig) -> Self {
+        self.compression_config = config;
         self
     }
 
@@ -114,6 +116,15 @@ impl AgentBuilder {
     /// Set memory summary
     pub fn memory(mut self, summary: impl Into<String>) -> Self {
         self.memory_summary = Some(summary.into());
+        self
+    }
+
+    /// Set system prompt directly (overrides auto-generated prompt).
+    /// Use with caution - this bypasses the normal prompt building process.
+    pub fn system_prompt(mut self, prompt: String) -> Self {
+        // Store as project_overview to be used in prompt building
+        // This is a workaround since system_prompt is built from context
+        self.project_overview = Some(prompt);
         self
     }
 

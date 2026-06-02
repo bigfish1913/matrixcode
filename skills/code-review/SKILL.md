@@ -2,9 +2,17 @@
 name: code-review
 description: 执行代码审查，检查代码质量、安全性和最佳实践
 trigger: 用户说 "/review"、"审查代码"、"代码审查"、"检查代码质量"
+type: rigid
+priority: process
+mandatory: true
 ---
 
 # 代码审查技能
+
+<EXTREMELY-IMPORTANT>
+如果用户请求代码审查，你**必须**先调用此技能。
+这不是可选的。不要绕过。
+</EXTREMELY-IMPORTANT>
 
 <objective>
 执行代码审查，识别代码质量问题、安全漏洞和最佳实践偏差，提供可操作的改进建议
@@ -67,3 +75,8 @@ trigger: 用户说 "/review"、"审查代码"、"代码审查"、"检查代码�
 - 提供具体、可操作的反馈，而非模糊的批评
 - 对于严重问题，提供修复示例
 - 认可代码的优点，不只是批评
+
+## 相关技能
+
+- [[debug]] - 调试发现的问题
+- [[test-driven-development]] - TDD 流程

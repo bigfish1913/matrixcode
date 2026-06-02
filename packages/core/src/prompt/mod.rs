@@ -36,7 +36,11 @@ pub use orchestrator::{
     AssembledPrompt, CACHE_BOUNDARY, PromptBuilder, PromptOrchestrator, PromptProfile,
 };
 pub use preprocess::{PreProcessHook, ProcessResult, SkillPattern, WorkflowTrigger, preprocess, preprocess_with_skills};
-pub use section::{PromptSection, SectionBuilder, SectionContent};
+pub use section::{
+    PromptSection, SectionBuilder, SectionContent,
+    // Predefined sections
+    red_flags_section, skill_priority_section, skill_rules_section, tool_guidelines_section,
+};
 
 // Re-export constants (includes SECTION_*, MEMORY_*, MSG_*)
 pub use constants::*;

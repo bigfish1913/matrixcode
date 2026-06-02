@@ -1,73 +1,237 @@
 //! Agent run loop and public methods.
 
 use anyhow::Result;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::sync::mpsc;
 
 use crate::approval::ApproveMode;
 use crate::cancel::CancellationToken;
-use crate::compress::{
-    CompressionStrategy, compress_messages, estimate_total_tokens, should_compress,
-};
+use crate::compress::{CompressionConfig, CompressionStrategy, compress_messages, estimate_total_tokens, should_compress};
 use crate::event::{AgentEvent, EventData, EventType};
-use crate::prompt;
-use crate::prompt::preprocess::{preprocess_with_skills, ProcessResult};
+use crate::prompt::{PromptProfile, preprocess::{preprocess_with_skills, ProcessResult}};
 use crate::providers::{ChatRequest, Message, MessageContent, Role};
+use crate::skills::Skill;
 use crate::tools::Tool;
 use crate::tools::ToolDefinition;
 use crate::tools::toolproxy::{ProxyToolDef, ProxyToolExecutor};
 
+use super::core::{AgentConfig, AgentState};
+use super::context::AgentContext;
+use super::session::SessionManager;
 use super::types::{Agent, AgentBuilder, MAX_ITERATIONS};
 
 impl Agent {
     pub(crate) fn new(builder: AgentBuilder) -> Self {
+        // Create event channel if not provided
         let event_tx = builder.event_tx.unwrap_or_else(|| {
             let (tx, _) = mpsc::channel(100);
             tx
         });
 
-        // Note: LSP tools should be injected via all_tools_full_with_lsp or similar
-        // before calling .tools() on the builder, not here.
-        // The lsp_registry field is kept for future dynamic tool injection.
+        // Extract values before moving
+        let system_prompt_str = crate::prompt::build_system_prompt(
+            &builder.profile,
+            &builder.skills,
+            builder.project_overview.as_deref(),
+            builder.memory_summary.as_deref(),
+        );
+        let compression_config_clone = builder.compression_config.clone();
+
+        // Create modular components from builder
+        let config = AgentConfig::new(
+            builder.max_tokens,
+            builder.context_size_override,
+            builder.think,
+            builder.compression_config,
+        );
+
+        let state = AgentState::new();
+
+        let context = AgentContext::with_context(
+            builder.profile,
+            builder.skills,
+            builder.project_overview,
+            builder.memory_summary,
+            builder.project_path,
+        );
+
+        // SessionManager handles pending_input_rx, no need to store in Agent
+        let session = SessionManager::with_channels(event_tx.clone(), builder.pending_input_rx);
 
         Self {
+            // Core components
+            config,
+            state,
+            context,
+            session,
+
+            // Provider & Tools
             provider: builder.provider,
             model_name: builder.model_name,
             tools: builder.tools,
-            messages: Vec::new(),
-            system_prompt: builder.system_prompt,
-            max_tokens: builder.max_tokens,
-            context_size_override: builder.context_size_override,
-            think: builder.think,
-            approve_mode: Arc::new(AtomicU8::new(builder.approve_mode.to_u8())),
+
+            // Event channel
             event_tx,
-            skills: builder.skills,
-            profile: builder.profile,
-            project_overview: builder.project_overview,
-            memory_summary: builder.memory_summary,
-            project_path: builder.project_path,
+
+            // Approval
+            approve_mode: Arc::new(AtomicU8::new(builder.approve_mode.to_u8())),
+
+            // Legacy fields (will be migrated in future phases)
+            messages: Vec::new(),
+            system_prompt: system_prompt_str,
+            compression_config: compression_config_clone,
+            cancel_token: None,
             total_input_tokens: std::sync::atomic::AtomicU64::new(0),
             total_output_tokens: std::sync::atomic::AtomicU64::new(0),
             last_input_tokens: std::sync::atomic::AtomicU64::new(0),
-            cancel_token: None,
-            compression_config: crate::compress::CompressionConfig::default(),
+            todo_reminder_count: std::collections::HashMap::new(),
+            pending_inputs: Vec::new(),
             ask_rx: None,
+
+            // Tool tracking
+            previewed_tool_inputs: HashSet::new(),
+            read_history: crate::tools::ReadHistoryTracker::new(),
+
+            // Proxy tools
             proxy_tool_defs: builder.proxy_tool_defs,
             proxy_executor: builder.proxy_executor,
+
+            // External registries
             mcp_registry: builder.mcp_registry,
             lsp_registry: builder.lsp_registry,
-            pending_input_rx: builder.pending_input_rx,
-            pending_inputs: Vec::new(),
-            previewed_tool_inputs: std::collections::HashSet::new(),
-            todo_reminder_count: std::collections::HashMap::new(),
-            read_history: crate::tools::ReadHistoryTracker::new(),
+
+            // Input channels - pending_input_rx is managed by SessionManager
+            pending_input_rx: None,
         }
+    }
+
+    // === Field Accessors (delegating to components) ===
+
+    /// Get messages (from state)
+    pub(crate) fn messages(&self) -> &Vec<Message> {
+        self.state.messages()
+    }
+
+    /// Get mutable messages (from state)
+    pub(crate) fn messages_mut(&mut self) -> &mut Vec<Message> {
+        self.state.messages_mut()
+    }
+
+    /// Get system prompt (from context)
+    pub(crate) fn system_prompt(&self) -> &str {
+        self.context.system_prompt()
+    }
+
+    /// Get max tokens (from config)
+    pub(crate) fn max_tokens(&self) -> u32 {
+        self.config.max_tokens()
+    }
+
+    /// Get context size override (from config)
+    pub(crate) fn context_size_override(&self) -> Option<u32> {
+        self.config.context_size_override()
+    }
+
+    /// Get think flag (from config)
+    pub(crate) fn think(&self) -> bool {
+        self.config.think()
+    }
+
+    /// Get compression config (from config)
+    pub(crate) fn compression_config(&self) -> &CompressionConfig {
+        self.config.compression_config()
+    }
+
+    /// Get mutable compression config (from config)
+    pub(crate) fn compression_config_mut(&mut self) -> &mut CompressionConfig {
+        self.config.compression_config_mut()
+    }
+
+    /// Get cancellation token (from session)
+    pub(crate) fn cancel_token(&self) -> Option<&CancellationToken> {
+        self.session.cancel_token()
+    }
+
+    /// Get event sender (direct field access)
+    pub(crate) fn event_tx(&self) -> &mpsc::Sender<AgentEvent> {
+        &self.event_tx
+    }
+
+    /// Get skills (from context)
+    pub(crate) fn skills(&self) -> &[Skill] {
+        self.context.skills()
+    }
+
+    /// Get profile (from context)
+    pub(crate) fn profile(&self) -> &PromptProfile {
+        self.context.profile()
+    }
+
+    /// Get project overview (from context)
+    pub(crate) fn project_overview(&self) -> Option<&str> {
+        self.context.project_overview()
+    }
+
+    /// Get memory summary (from context)
+    pub(crate) fn memory_summary(&self) -> Option<&str> {
+        self.context.memory_summary()
+    }
+
+    /// Get project path (from context)
+    pub(crate) fn project_path(&self) -> Option<&std::path::PathBuf> {
+        self.context.project_path()
+    }
+
+    /// Check if cancelled (from session)
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.session.is_cancelled()
+    }
+
+    /// Get total input tokens (from state)
+    pub(crate) fn total_input_tokens(&self) -> u64 {
+        self.state.total_input_tokens()
+    }
+
+    /// Get total output tokens (from state)
+    pub(crate) fn total_output_tokens(&self) -> u64 {
+        self.state.total_output_tokens()
+    }
+
+    /// Get last input tokens (from state)
+    pub(crate) fn last_input_tokens(&self) -> u64 {
+        self.state.last_input_tokens()
+    }
+
+    /// Get todo reminder count (from state)
+    pub(crate) fn todo_reminder_count(&self) -> &std::collections::HashMap<String, usize> {
+        self.state.todo_reminder_count_map()
+    }
+
+    /// Get mutable todo reminder count (from state)
+    pub(crate) fn todo_reminder_count_mut(&mut self) -> &mut std::collections::HashMap<String, usize> {
+        self.state.todo_reminder_count_map_mut()
+    }
+
+    /// Get pending inputs (from state)
+    pub(crate) fn pending_inputs(&self) -> &Vec<String> {
+        self.state.pending_inputs_vec()
+    }
+
+    /// Get mutable pending inputs (from state)
+    pub(crate) fn pending_inputs_mut(&mut self) -> &mut Vec<String> {
+        self.state.pending_inputs_vec_mut()
+    }
+
+    /// Get ask rx (from session)
+    pub(crate) fn ask_rx(&mut self) -> Option<&mut mpsc::Receiver<String>> {
+        self.session.ask_rx()
     }
 
     /// Effective context window size, preferring explicit configuration over model inference.
     pub(crate) fn effective_context_size(&self) -> Option<u32> {
-        self.context_size_override
+        self.config.context_size_override()
             .or_else(|| self.provider.context_size())
     }
 
@@ -116,21 +280,16 @@ impl Agent {
     /// Update memory summary and rebuild system prompt.
     /// Note: Uses build_system_prompt (without project_path) to preserve cache.
     pub fn update_memory_summary(&mut self, summary: Option<String>) {
-        self.memory_summary = summary;
-        // Preserve cache by using build_system_prompt (no dynamic CodeGraph injection)
-        self.system_prompt = prompt::build_system_prompt(
-            &self.profile,
-            &self.skills,
-            self.project_overview.as_deref(),
-            self.memory_summary.as_deref(),
-        );
+        self.context.update_memory(summary);
+        // Sync legacy field for backward compatibility
+        self.system_prompt = self.context.system_prompt().to_string();
     }
 
     /// Refresh CodeGraph tools after /init or codegraph init.
     /// This rebuilds both tools and system prompt with project_path.
     /// Call this only when CodeGraph state changes (not every request) to preserve cache.
     pub fn refresh_codegraph_tools(&mut self) {
-        if let Some(path) = &self.project_path {
+        if let Some(path) = self.context.project_path() {
             // Check if CodeGraph should be injected now
             let should_have_codegraph =
                 crate::tools::codegraph::should_inject_codegraph_tools(path);
@@ -150,11 +309,11 @@ impl Agent {
                         self.tools.push(Arc::from(tool));
                     }
                     // Update system prompt to include CodeGraph rules
-                    self.system_prompt = prompt::build_system_prompt_with_workflows(
-                        &self.profile,
-                        &self.skills,
-                        self.project_overview.as_deref(),
-                        self.memory_summary.as_deref(),
+                    self.system_prompt = crate::prompt::build_system_prompt_with_workflows(
+                        self.context.profile(),
+                        self.context.skills(),
+                        self.context.project_overview(),
+                        self.context.memory_summary(),
                         Some(path),
                         None, // LSP servers not available in agent context
                     );
@@ -165,11 +324,11 @@ impl Agent {
                         !name.starts_with("code_") || name == "code_review"
                     });
                     // Update system prompt to remove CodeGraph rules
-                    self.system_prompt = prompt::build_system_prompt_with_workflows(
-                        &self.profile,
-                        &self.skills,
-                        self.project_overview.as_deref(),
-                        self.memory_summary.as_deref(),
+                    self.system_prompt = crate::prompt::build_system_prompt_with_workflows(
+                        self.context.profile(),
+                        self.context.skills(),
+                        self.context.project_overview(),
+                        self.context.memory_summary(),
                         Some(path),
                         None, // LSP servers not available in agent context
                     );
@@ -283,7 +442,7 @@ impl Agent {
                 && token.is_cancelled()
             {
                 self.emit(AgentEvent::error(
-                    prompt::MSG_OPERATION_CANCELLED.to_string(),
+                    crate::prompt::MSG_OPERATION_CANCELLED.to_string(),
                     None,
                     None,
                 ))?;
@@ -293,7 +452,7 @@ impl Agent {
             // Warn when approaching iteration limit (UI only, not in messages history)
             if iterations == ITERATION_WARNING_THRESHOLD {
                 self.emit(AgentEvent::progress(
-                    prompt::MSG_ITERATION_WARNING_UI
+                    crate::prompt::MSG_ITERATION_WARNING_UI
                         .replace("{iterations}", &iterations.to_string())
                         .replace("{max_iterations}", &MAX_ITERATIONS.to_string()),
                     None,
@@ -360,9 +519,9 @@ impl Agent {
             let request = ChatRequest {
                 system: Some(self.system_prompt.clone()),
                 messages: self.messages.clone(),
-                max_tokens: self.max_tokens,
+                max_tokens: self.max_tokens(),
                 tools: tool_defs,
-                think: self.think,
+                think: self.think(),
                 enable_caching: true,
                 server_tools: Vec::new(),
             };
@@ -490,7 +649,7 @@ impl Agent {
             }
 
             if should_compress(current_tokens, context_size, &self.compression_config) {
-                self.emit(AgentEvent::progress(prompt::MSG_COMPRESSING_CONTEXT, None))?;
+                self.emit(AgentEvent::progress(crate::prompt::MSG_COMPRESSING_CONTEXT, None))?;
 
                 let original_tokens = current_tokens;
 
@@ -525,7 +684,7 @@ impl Agent {
                     }
                     Err(e) => {
                         self.emit(AgentEvent::progress(
-                            format!("{}{}", prompt::MSG_COMPRESSION_FAILED, e),
+                            format!("{}{}", crate::prompt::MSG_COMPRESSION_FAILED, e),
                             None,
                         ))?;
                     }
@@ -536,7 +695,7 @@ impl Agent {
         // Check if we stopped due to reaching MAX_ITERATIONS
         if iterations >= MAX_ITERATIONS && should_continue {
             self.emit(AgentEvent::error(
-                prompt::MSG_MAX_ITERATIONS_REACHED
+                crate::prompt::MSG_MAX_ITERATIONS_REACHED
                     .replace("{max_iterations}", &MAX_ITERATIONS.to_string())
                     .replace("{iterations}", &iterations.to_string()),
                 Some("MAX_ITERATIONS_REACHED".to_string()),
@@ -614,7 +773,7 @@ impl Agent {
     /// - `Continue`: 无触发，继续正常处理
     pub fn preprocess_input(&self, user_input: &str) -> ProcessResult {
         // 使用动态触发加载：从已加载的技能中提取触发模式
-        preprocess_with_skills(user_input, &self.skills)
+        preprocess_with_skills(user_input, self.skills())
     }
 
     /// 强制执行触发的技能（注入技能内容到消息历史）

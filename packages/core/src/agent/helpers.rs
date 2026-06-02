@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, EventType};
 use crate::providers::{ContentBlock, MessageContent, Role, Usage};
 use crate::truncate::truncate_chars;
 
@@ -63,7 +63,7 @@ impl Agent {
         let system_preview = truncate_chars(&self.system_prompt, 500);
 
         // Project overview preview
-        let project_preview = self.project_overview.as_ref()
+        let project_preview = self.project_overview()
             .map(|o| truncate_chars(o, 300));
 
         // Recent messages preview (last 5 messages)
@@ -101,11 +101,11 @@ impl Agent {
             total_input_tokens: self.total_input_tokens.load(Ordering::Relaxed),
             total_output_tokens: self.total_output_tokens.load(Ordering::Relaxed),
             system_prompt_preview: system_preview,
-            memory_summary: self.memory_summary.clone(),
+            memory_summary: self.memory_summary().map(|s| s.to_string()),
             project_overview_preview: project_preview,
             recent_messages_preview: recent_preview,
             model_name: self.model_name.clone(),
-            max_tokens: self.max_tokens,
+            max_tokens: self.max_tokens(),
         }
     }
 
@@ -119,14 +119,14 @@ impl Agent {
         preview.push_str("\n\n");
 
         // Memory summary
-        if let Some(memory) = &self.memory_summary {
+        if let Some(memory) = self.memory_summary() {
             preview.push_str("=== MEMORY SUMMARY ===\n");
             preview.push_str(memory);
             preview.push_str("\n\n");
         }
 
         // Project overview
-        if let Some(overview) = &self.project_overview {
+        if let Some(overview) = self.project_overview() {
             preview.push_str("=== PROJECT OVERVIEW ===\n");
             preview.push_str(overview);
             preview.push_str("\n\n");
@@ -215,17 +215,54 @@ impl Agent {
         ));
     }
 
-    /// Emit event (non-blocking)
+    /// Emit event (with retry on full)
+    ///
+    /// This method tries to send an event and retries with backoff if the channel is full.
+    /// This prevents event loss which could cause UI state inconsistency.
     pub(crate) fn emit(&self, event: AgentEvent) -> Result<()> {
         log::debug!("Agent emit: event_type={:?}", event.event_type);
+
+        // First try non-blocking send for performance
         match self.event_tx.try_send(event) {
             Ok(_) => {
                 log::debug!("Agent emit: sent successfully");
                 Ok(())
             }
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                log::warn!("Agent emit: channel full, skipping event");
-                Ok(())
+            Err(mpsc::error::TrySendError::Full(event)) => {
+                // Channel full - for critical events, we must retry
+                let is_critical = matches!(
+                    event.event_type,
+                    EventType::Error | EventType::SessionEnded | EventType::SessionStarted
+                );
+
+                if is_critical {
+                    // Retry a few times with short delays (blocking approach)
+                    let mut retries = 3;
+                    let mut current_event = event;
+                    while retries > 0 {
+                        // Short spin wait
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        match self.event_tx.try_send(current_event) {
+                            Ok(_) => {
+                                log::debug!("Agent emit: critical event sent after retry");
+                                return Ok(());
+                            }
+                            Err(mpsc::error::TrySendError::Full(e)) => {
+                                current_event = e;
+                                retries -= 1;
+                            }
+                            Err(mpsc::error::TrySendError::Closed(_)) => {
+                                log::error!("Agent emit: channel closed during retry");
+                                return Err(anyhow::anyhow!("Event channel closed"));
+                            }
+                        }
+                    }
+                    log::warn!("Agent emit: critical event dropped after {} retries", 3);
+                    Err(anyhow::anyhow!("Event channel full, critical event dropped"))
+                } else {
+                    log::warn!("Agent emit: channel full, skipping non-critical event");
+                    Ok(())
+                }
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 log::error!("Agent emit: channel closed");
