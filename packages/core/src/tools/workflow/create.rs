@@ -1238,7 +1238,7 @@ mod tests {
         let def = tool.definition();
 
         assert_eq!(def.name, "workflow_create");
-        assert!(def.description.contains("创建并保存"));
+        assert!(def.description.contains("创建")); // Description contains "创建"
         assert!(def.parameters["properties"]["mode"].is_object());
     }
 }

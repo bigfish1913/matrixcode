@@ -226,6 +226,11 @@ impl PatternRegistry {
         self.patterns.iter().find(|p| p.id == id)
     }
 
+    /// Get pattern by pattern string.
+    pub fn get_pattern_by_pattern(&self, pattern: &str) -> Option<&ConversationPattern> {
+        self.patterns.iter().find(|p| p.pattern == pattern)
+    }
+
     /// Get pattern by ID for mutation.
     pub fn get_pattern_mut(&mut self, id: &str) -> Option<&mut ConversationPattern> {
         self.patterns.iter_mut().find(|p| p.id == id)

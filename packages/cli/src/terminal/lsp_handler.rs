@@ -21,22 +21,31 @@ impl LspHandler {
         }
     }
 
-    /// Add servers from config and spawn actual LSP clients
+    /// Add servers from config and spawn actual LSP clients (non-blocking)
     pub async fn add_servers(&self, lsp_servers: Vec<(String, matrixcode_core::lsp::LspServerConfig)>, project_root: PathBuf) {
         let mut manager = self.manager.write().await;
         for (name, config) in lsp_servers {
             manager.add_server(config.clone());
             log::info!("LSP server '{}' added to manager", name);
 
-            // Spawn actual LSP client
-            if let Err(e) = self.registry.register(&config, &project_root).await {
-                log::warn!("Failed to start LSP client '{}': {}", name, e);
-                manager.mark_error(&config.language, e.to_string());
-            } else {
-                log::info!("LSP client '{}' started successfully", name);
-                // Mark as connected immediately after successful spawn
-                manager.mark_connected(&config.language);
-            }
+            // Mark as "starting" status
+            manager.mark_starting(&config.language);
+
+            // Spawn LSP client in background (non-blocking)
+            let registry = self.registry.clone();
+            let config_clone = config.clone();
+            let project_root_clone = project_root.clone();
+            let _language = config.language.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = registry.register(&config_clone, &project_root_clone).await {
+                    log::warn!("Failed to start LSP client '{}': {}", name, e);
+                    // Note: We can't mark_error here because we don't have access to manager
+                    // The error will be reflected when tools try to use the client
+                } else {
+                    log::info!("LSP client '{}' started successfully in background", name);
+                }
+            });
         }
     }
 

@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn test_cache_put_and_get() {
         let mut cache = CompressionCache::default();
-        let original = create_test_message("This is a test message that is long enough to be cached");
+        let original = create_test_message("This is a test message that is long enough to be cached, it needs to be at least 100 characters to pass the minimum size threshold");
         let compressed = create_test_message("This is a test message...");
 
         // Put in cache
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn test_cache_hit_increments_counter() {
         let mut cache = CompressionCache::default();
-        let original = create_test_message("This is a longer test message for caching purposes");
+        let original = create_test_message("This is a longer test message for caching purposes, it needs to be at least 100 characters long to be cached properly");
         let compressed = create_test_message("Longer test message...");
 
         cache.put(&original, compressed);
@@ -567,9 +567,9 @@ mod tests {
         };
         let mut cache = CompressionCache::new(config);
 
-        let msg1 = create_test_message("Message 1 - long enough for caching");
-        let msg2 = create_test_message("Message 2 - also long enough");
-        let msg3 = create_test_message("Message 3 - this one too");
+        let msg1 = create_test_message("Message 1 - long enough for caching, needs at least 100 characters to be stored in the cache system properly");
+        let msg2 = create_test_message("Message 2 - also long enough, needs at least 100 characters for caching in our compression cache system");
+        let msg3 = create_test_message("Message 3 - this one too, needs at least 100 characters to be cached in the compression cache system");
 
         cache.put(&msg1, msg1.clone());
         cache.put(&msg2, msg2.clone());
@@ -588,7 +588,7 @@ mod tests {
     #[test]
     fn test_cache_clear() {
         let mut cache = CompressionCache::default();
-        let msg = create_test_message("Long enough message for the cache system");
+        let msg = create_test_message("Long enough message for the cache system, needs at least 100 characters to be cached in our compression cache properly");
 
         cache.put(&msg, msg.clone());
         assert!(!cache.is_empty());
@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn test_cache_stats() {
         let mut cache = CompressionCache::default();
-        let msg = create_test_message("This is a test message for statistics tracking");
+        let msg = create_test_message("This is a test message for statistics tracking, needs at least 100 characters to be cached in our compression cache system");
 
         // Miss
         cache.get(&msg);

@@ -562,7 +562,11 @@ mod tests {
 
     #[test]
     fn test_path_to_uri() {
-        let path = PathBuf::from("/tmp/test.rs");
+        let path = if cfg!(target_os = "windows") {
+            PathBuf::from("C:\\temp\\test.rs")
+        } else {
+            PathBuf::from("/tmp/test.rs")
+        };
         let uri = path_to_uri(&path).unwrap();
         assert!(uri.to_string().ends_with("test.rs"));
     }

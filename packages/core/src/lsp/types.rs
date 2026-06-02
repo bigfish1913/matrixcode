@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub enum LspServerStatus {
     /// 未启动（灰色）
     NotStarted,
+    /// 正在启动（黄色）
+    Starting,
     /// 已连接，正常工作（绿色）
     Connected,
     /// 连接错误（红色）
@@ -26,6 +28,7 @@ impl LspServerStatus {
     pub fn label(&self) -> String {
         match self {
             LspServerStatus::NotStarted => "off".into(),
+            LspServerStatus::Starting => "starting...".into(),
             LspServerStatus::Connected => "ok".into(),
             LspServerStatus::Error(msg) => format!("err: {}", msg),
         }

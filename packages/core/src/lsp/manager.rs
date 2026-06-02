@@ -114,6 +114,11 @@ impl LspManager {
         self.set_status(name, LspServerStatus::Connected);
     }
 
+    /// 标记服务器正在启动
+    pub fn mark_starting(&self, name: &str) {
+        self.set_status(name, LspServerStatus::Starting);
+    }
+
     /// 标记服务器错误
     pub fn mark_error(&self, name: &str, msg: impl Into<String>) {
         self.set_status(name, LspServerStatus::Error(msg.into()));

@@ -51,6 +51,7 @@ pub struct AgentContext {
 /// Run the agent task (async portion)
 pub async fn run_agent_task(mut ctx: AgentContext) {
     log::info!("Agent task: starting");
+    matrixcode_core::debug::debug_log().log("agent", "Agent task: starting");
 
     // Send skills loaded event
     let skill_names: Vec<String> = ctx.skills.iter().map(|s| s.name.clone()).collect();
@@ -66,7 +67,8 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
         let _ = ctx.event_tx.send(AgentEvent::workflows_loaded(workflow_names)).await;
     }
 
-    // Create provider
+    log::info!("Agent task: creating provider");
+    matrixcode_core::debug::debug_log().log("agent", "Creating provider...");
     let provider = match create_provider_with_headers(
         ctx.provider_type,
         ctx.api_key.clone(),
@@ -125,15 +127,23 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
     }
 
     // Create MCP manager and start servers
+    log::info!("Agent task: starting MCP servers");
+    matrixcode_core::debug::debug_log().log("agent", "Starting MCP servers...");
     let mcp_manager = McpManager::new();
     mcp_manager.add_servers(ctx.mcp_servers).await;
     let mcp_tools = mcp_manager.start_all(&ctx.event_tx).await;
+    log::info!("Agent task: MCP servers started, {} tools", mcp_tools.len());
+    matrixcode_core::debug::debug_log().log("agent", &format!("MCP servers started, {} tools", mcp_tools.len()));
 
     // Create LSP handler and start servers (before building system prompt)
+    log::info!("Agent task: starting LSP servers");
+    matrixcode_core::debug::debug_log().log("agent", "Starting LSP servers...");
     let project_root = ctx.project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let lsp_handler = LspHandler::new();
     lsp_handler.add_servers(ctx.lsp_servers, project_root.clone()).await;
     lsp_handler.start_all(&ctx.event_tx).await;
+    log::info!("Agent task: LSP servers started");
+    matrixcode_core::debug::debug_log().log("agent", "LSP servers started");
 
     // Get LSP registry for tool injection
     let lsp_registry = lsp_handler.registry();
@@ -189,6 +199,7 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
     }
 
     log::info!("Agent task: messages restored, entering receive loop");
+    matrixcode_core::debug::debug_log().log("agent", "Entering receive loop...");
 
     agent.set_cancel_token(ctx.cancel_token.clone());
     agent.set_ask_channel(ctx.ask_rx);
@@ -215,6 +226,7 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
 
     // Main receive loop
     log::info!("Agent task: entering receive loop");
+    matrixcode_core::debug::debug_log().log("agent", "Ready to receive messages");
     while let Some(msg) = ctx.task_rx.recv().await {
         log::info!("Agent task: received message (len={})", msg.len());
 

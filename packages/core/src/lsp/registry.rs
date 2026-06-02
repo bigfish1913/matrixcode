@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio::time::{Duration, timeout};
 
 use super::client::LspClient;
 use super::types::LspServerConfig;
@@ -16,6 +17,9 @@ pub struct LspClientRegistry {
     /// 语言 -> 客户端映射
     clients: Arc<RwLock<HashMap<String, Arc<LspClient>>>>,
 }
+
+/// 默认等待 LSP 客户端启动的时间
+const LSP_WAIT_TIMEOUT_SECS: u64 = 30;
 
 impl LspClientRegistry {
     /// 创建空注册表
@@ -35,10 +39,39 @@ impl LspClientRegistry {
         Ok(())
     }
 
-    /// 获取指定语言的客户端
+    /// 获取指定语言的客户端（立即返回，不等待）
     pub async fn get_client(&self, language: &str) -> Option<Arc<LspClient>> {
         let clients = self.clients.read().await;
         clients.get(language).cloned()
+    }
+
+    /// 获取指定语言的客户端，等待启动完成（最多 30 秒）
+    pub async fn get_client_or_wait(&self, language: &str) -> Result<Arc<LspClient>> {
+        // 先尝试立即获取
+        if let Some(client) = self.get_client(language).await {
+            return Ok(client);
+        }
+
+        // 等待客户端启动
+        log::info!("Waiting for LSP client '{}' to start...", language);
+        let wait_duration = Duration::from_secs(LSP_WAIT_TIMEOUT_SECS);
+
+        timeout(wait_duration, async {
+            loop {
+                if let Some(client) = self.get_client(language).await {
+                    log::info!("LSP client '{}' is now available", language);
+                    return Ok(client);
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!(
+            "LSP 客户端 '{}' 启动超时（{}秒）。\n\
+            提示：LSP 服务器可能正在后台启动，请稍后再试。\n\
+            状态：检查 TUI 状态栏 LSP 是否显示 'starting...'",
+            language, LSP_WAIT_TIMEOUT_SECS
+        ))?
     }
 
     /// 是否有活跃客户端
