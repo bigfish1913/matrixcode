@@ -5,6 +5,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use matrixcode_core::{AgentEvent, lsp::{LspClientRegistry, LspManager, LspServerInfo}};
+use tokio::time::{Duration, timeout};
+
+/// LSP 启动超时时间（秒）- 大型 Rust 项目需要较长时间索引
+const LSP_STARTUP_TIMEOUT_SECS: u64 = 180;
 
 /// LSP manager that handles server lifecycle
 pub struct LspHandler {
@@ -21,32 +25,57 @@ impl LspHandler {
         }
     }
 
-    /// Add servers from config and spawn actual LSP clients (non-blocking)
+    /// Add servers from config and start LSP clients in background (non-blocking)
+    /// Agent can continue immediately, LSP tools will wait for clients to be ready
     pub async fn add_servers(&self, lsp_servers: Vec<(String, matrixcode_core::lsp::LspServerConfig)>, project_root: PathBuf) {
-        let mut manager = self.manager.write().await;
+        matrixcode_core::debug::debug_log().log("lsp", &format!("add_servers: {} servers (background mode)", lsp_servers.len()));
+
+        // Add servers to manager and mark as starting
+        {
+            let mut manager = self.manager.write().await;
+            for (name, config) in lsp_servers.iter() {
+                manager.add_server(config.clone());
+                manager.mark_starting(&config.language);
+                matrixcode_core::debug::debug_log().log("lsp", &format!("Server '{}' marked as starting", name));
+            }
+        }
+
+        // Start each server in background task
         for (name, config) in lsp_servers {
-            manager.add_server(config.clone());
-            log::info!("LSP server '{}' added to manager", name);
-
-            // Mark as "starting" status
-            manager.mark_starting(&config.language);
-
-            // Spawn LSP client in background (non-blocking)
             let registry = self.registry.clone();
-            let config_clone = config.clone();
+            let manager = self.manager.clone();
             let project_root_clone = project_root.clone();
-            let _language = config.language.clone();
+            let language = config.language.clone();
+
+            matrixcode_core::debug::debug_log().log("lsp", &format!("Spawning background task for '{}'", name));
 
             tokio::spawn(async move {
-                if let Err(e) = registry.register(&config_clone, &project_root_clone).await {
-                    log::warn!("Failed to start LSP client '{}': {}", name, e);
-                    // Note: We can't mark_error here because we don't have access to manager
-                    // The error will be reflected when tools try to use the client
-                } else {
-                    log::info!("LSP client '{}' started successfully in background", name);
+                matrixcode_core::debug::debug_log().log("lsp", &format!("Background: starting '{}'...", name));
+
+                let start_result = timeout(
+                    Duration::from_secs(LSP_STARTUP_TIMEOUT_SECS),
+                    registry.register(&config, &project_root_clone)
+                ).await;
+
+                let mut mgr = manager.write().await;
+                match start_result {
+                    Ok(Ok(_)) => {
+                        matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' started OK", name));
+                        mgr.mark_connected(&language);
+                    }
+                    Ok(Err(e)) => {
+                        matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' failed: {}", name, e));
+                        mgr.mark_error(&language, e.to_string());
+                    }
+                    Err(_) => {
+                        matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' timeout", name));
+                        mgr.mark_error(&language, "Startup timeout".to_string());
+                    }
                 }
             });
         }
+
+        matrixcode_core::debug::debug_log().log("lsp", "add_servers complete (background tasks running)");
     }
 
     /// Get registry for tool injection

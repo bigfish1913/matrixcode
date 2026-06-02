@@ -294,11 +294,19 @@ fn has_cpp_files(project_path: &Path) -> bool {
 ///
 /// Returns list of (name, config) pairs for available servers.
 pub fn prepare_lsp_servers(
-    _config: &Config,
+    config: &Config,
     project_path: Option<&Path>,
     start_path: Option<&Path>,
 ) -> Vec<(String, matrixcode_core::lsp::LspServerConfig)> {
     use matrixcode_core::lsp::LspServerConfig;
+
+    // Check if LSP is enabled globally
+    if !config.enable_lsp {
+        log::info!("LSP disabled by config (enable_lsp=false)");
+        println!("[lsp: disabled by config (enable_lsp=false)]");
+        return vec![];
+    }
+    println!("[lsp: enabled]");
 
     // Detect project languages from both project_root and start_path
     // This handles the case where a Go project is in a subdirectory of a Rust monorepo

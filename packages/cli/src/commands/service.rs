@@ -426,6 +426,13 @@ fn handle_status(config: &Config, _model: &str) {
         println!("  Approve Mode: ask (default)");
     }
 
+    // Show LSP status
+    if config.enable_lsp {
+        println!("  LSP: ✓ enabled");
+    } else {
+        println!("  LSP: ❌ disabled (enable_lsp=false in config)");
+    }
+
     if let Ok(mgr) = SessionManager::new() {
         println!("  Sessions: {} (current: {})",
             mgr.list_sessions().len(),

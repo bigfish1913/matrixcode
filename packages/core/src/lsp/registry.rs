@@ -18,8 +18,8 @@ pub struct LspClientRegistry {
     clients: Arc<RwLock<HashMap<String, Arc<LspClient>>>>,
 }
 
-/// 默认等待 LSP 客户端启动的时间
-const LSP_WAIT_TIMEOUT_SECS: u64 = 30;
+/// 默认等待 LSP 客户端启动的时间（与启动超时一致）
+const LSP_WAIT_TIMEOUT_SECS: u64 = 180;
 
 impl LspClientRegistry {
     /// 创建空注册表
