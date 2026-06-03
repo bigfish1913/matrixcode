@@ -15,7 +15,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::providers::{Message, Usage};
+use crate::providers::{ContentBlock, Message, MessageContent, Role, Usage};
 use crate::tools::ReadHistoryTracker;
 
 /// Agent runtime state.
@@ -82,8 +82,128 @@ impl AgentState {
     }
 
     /// Replace message history (used in compression).
+    ///
+    /// This method validates and cleans orphaned tool results/tool uses
+    /// before setting the message history to prevent API errors.
     pub fn set_messages(&mut self, messages: Vec<Message>) {
-        self.messages = messages;
+        let cleaned = Self::clean_orphaned_messages(messages);
+        self.messages = cleaned;
+    }
+
+    /// Clean orphaned tool results and tool uses from messages.
+    ///
+    /// Orphaned tool result: a Tool message whose tool_use_id has no corresponding ToolUse block.
+    /// Orphaned tool use: a ToolUse block whose id has no corresponding ToolResult.
+    fn clean_orphaned_messages(messages: Vec<Message>) -> Vec<Message> {
+        if messages.is_empty() {
+            return messages;
+        }
+
+        // Collect all tool_use_ids from ToolUse blocks
+        let mut tool_use_ids: HashSet<String> = HashSet::new();
+        for msg in &messages {
+            if let MessageContent::Blocks(blocks) = &msg.content {
+                for block in blocks {
+                    if let ContentBlock::ToolUse { id, .. } = block {
+                        tool_use_ids.insert(id.clone());
+                    }
+                }
+            }
+        }
+
+        // Collect all tool_use_ids from ToolResult blocks
+        let mut tool_result_ids: HashSet<String> = HashSet::new();
+        for msg in &messages {
+            if msg.role == Role::Tool {
+                if let MessageContent::Blocks(blocks) = &msg.content {
+                    for block in blocks {
+                        if let ContentBlock::ToolResult { tool_use_id, .. } = block {
+                            tool_result_ids.insert(tool_use_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Find orphaned ids (no matching pair)
+        let orphaned_tool_use_ids: HashSet<&str> = tool_use_ids
+            .iter()
+            .filter(|id| !tool_result_ids.contains(*id))
+            .map(|s| s.as_str())
+            .collect();
+
+        let orphaned_tool_result_ids: HashSet<&str> = tool_result_ids
+            .iter()
+            .filter(|id| !tool_use_ids.contains(*id))
+            .map(|s| s.as_str())
+            .collect();
+
+        // If no orphans, return as-is
+        if orphaned_tool_use_ids.is_empty() && orphaned_tool_result_ids.is_empty() {
+            return messages;
+        }
+
+        log::warn!(
+            "Cleaning orphaned messages: {} tool_uses without results, {} tool_results without uses",
+            orphaned_tool_use_ids.len(),
+            orphaned_tool_result_ids.len()
+        );
+
+        // Clean messages
+        let original_len = messages.len();
+        let mut cleaned = Vec::with_capacity(messages.len());
+        for msg in messages {
+            // Skip entire Tool messages that are orphaned tool results
+            if msg.role == Role::Tool {
+                if let MessageContent::Blocks(blocks) = &msg.content {
+                    let has_orphaned_result = blocks.iter().any(|b| {
+                        if let ContentBlock::ToolResult { tool_use_id, .. } = b {
+                            orphaned_tool_result_ids.contains(tool_use_id.as_str())
+                        } else {
+                            false
+                        }
+                    });
+                    if has_orphaned_result {
+                        log::info!("Removing orphaned tool result message");
+                        continue;
+                    }
+                }
+            }
+
+            // For assistant messages, filter out orphaned tool_use blocks
+            if let MessageContent::Blocks(blocks) = msg.content {
+                let filtered_blocks: Vec<ContentBlock> = blocks
+                    .into_iter()
+                    .filter(|b| {
+                        if let ContentBlock::ToolUse { id, .. } = b {
+                            if orphaned_tool_use_ids.contains(id.as_str()) {
+                                log::info!("Removing orphaned tool_use block: {}", id);
+                                return false;
+                            }
+                        }
+                        true
+                    })
+                    .collect();
+
+                // Only add message if it has remaining content
+                if !filtered_blocks.is_empty() {
+                    cleaned.push(Message {
+                        role: msg.role,
+                        content: MessageContent::Blocks(filtered_blocks),
+                    });
+                }
+            } else {
+                cleaned.push(msg);
+            }
+        }
+
+        log::info!(
+            "Message cleaning complete: {} messages -> {} messages",
+            original_len,
+            cleaned.len()
+        );
+
+        cleaned
     }
 
     /// Track token usage from API response.
