@@ -271,15 +271,14 @@ impl SubagentExecutor {
     fn filter_tools(&self, subagent_type: &str) -> Vec<Box<dyn Tool>> {
         // For Explore agents, only use read-only tools
         let read_only_tools = vec![
-            "read", "grep", "glob", "ls", "search", "code_search",
-            "code_files", "code_node", "code_explore", "code_context",
-            "codegraph_search", "codegraph_files",
+            "read", "grep", "glob", "ls", "search",
+            "code_search", "code_callers", "code_callees", "code_status",
         ];
 
         // For Plan agents, use read-only + plan tools
         let plan_tools = vec![
-            "read", "grep", "glob", "ls", "search", "code_search",
-            "code_files", "code_node", "code_explore", "code_context",
+            "read", "grep", "glob", "ls", "search",
+            "code_search", "code_callers", "code_callees", "code_status",
             "enter_plan_mode", "exit_plan_mode", "todo_write",
         ];
 

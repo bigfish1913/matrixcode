@@ -34,7 +34,7 @@ impl Tool for CodeGraphSearchTool {
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "���号名称搜索模式（支持模糊匹配）"
+                        "description": "符号名称搜索模式（支持模糊匹配）"
                     },
                     "limit": {
                         "type": "integer",

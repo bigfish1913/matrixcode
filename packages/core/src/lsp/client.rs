@@ -87,8 +87,13 @@ impl LspClient {
 
     /// Spawn and initialize the LSP server
     pub async fn spawn(&self, config: &LspServerConfig) -> Result<()> {
+        log::info!("LSP spawn: starting '{}'...", self.server_name);
+        crate::debug::debug_log().log("lsp", &format!("spawn: starting '{}'...", self.server_name));
+
         // Start the server process
         let transport = LspTransport::spawn(&config.command, &config.command, &config.args).await?;
+        log::info!("LSP spawn: '{}' process started", self.server_name);
+        crate::debug::debug_log().log("lsp", &format!("spawn: '{}' process started", self.server_name));
 
         {
             let mut transport_guard = self.transport.lock().await;
@@ -96,7 +101,11 @@ impl LspClient {
         }
 
         // Initialize the server
+        log::info!("LSP spawn: initializing '{}'...", self.server_name);
+        crate::debug::debug_log().log("lsp", &format!("spawn: initializing '{}'...", self.server_name));
         self.initialize().await?;
+        log::info!("LSP spawn: '{}' initialized successfully", self.server_name);
+        crate::debug::debug_log().log("lsp", &format!("spawn: '{}' initialized OK", self.server_name));
 
         log::info!("LSP client '{}' spawned and initialized successfully", self.server_name);
         Ok(())

@@ -21,6 +21,7 @@ use super::context::AgentContext;
 use super::session::SessionManager;
 use super::types::{Agent, AgentBuilder, MAX_ITERATIONS};
 
+#[allow(dead_code)]
 impl Agent {
     pub(crate) fn new(builder: AgentBuilder) -> Self {
         // Create event channel if not provided

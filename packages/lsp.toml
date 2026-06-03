@@ -1,0 +1,30 @@
+# MatrixCode LSP Configuration
+# 
+# Language Server Protocol 配置文件
+# 用于启动语言服务器并提供智能代码分析
+
+# Rust - rust-analyzer
+[[servers]]
+command = "rust-analyzer"
+language = "rust"
+enabled = true
+
+# TypeScript - typescript-language-server (需要安装)
+# [[servers]]
+# command = "typescript-language-server"
+# args = ["--stdio"]
+# language = "typescript"
+# enabled = true
+
+# Python - pyright (需要安装)
+# [[servers]]
+# command = "pyright-langserver"
+# args = ["--stdio"]
+# language = "python"
+# enabled = true
+
+# Go - gopls (需要安装)
+# [[servers]]
+# command = "gopls"
+# language = "go"
+# enabled = true

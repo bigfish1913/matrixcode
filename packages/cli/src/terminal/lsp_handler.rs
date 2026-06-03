@@ -57,19 +57,19 @@ impl LspHandler {
                     registry.register(&config, &project_root_clone)
                 ).await;
 
-                let mut mgr = manager.write().await;
+                // Update status after startup completes
                 match start_result {
                     Ok(Ok(_)) => {
                         matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' started OK", name));
-                        mgr.mark_connected(&language);
+                        manager.write().await.mark_connected(&language);
                     }
                     Ok(Err(e)) => {
                         matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' failed: {}", name, e));
-                        mgr.mark_error(&language, e.to_string());
+                        manager.write().await.mark_error(&language, e.to_string());
                     }
                     Err(_) => {
                         matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' timeout", name));
-                        mgr.mark_error(&language, "Startup timeout".to_string());
+                        manager.write().await.mark_error(&language, "Startup timeout".to_string());
                     }
                 }
             });
@@ -85,17 +85,9 @@ impl LspHandler {
 
     /// Start all LSP servers and notify UI
     pub async fn start_all(&self, event_tx: &tokio::sync::mpsc::Sender<AgentEvent>) {
-        let manager = self.manager.write().await;
+        let manager = self.manager.read().await;
 
-        // Get all server configs and mark them as connected
-        let servers: Vec<_> = manager.server_infos();
-        
-        // Mark all detected servers as connected (they passed detection)
-        for server in &servers {
-            manager.mark_connected(&server.language);
-        }
-        
-        // Get updated statuses
+        // Get current server status (should be "starting" after add_servers)
         let servers = manager.server_infos();
 
         // Notify UI about each server

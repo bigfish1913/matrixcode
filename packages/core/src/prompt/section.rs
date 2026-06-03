@@ -187,16 +187,16 @@ const TOOL_GUIDELINES_CONTENT: &'static str = "
 | Find files by pattern | `Glob` (not `find` command) |
 | Search file contents | `Grep` (not `grep` command) |
 | Read a specific file | `Read` (not `cat` command) |
-| Search code symbols | `codegraph_search` (not `grep`) |
-| Find function callers | `codegraph_callers` (not manual search) |
-| Trace code flow | `codegraph_trace` (one call = full path) |
+| Search code symbols | `code_search` (not `grep`) |
+| Find function callers | `code_callers` (not manual search) |
+| Find function callees | `code_callees` (not manual search) |
 
 ### CodeGraph vs Native Search
 
-Use **CodeGraph** for structural questions:
-- \"Where is X defined?\" → `codegraph_search`
-- \"What calls Y?\" → `codegraph_callers`
-- \"How does X reach Y?\" → `codegraph_trace`
+Use **CodeGraph** (`code_*` tools) for structural questions:
+- \"Where is X defined?\" → `code_search`
+- \"What calls Y?\" → `code_callers`
+- \"What does Y call?\" → `code_callees`
 
 Use **native grep/read** for literal text:
 - String contents, comments, log messages
