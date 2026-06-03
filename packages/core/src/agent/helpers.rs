@@ -1,7 +1,6 @@
 //! Agent helper functions and utilities.
 
 use anyhow::Result;
-use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 
 use crate::event::{AgentEvent, EventType};
@@ -38,7 +37,7 @@ impl Agent {
     /// Get context information for display
     pub fn get_context_info(&self) -> ContextInfo {
         // Estimate tokens from messages
-        let estimated_tokens = self.messages.iter()
+        let estimated_tokens = self.messages().iter()
             .map(|m| {
                 let content = match &m.content {
                     MessageContent::Text(t) => t.len(),
@@ -60,14 +59,14 @@ impl Agent {
             .sum();
 
         // System prompt preview (first 500 chars)
-        let system_preview = truncate_chars(&self.system_prompt, 500);
+        let system_preview = truncate_chars(self.system_prompt(), 500);
 
         // Project overview preview
         let project_preview = self.project_overview()
             .map(|o| truncate_chars(o, 300));
 
         // Recent messages preview (last 5 messages)
-        let recent_preview = self.messages.iter().rev().take(5).rev()
+        let recent_preview = self.messages().iter().rev().take(5).rev()
             .map(|m| {
                 let role = match m.role {
                     Role::User => "User",
@@ -96,10 +95,10 @@ impl Agent {
             .collect();
 
         ContextInfo {
-            message_count: self.messages.len(),
+            message_count: self.messages().len(),
             estimated_input_tokens: estimated_tokens,
-            total_input_tokens: self.total_input_tokens.load(Ordering::Relaxed),
-            total_output_tokens: self.total_output_tokens.load(Ordering::Relaxed),
+            total_input_tokens: self.state.total_input_tokens(),
+            total_output_tokens: self.state.total_output_tokens(),
             system_prompt_preview: system_preview,
             memory_summary: self.memory_summary().map(|s| s.to_string()),
             project_overview_preview: project_preview,
@@ -115,7 +114,7 @@ impl Agent {
 
         // System prompt
         preview.push_str("=== SYSTEM PROMPT ===\n");
-        preview.push_str(&self.system_prompt);
+        preview.push_str(self.system_prompt());
         preview.push_str("\n\n");
 
         // Memory summary
@@ -134,7 +133,7 @@ impl Agent {
 
         // Messages
         preview.push_str("=== MESSAGES ===\n");
-        for (i, msg) in self.messages.iter().enumerate() {
+        for (i, msg) in self.messages().iter().enumerate() {
             let role = match msg.role {
                 Role::User => "User",
                 Role::Assistant => "Assistant",
@@ -189,12 +188,7 @@ impl Agent {
     }
     /// Track token usage
     pub(crate) fn track_usage(&self, usage: &Usage) {
-        self.total_input_tokens
-            .fetch_add(usage.input_tokens as u64, Ordering::Relaxed);
-        self.total_output_tokens
-            .fetch_add(usage.output_tokens as u64, Ordering::Relaxed);
-        self.last_input_tokens
-            .store(usage.input_tokens as u64, Ordering::Relaxed);
+        self.state.track_usage(usage);
 
         crate::debug::debug_log().log(
             "usage",
@@ -208,7 +202,7 @@ impl Agent {
         );
 
         let _ = self.event_tx.try_send(AgentEvent::usage_with_cache(
-            self.total_input_tokens.load(Ordering::Relaxed),
+            self.state.total_input_tokens(),
             usage.output_tokens as u64,
             usage.cache_read_input_tokens as u64,
             usage.cache_creation_input_tokens as u64,
@@ -287,7 +281,7 @@ impl Agent {
         max_reminders: usize,
     ) -> (Vec<(String, String)>, bool) {
         // Find the most recent todo_write (current state)
-        for msg in self.messages.iter().rev().take(10) {
+        for msg in self.messages().iter().rev().take(10) {
             if let MessageContent::Blocks(blocks) = &msg.content {
                 for block in blocks {
                     if let ContentBlock::ToolUse { name, input, .. } = block
@@ -333,7 +327,7 @@ impl Agent {
     /// This prevents adding duplicate reminders in consecutive iterations.
     pub(crate) fn last_message_was_todo_reminder(&self) -> bool {
         // Check the last few messages for a todo reminder
-        for msg in self.messages.iter().rev().take(3) {
+        for msg in self.messages().iter().rev().take(3) {
             if msg.role == Role::User {
                 if let MessageContent::Text(text) = &msg.content {
                     if text.contains("任务尚未完成") && text.contains("待办项需要处理") {

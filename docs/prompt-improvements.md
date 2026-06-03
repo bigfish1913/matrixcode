@@ -2,9 +2,19 @@
 
 ## 改进概述
 
-基于对 Claude Code 提示词系统的深入分析，我们对 MatrixCode 进行了以下改进：
+基于对 Claude Code 提示词系统的深入分析，我们对 MatrixCode 进行了全面改进：
 
-### Phase 1-3: 已完成 ✅
+---
+
+## Phase 1-3: 基础系统增强 ✅
+
+### 技能系统增强
+
+- `SkillType`: Rigid/Flexible 类型分类
+- `SkillPriority`: Process/Implementation 优先级
+- `mandatory`: 强制调用标记
+- 红旗警告表格 (12 条)
+- 1% 规则强调
 
 详见前文。
 
@@ -12,172 +22,131 @@
 
 ## Phase 4: 记忆链接系统 ✅
 
-### 新增功能
+### 功能
+- `[[name]]` 语法解析
+- `MemoryEntry.name` 字段
+- `MemoryEntry.related_memories` 字段
+- 链接标记 🔗 显示
 
-**`[[name]]` 语法支持**：
-- 解析记忆内容中的链接语法
-- 自动提取关联记忆名称
-- 显示链接标记 🔗
-
-**新增字段**：
-- `name`: 记忆短名称（用于链接）
-- `related_memories`: 关联记忆集合
-
-### 代码修改
-
-**`packages/core/src/memory/entry.rs`**:
-
-```rust
-/// Parse `[[name]]` link syntax from content.
-pub fn parse_memory_links(content: &str) -> HashSet<String> {
-    let re = regex::Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
-    re.captures_iter(content)
-        .map(|c| c[1].trim().to_string())
-        .collect()
-}
-
-pub struct MemoryEntry {
-    pub name: Option<String>,
-    pub related_memories: HashSet<String>,
-    // ...
-}
-```
-
-### 使用示例
-
-```rust
-// 创建带链接的记忆
-let entry = MemoryEntry::new(
-    MemoryCategory::Decision,
-    "使用 [[redis-config]] 作为缓存，参考 [[api-design]]".to_string(),
-    None,
-    None,
-);
-// 自动提取链接: {"redis-config", "api-design"}
-
-// 创建带名称的记忆（可被链接）
-let entry = MemoryEntry::with_name(
-    MemoryCategory::Technical,
-    "redis-config".to_string(),
-    "Redis 配置位于 config/redis.yml".to_string(),
-    None,
-    None,
-);
-```
-
-### 显示效果
-
-```
-📚 2024-01-15 10:30 🔗[redis-config] 使用 Redis 作为缓存...
-🎯 2024-01-15 11:00 [api-design] API 端点定义...
-```
+### 新增测试: 10 个
 
 ---
 
 ## Phase 5: Workflow Pipeline/Parallel 模式 ✅
 
-### 新增功能
+### 功能
+- `ExecutionMode`: Pipeline (无屏障) / Parallel (有屏障)
+- `NodeType::Pipeline`: 新节点类型
+- `has_barrier()` 方法
 
-**执行模式区分**：
-- `Pipeline`: 流式处理，无屏障等待
-- `Parallel`: 并行执行，有屏障等待
+### 新增测试: 11 个
 
-**新增节点类型**：
-- `NodeType::Pipeline`: 流式节点
+---
 
-**新增字段**：
-- `ExecutionMode`: 执行模式枚举
-- `ParallelBranchDef.mode`: 分支执行模式
-- `NodeDef.execution_mode`: 自定义执行模式
+## Phase 6: SessionStart Hooks 系统 ✅ (新增)
 
-### 代码修改
+### 动态注入机制
 
-**`packages/core/src/workflow/def.rs`**:
+Claude Code 的提示词中有多处动态注入的内容，我们实现了对应的系统：
 
-```rust
-/// 执行模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ExecutionMode {
-    /// Pipeline: 流式处理，无屏障
-    Pipeline,
-    /// Parallel: 并行执行，有屏障 (默认)
-    #[default]
-    Parallel,
-}
+```
+注入顺序:
+──────────────────────────────────────>
 
-impl ExecutionMode {
-    pub fn has_barrier(&self) -> bool {
-        match self {
-            Self::Pipeline => false,
-            Self::Parallel => true,
-        }
-    }
-}
+1. CLI 启动时 (静态)
+   ├── 核心系统提示词
+   ├── 工具 Schema 定义
+   └── 环境信息
 
-/// 并行分支定义增强
-pub struct ParallelBranchDef {
-    pub name: String,
-    pub nodes: Vec<NodeDef>,
-    pub mode: ExecutionMode,  // 新增
-}
+2. SessionStart Hook (动态注入)
+   ├── 强制技能警告 ← SessionStartHook
+   ├── 红旗警告表格 ← SessionStartHook
+   └── 技能优先级规则 ← SessionStartHook
+
+3. TODO 提醒 (有待办时)
+   └── pending/in_progress 任务 ← TodoReminder
+
+4. 诊断信息 (有错误时)
+   └── LSP/rustc 错误和警告 ← DiagnosticsInjection
+
+5. 用户消息处理
 ```
 
-**`packages/core/src/workflow/engine.rs`**:
+### 新增文件
+
+**`packages/core/src/prompt/hooks.rs`**:
 
 ```rust
-async fn execute_pipeline(
-    &self,
-    node: &NodeDef,
-    context: &mut WorkflowContext,
-) -> Result<Option<serde_json::Value>> {
-    // Pipeline 模式：流式处理，无屏障等待
-    // 每个分支独立流转，不等待其他分支完成
-    ...
+/// SessionStart hook content builder
+pub struct SessionStartHook {
+    mandatory_skills: Vec<String>,
+    include_red_flags: bool,
+    include_skill_priority: bool,
+}
+
+/// Todo reminder content builder
+pub struct TodoReminder {
+    pending_tasks: Vec<String>,
+    in_progress: Option<String>,
+    max_reminders: usize,  // 防止无限提醒
+}
+
+/// Diagnostics injection builder
+pub struct DiagnosticsInjection {
+    diagnostics: Vec<DiagnosticEntry>,
+    max_entries: usize,
+}
+
+/// Combined session start context
+pub struct SessionStartContext {
+    hook: SessionStartHook,
+    todo: TodoReminder,
+    diagnostics: DiagnosticsInjection,
 }
 ```
 
 ### 使用示例
 
-**YAML 定义**:
+```rust
+// 1. SessionStart Hook
+let hook = SessionStartHook::new()
+    .add_mandatory_skill("code-review")
+    .with_red_flags(true);
 
-```yaml
-# Pipeline 模式：批量文件处理（无等待）
-nodes:
-  - id: file_pipeline
-    type: pipeline
-    name: 批量文件处理
-    parallel_branches:
-      - name: file_stream
-        mode: pipeline  # 流式处理
-        nodes:
-          - { id: read, task: read_file }
-          - { id: transform, task: transform }
-          - { id: write, task: write_file }
+// 生成:
+// <EXTREMELY-IMPORTANT>
+// code-review skill is **MANDATORY**
+// </EXTREMELY-IMPORTANT>
+//
+// ## Red Flags - STOP and reconsider...
 
-# Parallel 模式：多维度审查（需要等待汇总）
-nodes:
-  - id: review_parallel
-    type: parallel
-    name: 多维度代码审查
-    parallel_branches:
-      - name: review_dimensions
-        mode: parallel  # 并行 + 等待
-        nodes:
-          - { id: correctness, task: review_correctness }
-          - { id: security, task: review_security }
-          - { id: performance, task: review_performance }
+// 2. TODO Reminder
+let reminder = TodoReminder::new()
+    .set_pending_tasks(vec!["运行测试".to_string()])
+    .with_max_reminders(2);
+
+// 生成:
+// <todo-reminder>
+// 📋 **Pending Tasks**: 运行测试
+// </todo-reminder>
+
+// 3. Diagnostics
+let injection = DiagnosticsInjection::new()
+    .add_diagnostic(DiagnosticEntry {
+        file: "src/main.rs",
+        line: 42,
+        severity: "error",
+        message: "missing semicolon",
+        source: "rustc",
+    });
+
+// 生成:
+// <new-diagnostics>
+// ✘ src/main.rs:42 missing semicolon [rustc]
+// </new-diagnostics>
 ```
 
-### 性能差异示意
-
-```
-假设 5 个任务，每个耗时 10s：
-
-Pipeline:  ~10s (任务流转，无等待)
-Parallel:  ~50s (等待最慢的任务)
-
-但需要汇总结果时，必须用 Parallel。
-```
+### 新增测试: 8 个
 
 ---
 
@@ -185,15 +154,35 @@ Parallel:  ~50s (等待最慢的任务)
 
 ```bash
 cargo test --package matrixcode-core --lib
-# Result: ok. 636 passed; 0 failed; 1 ignored
+# Result: ok. 644 passed; 0 failed; 1 ignored
 ```
 
-### 新增测试
+### 测试统计
 
 | 模块 | 新增测试数 |
 |-----|----------|
-| `memory::entry` | 10 个（链接解析、带名称记忆） |
-| `workflow::def` | 11 个（执行模式、分支模式） |
+| `memory::entry` | 10 个 |
+| `workflow::def` | 11 个 |
+| `prompt::hooks` | 8 个 |
+| `prompt::section` | 8 个 |
+| `skills` | 7 个 |
+| **总计** | **44 个新测试** |
+
+---
+
+## 功能对比表
+
+| 特性 | Claude Code | MatrixCode 改进前 | MatrixCode 改进后 |
+|-----|------------|-----------------|-----------------|
+| 记忆链接 `[[name]]` | ✅ | ❌ | ✅ |
+| Pipeline 模式 | ✅ | ❌ | ✅ |
+| Parallel 模式 | ✅ | ✅ | ✅ 增强 |
+| SessionStart Hook | ✅ | ❌ | ✅ |
+| TODO 提醒 | ✅ | ❌ | ✅ |
+| 诊断注入 | ✅ | ❌ | ✅ |
+| 红旗警告表格 | ✅ | ❌ | ✅ |
+| 技能优先级规则 | ✅ | ❌ | ✅ |
+| 强制技能标记 | ✅ | ❌ | ✅ |
 
 ---
 
@@ -203,33 +192,29 @@ cargo test --package matrixcode-core --lib
 packages/core/src/memory/entry.rs        - 记忆链接系统
 packages/core/src/workflow/def.rs        - Pipeline/Parallel 模式
 packages/core/src/workflow/engine.rs     - execute_pipeline 方法
-packages/core/src/workflow/registry.rs   - Pipeline 节点类型支持
-packages/core/src/tools/workflow/create.rs - Pipeline 节点类型支持
+packages/core/src/workflow/registry.rs   - Pipeline 节点支持
+packages/core/src/tools/workflow/create.rs - Pipeline 节点支持
+packages/core/src/prompt/hooks.rs        - SessionStart Hooks (新增)
+packages/core/src/prompt/section.rs      - 预定义章节
+packages/core/src/prompt/constants.rs    - 红旗警告增强
+packages/core/src/skills.rs              - 技能优先级系统
+docs/session-start-hooks.md              - 使用指南 (新增)
+docs/prompt-improvements.md              - 总结文档
 ```
-
----
-
-## 功能对比表
-
-| 特性 | Claude Code | MatrixCode 改进前 | MatrixCode 改进后 |
-|-----|------------|-----------------|-----------------|
-| 记忆链接 `[[name]]` | ✅ | ❌ | ✅ 支持 |
-| Pipeline 模式 | ✅ | ❌ | ✅ 支持 |
-| Parallel 模式 | ✅ | ✅ | ✅ 增强 |
-| 执行模式标记 | ✅ | ❌ | ✅ 支持 |
-| 屏障控制 | ✅ | ❌ | ✅ `has_barrier()` |
 
 ---
 
 ## 后续建议
 
-### Phase 6: 记忆检索增强
-- 根据链接自动展开关联记忆
-- 链接解析时递归获取相关内容
+### Phase 7: 与现有系统集成
+- LSP 实时诊断 → DiagnosticsInjection
+- TodoWrite 状态跟踪 → TodoReminder
+- Skills 强制检测 → SessionStartHook
 
-### Phase 7: Workflow 执行优化
-- Pipeline 模式的真正流式执行
-- 并行执行的实际 tokio 任务分发
+### Phase 8: 性能优化
+- 静态内容缓存
+- 动态内容增量更新
+- Token 预算控制
 
 ---
 

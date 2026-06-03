@@ -150,6 +150,23 @@ impl AgentContext {
         );
     }
 
+    /// Set system prompt directly (for workflows with project_path).
+    pub fn set_system_prompt(&mut self, prompt: String) {
+        self.system_prompt = prompt;
+    }
+
+    /// Rebuild system prompt with workflows (includes project_path for CodeGraph).
+    pub fn rebuild_system_prompt_with_workflows(&mut self, project_path: Option<PathBuf>) {
+        self.system_prompt = crate::prompt::build_system_prompt_with_workflows(
+            &self.profile,
+            &self.skills,
+            self.project_overview.as_deref(),
+            self.memory_summary.as_deref(),
+            project_path.as_ref(),
+            None, // LSP servers not available in agent context
+        );
+    }
+
     /// Clear all context (reset to initial state).
     pub fn clear(&mut self) {
         self.skills.clear();

@@ -1,21 +1,18 @@
 //! Agent type definitions.
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
 use tokio::sync::mpsc;
 
-use crate::cancel::CancellationToken;
 use crate::compress::CompressionConfig;
 use crate::event::AgentEvent;
 use crate::prompt::PromptProfile;
-use crate::providers::Message;
 #[cfg(test)]
 use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, StreamEvent, Usage};
 use crate::providers::Provider;
 use crate::skills::Skill;
-use crate::tools::{ReadHistoryTracker, Tool};
+use crate::tools::Tool;
 #[cfg(test)]
 use async_trait::async_trait;
 
@@ -59,7 +56,7 @@ pub use super::core::MAX_ITERATIONS;
 /// - `config`: Configuration constants (max iterations, retries, etc.)
 /// - `state`: Mutable state (messages, tokens, todos)
 /// - `context`: Context management (system prompt, skills, memory)
-/// - `session`: Session lifecycle (events, cancellation)
+/// - `session`: Session lifecycle (events, cancellation, pending inputs)
 pub struct Agent {
     // === Core Components (New) ===
     /// Configuration constants
@@ -68,7 +65,7 @@ pub struct Agent {
     pub(crate) state: AgentState,
     /// Context management
     pub(crate) context: AgentContext,
-    /// Session lifecycle
+    /// Session lifecycle (handles pending_input_rx)
     pub(crate) session: SessionManager,
 
     // === Provider & Tools ===
@@ -83,33 +80,6 @@ pub struct Agent {
     // === Approval & Permissions ===
     pub(crate) approve_mode: Arc<AtomicU8>,
 
-    // === Legacy Fields (will be migrated to components in future phases) ===
-    /// Messages history (TODO: migrate to AgentState in Phase 4)
-    pub(crate) messages: Vec<Message>,
-    /// System prompt (TODO: migrate to AgentContext accessor)
-    pub(crate) system_prompt: String,
-    /// Compression config (TODO: use AgentConfig.compression_config)
-    pub(crate) compression_config: CompressionConfig,
-    /// Cancellation token (TODO: use SessionManager.cancel_token)
-    pub(crate) cancel_token: Option<CancellationToken>,
-    /// Token tracking (TODO: migrate to AgentState in Phase 4)
-    pub(crate) total_input_tokens: std::sync::atomic::AtomicU64,
-    pub(crate) total_output_tokens: std::sync::atomic::AtomicU64,
-    pub(crate) last_input_tokens: std::sync::atomic::AtomicU64,
-    /// Todo reminders (TODO: migrate to AgentState in Phase 4)
-    pub(crate) todo_reminder_count: std::collections::HashMap<String, usize>,
-    /// Pending inputs (TODO: migrate to AgentState in Phase 4)
-    pub(crate) pending_inputs: Vec<String>,
-    /// Ask response channel (TODO: use SessionManager.ask_rx)
-    pub(crate) ask_rx: Option<mpsc::Receiver<String>>,
-
-    // === Tool Tracking ===
-    /// Tool ids whose full input was already sent to the UI during streaming.
-    pub(crate) previewed_tool_inputs: HashSet<String>,
-    /// Read history tracker: tracks files that have been read in this session.
-    /// Used to enforce "read before edit/write" rule.
-    pub(crate) read_history: ReadHistoryTracker,
-
     // === Proxy Tools ===
     /// 代理工具定义列表（发送给 LLM）
     pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
@@ -122,10 +92,6 @@ pub struct Agent {
     /// LSP 客户端注册表（用于 LSP 工具）
     #[allow(dead_code)] // TODO: 实现 LSP 工具集成后移除
     pub(crate) lsp_registry: Option<Arc<crate::lsp::LspClientRegistry>>,
-
-    // === Input Channels ===
-    /// 实时追加消息接收器（用于在处理过程中接收新消息）
-    pub(crate) pending_input_rx: Option<mpsc::Receiver<String>>,
 }
 
 /// Agent builder
@@ -171,7 +137,7 @@ pub struct AgentBuilder {
 #[cfg(test)]
 impl Default for AgentBuilder {
     fn default() -> Self {
-        // 测试��境下使用 Mock Provider
+        // 测试环境下使用 Mock Provider
         Self::new(Box::new(MockTestProvider))
     }
 }

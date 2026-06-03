@@ -125,6 +125,7 @@ pub fn node_type_icon(node_type: &NodeType) -> &'static str {
         NodeType::Approval => "?",
         NodeType::Wait => "⏳",
         NodeType::SubWorkflow => "↳",
+        NodeType::Pipeline => "╠",
     }
 }
 

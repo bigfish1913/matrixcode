@@ -6,6 +6,7 @@
 //! - Runtime context injection
 //! - Pre-processing hooks for Skills/Workflows triggering
 //! - Prompt export for observability
+//! - SessionStart hooks for dynamic injection
 //!
 //! # Migration Status
 //!
@@ -19,6 +20,7 @@ pub mod cache;
 pub mod constants;
 pub mod context;
 pub mod dump;
+pub mod hooks;
 pub mod orchestrator;
 pub mod preprocess;
 pub mod section;
@@ -31,6 +33,9 @@ pub use cache::{
 pub use context::{ContextInjector, ProjectType, SystemContext, UserContext};
 pub use dump::{
     DumpEntry, DumpFileAnalysis, PromptAnalysis, PromptDumper, analyze_dump_file, read_dump_file,
+};
+pub use hooks::{
+    DiagnosticEntry, DiagnosticsInjection, SessionStartContext, SessionStartHook, TodoReminder,
 };
 pub use orchestrator::{
     AssembledPrompt, CACHE_BOUNDARY, PromptBuilder, PromptOrchestrator, PromptProfile,

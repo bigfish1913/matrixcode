@@ -19,27 +19,24 @@ impl Agent {
     /// Drain any pending input messages from the channel.
     /// Called during streaming to collect real-time appended messages.
     pub(crate) fn drain_pending_inputs(&mut self) {
-        if let Some(rx) = &mut self.pending_input_rx {
-            while let Ok(msg) = rx.try_recv() {
-                log::info!(
-                    "Agent received pending input: {}",
-                    msg.chars().take(50).collect::<String>()
-                );
-                self.pending_inputs.push(msg);
-            }
+        let inputs = self.session.drain_pending_inputs();
+        for msg in inputs {
+            log::info!(
+                "Agent received pending input: {}",
+                msg.chars().take(50).collect::<String>()
+            );
+            self.state.add_pending_input(msg);
         }
     }
 
     /// Check if there are pending inputs waiting to be processed.
     pub fn has_pending_inputs(&self) -> bool {
-        !self.pending_inputs.is_empty()
+        self.state.has_pending_inputs()
     }
 
     /// Get and clear all pending inputs.
     pub fn take_pending_inputs(&mut self) -> Vec<String> {
-        let inputs = self.pending_inputs.clone();
-        self.pending_inputs.clear();
-        inputs
+        self.state.take_pending_inputs()
     }
 
     /// Call provider with streaming and emit events in real-time.
@@ -58,9 +55,7 @@ impl Agent {
                 request.messages.len()
             );
 
-            if let Some(token) = &self.cancel_token
-                && token.is_cancelled()
-            {
+            if self.session.is_cancelled() {
                 return Err(anyhow::anyhow!("Operation cancelled"));
             }
 
@@ -84,7 +79,7 @@ impl Agent {
                     loop {
                         // Use biased select! to prioritize stream events over pending input checks
                         // This prevents losing stream events when sleep completes first
-                        let event = if let Some(token) = &self.cancel_token {
+                        let event = if let Some(token) = self.session.cancel_token() {
                             tokio::select! {
                                 biased;
 
@@ -124,9 +119,7 @@ impl Agent {
                             Some(StreamEvent::FirstByte) => {}
                             Some(StreamEvent::ThinkingDelta(delta)) => {
                                 // Check cancellation before emitting
-                                if let Some(token) = &self.cancel_token
-                                    && token.is_cancelled()
-                                {
+                                if self.session.is_cancelled() {
                                     return Err(anyhow::anyhow!("Operation cancelled"));
                                 }
                                 if current_thinking.is_empty() {
@@ -137,9 +130,7 @@ impl Agent {
                             }
                             Some(StreamEvent::TextDelta(delta)) => {
                                 // Check cancellation before emitting
-                                if let Some(token) = &self.cancel_token
-                                    && token.is_cancelled()
-                                {
+                                if self.session.is_cancelled() {
                                     return Err(anyhow::anyhow!("Operation cancelled"));
                                 }
                                 if current_text.is_empty() {
@@ -163,7 +154,7 @@ impl Agent {
                             }
                             Some(StreamEvent::ToolInputDelta { bytes_so_far: _ }) => {}
                             Some(StreamEvent::ToolInputComplete { id, name, input }) => {
-                                self.previewed_tool_inputs.insert(id.clone());
+                                self.state.mark_tool_input_previewed(id.clone());
                                 self.emit(AgentEvent::tool_use_start(&id, &name, Some(input)))?;
                             }
                             Some(StreamEvent::Usage { output_tokens }) => {
@@ -177,9 +168,7 @@ impl Agent {
                             }
                             Some(StreamEvent::Done(resp)) => {
                                 // Check cancellation before processing final response
-                                if let Some(token) = &self.cancel_token
-                                    && token.is_cancelled()
-                                {
+                                if self.session.is_cancelled() {
                                     return Err(anyhow::anyhow!("Operation cancelled"));
                                 }
 

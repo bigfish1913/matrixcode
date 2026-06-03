@@ -1,7 +1,6 @@
 //! Agent run loop and public methods.
 
 use anyhow::Result;
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::sync::mpsc;
@@ -30,15 +29,6 @@ impl Agent {
             tx
         });
 
-        // Extract values before moving
-        let system_prompt_str = crate::prompt::build_system_prompt(
-            &builder.profile,
-            &builder.skills,
-            builder.project_overview.as_deref(),
-            builder.memory_summary.as_deref(),
-        );
-        let compression_config_clone = builder.compression_config.clone();
-
         // Create modular components from builder
         let config = AgentConfig::new(
             builder.max_tokens,
@@ -49,6 +39,7 @@ impl Agent {
 
         let state = AgentState::new();
 
+        // AgentContext builds system_prompt internally from profile, skills, overview, memory
         let context = AgentContext::with_context(
             builder.profile,
             builder.skills,
@@ -57,8 +48,12 @@ impl Agent {
             builder.project_path,
         );
 
-        // SessionManager handles pending_input_rx, no need to store in Agent
-        let session = SessionManager::with_channels(event_tx.clone(), builder.pending_input_rx);
+        // SessionManager handles pending_input_rx and ask_rx
+        let session = SessionManager::with_all_channels(
+            event_tx.clone(),
+            None, // ask_rx will be set later if needed
+            builder.pending_input_rx,
+        );
 
         Self {
             // Core components
@@ -78,22 +73,6 @@ impl Agent {
             // Approval
             approve_mode: Arc::new(AtomicU8::new(builder.approve_mode.to_u8())),
 
-            // Legacy fields (will be migrated in future phases)
-            messages: Vec::new(),
-            system_prompt: system_prompt_str,
-            compression_config: compression_config_clone,
-            cancel_token: None,
-            total_input_tokens: std::sync::atomic::AtomicU64::new(0),
-            total_output_tokens: std::sync::atomic::AtomicU64::new(0),
-            last_input_tokens: std::sync::atomic::AtomicU64::new(0),
-            todo_reminder_count: std::collections::HashMap::new(),
-            pending_inputs: Vec::new(),
-            ask_rx: None,
-
-            // Tool tracking
-            previewed_tool_inputs: HashSet::new(),
-            read_history: crate::tools::ReadHistoryTracker::new(),
-
             // Proxy tools
             proxy_tool_defs: builder.proxy_tool_defs,
             proxy_executor: builder.proxy_executor,
@@ -101,13 +80,11 @@ impl Agent {
             // External registries
             mcp_registry: builder.mcp_registry,
             lsp_registry: builder.lsp_registry,
-
-            // Input channels - pending_input_rx is managed by SessionManager
-            pending_input_rx: None,
         }
     }
 
     // === Field Accessors (delegating to components) ===
+    // Some methods may be unused now but kept for future extensibility.
 
     /// Get messages (from state)
     pub(crate) fn messages(&self) -> &Vec<Message> {
@@ -240,9 +217,19 @@ impl Agent {
         self.event_tx.clone()
     }
 
-    /// Set ask response channel (for TUI mode)
+    /// Set ask response channel (for TUI mode) - delegates to SessionManager
     pub fn set_ask_channel(&mut self, rx: mpsc::Receiver<String>) {
-        self.ask_rx = Some(rx);
+        self.session.set_ask_channel(rx);
+    }
+
+    /// Check if ask channel is available
+    pub(crate) fn has_ask_channel(&self) -> bool {
+        self.session.has_ask_channel()
+    }
+
+    /// Get ask channel receiver (for approval/ask tool)
+    pub(crate) fn ask_channel(&mut self) -> Option<&mut mpsc::Receiver<String>> {
+        self.session.ask_rx()
     }
 
     /// 设置代理工具执行器
@@ -255,9 +242,14 @@ impl Agent {
         self.proxy_tool_defs = tool_defs;
     }
 
-    /// Set cancellation token
+    /// Set cancellation token - delegates to SessionManager
     pub fn set_cancel_token(&mut self, token: CancellationToken) {
-        self.cancel_token = Some(token);
+        self.session.set_cancel_token(token);
+    }
+
+    /// Get cancellation token reference
+    pub(crate) fn get_cancel_token(&self) -> Option<&CancellationToken> {
+        self.session.cancel_token()
     }
 
     /// Set approve mode at runtime
@@ -281,8 +273,7 @@ impl Agent {
     /// Note: Uses build_system_prompt (without project_path) to preserve cache.
     pub fn update_memory_summary(&mut self, summary: Option<String>) {
         self.context.update_memory(summary);
-        // Sync legacy field for backward compatibility
-        self.system_prompt = self.context.system_prompt().to_string();
+        // Context is now the source of truth for system_prompt
     }
 
     /// Refresh CodeGraph tools after /init or codegraph init.
@@ -308,31 +299,15 @@ impl Agent {
                     for tool in codegraph_tools {
                         self.tools.push(Arc::from(tool));
                     }
-                    // Update system prompt to include CodeGraph rules
-                    self.system_prompt = crate::prompt::build_system_prompt_with_workflows(
-                        self.context.profile(),
-                        self.context.skills(),
-                        self.context.project_overview(),
-                        self.context.memory_summary(),
-                        Some(path),
-                        None, // LSP servers not available in agent context
-                    );
                 } else {
                     // Remove CodeGraph tools
                     self.tools.retain(|t| {
                         let name = t.definition().name;
                         !name.starts_with("code_") || name == "code_review"
                     });
-                    // Update system prompt to remove CodeGraph rules
-                    self.system_prompt = crate::prompt::build_system_prompt_with_workflows(
-                        self.context.profile(),
-                        self.context.skills(),
-                        self.context.project_overview(),
-                        self.context.memory_summary(),
-                        Some(path),
-                        None, // LSP servers not available in agent context
-                    );
                 }
+                // Update system prompt via context (includes/excludes CodeGraph rules)
+                self.context.rebuild_system_prompt_with_workflows(Some(path.clone()));
             }
         }
     }
@@ -408,7 +383,7 @@ impl Agent {
         };
 
         // Step 3: 添加处理后的用户消息
-        self.messages.push(Message {
+        self.state.add_message(Message {
             role: Role::User,
             content: MessageContent::Text(processed_input),
         });
@@ -432,15 +407,13 @@ impl Agent {
                 // Send queue processed event to TUI with messages content
                 self.emit(AgentEvent::queue_processed(count, pending.clone()))?;
 
-                self.messages.push(Message {
+                self.state.add_message(Message {
                     role: Role::User,
                     content: MessageContent::Text(merged),
                 });
             }
 
-            if let Some(token) = &self.cancel_token
-                && token.is_cancelled()
-            {
+            if self.session.is_cancelled() {
                 self.emit(AgentEvent::error(
                     crate::prompt::MSG_OPERATION_CANCELLED.to_string(),
                     None,
@@ -462,19 +435,19 @@ impl Agent {
             // Proactive compression: check context size BEFORE API call
             // For long conversations, compress early to avoid timeout issues
             let context_size = self.effective_context_size();
-            let estimated_tokens = estimate_total_tokens(&self.messages);
+            let estimated_tokens = estimate_total_tokens(self.state.messages());
 
-            if should_compress(estimated_tokens, context_size, &self.compression_config) {
+            if should_compress(estimated_tokens, context_size, self.config.compression_config()) {
                 self.emit(AgentEvent::progress("⚠️ 上下文过大，正在预压缩...", None))?;
 
                 match compress_messages(
-                    &self.messages,
+                    self.state.messages(),
                     CompressionStrategy::SlidingWindow,
-                    &self.compression_config,
+                    self.config.compression_config(),
                 ) {
                     Ok(compressed) => {
                         let compressed_tokens = estimate_total_tokens(&compressed);
-                        self.messages = compressed;
+                        self.state.set_messages(compressed);
                         crate::debug::debug_log().compression(
                             estimated_tokens,
                             compressed_tokens,
@@ -517,8 +490,8 @@ impl Agent {
                 defs
             };
             let request = ChatRequest {
-                system: Some(self.system_prompt.clone()),
-                messages: self.messages.clone(),
+                system: Some(self.system_prompt().to_string()),
+                messages: self.state.messages().clone(),
                 max_tokens: self.max_tokens(),
                 tools: tool_defs,
                 think: self.think(),
@@ -556,20 +529,20 @@ impl Agent {
                     log::info!("Skipping todo check: reminder already sent in recent messages");
                 } else {
                     const MAX_TODO_REMINDERS: usize = 2;
-                    
+
                     // Clone todo_reminder_count to avoid borrow conflict
-                    let reminder_count_clone = self.todo_reminder_count.clone();
+                    let reminder_count_clone = self.state.todo_reminder_count_map().clone();
                     let (pending, all_at_limit) = self.get_pending_todos_with_limit(
                         &reminder_count_clone,
                         MAX_TODO_REMINDERS
                     );
-                    
+
                     if !pending.is_empty() {
                         // Update reminder counts for todos we're about to remind about
                         for (_, content) in &pending {
-                            *self.todo_reminder_count.entry(content.clone()).or_insert(0) += 1;
+                            self.state.increment_todo_reminder(content.clone());
                         }
-                        
+
                         let pending_list = pending
                             .iter()
                             .map(|(status, content)| {
@@ -588,15 +561,15 @@ impl Agent {
                             pending_list
                         );
 
-                        self.messages.push(Message {
+                        self.state.add_message(Message {
                             role: Role::User,
                             content: MessageContent::Text(reminder),
                         });
                         should_continue = true;
-                    } else if all_at_limit && !self.todo_reminder_count.is_empty() {
+                    } else if all_at_limit && !self.state.todo_reminder_count_map().is_empty() {
                         // All todos have reached reminder limit, allow session to end
                         // but inform user that todos remain incomplete
-                        let remaining_count = self.todo_reminder_count.len();
+                        let remaining_count = self.state.todo_reminder_count_map().len();
                         self.emit(AgentEvent::progress(
                             format!(
                                 "⚠️ 会话结束：{} 个待办项未完成（已提醒 {} 次，达到上限）",
@@ -613,8 +586,8 @@ impl Agent {
             }
 
             let context_size = self.effective_context_size();
-            let api_tokens = self.last_input_tokens.load(Ordering::Relaxed) as u32;
-            let estimated_tokens = estimate_total_tokens(&self.messages);
+            let api_tokens = self.state.last_input_tokens() as u32;
+            let estimated_tokens = estimate_total_tokens(self.state.messages());
 
             let current_tokens = if api_tokens > 0 && api_tokens >= estimated_tokens / 2 {
                 api_tokens
@@ -642,29 +615,27 @@ impl Agent {
                             usage_ratio * 100.0,
                             current_tokens,
                             ctx_size,
-                            self.compression_config.threshold * 100.0
+                            self.config.compression_config().threshold * 100.0
                         ),
                     );
                 }
             }
 
-            if should_compress(current_tokens, context_size, &self.compression_config) {
+            if should_compress(current_tokens, context_size, self.config.compression_config()) {
                 self.emit(AgentEvent::progress(crate::prompt::MSG_COMPRESSING_CONTEXT, None))?;
 
                 let original_tokens = current_tokens;
 
                 match compress_messages(
-                    &self.messages,
+                    self.state.messages(),
                     CompressionStrategy::SlidingWindow,
-                    &self.compression_config,
+                    self.config.compression_config(),
                 ) {
                     Ok(compressed) => {
                         let compressed_tokens = estimate_total_tokens(&compressed);
-                        self.messages = compressed;
-                        self.total_input_tokens
-                            .store(compressed_tokens as u64, Ordering::Relaxed);
-                        self.last_input_tokens
-                            .store(compressed_tokens as u64, Ordering::Relaxed);
+                        self.state.set_messages(compressed);
+                        self.state.set_total_input_tokens(compressed_tokens as u64);
+                        self.state.set_last_input_tokens(compressed_tokens as u64);
 
                         let ratio = compressed_tokens as f32 / original_tokens as f32;
                         crate::debug::debug_log().compression(
@@ -704,8 +675,8 @@ impl Agent {
         }
 
         self.emit(AgentEvent::usage_with_cache(
-            self.total_input_tokens.load(Ordering::Relaxed),
-            self.total_output_tokens.load(Ordering::Relaxed),
+            self.state.total_input_tokens(),
+            self.state.total_output_tokens(),
             0,
             0,
         ))?;
@@ -717,12 +688,12 @@ impl Agent {
 
     /// Restore message history (for session continue/resume)
     pub fn set_messages(&mut self, messages: Vec<Message>) {
-        self.messages = messages;
+        self.state.set_messages(messages);
     }
 
     /// Get current messages (for session saving)
     pub fn get_messages(&self) -> &[Message] {
-        &self.messages
+        self.messages()
     }
 
     /// Get available tools
@@ -732,28 +703,28 @@ impl Agent {
 
     /// Get system prompt
     pub fn get_system_prompt(&self) -> &str {
-        &self.system_prompt
+        self.system_prompt()
     }
 
     /// Get current token counts
     pub fn get_token_counts(&self) -> (u64, u64) {
         (
-            self.total_input_tokens.load(Ordering::Relaxed),
-            self.total_output_tokens.load(Ordering::Relaxed),
+            self.state.total_input_tokens(),
+            self.state.total_output_tokens(),
         )
     }
 
     /// Clear message history
     pub fn clear_history(&mut self) {
-        self.messages.clear();
-        self.total_input_tokens.store(0, Ordering::Relaxed);
-        self.total_output_tokens.store(0, Ordering::Relaxed);
-        self.last_input_tokens.store(0, Ordering::Relaxed);
+        self.messages_mut().clear();
+        self.state.set_total_input_tokens(0);
+        self.state.set_total_output_tokens(0);
+        self.state.set_last_input_tokens(0);
     }
 
     /// Get message count
     pub fn message_count(&self) -> usize {
-        self.messages.len()
+        self.messages().len()
     }
 
     // ========================================================================

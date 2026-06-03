@@ -108,6 +108,21 @@ impl AgentState {
         self.last_input_tokens.load(Ordering::Relaxed)
     }
 
+    /// Set total input tokens (used after compression).
+    pub fn set_total_input_tokens(&self, value: u64) {
+        self.total_input_tokens.store(value, Ordering::Relaxed);
+    }
+
+    /// Set total output tokens.
+    pub fn set_total_output_tokens(&self, value: u64) {
+        self.total_output_tokens.store(value, Ordering::Relaxed);
+    }
+
+    /// Set last input tokens (used after compression).
+    pub fn set_last_input_tokens(&self, value: u64) {
+        self.last_input_tokens.store(value, Ordering::Relaxed);
+    }
+
     /// Mark a tool input as previewed during streaming.
     pub fn mark_tool_input_previewed(&mut self, tool_id: String) {
         self.previewed_tool_inputs.insert(tool_id);

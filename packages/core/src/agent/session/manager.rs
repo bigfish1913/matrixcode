@@ -4,6 +4,7 @@
 //! - Event emission
 //! - Cancellation tokens
 //! - Ask response channel
+//! - Pending input channel (for real-time message appending)
 //!
 //! By extracting session management into a dedicated struct, we enable:
 //! - Clear separation between session and state
@@ -28,6 +29,9 @@ pub struct SessionManager {
 
     /// Ask response receiver (for TUI mode).
     ask_rx: Option<mpsc::Receiver<String>>,
+
+    /// Pending input receiver (for real-time message appending during streaming).
+    pending_input_rx: Option<mpsc::Receiver<String>>,
 }
 
 impl SessionManager {
@@ -37,6 +41,7 @@ impl SessionManager {
             cancel_token: None,
             event_tx,
             ask_rx: None,
+            pending_input_rx: None,
         }
     }
 
@@ -49,6 +54,34 @@ impl SessionManager {
             cancel_token: None,
             event_tx,
             ask_rx,
+            pending_input_rx: None,
+        }
+    }
+
+    /// Create a session manager with pending input channel.
+    pub fn with_pending_input(
+        event_tx: mpsc::Sender<AgentEvent>,
+        pending_input_rx: Option<mpsc::Receiver<String>>,
+    ) -> Self {
+        Self {
+            cancel_token: None,
+            event_tx,
+            ask_rx: None,
+            pending_input_rx,
+        }
+    }
+
+    /// Create a session manager with all channels including pending input.
+    pub fn with_all_channels(
+        event_tx: mpsc::Sender<AgentEvent>,
+        ask_rx: Option<mpsc::Receiver<String>>,
+        pending_input_rx: Option<mpsc::Receiver<String>>,
+    ) -> Self {
+        Self {
+            cancel_token: None,
+            event_tx,
+            ask_rx,
+            pending_input_rx,
         }
     }
 
@@ -83,9 +116,35 @@ impl SessionManager {
         self.ask_rx = Some(rx);
     }
 
+    /// Check if ask response channel is available (no mutable borrow needed).
+    pub fn has_ask_channel(&self) -> bool {
+        self.ask_rx.is_some()
+    }
+
     /// Get ask response channel.
     pub fn ask_rx(&mut self) -> Option<&mut mpsc::Receiver<String>> {
         self.ask_rx.as_mut()
+    }
+
+    /// Set pending input channel.
+    pub fn set_pending_input_channel(&mut self, rx: mpsc::Receiver<String>) {
+        self.pending_input_rx = Some(rx);
+    }
+
+    /// Get pending input channel.
+    pub fn pending_input_rx(&mut self) -> Option<&mut mpsc::Receiver<String>> {
+        self.pending_input_rx.as_mut()
+    }
+
+    /// Drain pending inputs from the channel.
+    pub fn drain_pending_inputs(&mut self) -> Vec<String> {
+        let mut inputs = Vec::new();
+        if let Some(rx) = &mut self.pending_input_rx {
+            while let Ok(msg) = rx.try_recv() {
+                inputs.push(msg);
+            }
+        }
+        inputs
     }
 
     /// Get event sender (for cloning).
@@ -96,7 +155,7 @@ impl SessionManager {
     /// Clear session state (reset cancellation).
     pub fn clear(&mut self) {
         self.cancel_token = None;
-        // Note: ask_rx and event_tx are not cleared as they are channels
+        // Note: ask_rx, pending_input_rx and event_tx are not cleared as they are channels
     }
 }
 

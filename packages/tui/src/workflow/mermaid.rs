@@ -148,6 +148,7 @@ fn node_type_icon_mermaid(node_type: &NodeType) -> &'static str {
         NodeType::Approval => "?",
         NodeType::Wait => "⏳",
         NodeType::SubWorkflow => "↳",
+        NodeType::Pipeline => "╠",
     }
 }
 

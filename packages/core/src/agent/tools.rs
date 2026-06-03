@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::sync::atomic::Ordering;
 use tokio::time::{Duration, sleep};
 
-use crate::approval::{ApproveMode, needs_approval};
+use crate::approval::{ApproveMode, needs_approval, RiskLevel};
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role};
 use crate::tools::MustReadFirstError;
@@ -47,9 +47,7 @@ impl Agent {
                 }
 
                 ContentBlock::ToolUse { id, name, input } => {
-                    if let Some(token) = &self.cancel_token
-                        && token.is_cancelled()
-                    {
+                    if self.session.is_cancelled() {
                         return Err(anyhow::anyhow!("Operation cancelled"));
                     }
 
@@ -58,7 +56,7 @@ impl Agent {
                     // Emit ToolUseStart event with full input before execution when the
                     // streaming phase did not already preview the complete input.
                     // This allows UI to display command details before result arrives.
-                    if !self.previewed_tool_inputs.remove(id) {
+                    if !self.state.remove_previewed_tool_input(id) {
                         self.emit(AgentEvent::tool_use_start(
                             id.clone(),
                             name.clone(),
@@ -125,14 +123,14 @@ impl Agent {
         }
 
         if !assistant_content.is_empty() {
-            self.messages.push(Message {
+            self.state.add_message(Message {
                 role: Role::Assistant,
                 content: MessageContent::Blocks(assistant_content),
             });
         }
 
         for msg in tool_results {
-            self.messages.push(msg);
+            self.state.add_message(msg);
         }
 
         Ok(has_tool_use)
@@ -164,7 +162,7 @@ impl Agent {
             // Check if file exists (only enforce read-first for existing files)
             let file_exists = tokio::fs::try_exists(file_path).await.unwrap_or(false);
 
-            if file_exists && !self.read_history.has_read(file_path) {
+            if file_exists && !self.state.read_history().has_read(file_path) {
                 log::warn!(
                     "Tool '{}' rejected: file '{}' not read in this session",
                     name,
@@ -175,172 +173,39 @@ impl Agent {
             }
         }
 
+        // Find tool and extract info needed for approval check
         let tool = self.tools.iter().find(|t| t.definition().name == name);
 
+        if tool.is_none() {
+            return Err(anyhow::anyhow!("Tool '{}' not found", name));
+        }
+
+        let tool = tool.unwrap();
+        let current_mode = ApproveMode::from_u8(self.approve_mode.load(Ordering::Relaxed));
+        let tool_risk_level = tool.risk_level();
+        let needs_approval_flag = needs_approval(current_mode, tool_risk_level);
+
+        log::debug!(
+            "Tool '{}' approval check: mode={}, risk={}, needs_approval={}",
+            name,
+            current_mode,
+            tool_risk_level,
+            needs_approval_flag
+        );
+
+        // Handle approval if needed (this requires mutable borrow, so we do it before tool.execute)
+        if needs_approval_flag {
+            self.handle_tool_approval(name, &input, tool_risk_level).await?;
+        }
+
+        // Handle "ask" tool special case (also requires mutable borrow)
+        if name == "ask" && self.has_ask_channel() {
+            return self.handle_ask_tool(&input).await;
+        }
+
+        // Now find tool again and execute (after all mutable borrows are released)
+        let tool = self.tools.iter().find(|t| t.definition().name == name);
         if let Some(tool) = tool {
-            let current_mode = ApproveMode::from_u8(self.approve_mode.load(Ordering::Relaxed));
-
-            log::debug!(
-                "Tool '{}' approval check: mode={}, risk={}, needs_approval={}",
-                name,
-                current_mode,
-                tool.risk_level(),
-                needs_approval(current_mode, tool.risk_level())
-            );
-
-            if needs_approval(current_mode, tool.risk_level()) {
-                if self.ask_rx.is_some() {
-                    let detail = match name {
-                        "bash" => format!("Command: {}", input["command"].as_str().unwrap_or("?")),
-                        "write" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
-                        "edit" | "multi_edit" => {
-                            format!("File: {}", input["path"].as_str().unwrap_or("?"))
-                        }
-                        _ => format!("Tool: {}", name),
-                    };
-
-                    let question = format!(
-                        "⚠️ Tool '{}' requires approval (risk: {})\n{}\n\nAllow? (y/n)",
-                        name,
-                        tool.risk_level(),
-                        detail
-                    );
-
-                    self.emit(AgentEvent::with_data(
-                        EventType::AskQuestion,
-                        EventData::AskQuestion {
-                            question,
-                            options: None,
-                        },
-                    ))?;
-
-                    if let Some(rx) = &mut self.ask_rx {
-                        // Wait for approval with cancellation check
-                        let answer = if let Some(token) = &self.cancel_token {
-                            tokio::select! {
-                                result = rx.recv() => result,
-                                _ = wait_for_cancel(token) => {
-                                    return Err(anyhow::anyhow!("Operation cancelled"));
-                                }
-                            }
-                        } else {
-                            rx.recv().await
-                        };
-
-                        match answer {
-                            Some(answer) => {
-                                let answer_lower = answer.trim().to_lowercase();
-                                if matches!(
-                                    answer_lower.as_str(),
-                                    "a" | "abort" | "q" | "quit" | "stop"
-                                ) {
-                                    self.emit(AgentEvent::with_data(
-                                        EventType::Error,
-                                        EventData::Error {
-                                            message: "Aborted by user".into(),
-                                            code: None,
-                                            source: None,
-                                        },
-                                    ))?;
-                                    return Err(anyhow::anyhow!("Session aborted by user"));
-                                }
-                                let approved = matches!(
-                                    answer_lower.as_str(),
-                                    "y" | "yes" | "ok" | "approve" | ""
-                                );
-                                if !approved {
-                                    return Err(anyhow::anyhow!(
-                                        "Tool '{}' rejected by user (answer: '{}')",
-                                        name,
-                                        answer_lower
-                                    ));
-                                }
-                            }
-                            None => {
-                                return Err(anyhow::anyhow!("Approval channel closed"));
-                            }
-                        }
-                    }
-                } else {
-                    return Err(anyhow::anyhow!(
-                        "Tool '{}' requires manual approval (risk: {}). Use --approve-mode auto to auto-approve.",
-                        name,
-                        tool.risk_level()
-                    ));
-                }
-            }
-
-            // Special handling for "ask" tool in TUI mode
-            if name == "ask" && self.ask_rx.is_some() {
-                if input
-                    .get("questions")
-                    .and_then(|q| q.as_array())
-                    .filter(|a| !a.is_empty())
-                    .is_some()
-                {
-                    let intro = input.get("intro").and_then(|s| s.as_str()).unwrap_or("");
-                    let questions = input.get("questions").cloned();
-
-                    let options = serde_json::json!({
-                        "questions": questions
-                    });
-
-                    self.emit(AgentEvent::with_data(
-                        EventType::AskQuestion,
-                        EventData::AskQuestion {
-                            question: intro.to_string(),
-                            options: Some(options),
-                        },
-                    ))?;
-
-                    if let Some(rx) = &mut self.ask_rx {
-                        // Wait for answer with cancellation check
-                        let answer = if let Some(token) = &self.cancel_token {
-                            tokio::select! {
-                                result = rx.recv() => result,
-                                _ = wait_for_cancel(token) => {
-                                    return Err(anyhow::anyhow!("Operation cancelled"));
-                                }
-                            }
-                        } else {
-                            rx.recv().await
-                        };
-
-                        match answer {
-                            Some(answer) => return Ok(answer),
-                            None => return Err(anyhow::anyhow!("Ask channel closed")),
-                        }
-                    }
-                } else {
-                    let question = input["question"].as_str().unwrap_or("").to_string();
-                    let options = input.get("options").cloned();
-
-                    self.emit(AgentEvent::with_data(
-                        EventType::AskQuestion,
-                        EventData::AskQuestion { question, options },
-                    ))?;
-
-                    if let Some(rx) = &mut self.ask_rx {
-                        // Wait for answer with cancellation check
-                        let answer = if let Some(token) = &self.cancel_token {
-                            tokio::select! {
-                                result = rx.recv() => result,
-                                _ = wait_for_cancel(token) => {
-                                    return Err(anyhow::anyhow!("Operation cancelled"));
-                                }
-                            }
-                        } else {
-                            rx.recv().await
-                        };
-
-                        match answer {
-                            Some(answer) => return Ok(answer),
-                            None => return Err(anyhow::anyhow!("Ask channel closed")),
-                        }
-                    }
-                }
-            }
-
             self.emit(AgentEvent::progress(format!("Executing: {}", name), None))?;
             let result = tool.execute(input.clone()).await;
 
@@ -348,7 +213,7 @@ impl Agent {
             // For read tool, mark the file as read on success
             if name == "read" && result.is_ok() {
                 if let Some(file_path) = input["path"].as_str() {
-                    self.read_history.mark_read(file_path);
+                    self.state.read_history_mut().mark_read(file_path);
                     log::info!("File '{}' marked as read in session history", file_path);
                 }
             }
@@ -357,6 +222,167 @@ impl Agent {
         } else {
             Err(anyhow::anyhow!("Tool '{}' not found", name))
         }
+    }
+
+    /// Handle tool approval flow
+    async fn handle_tool_approval(
+        &mut self,
+        name: &str,
+        input: &serde_json::Value,
+        tool_risk_level: RiskLevel,
+    ) -> Result<()> {
+        if !self.has_ask_channel() {
+            return Err(anyhow::anyhow!(
+                "Tool '{}' requires manual approval (risk: {}). Use --approve-mode auto to auto-approve.",
+                name,
+                tool_risk_level
+            ));
+        }
+
+        let detail = match name {
+            "bash" => format!("Command: {}", input["command"].as_str().unwrap_or("?")),
+            "write" => format!("File: {}", input["path"].as_str().unwrap_or("?")),
+            "edit" | "multi_edit" => {
+                format!("File: {}", input["path"].as_str().unwrap_or("?"))
+            }
+            _ => format!("Tool: {}", name),
+        };
+
+        let question = format!(
+            "⚠️ Tool '{}' requires approval (risk: {})\n{}\n\nAllow? (y/n)",
+            name,
+            tool_risk_level,
+            detail
+        );
+
+        self.emit(AgentEvent::with_data(
+            EventType::AskQuestion,
+            EventData::AskQuestion {
+                question,
+                options: None,
+            },
+        ))?;
+
+        // Check cancellation status before getting ask_channel
+        if self.session.is_cancelled() {
+            return Err(anyhow::anyhow!("Operation cancelled"));
+        }
+
+        if let Some(rx) = self.ask_channel() {
+            // Simple receive with cancellation check before
+            let answer = rx.recv().await;
+
+            // Check cancellation after receive
+            if self.session.is_cancelled() {
+                return Err(anyhow::anyhow!("Operation cancelled"));
+            }
+
+            match answer {
+                Some(answer) => {
+                    let answer_lower = answer.trim().to_lowercase();
+                    if matches!(
+                        answer_lower.as_str(),
+                        "a" | "abort" | "q" | "quit" | "stop"
+                    ) {
+                        self.emit(AgentEvent::with_data(
+                            EventType::Error,
+                            EventData::Error {
+                                message: "Aborted by user".into(),
+                                code: None,
+                                source: None,
+                            },
+                        ))?;
+                        return Err(anyhow::anyhow!("Session aborted by user"));
+                    }
+                    let approved = matches!(
+                        answer_lower.as_str(),
+                        "y" | "yes" | "ok" | "approve" | ""
+                    );
+                    if !approved {
+                        return Err(anyhow::anyhow!(
+                            "Tool '{}' rejected by user (answer: '{}')",
+                            name,
+                            answer_lower
+                        ));
+                    }
+                }
+                None => {
+                    return Err(anyhow::anyhow!("Approval channel closed"));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle "ask" tool special case
+    async fn handle_ask_tool(&mut self, input: &serde_json::Value) -> Result<String> {
+        // Check cancellation before getting ask_channel
+        if self.session.is_cancelled() {
+            return Err(anyhow::anyhow!("Operation cancelled"));
+        }
+
+        if input
+            .get("questions")
+            .and_then(|q| q.as_array())
+            .filter(|a| !a.is_empty())
+            .is_some()
+        {
+            let intro = input.get("intro").and_then(|s| s.as_str()).unwrap_or("");
+            let questions = input.get("questions").cloned();
+
+            let options = serde_json::json!({
+                "questions": questions
+            });
+
+            self.emit(AgentEvent::with_data(
+                EventType::AskQuestion,
+                EventData::AskQuestion {
+                    question: intro.to_string(),
+                    options: Some(options),
+                },
+            ))?;
+
+            if let Some(rx) = self.ask_channel() {
+                // Simple receive with cancellation check before
+                let answer = rx.recv().await;
+
+                // Check cancellation after receive
+                if self.session.is_cancelled() {
+                    return Err(anyhow::anyhow!("Operation cancelled"));
+                }
+
+                match answer {
+                    Some(answer) => return Ok(answer),
+                    None => return Err(anyhow::anyhow!("Ask channel closed")),
+                }
+            }
+        } else {
+            let question = input["question"].as_str().unwrap_or("").to_string();
+            let options = input.get("options").cloned();
+
+            self.emit(AgentEvent::with_data(
+                EventType::AskQuestion,
+                EventData::AskQuestion { question, options },
+            ))?;
+
+            if let Some(rx) = self.ask_channel() {
+                // Simple receive with cancellation check before
+                let answer = rx.recv().await;
+
+                // Check cancellation after receive
+                if self.session.is_cancelled() {
+                    return Err(anyhow::anyhow!("Operation cancelled"));
+                }
+
+                match answer {
+                    Some(answer) => return Ok(answer),
+                    None => return Err(anyhow::anyhow!("Ask channel closed")),
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!("Ask channel not available"))
     }
 
     /// 处理代理工具 - 直接调用 executor 执行
@@ -374,7 +400,7 @@ impl Agent {
                 .unwrap_or(30000);
 
             // 执行代理工具（带超时和取消）
-            let result = if let Some(token) = &self.cancel_token {
+            let result = if let Some(token) = self.session.cancel_token() {
                 tokio::select! {
                     result = tokio::time::timeout(
                         tokio::time::Duration::from_millis(timeout_ms),
