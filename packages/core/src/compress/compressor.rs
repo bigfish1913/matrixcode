@@ -301,10 +301,9 @@ fn calculate_preservation_score(
 ) -> f64 {
     let mut score: f64 = 10.0;
 
-    // First message (user's original request) gets highest priority
-    if index == 0 {
-        score += 100.0;
-    }
+    // Note: First message is no longer given unconditional high priority
+    // It will be scored based on its content like other messages.
+    // This prevents context pollution when user starts a new topic in multi-turn conversations.
 
     match message.role {
         Role::User => {
@@ -425,20 +424,16 @@ fn sliding_window_compress(
     let deps = DependencyBuilder::build(messages);
 
     // Enhanced sliding window strategy with dependency protection:
-    // 1. Always keep first message (original user request)
-    // 2. Preserve tool_use/tool_result pairs
-    // 3. Keep recent messages intact
+    // 1. Preserve tool_use/tool_result pairs
+    // 2. Keep recent messages intact
+    // Note: First message is NOT automatically preserved - it competes based on content scoring
 
-    let first_msg = messages.first().cloned();
     let recent_start = messages.len().saturating_sub(config.min_preserve_messages);
 
     // Collect indices to preserve
     let mut preserve_indices: HashSet<usize> = HashSet::new();
 
-    // Always preserve first message
-    preserve_indices.insert(0);
-
-    // Preserve recent messages
+    // Preserve recent messages (including the current user message which is likely at the end)
     for i in recent_start..messages.len() {
         preserve_indices.insert(i);
 
@@ -475,7 +470,7 @@ fn sliding_window_compress(
     let mut sorted_indices: Vec<usize> = preserve_indices.iter().cloned().collect();
     sorted_indices.sort();
 
-    // Try removing from the middle (not first or last)
+    // Try removing from the oldest messages
     while sorted_indices.len() > config.min_preserve_messages {
         let candidate_tokens = sorted_indices
             .iter()
@@ -488,22 +483,18 @@ fn sliding_window_compress(
             break;
         }
 
-        // Find the oldest message that's not the first and try to drop it
+        // Find the oldest message and try to drop it
         // But keep its pair if it's a tool_use/tool_result
         if sorted_indices.len() > 2 {
-            let oldest_mid = sorted_indices[1]; // Skip first
-            let pair_indices = deps.get_pair_indices(oldest_mid);
+            let oldest_idx = sorted_indices[0];
+            let pair_indices = deps.get_pair_indices(oldest_idx);
 
             // Only drop if dropping won't orphan a pair
             if pair_indices.is_empty() || pair_indices.iter().all(|p| !sorted_indices.contains(p)) {
-                sorted_indices.remove(1);
+                sorted_indices.remove(0);
             } else {
                 // Can't drop this one, try next
-                if sorted_indices.len() > 3 {
-                    sorted_indices.remove(2);
-                } else {
-                    break;
-                }
+                sorted_indices.remove(1);
             }
         } else {
             break;
