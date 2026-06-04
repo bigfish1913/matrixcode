@@ -6,14 +6,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{Mutex, RwLock};
-use tokio::time::timeout;
+use tokio::sync::RwLock;
 
 use crate::matrixrpc::{
-    ErrorCode, JsonRpcError, JsonRpcId, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
+    ErrorCode, JsonRpcError, JsonRpcId, JsonRpcResponse,
     ServiceId, ServiceStatus, RegistryService,
 };
-use crate::matrixrpc::transport::{Transport, StdioTransport, TransportConfig as TransportSettings};
+use crate::matrixrpc::transport::{StdioTransport, TransportConfig as TransportSettings};
 use crate::matrixrpc::router::{NodeRouter, NodeRouteResult, NodeRouterError, NodeContext};
 
 /// Error type for node execution operations

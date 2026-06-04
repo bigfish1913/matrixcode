@@ -13,7 +13,7 @@ use crate::matrixrpc::{
     lifecycle::{LifecycleConfig, LifecycleManager},
     protocol::{ErrorCode, JsonRpcError, JsonRpcId, JsonRpcRequest, JsonRpcResponse},
     registry::{RegistryBuilder, RegistryService, RegistryStats},
-    router::{NodeCapability, NodeContext, NodeDefinition, NodeRouter, NodeRouteResult, NodeType},
+    router::{NodeCapability, NodeContext, NodeDefinition, NodeRouter, NodeRouteResult},
     service::{ExtensionService, ServiceId, ServiceStatus},
     ToolDefinition, ToolRouter, ToolRouteResult,
 };

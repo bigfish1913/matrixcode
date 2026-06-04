@@ -10,7 +10,7 @@ use serde_json::Value as JsonValue;
 
 use super::security::SecurityValidator;
 use crate::matrixrpc::{
-    ErrorCode, JsonRpcError, JsonRpcId, JsonRpcResponse, ServiceId, ToolRouter, ToolRouteResult,
+    ErrorCode, JsonRpcError, JsonRpcId, JsonRpcResponse, ServiceId, ToolRouter,
 };
 
 /// Tool callback request
