@@ -301,32 +301,9 @@ fn calculate_preservation_score(
 ) -> f64 {
     let mut score: f64 = 10.0;
 
-    // First message gets moderate priority (not highest) to prevent context pollution
-    // Only give high priority if it contains sensitive instructions
+    // First message (user's original request) gets highest priority
     if index == 0 {
-        match &message.content {
-            MessageContent::Text(text) => {
-                if contains_sensitive_instructions(text) {
-                    score += 100.0; // High priority for sensitive instructions
-                } else {
-                    score += 20.0; // Moderate priority, can be dropped if needed
-                }
-            }
-            MessageContent::Blocks(blocks) => {
-                let has_sensitive = blocks.iter().any(|b| {
-                    if let ContentBlock::ToolResult { content, .. } = b {
-                        contains_sensitive_instructions(content)
-                    } else {
-                        false
-                    }
-                });
-                if has_sensitive {
-                    score += 100.0;
-                } else {
-                    score += 20.0;
-                }
-            }
-        }
+        score += 100.0;
     }
 
     match message.role {
@@ -448,33 +425,18 @@ fn sliding_window_compress(
     let deps = DependencyBuilder::build(messages);
 
     // Enhanced sliding window strategy with dependency protection:
-    // 1. Check if first message contains sensitive instructions (always preserve if so)
+    // 1. Always keep first message (original user request)
     // 2. Preserve tool_use/tool_result pairs
     // 3. Keep recent messages intact
 
-    let first_msg = messages.first();
+    let first_msg = messages.first().cloned();
     let recent_start = messages.len().saturating_sub(config.min_preserve_messages);
 
     // Collect indices to preserve
     let mut preserve_indices: HashSet<usize> = HashSet::new();
 
-    // Only preserve first message if it contains sensitive instructions
-    // This prevents context pollution from old tasks when user sends new messages
-    if let Some(msg) = first_msg {
-        let has_sensitive = match &msg.content {
-            MessageContent::Text(text) => contains_sensitive_instructions(text),
-            MessageContent::Blocks(blocks) => blocks.iter().any(|b| {
-                if let ContentBlock::ToolResult { content, .. } = b {
-                    contains_sensitive_instructions(content)
-                } else {
-                    false
-                }
-            }),
-        };
-        if has_sensitive {
-            preserve_indices.insert(0);
-        }
-    }
+    // Always preserve first message
+    preserve_indices.insert(0);
 
     // Preserve recent messages
     for i in recent_start..messages.len() {
@@ -513,7 +475,7 @@ fn sliding_window_compress(
     let mut sorted_indices: Vec<usize> = preserve_indices.iter().cloned().collect();
     sorted_indices.sort();
 
-    // Try removing from the oldest messages (including first if not sensitive)
+    // Try removing from the middle (not first or last)
     while sorted_indices.len() > config.min_preserve_messages {
         let candidate_tokens = sorted_indices
             .iter()
@@ -526,19 +488,22 @@ fn sliding_window_compress(
             break;
         }
 
-        // Find the oldest message and try to drop it
+        // Find the oldest message that's not the first and try to drop it
         // But keep its pair if it's a tool_use/tool_result
         if sorted_indices.len() > 2 {
-            // Try to drop the oldest message (could be first if not marked as sensitive)
-            let oldest_idx = sorted_indices[0];
-            let pair_indices = deps.get_pair_indices(oldest_idx);
+            let oldest_mid = sorted_indices[1]; // Skip first
+            let pair_indices = deps.get_pair_indices(oldest_mid);
 
             // Only drop if dropping won't orphan a pair
             if pair_indices.is_empty() || pair_indices.iter().all(|p| !sorted_indices.contains(p)) {
-                sorted_indices.remove(0);
+                sorted_indices.remove(1);
             } else {
                 // Can't drop this one, try next
-                sorted_indices.remove(1);
+                if sorted_indices.len() > 3 {
+                    sorted_indices.remove(2);
+                } else {
+                    break;
+                }
             }
         } else {
             break;
