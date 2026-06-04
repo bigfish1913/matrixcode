@@ -1731,6 +1731,7 @@ dependencies = [
  "serde_yaml",
  "shell-words",
  "tempfile",
+ "thiserror 2.0.18",
  "tiktoken-rs",
  "tokio",
  "tokio-test",

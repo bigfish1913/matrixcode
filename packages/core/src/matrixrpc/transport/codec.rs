@@ -174,14 +174,18 @@ fn parse_content_length(headers: &str) -> io::Result<usize> {
     ))
 }
 
+#[allow(dead_code)]
 /// Encode a single message to bytes (convenience function)
 pub fn encode_message(message: &JsonRpcMessage) -> io::Result<Vec<u8>> {
+#[allow(dead_code)]
     FrameCodec::new().encode(message)
 }
 
+#[allow(dead_code)]
 /// Decode a single message from bytes (convenience function)
 ///
 /// Expects the buffer to contain exactly one framed message (with headers)
+#[allow(dead_code)]
 pub fn decode_message_from_buffer(buffer: &[u8]) -> io::Result<(Vec<u8>, JsonRpcMessage)> {
     let codec = FrameCodec::new();
     let (remaining, message) = codec.decode_from_buffer(buffer)?;

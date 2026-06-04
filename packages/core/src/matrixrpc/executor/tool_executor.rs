@@ -190,6 +190,7 @@ impl ExecutionConfig {
 
 /// Transport connection wrapper
 #[derive(Debug)]
+#[allow(dead_code)]
 struct TransportConnection {
     /// Service ID for this connection
     service_id: ServiceId,
@@ -397,6 +398,7 @@ impl ToolExecutor {
     }
 
     /// Process the response from tool execution
+#[allow(dead_code)]
     fn process_response(
         &self,
         response: JsonRpcResponse,

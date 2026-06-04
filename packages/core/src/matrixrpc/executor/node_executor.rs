@@ -3,6 +3,8 @@
 //! Executes workflow node calls via JSON-RPC transport with timeout and retry support.
 //! Handles callback endpoints and execution result processing.
 
+#![allow(dead_code)]
+
 use std::sync::Arc;
 use std::time::Duration;
 

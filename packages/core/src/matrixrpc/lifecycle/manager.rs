@@ -121,8 +121,10 @@ pub enum LifecycleError {
 /// Service lifecycle state
 #[derive(Debug, Clone)]
 struct ServiceLifecycle {
+#[allow(dead_code)]
     /// Service ID
     id: ServiceId,
+#[allow(dead_code)]
 
     /// Current status
     status: ServiceStatus,

@@ -306,14 +306,20 @@ impl Transport for StdioTransport {
 
 /// A thread-safe wrapper around StdioTransport for concurrent access
 ///
+#[allow(dead_code)]
 /// Uses Arc<Mutex<>> to allow sharing between multiple tasks.
 pub type SharedStdioTransport = Arc<Mutex<StdioTransport>>;
+#[allow(dead_code)]
+#[allow(dead_code)]
 
 /// Create a shared stdio transport
+#[allow(dead_code)]
+#[allow(dead_code)]
 pub fn shared_stdio_transport() -> SharedStdioTransport {
     Arc::new(Mutex::new(StdioTransport::with_tokio_stdio()))
 }
 
+#[allow(dead_code)]
 /// Create a shared stdio transport with custom config
 pub fn shared_stdio_transport_with_config(config: TransportConfig) -> SharedStdioTransport {
     Arc::new(Mutex::new(StdioTransport::from_streams(
