@@ -9,6 +9,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashSet;
 
+use super::dependency::DependencyBuilder;
+
 use super::config::{CompressionBias, CompressionConfig};
 use super::types::{CompressionStrategy, SummarizedSegment};
 
@@ -419,42 +421,102 @@ fn sliding_window_compress(
         return Ok(messages.to_vec());
     }
 
-    // Enhanced sliding window strategy:
+    // Build dependency graph to preserve tool_use/tool_result pairs
+    let deps = DependencyBuilder::build(messages);
+
+    // Enhanced sliding window strategy with dependency protection:
     // 1. Always keep first message (original user request)
-    // 2. Summarize middle messages if too long
+    // 2. Preserve tool_use/tool_result pairs
     // 3. Keep recent messages intact
 
     let first_msg = messages.first().cloned();
     let recent_start = messages.len().saturating_sub(config.min_preserve_messages);
-    let recent_msgs = &messages[recent_start..];
 
-    // Calculate tokens for first + recent
-    let first_tokens = first_msg.as_ref().map(estimate_tokens).unwrap_or(0);
-    let recent_tokens = estimate_total_tokens(recent_msgs);
+    // Collect indices to preserve
+    let mut preserve_indices: HashSet<usize> = HashSet::new();
+
+    // Always preserve first message
+    preserve_indices.insert(0);
+
+    // Preserve recent messages
+    for i in recent_start..messages.len() {
+        preserve_indices.insert(i);
+
+        // Also preserve dependency pairs for recent messages
+        for pair_idx in deps.get_pair_indices(i) {
+            preserve_indices.insert(pair_idx);
+        }
+    }
+
+    // Calculate tokens for preserved messages
+    let preserved_msgs: Vec<Message> = preserve_indices
+        .iter()
+        .filter(|&i| *i < messages.len())
+        .map(|&i| messages[i].clone())
+        .collect();
+
+    let preserved_tokens = estimate_total_tokens(&preserved_msgs);
     let current_total = estimate_total_tokens(messages);
     let target_tokens = (current_total as f64 * config.target_ratio) as u32;
 
-    // If first + recent already exceeds target, just use recent (drop first)
-    if first_tokens + recent_tokens <= target_tokens {
-        // We can keep first message + recent messages
-        let mut result: Vec<Message> = Vec::new();
-        if let Some(first) = first_msg {
-            result.push(first);
-        }
-        result.extend(recent_msgs.iter().cloned());
+    // If preserved messages fit within target, return them sorted by index
+    if preserved_tokens <= target_tokens {
+        let mut sorted_indices: Vec<usize> = preserve_indices.iter().cloned().collect();
+        sorted_indices.sort();
+        let result: Vec<Message> = sorted_indices
+            .iter()
+            .filter(|&i| *i < messages.len())
+            .map(|&i| messages[i].clone())
+            .collect();
         return Ok(result);
     }
 
-    // If still too long, try dropping older messages from recent section
-    for drop_count in 0..recent_msgs.len() {
-        let candidate = &recent_msgs[drop_count..];
-        if estimate_total_tokens(candidate) <= target_tokens {
-            return Ok(candidate.to_vec());
+    // If still too long, try dropping older messages while preserving pairs
+    let mut sorted_indices: Vec<usize> = preserve_indices.iter().cloned().collect();
+    sorted_indices.sort();
+
+    // Try removing from the middle (not first or last)
+    while sorted_indices.len() > config.min_preserve_messages {
+        let candidate_tokens = sorted_indices
+            .iter()
+            .copied()
+            .filter(|&i| i < messages.len())
+            .map(|i| estimate_tokens(&messages[i]))
+            .sum::<u32>();
+
+        if candidate_tokens <= target_tokens {
+            break;
+        }
+
+        // Find the oldest message that's not the first and try to drop it
+        // But keep its pair if it's a tool_use/tool_result
+        if sorted_indices.len() > 2 {
+            let oldest_mid = sorted_indices[1]; // Skip first
+            let pair_indices = deps.get_pair_indices(oldest_mid);
+
+            // Only drop if dropping won't orphan a pair
+            if pair_indices.is_empty() || pair_indices.iter().all(|p| !sorted_indices.contains(p)) {
+                sorted_indices.remove(1);
+            } else {
+                // Can't drop this one, try next
+                if sorted_indices.len() > 3 {
+                    sorted_indices.remove(2);
+                } else {
+                    break;
+                }
+            }
+        } else {
+            break;
         }
     }
 
-    // Last resort: just keep minimum recent messages
-    Ok(messages[messages.len() - config.min_preserve_messages..].to_vec())
+    let result: Vec<Message> = sorted_indices
+        .iter()
+        .filter(|&i| *i < messages.len())
+        .map(|&i| messages[i].clone())
+        .collect();
+
+    Ok(result)
 }
 
 // ============================================================================
