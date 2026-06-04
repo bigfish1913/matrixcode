@@ -470,7 +470,7 @@ mod tests {
         let request_id = "req-001".to_string();
 
         let token = validator
-            .generate_token(service_id.clone(), request_id.clone(), vec!["ai", "tool"])
+            .generate_token(service_id.clone(), request_id.clone(), vec!["ai".to_string(), "tool".to_string()])
             .await
             .unwrap();
 
@@ -485,7 +485,7 @@ mod tests {
         let request_id = "req-001".to_string();
 
         let token = validator
-            .generate_token(service_id.clone(), request_id.clone(), vec!["ai"])
+            .generate_token(service_id.clone(), request_id.clone(), vec!["ai".to_string()])
             .await
             .unwrap();
 
@@ -518,7 +518,7 @@ mod tests {
         let request_id = "req-001".to_string();
 
         let token = validator
-            .generate_token(service_id1.clone(), request_id.clone(), vec!["ai"])
+            .generate_token(service_id1.clone(), request_id.clone(), vec!["ai".to_string()])
             .await
             .unwrap();
 
@@ -536,7 +536,7 @@ mod tests {
         let request_id = "req-001".to_string();
 
         let token = validator
-            .generate_token(service_id.clone(), request_id.clone(), vec!["ai"])
+            .generate_token(service_id.clone(), request_id.clone(), vec!["ai".to_string()])
             .await
             .unwrap();
 
@@ -554,7 +554,7 @@ mod tests {
         let request_id = "req-001".to_string();
 
         let token = validator
-            .generate_token(service_id.clone(), request_id.clone(), vec!["ai"])
+            .generate_token(service_id.clone(), request_id.clone(), vec!["ai".to_string()])
             .await
             .unwrap();
 
@@ -573,7 +573,7 @@ mod tests {
         let request_id = "req-001".to_string();
 
         let token = validator
-            .generate_token(service_id.clone(), request_id.clone(), vec!["ai"])
+            .generate_token(service_id.clone(), request_id.clone(), vec!["ai".to_string()])
             .await
             .unwrap();
 

@@ -493,7 +493,7 @@ impl CallbackHandler {
 mod tests {
     use super::*;
     use crate::matrixrpc::{RegistryService, ToolRouter, NodeRouter};
-    use super::ai::AiCallbackResult as TestAiCallbackResult;
+    use super::super::ai::AiCallbackResult;
 
     fn create_test_handlers() -> (
         Arc<SecurityValidator>,
@@ -503,7 +503,7 @@ mod tests {
     ) {
         let security = Arc::new(SecurityValidator::new());
         let registry = Arc::new(RegistryService::new());
-        let tool_router = Arc::new(ToolRouter::new(registry));
+        let tool_router = Arc::new(ToolRouter::new(registry.clone()));
         let node_router = Arc::new(NodeRouter::new(registry));
         let callback = Arc::new(CallbackHandler::new(
             security.clone(),
@@ -565,7 +565,7 @@ mod tests {
 
         let service_id = ServiceId::new("test-service");
         let token = handler
-            .generate_token(service_id, "req-001".to_string(), vec!["ai", "tool"])
+            .generate_token(service_id, "req-001".to_string(), vec!["ai".to_string(), "tool".to_string()])
             .await
             .unwrap();
 
@@ -579,7 +579,7 @@ mod tests {
         let service_id = ServiceId::new("test-service");
         let request_id = "req-001".to_string();
         let token = security
-            .generate_token(service_id.clone(), request_id.clone(), vec!["ai"])
+            .generate_token(service_id.clone(), request_id.clone(), vec!["ai".to_string()])
             .await
             .unwrap();
 
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn test_callback_result_to_json() {
-        let ai_result = TestAiCallbackResult {
+        let ai_result = AiCallbackResult {
             content: "Test response".to_string(),
             model: "claude-sonnet-4".to_string(),
             input_tokens: 100,

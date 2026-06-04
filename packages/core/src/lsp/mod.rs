@@ -51,6 +51,8 @@
 
 pub mod client;
 pub mod manager;
+#[cfg(test)]
+mod manager_test;
 pub mod registry;
 pub mod tools;
 pub mod transport;

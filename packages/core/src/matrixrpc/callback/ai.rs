@@ -379,7 +379,7 @@ mod tests {
         let service_id = ServiceId::new("test-service");
         let request_id = "req-001".to_string();
         let token = security
-            .generate_token(service_id.clone(), request_id.clone(), vec!["ai"])
+            .generate_token(service_id.clone(), request_id.clone(), vec!["ai".to_string()])
             .await
             .unwrap();
 

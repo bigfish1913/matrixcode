@@ -406,7 +406,7 @@ mod tests {
         let service_id = ServiceId::new("callback-service");
         let request_id = "req-001".to_string();
         let token = security
-            .generate_token(service_id.clone(), request_id.clone(), vec!["tool"])
+            .generate_token(service_id.clone(), request_id.clone(), vec!["tool".to_string()])
             .await
             .unwrap();
 
@@ -422,7 +422,7 @@ mod tests {
 
         let result = handler.handle(request).await;
         // Tool exists and is allowed
-        assert!(result.is_ok || matches!(result, Err(ToolCallbackError::ToolNotFound(_))));
+        assert!(result.is_ok() || matches!(result, Err(ToolCallbackError::ToolNotFound(_))));
     }
 
     #[tokio::test]

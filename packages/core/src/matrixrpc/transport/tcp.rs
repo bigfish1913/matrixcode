@@ -9,14 +9,14 @@
 //! - Callback Port (9528): Accepts callback requests from external services
 
 use std::io;
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use tokio::net::{TcpListener as TokioTcpListener, TcpStream as TokioTcpStream};
+use tokio::net::{TcpListener as TokioTcpListener, TcpStream as TokioTcpStream, tcp::{OwnedReadHalf, OwnedWriteHalf}};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 use tokio::time::timeout;
 
 use crate::matrixrpc::protocol::JsonRpcMessage;
@@ -32,8 +32,10 @@ const FRAME_HEADER_SIZE: usize = 4;
 /// - Client mode: Connect to external service
 /// - Server mode: Accept connections from external services
 pub struct TcpTransport {
-    /// TCP stream (wrapped for async access)
-    stream: Arc<RwLock<Option<TokioTcpStream>>>,
+    /// Read half of the TCP stream
+    reader: Arc<Mutex<Option<OwnedReadHalf>>>,
+    /// Write half of the TCP stream
+    writer: Arc<Mutex<Option<OwnedWriteHalf>>>,
     /// Transport configuration
     config: TransportConfig,
     /// Remote address (for logging/debugging)
@@ -45,16 +47,18 @@ pub struct TcpTransport {
 impl TcpTransport {
     /// Create a new TCP transport by connecting to an address
     pub async fn connect(addr: &str) -> io::Result<Self> {
-        Self::connect_with_config(addr, TransportConfig::default())
+        Self::connect_with_config(addr, TransportConfig::default()).await
     }
 
     /// Create a new TCP transport with custom configuration
     pub async fn connect_with_config(addr: &str, config: TransportConfig) -> io::Result<Self> {
         let stream = TokioTcpStream::connect(addr).await?;
         let remote_addr = stream.peer_addr().ok();
+        let (reader, writer) = stream.into_split();
 
         Ok(Self {
-            stream: Arc::new(RwLock::new(Some(stream))),
+            reader: Arc::new(Mutex::new(Some(reader))),
+            writer: Arc::new(Mutex::new(Some(writer))),
             config,
             remote_addr,
             is_closed: false,
@@ -64,9 +68,11 @@ impl TcpTransport {
     /// Create a transport from an existing TcpStream (server mode)
     pub fn from_stream(stream: TokioTcpStream, config: TransportConfig) -> Self {
         let remote_addr = stream.peer_addr().ok();
+        let (reader, writer) = stream.into_split();
 
         Self {
-            stream: Arc::new(RwLock::new(Some(stream))),
+            reader: Arc::new(Mutex::new(Some(reader))),
+            writer: Arc::new(Mutex::new(Some(writer))),
             config,
             remote_addr,
             is_closed: false,
@@ -100,7 +106,7 @@ impl TcpTransport {
 
     /// Decode message from binary frame
     async fn decode_frame(
-        reader: &mut tokio::io::ReadHalf<TokioTcpStream>,
+        reader: &mut OwnedReadHalf,
         max_size: usize,
     ) -> io::Result<Option<JsonRpcMessage>> {
         // Read 4-byte length header
@@ -158,23 +164,30 @@ impl Transport for TcpTransport {
             ));
         }
 
-        let stream_guard = self.stream.read().await;
-        let stream = stream_guard.as_ref().ok_or_else(|| {
+        let writer_guard = self.writer.lock().await;
+        let writer = writer_guard.as_ref().ok_or_else(|| {
             io::Error::new(io::ErrorKind::BrokenPipe, "No stream available")
         })?;
 
-        let (mut reader, mut writer) = stream.into_split();
-
         let frame = Self::encode_frame(message)?;
 
-        // Write with timeout
-        let write_result = timeout(
+        // Write with timeout (need to clone writer for timeout usage)
+        // Since OwnedWriteHalf can't be cloned, we use a different approach
+        let result = timeout(
             Duration::from_millis(self.config.write_timeout_ms),
-            writer.write_all(&frame),
+            async {
+                // We need mutable access, so we need to lock mutably
+                drop(writer_guard);
+                let mut writer_guard = self.writer.lock().await;
+                let writer = writer_guard.as_mut().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "No stream available")
+                })?;
+                writer.write_all(&frame).await
+            }
         )
         .await;
 
-        match write_result {
+        match result {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(e),
             Err(_) => Err(io::Error::new(
@@ -189,17 +202,16 @@ impl Transport for TcpTransport {
             return Ok(None);
         }
 
-        let stream_guard = self.stream.read().await;
-        let stream = stream_guard.as_ref().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::BrokenPipe, "No stream available")
-        })?;
-
-        let (mut reader, _writer) = stream.into_split();
-
         // Read with timeout
         let read_result = timeout(
             Duration::from_millis(self.config.read_timeout_ms),
-            Self::decode_frame(&mut reader, self.config.max_message_size),
+            async {
+                let mut reader_guard = self.reader.lock().await;
+                let reader = reader_guard.as_mut().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "No stream available")
+                })?;
+                Self::decode_frame(reader, self.config.max_message_size).await
+            }
         )
         .await;
 
@@ -221,8 +233,10 @@ impl Transport for TcpTransport {
         self.is_closed = true;
 
         // Drop the stream by taking it out
-        let stream_guard = self.stream.write().await;
-        let _ = stream_guard.take();
+        let mut reader_guard = self.reader.lock().await;
+        let mut writer_guard = self.writer.lock().await;
+        reader_guard.take();
+        writer_guard.take();
 
         Ok(())
     }
@@ -248,7 +262,7 @@ pub struct TcpListener {
 impl TcpListener {
     /// Create a new TCP listener on the specified port
     pub async fn bind(port: u16) -> io::Result<Self> {
-        Self::bind_with_config(port, TransportConfig::default())
+        Self::bind_with_config(port, TransportConfig::default()).await
     }
 
     /// Create a new TCP listener with custom configuration
@@ -274,7 +288,7 @@ impl TcpListener {
     /// Returns a TcpTransport for the accepted connection.
     pub async fn accept(&self) -> io::Result<TcpTransport> {
         let (stream, _addr) = self.listener.accept().await?;
-        TcpTransport::from_stream(stream, self.config.clone())
+        Ok(TcpTransport::from_stream(stream, self.config.clone()))
     }
 
     /// Get port number
@@ -297,11 +311,8 @@ mod tests {
     fn test_encode_frame_simple() {
         use crate::matrixrpc::protocol::{JsonRpcRequest, JsonRpcId};
 
-        let request = JsonRpcRequest::new(
-            "test.method",
-            serde_json::json!({"param": "value"}),
-            Some(JsonRpcId::String("test-1".to_string())),
-        );
+        let request = JsonRpcRequest::with_id("test.method", JsonRpcId::String("test-1".to_string()))
+            .params(serde_json::json!({"param": "value"}));
         let message = JsonRpcMessage::Request(request);
 
         let frame = TcpTransport::encode_frame(&message).unwrap();
