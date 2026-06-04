@@ -27,7 +27,7 @@ impl LspHandler {
 
     /// Add servers from config and start LSP clients in background (non-blocking)
     /// Agent can continue immediately, LSP tools will wait for clients to be ready
-    pub async fn add_servers(&self, lsp_servers: Vec<(String, matrixcode_core::lsp::LspServerConfig)>, project_root: PathBuf) {
+    pub async fn add_servers(&self, lsp_servers: Vec<(String, matrixcode_core::lsp::LspServerConfig)>, project_root: PathBuf, event_tx: tokio::sync::mpsc::Sender<AgentEvent>) {
         matrixcode_core::debug::debug_log().log("lsp", &format!("add_servers: {} servers (background mode)", lsp_servers.len()));
 
         // Add servers to manager and mark as starting
@@ -46,6 +46,7 @@ impl LspHandler {
             let manager = self.manager.clone();
             let project_root_clone = project_root.clone();
             let language = config.language.clone();
+            let event_tx_clone = event_tx.clone();
 
             matrixcode_core::debug::debug_log().log("lsp", &format!("Spawning background task for '{}'", name));
 
@@ -57,7 +58,7 @@ impl LspHandler {
                     registry.register(&config, &project_root_clone)
                 ).await;
 
-                // Update status after startup completes
+                // Update status after startup completes and notify UI
                 match start_result {
                     Ok(Ok(_)) => {
                         matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' started OK", name));
@@ -72,6 +73,10 @@ impl LspHandler {
                         manager.write().await.mark_error(&language, "Startup timeout".to_string());
                     }
                 }
+                
+                // Send status update to UI after each server completes startup
+                let servers = manager.read().await.server_infos();
+                let _ = event_tx_clone.send(AgentEvent::lsp_server_status(servers)).await;
             });
         }
 

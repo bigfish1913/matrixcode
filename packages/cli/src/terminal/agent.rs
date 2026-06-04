@@ -140,7 +140,7 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
     matrixcode_core::debug::debug_log().log("agent", "Starting LSP servers...");
     let project_root = ctx.project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let lsp_handler = LspHandler::new();
-    lsp_handler.add_servers(ctx.lsp_servers, project_root.clone()).await;
+    lsp_handler.add_servers(ctx.lsp_servers, project_root.clone(), ctx.event_tx.clone()).await;
     lsp_handler.start_all(&ctx.event_tx).await;
     log::info!("Agent task: LSP servers started");
     matrixcode_core::debug::debug_log().log("agent", "LSP servers started");
