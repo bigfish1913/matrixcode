@@ -165,7 +165,7 @@ impl Transport for TcpTransport {
         }
 
         let writer_guard = self.writer.lock().await;
-        let writer = writer_guard.as_ref().ok_or_else(|| {
+        let _writer = writer_guard.as_ref().ok_or_else(|| {
             io::Error::new(io::ErrorKind::BrokenPipe, "No stream available")
         })?;
 

@@ -376,7 +376,7 @@ impl NodeExecutor {
         route_result: &NodeRouteResult,
     ) -> Result<NodeExecutionResult, NodeExecutorError> {
         // Create the request
-        let request = self.router.create_node_request(route_result.clone());
+        let _request = self.router.create_node_request(route_result.clone());
 
         // Get connection
         let _connection = self.get_connection(&route_result.service_id).await?;

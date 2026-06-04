@@ -107,7 +107,7 @@ impl ToolRouter {
     /// Register a tool from a service
     ///
     /// This updates the internal tool index for fast routing.
-    pub async fn register_tool(&self, service_id: ServiceId, tool_def: ToolDefinition) {
+    pub async fn register_tool(&self, _service_id: ServiceId, tool_def: ToolDefinition) {
         let mut index = self.tool_index.write().await;
         index.insert(tool_def.name.clone(), tool_def);
     }

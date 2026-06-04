@@ -295,7 +295,7 @@ pub fn compress_with_bias(
 
 fn calculate_preservation_score(
     message: &Message,
-    index: usize,
+    _index: usize,
     _total: usize, // Reserved for future use (total message count)
     bias: &CompressionBias,
 ) -> f64 {

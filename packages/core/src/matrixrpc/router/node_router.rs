@@ -256,7 +256,7 @@ impl NodeRouter {
     }
 
     /// Register a node from a service
-    pub async fn register_node(&self, service_id: ServiceId, node_def: NodeDefinition) {
+    pub async fn register_node(&self, _service_id: ServiceId, node_def: NodeDefinition) {
         let mut index = self.node_index.write().await;
         index.insert(node_def.id.clone(), node_def);
     }

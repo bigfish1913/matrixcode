@@ -203,14 +203,14 @@ impl AiCallbackHandler {
             .unwrap_or_else(|| self.default_model.clone());
 
         // Get max tokens with limit
-        let max_tokens = request
+        let _max_tokens = request
             .model_config
             .max_tokens
             .unwrap_or(1024)
             .min(self.max_tokens_limit);
 
         // Get timeout
-        let timeout = request.timeout_ms.max(self.default_timeout_ms);
+        let _timeout = request.timeout_ms.max(self.default_timeout_ms);
 
         // Build response
         // Note: In real implementation, this would call the actual AI provider

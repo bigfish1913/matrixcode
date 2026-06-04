@@ -362,10 +362,10 @@ impl ToolExecutor {
     async fn execute_single(
         &self,
         route_result: &ToolRouteResult,
-        timeout_ms: u64,
+        __timeout_ms: u64,
     ) -> Result<serde_json::Value, ToolExecutorError> {
         // Create the request
-        let request = self.router.create_tool_request(route_result.clone());
+        let __request = self.router.create_tool_request(route_result.clone());
 
         // Get or create connection for this service
         let _connection = self.get_connection(&route_result.service_id).await?;
