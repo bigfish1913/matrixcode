@@ -1,145 +1,140 @@
-```markdown
-# MATRIX.md
-
-> MatrixCode 项目概览 - AI 代码助手核心参考
+# MatrixCode 项目概览
 
 ## 项目定位
 
-**可定制工作流的 AI 代码助手** - 通过 YAML 定义自动化流程，支持多模型协作、跨会话记忆、完全开源。
-
-核心价值：
-- **工作流定制** - YAML 定义任务流程，条件分支/并行执行
-- **跨会话记忆** - 项目决策、技术选型、编码偏好持久化
-- **成本优化** - 多模型分工，压缩用小模型节省 50-70% token
-- **开源私有化** - MIT 协议，数据本地存储
-
----
+**MatrixCode** 是一个可定制工作流的 AI 代码助手，核心特性：
+- **YAML 工作流定义** - 通过 YAML 文件定义自动化任务流程，支持条件分支、并行执行
+- **跨会话记忆** - 记住项目决策、技术选型、编码偏好
+- **多模型分工** - 支持 Planning/Compression/Fast 等不同模型角色，优化成本
+- **完全开源** - MIT 协议，数据本地存储，支持国内代理
 
 ## 技术栈
 
 | 类别 | 技术 |
 |------|------|
-| **语言** | Rust 2024 Edition |
-| **异步运行时** | Tokio (full features) |
-| **HTTP 客户端** | reqwest (rustls) |
-| **序列化** | serde, serde_json |
-| **CLI 框架** | clap (derive) |
-| **TUI 框架** | ratatui + crossterm |
-| **数据库** | rusqlite (bundled) |
-| **AI Provider** | Anthropic Claude / OpenAI GPT |
-
----
+| 语言 | Rust 2024 Edition |
+| 异步运行时 | Tokio |
+| HTTP 客户端 | Reqwest (rustls) |
+| CLI 框架 | Clap, Rustyline |
+| TUI 框架 | Ratatui, Crossterm |
+| 序列化 | Serde, Serde JSON |
+| 数据库 | Rusqlite (bundled) |
+| Token 计数 | tiktoken-rs |
+| 错误处理 | Anyhow |
 
 ## 架构要点
 
 ### Workspace 结构
-
 ```
-packages/
-├── core/          # 核心引擎（Agent、MCP、Memory、Tools）
-├── cli/           # 命令行接口（REPL、Terminal Mode）
-└── tui/           # 终端用户界面（交互式 Dashboard）
+matrixcode/
+├── packages/
+│   ├── core/     # 核心库: Agent, Tools, MCP, LSP, Session, Memory
+│   ├── cli/      # 命令行入口: 命令解析、终端交互
+│   └── tui/      # 终端UI: 交互式界面、Markdown渲染
+├── skills/       # 技能模块: code-review, git-commit, demo
+└── src/          # 入口点与 Provider 实现
 ```
 
 ### 核心模块
 
-| 模块 | 路径 | 职责 |
-|------|------|------|
-| **Agent** | `core/src/agent/` | 任务规划、执行循环、工具调度 |
-| **MCP** | `core/src/mcp/` | Model Context Protocol 集成 |
-| **Memory** | `core/src/memory/` | 跨会话记忆存储与检索 |
-| **Session** | `core/src/session/` | 会话管理、上下文压缩 |
-| **Tools** | `core/src/tools/` | 内置工具（Bash、Edit、Glob、LSP 等） |
-| **Prompt** | `core/src/prompt/` | 系统提示词构建与优化 |
-| **Compress** | `core/src/compress/` | 上下文压缩算法 |
-| **Providers** | `core/src/providers/` | AI 提供商抽象层 |
-| **Workflow** | `tui/src/workflow/` | YAML 工作流引擎 |
-| **LSP** | `core/src/lsp/` | Language Server Protocol 集成 |
+| 模块 | 职责 |
+|------|------|
+| `agent` | Agent 循环、消息处理、工具调用、压缩策略 |
+| `providers` | AI 提供商抽象 (Anthropic/OpenAI)、流式响应 |
+| `tools` | 内置工具集 (Bash, Edit, Glob, LSP, MCP 等) |
+| `session` | 会话持久化、恢复、历史管理 |
+| `compress` | 上下文压缩、Token 优化 |
+| `workflow` | YAML 工作流引擎 |
+| `memory` | 跨会话记忆存储 |
+| `skills` | 可扩展技能系统 |
 
-### 多模型架构
-
+### Provider 抽象
+```rust
+#[async_trait]
+pub trait Provider: Send + Sync {
+    async fn chat_stream(&self, request: ChatRequest) -> Result<mpsc::Receiver<StreamEvent>>;
+    fn supports_caching(&self) -> bool;
+}
 ```
-┌─────────────────────────────────────────────┐
-│                  MatrixCode                 │
-├─────────────────────────────────────────────┤
-│  MODEL_NAME (主模型)     → 任务执行          │
-│  PLAN_MODEL (规划模型)   → 任务分解          │
-│  COMPRESS_MODEL (压缩)   → 上下文摘要        │
-│  FAST_MODEL (快速模型)   → 分类/提取         │
-└─────────────────────────────────────────────┘
+- 支持 Anthropic 和 OpenAI
+- 统一的消息格式 (`Message`, `ContentBlock`)
+- 流式响应处理
+
+### Agent 循环
+1. 构建系统提示 (Prompt Profile + Skills + Project Overview)
+2. 发送请求至 Provider (支持 Extended Thinking)
+3. 处理响应: 文本块 → Markdown 渲染, 工具调用 → 执行
+4. 上下文管理: 超过阈值触发压缩
+5. 循环直到完成或达到最大迭代次数
+
+### 多模型配置
+```rust
+struct MultiModelConfig {
+    main: ModelConfig,       // 主模型
+    plan: Option<ModelConfig>,  // 任务规划
+    compress: Option<ModelConfig>, // 上下文压缩
+    fast: Option<ModelConfig>,   // 快速操作
+}
 ```
 
----
+### 工具系统
+- **内置工具**: Bash, Edit, Read, Write, Glob, LS, LSP
+- **MCP 工具**: 通过 Model Context Protocol 接入外部工具
+- **Server Tools**: 服务端工具 (如 Web Search)
+- **Skills**: 可插拔技能模块
 
 ## 关键配置
 
-### 环境变量 (`.env`)
-
 ```bash
-# 提供商选择
-PROVIDER=anthropic              # anthropic | openai
-
-# API 配置
+# Provider 设置
+PROVIDER=anthropic                    # anthropic | openai
 API_KEY=sk-ant-xxx
 MODEL_NAME=claude-sonnet-4-20250514
 
 # 多模型模式
 MULTI_MODEL=true
-COMPRESS_MODEL=claude-3-5-haiku-20241022
-FAST_MODEL=claude-3-5-haiku-20241022
+PLAN_MODEL=claude-sonnet-4-20250514
+COMPRESS_MODEL=claude-3-5-haiku       # 压缩用小模型节省成本
+FAST_MODEL=claude-3-5-haiku
+
+# 上下文管理
+COMPRESSION_THRESHOLD=0.8             # 触发压缩的上下文比例
 ```
-
-### 工作流定义 (`workflows/*.yaml`)
-
-```yaml
-# 示例: hello-world.yaml
-steps:
-  - name: "greet"
-    action: "bash"
-    command: "echo 'Hello from MatrixCode!'"
-```
-
----
 
 ## 入口点
 
-| 场景 | 入口 |
-|------|------|
-| CLI 主程序 | `packages/cli/src/main.rs` |
-| TUI 应用 | `packages/tui/src/lib.rs` → `app.rs` |
-| Core 库 | `packages/core/src/lib.rs` |
-| VSCode 扩展 | `packages/vscode/src/extension.ts` |
+- **CLI**: `packages/cli/src/main.rs` - 命令行参数解析
+- **Core**: `packages/core/src/lib.rs` - 核心库导出
+- **TUI**: `packages/tui/src/lib.rs` - 终端 UI 组件
 
----
+## 扩展机制
 
-## 数据目录
-
+### 添加新 Skill
 ```
-.openmatrix/
-├── approvals/       # 工具调用审批记录
-├── debug/           # 调试日志 (JSON)
-├── logs/            # 运行日志
-├── run-*/           # 工作流执行实例
-│   ├── plan.md      # 执行计划
-│   ├── tasks/       # 任务执行详情
-│   └── state.json   # 状态快照
-└── current.json     # 当前运行状态
+skills/
+└── my-skill/
+    └── SKILL.md    # 技能定义文件
 ```
 
----
+### 添加新 Provider
+```rust
+// src/providers/my_provider.rs
+impl Provider for MyProvider {
+    async fn chat_stream(&self, req: ChatRequest) -> Result<mpsc::Receiver<StreamEvent>> {
+        // 实现流式响应
+    }
+}
+```
 
-## 扩展能力
-
-- **自定义 Skills** - `skills/` 目录下定义技能模块
-- **MCP Tools** - 通过 `mcp.example.toml` 配置外部工具
-- **VSCode 集成** - WebView 聊天面板 + 会话管理
-- **工作流模板** - `packages/core/workflows/` 预置模板
-
----
-
-## 版本
-
-- **当前版本**: 0.4.24
-- **仓库**: https://github.com/bigfish1913/matrixcode
-- **协议**: MIT
+### 定义工作流
+```yaml
+# workflows/my-workflow.yaml
+name: code-review
+steps:
+  - name: analyze
+    tool: glob
+    args: { pattern: "**/*.rs" }
+  - name: review
+    tool: ask
+    prompt: "Review the files..."
 ```

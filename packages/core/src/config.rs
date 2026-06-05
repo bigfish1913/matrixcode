@@ -449,8 +449,8 @@ impl MatrixConfig {
             || env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some()
     }
 
-    /// Get API key with fallback chain
-    fn resolve_api_key(&self) -> Option<String> {
+    /// Get API key with fallback chain (public for subagent use)
+    pub fn resolve_api_key(&self) -> Option<String> {
         self.api_key
             .clone()
             .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
@@ -466,8 +466,8 @@ impl MatrixConfig {
             .unwrap_or_else(|| DEFAULT_MAIN_MODEL.to_string())
     }
 
-    /// Get base URL with fallback chain
-    fn resolve_base_url(&self) -> Option<String> {
+    /// Get base URL with fallback chain (public for subagent use)
+    pub fn resolve_base_url(&self) -> Option<String> {
         self.base_url
             .clone()
             .or_else(|| env::var("BASE_URL").ok())
@@ -483,8 +483,8 @@ impl MatrixConfig {
         }
     }
 
-    /// Resolve provider type from config or infer from model
-    fn resolve_provider_type(&self, model: &str) -> crate::providers::ProviderType {
+    /// Resolve provider type from config or infer from model (public for subagent use)
+    pub fn resolve_provider_type(&self, model: &str) -> crate::providers::ProviderType {
         use crate::providers::ProviderType;
 
         self.provider

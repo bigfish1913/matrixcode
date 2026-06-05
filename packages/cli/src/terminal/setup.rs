@@ -136,6 +136,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         watcher_project_root.as_ref(),
         cancel_token.clone(),
         watcher_handle_arc.clone(),
+        event_tx.clone(),
     );
 
     let watcher_handle_for_agent = watcher_handle_arc.clone();

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::lsp::LspServerInfo;
+use crate::tools::codegraph::IndexStatus;
 
 /// Agent event
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,6 +57,7 @@ pub enum EventType {
     LspServerRemoved,  // LSP server removed
     LspServerStatus,   // LSP server status update
     SessionsList,      // Session list for interactive selector
+    CodeGraphStatus,   // CodeGraph index status update
 }
 
 /// Event data
@@ -179,6 +181,10 @@ pub enum EventData {
     /// Session list for interactive selector
     SessionsList {
         sessions: Vec<SessionListItem>,
+    },
+    /// CodeGraph index status update
+    CodeGraphStatus {
+        status: IndexStatus,
     },
 }
 
@@ -439,6 +445,14 @@ impl AgentEvent {
         Self::with_data(
             EventType::LspServerStatus,
             EventData::LspServerStatus { servers },
+        )
+    }
+
+    /// CodeGraph status update event
+    pub fn codegraph_status(status: IndexStatus) -> Self {
+        Self::with_data(
+            EventType::CodeGraphStatus,
+            EventData::CodeGraphStatus { status },
         )
     }
 

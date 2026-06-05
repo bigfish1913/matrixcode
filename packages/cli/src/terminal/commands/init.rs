@@ -87,7 +87,7 @@ pub async fn handle_init(
                             }
 
                             // Step 3: Check daemon status and start watcher if no conflict
-                            ensure_watcher_running(path, cancel_token.clone(), watcher_handle);
+                            ensure_watcher_running(path, cancel_token.clone(), watcher_handle, event_tx.clone());
 
                             let _ = event_tx.send(AgentEvent::with_data(
                                 matrixcode_core::EventType::Progress,

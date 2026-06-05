@@ -51,7 +51,9 @@ impl TuiApp {
             "就绪".to_string()
         } else if is_tool_activity {
             if !self.activity_detail.is_empty() {
-                format!("{} {}", self.activity.label(), self.activity_detail)
+                // Truncate long activity_detail to avoid status bar overflow
+                let detail_truncated: String = self.activity_detail.chars().take(20).collect();
+                format!("{} {}", self.activity.label(), detail_truncated)
             } else {
                 self.activity.label().to_string()
             }
@@ -140,23 +142,65 @@ impl TuiApp {
             spans.push(Span::styled(mcp_text, Style::default().fg(Color::Cyan)));
         }
 
-        // LSP servers
-        if width >= 80 && !self.lsp_servers.is_empty() {
+        // LSP servers with status message
+        if width >= 70 && !self.lsp_servers.is_empty() {
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             let running = self.lsp_servers.iter().filter(|s| s.status.is_ok()).count();
             let has_error = self.lsp_servers.iter().any(|s| s.status.is_error());
+            let is_starting = self.lsp_servers.iter().any(|s| matches!(s.status, matrixcode_core::LspServerStatus::Starting));
 
-            // Color based on status: Green if connected, Red if error, Gray if not started
+            // Get status message: prioritize error > starting > connected count
+            let status_msg = if has_error {
+                // Find first error message, truncate to 10 chars
+                self.lsp_servers
+                    .iter()
+                    .find_map(|s| match &s.status {
+                        matrixcode_core::LspServerStatus::Error(msg) => {
+                            let truncated: String = msg.chars().take(10).collect();
+                            Some(format!("err:{}", truncated))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| "err".into())
+            } else if is_starting {
+                "starting...".into()
+            } else if running > 0 {
+                format!("{} ok", running)
+            } else {
+                "off".into()
+            };
+
+            // Color based on status: Green if connected, Yellow if starting, Red if error, Gray if not started
             let lsp_color = if has_error {
                 Color::LightRed
+            } else if is_starting {
+                Color::Yellow
             } else if running > 0 {
                 Color::LightGreen
             } else {
                 Color::DarkGray
             };
 
-            let lsp_text = format!(" LSP:{} ", running);
+            let lsp_text = format!(" LSP:{} ", status_msg);
             spans.push(Span::styled(lsp_text, Style::default().fg(lsp_color)));
+        }
+
+        // CodeGraph status
+        if width >= 75 {
+            let cg = self.codegraph_status.as_ref();
+            let (cg_text, cg_color) = match cg {
+                None => (" CG:off ".into(), Color::DarkGray),
+                Some(status) if !status.initialized => (" CG:off ".into(), Color::DarkGray),
+                Some(status) if status.pending_changes.added > 0 || status.pending_changes.modified > 0 || status.pending_changes.removed > 0 => {
+                    let total = status.pending_changes.added + status.pending_changes.modified + status.pending_changes.removed;
+                    (format!(" CG:{}待同步 ", total), Color::Yellow)
+                }
+                Some(status) => {
+                    (format!(" CG:{}n ", status.node_count), Color::LightGreen)
+                }
+            };
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(cg_text, Style::default().fg(cg_color)));
         }
 
         // Cache info
@@ -172,13 +216,24 @@ impl TuiApp {
             ));
         }
 
-        // Version (at the end)
-        if width >= 90 {
-            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
-            spans.push(Span::styled(
-                format!(" v{} ", env!("CARGO_PKG_VERSION")),
-                Style::default().fg(Color::DarkGray),
-            ));
+        // Task elapsed time (only show when task is running)
+        if width >= 85 && self.activity != Activity::Idle && self.request_start.is_some() {
+            if let Some(start) = self.request_start {
+                let elapsed = start.elapsed();
+                let total_secs = elapsed.as_secs();
+                let mins = total_secs / 60;
+                let secs = total_secs % 60;
+                let time_str = if mins > 0 {
+                    format!("{}:{:02}", mins, secs)
+                } else {
+                    format!("{}s", secs)
+                };
+                spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(
+                    format!(" {} ", time_str),
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
         }
 
         // Debug stats

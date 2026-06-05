@@ -330,34 +330,53 @@ pub fn create_provider_with_headers(
     }
 }
 
-/// Create a minimal provider from environment variables (for background tasks).
-/// Uses global config for API key and base URL, suitable for non-blocking background operations.
+/// Create a minimal provider using full configuration chain.
+/// Uses the same config loading as main agent: env vars > ~/.matrix/config.json > ~/.claude/settings.json
+/// Suitable for subagents and background tasks.
 pub fn create_minimal_provider(model: &str) -> Box<dyn Provider> {
-    // Try to load .env first (background tasks may not have .env loaded)
-    let _ = dotenvy::dotenv();
+    // Use full configuration loading chain (same as main agent)
+    let config = crate::config::MatrixConfig::load();
 
-    // Get API key from env (try multiple env vars)
-    let api_key = std::env::var("API_KEY")
-        .or_else(|_| std::env::var("ANTHROPIC_AUTH_TOKEN"))
-        .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
-        .or_else(|_| std::env::var("OPENAI_API_KEY"))
-        .unwrap_or_default();
+    // Resolve API key from full config chain
+    let api_key = config
+        .resolve_api_key()
+        .unwrap_or_else(|| {
+            // Fallback: try env vars directly if config didn't have it
+            std::env::var("API_KEY")
+                .or_else(|_| std::env::var("ANTHROPIC_AUTH_TOKEN"))
+                .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
+                .or_else(|_| std::env::var("OPENAI_API_KEY"))
+                .unwrap_or_default()
+        });
 
-    // Get base URL from env
-    let base_url = std::env::var("BASE_URL")
-        .or_else(|_| std::env::var("ANTHROPIC_BASE_URL"))
-        .ok();
+    if api_key.is_empty() {
+        panic!("Failed to create minimal provider: no API key configured. \
+               Please set API_KEY env var or configure ~/.matrix/config.json")
+    }
 
-    // Infer provider type from model name
-    let provider_type = infer_provider_type(model);
+    // Resolve base URL from config or env
+    let base_url = config
+        .resolve_base_url()
+        .or_else(|| {
+            std::env::var("BASE_URL")
+                .or_else(|_| std::env::var("ANTHROPIC_BASE_URL"))
+                .ok()
+        });
 
-    // Create provider (ignore errors, return a default)
-    create_provider_with_headers(provider_type, api_key, model.to_string(), base_url, None)
-        .unwrap_or_else(|_| {
-            // Fallback: create a dummy provider that returns empty
-            // This won't actually work, but prevents crashes
-            panic!("Failed to create minimal provider for background task: no API key configured")
-        })
+    // Resolve provider type from config or infer from model
+    let provider_type = config.resolve_provider_type(model);
+
+    // Create provider with full config support (including extra_headers)
+    create_provider_with_headers(
+        provider_type,
+        api_key,
+        model.to_string(),
+        base_url,
+        config.extra_headers.clone(),
+    )
+    .unwrap_or_else(|e| {
+        panic!("Failed to create minimal provider for model '{}': {}", model, e)
+    })
 }
 
 /// Infer provider type from model name.

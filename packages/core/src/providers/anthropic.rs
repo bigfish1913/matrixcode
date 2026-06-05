@@ -188,6 +188,7 @@ impl AnthropicProvider {
     }
 
     /// Convert tools with caching control for Anthropic prompt caching.
+    /// Only adds cache_control for official Anthropic API.
     fn convert_tools_with_caching(
         &self,
         tools: &[ToolDefinition],
@@ -205,7 +206,8 @@ impl AnthropicProvider {
             .collect();
 
         // Add cache_control to the last tool definition for tools caching
-        if enable_caching && !converted.is_empty() {
+        // Only for official Anthropic API - third-party APIs may not support this
+        if enable_caching && self.is_official_anthropic() && !converted.is_empty() {
             let last_idx = converted.len() - 1;
             if let Some(obj) = converted[last_idx].as_object_mut() {
                 obj.insert("cache_control".to_string(), json!({"type": "ephemeral"}));
@@ -224,7 +226,8 @@ impl AnthropicProvider {
         });
 
         // Add prompt caching for system prompt (Anthropic-specific)
-        if request.enable_caching {
+        // Only add cache_control for official Anthropic API - third-party APIs may not support this
+        if request.enable_caching && self.is_official_anthropic() {
             if let Some(system) = &request.system {
                 // System prompt caching: add cache_control to enable caching
                 body["system"] = json!([

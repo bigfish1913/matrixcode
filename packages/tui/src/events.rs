@@ -714,7 +714,6 @@ impl TuiApp {
             EventType::SessionsList => {
                 if let Some(EventData::SessionsList { sessions }) = e.data {
                     log::debug!("TUI: Received SessionsList with {} sessions", sessions.len());
-                    // Populate session list for selector
                     self.session_list = sessions.into_iter().map(|s| crate::app::SessionInfo {
                         short_id: s.short_id,
                         title: s.title,
@@ -723,8 +722,11 @@ impl TuiApp {
                     }).collect();
                     self.session_selected_index = 0;
                     log::debug!("TUI: Session list populated, first: {:?}", self.session_list.first());
-                    // Reset waiting state - sessions are ready for display
-                    // The user can now navigate and select
+                }
+            }
+            EventType::CodeGraphStatus => {
+                if let Some(EventData::CodeGraphStatus { status }) = e.data {
+                    self.codegraph_status = Some(status);
                 }
             }
             _ => {}

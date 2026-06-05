@@ -23,6 +23,7 @@ use super::project::find_project_root;
 use super::types::CodeGraphEnv;
 use crate::cancel::CancellationToken;
 use crate::constants::CODEGRAPH_SYNC_INTERVAL_SECS;
+use crate::event::AgentEvent;
 use crate::memory::ProjectStructureAnalyzer;
 
 /// Git status polling interval (for non-fsmonitor fallback).
@@ -189,7 +190,21 @@ impl CodeGraphWatcher {
         let sync_interval = self.sync_interval;
 
         tokio::spawn(async move {
-            Self::run_watcher_loop(project_path, sync_interval, cancel_token).await;
+            Self::run_watcher_loop(project_path, sync_interval, cancel_token, None).await;
+        })
+    }
+
+    /// Start watching with status updates to UI.
+    pub fn start_with_status_updates(
+        &self,
+        cancel_token: CancellationToken,
+        event_tx: mpsc::Sender<AgentEvent>,
+    ) -> tokio::task::JoinHandle<()> {
+        let project_path = self.project_path.clone();
+        let sync_interval = self.sync_interval;
+
+        tokio::spawn(async move {
+            Self::run_watcher_loop(project_path, sync_interval, cancel_token, Some(event_tx)).await;
         })
     }
 
@@ -198,11 +213,31 @@ impl CodeGraphWatcher {
         let _ = self.stop_tx.send(());
     }
 
+    /// Send CodeGraph status update to UI if event_tx is available.
+    async fn send_status_update(
+        project_path: &Path,
+        event_tx: &Option<mpsc::Sender<AgentEvent>>,
+    ) {
+        if let Some(tx) = event_tx {
+            let manager = CodeGraphManager::new(project_path);
+            if manager.is_initialized() {
+                if let Ok(status) = manager.status() {
+                    log::debug!("CodeGraph: sending status update (pending: {})",
+                        status.pending_changes.added + status.pending_changes.modified + status.pending_changes.removed);
+                    let _ = tx.send(AgentEvent::codegraph_status(status)).await;
+                }
+            }
+        } else {
+            log::debug!("CodeGraph: no event_tx, skipping status update");
+        }
+    }
+
     /// Run the watcher loop with dual-path monitoring.
     async fn run_watcher_loop(
         project_path: PathBuf,
         _sync_interval: Duration,
         cancel_token: CancellationToken,
+        event_tx: Option<mpsc::Sender<AgentEvent>>,
     ) {
         // Check if CodeGraph CLI is available (no auto-install)
         if get_codegraph_path().is_none() {
@@ -270,6 +305,9 @@ impl CodeGraphWatcher {
             log::warn!("CodeGraph initial sync failed: {}", e);
         }
         update_version_after_sync(&project_path);
+
+        // Send initial status update to UI
+        Self::send_status_update(&project_path, &event_tx).await;
 
         // Channel for file change events
         let (change_tx, mut change_rx) = mpsc::channel::<PathBuf>(100);
@@ -428,6 +466,9 @@ impl CodeGraphWatcher {
                                             update_version_after_sync(&project_path);
                                             changed_files.write().await.clear();
                                             log::debug!("CodeGraph: sync completed, lock verified");
+
+                                            // Send status update to UI after successful sync
+                                            Self::send_status_update(&project_path, &event_tx).await;
                                         } else {
                                             // Lock was stolen by another process, abandon this sync
                                             log::info!("CodeGraph: sync abandoned, another process took over");

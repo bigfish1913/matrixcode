@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use matrixcode_core::cancel::CancellationToken;
+use matrixcode_core::{AgentEvent, cancel::CancellationToken};
 use matrixcode_core::tools::codegraph::CodeGraphWatcher;
 
 /// Check if CodeGraph MCP daemon is running
@@ -60,6 +60,7 @@ pub fn start_watcher_if_needed(
     project_path: Option<&PathBuf>,
     cancel_token: CancellationToken,
     watcher_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
 ) {
     if let Some(path) = project_path {
         if is_daemon_running(path) {
@@ -68,7 +69,7 @@ pub fn start_watcher_if_needed(
         }
 
         let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
-        let handle = watcher.start(cancel_token);
+        let handle = watcher.start_with_status_updates(cancel_token, event_tx);
         log::info!("CodeGraph watcher started (no MCP daemon detected)");
         *watcher_handle.lock().unwrap() = Some(handle);
     }
@@ -79,6 +80,7 @@ pub fn ensure_watcher_running(
     project_path: &PathBuf,
     cancel_token: CancellationToken,
     watcher_handle: &Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
 ) {
     let mut handle_guard = watcher_handle.lock().unwrap();
     let watcher_running = handle_guard.is_some() &&
@@ -90,7 +92,7 @@ pub fn ensure_watcher_running(
         } else {
             // No daemon, start our watcher
             let watcher = CodeGraphWatcher::with_auto_detect(project_path.as_path());
-            let handle = watcher.start(cancel_token.clone());
+            let handle = watcher.start_with_status_updates(cancel_token.clone(), event_tx);
             log::info!("CodeGraph watcher started after /init (no MCP daemon detected)");
             *handle_guard = Some(handle);
         }

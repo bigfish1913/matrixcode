@@ -32,7 +32,7 @@ pub struct Edge {
 }
 
 /// Index status information.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IndexStatus {
     pub initialized: bool,
     pub file_count: u32,
@@ -42,7 +42,7 @@ pub struct IndexStatus {
     pub pending_changes: PendingChanges,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PendingChanges {
     pub added: u32,
     pub modified: u32,

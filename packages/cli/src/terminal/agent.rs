@@ -204,6 +204,17 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
     agent.set_cancel_token(ctx.cancel_token.clone());
     agent.set_ask_channel(ctx.ask_rx);
 
+    // Send CodeGraph status if initialized
+    if let Some(ref pp) = ctx.project_path {
+        use matrixcode_core::tools::codegraph::CodeGraphManager;
+        let manager = CodeGraphManager::with_auto_detect(pp.as_path());
+        if manager.is_initialized() {
+            if let Ok(status) = manager.status() {
+                let _ = ctx.event_tx.send(AgentEvent::codegraph_status(status)).await;
+            }
+        }
+    }
+
     let mut turn_count: usize = 0;
 
     // Auto-analyze project structure on first run

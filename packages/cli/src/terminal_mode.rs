@@ -674,6 +674,17 @@ async fn run_agent_task(
     agent.set_cancel_token(cancel_token.clone());
     agent.set_ask_channel(ask_rx);
 
+    // Send CodeGraph status if initialized
+    if let Some(ref pp) = project_path {
+        use matrixcode_core::tools::codegraph::CodeGraphManager;
+        let manager = CodeGraphManager::with_auto_detect(pp.as_path());
+        if manager.is_initialized() {
+            if let Ok(status) = manager.status() {
+                let _ = event_tx.send(AgentEvent::codegraph_status(status)).await;
+            }
+        }
+    }
+
     // CodeGraph watcher is started in main function, not here
 
     let mut turn_count: usize = 0;

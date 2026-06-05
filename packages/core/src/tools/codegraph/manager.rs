@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use super::git::update_version_after_sync;
+use super::git::{get_git_status_changes, is_git_repository, update_version_after_sync};
 use super::install::{ensure_codegraph, get_codegraph_path};
 use super::project::find_project_root;
 use super::types::{FileInfo, IndexStatus, Node, PendingChanges};
@@ -302,10 +302,19 @@ impl CodeGraphManager {
             node_count,
             edge_count,
             languages,
-            pending_changes: PendingChanges {
-                added: 0,
-                modified: 0,
-                removed: 0,
+            pending_changes: if is_git_repository(&self.project_path) {
+                let changes = get_git_status_changes(&self.project_path);
+                PendingChanges {
+                    added: changes.added.len() as u32,
+                    modified: changes.modified.len() as u32,
+                    removed: changes.deleted.len() as u32,
+                }
+            } else {
+                PendingChanges {
+                    added: 0,
+                    modified: 0,
+                    removed: 0,
+                }
             },
         })
     }

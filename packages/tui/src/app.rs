@@ -41,6 +41,8 @@ pub struct TuiApp {
     pub(crate) memory_saves: u64,
     pub(crate) tool_calls: u64,
     // Timing
+    #[allow(dead_code)]
+    pub(crate) session_start: Instant,      // When session started (for future use)
     pub(crate) request_start: Option<Instant>,
     pub(crate) tool_start: Option<Instant>, // When current tool execution started
     // UI state
@@ -112,6 +114,8 @@ pub struct TuiApp {
     pub(crate) mcp_servers: Vec<matrixcode_core::event::McpServerInfo>,
     // LSP server status
     pub(crate) lsp_servers: Vec<matrixcode_core::LspServerInfo>,
+    // CodeGraph status
+    pub(crate) codegraph_status: Option<matrixcode_core::tools::codegraph::IndexStatus>,
     // Session selection state
     pub(crate) session_list: Vec<SessionInfo>,
     pub(crate) session_selected_index: usize,
@@ -183,6 +187,7 @@ impl TuiApp {
             compressions: 0,
             memory_saves: 0,
             tool_calls: 0,
+            session_start: Instant::now(),
             request_start: None,
             tool_start: None,
             frame: 0,
@@ -200,7 +205,7 @@ impl TuiApp {
             thinking_collapsed: false, // Default: expanded to show thinking content
         input_collapsed: true, // Default: collapsed when > 3 lines
             dirty: std::cell::Cell::new(true), // Initial render needed
-            approve_mode: ApproveMode::Ask,
+            approve_mode: ApproveMode::Auto,
             shared_approve_mode: None,
             ask_tx: None,
             waiting_for_ask: false,
@@ -229,6 +234,7 @@ impl TuiApp {
             last_workflow_refresh: Instant::now(),
             mcp_servers: Vec::new(),
             lsp_servers: Vec::new(),
+            codegraph_status: None,
             session_list: Vec::new(),
             session_selected_index: 0,
             waiting_for_session: false,

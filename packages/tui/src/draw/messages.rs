@@ -155,10 +155,13 @@ impl TuiApp {
                     ), // purple
                 ]));
                 // Subtitle below
-                lines.push(Line::styled(
-                    "    AI 编码助手 | /help 帮助 | /shortcuts 快捷键",
-                    Style::default().fg(Color::Gray),
-                ));
+                let version = env!("CARGO_PKG_VERSION");
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("    AI 编码助手 | v{} | /help 帮助", version),
+                        Style::default().fg(Color::Gray),
+                    ),
+                ]));
             } else {
                 // Compact mode for small screens: just version and hint
                 let version = env!("CARGO_PKG_VERSION");
