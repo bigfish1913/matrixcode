@@ -311,14 +311,27 @@ fn parse_memory_response(
             if item.importance > 0.0 {
                 entry.importance = item.importance.clamp(0.0, 100.0);
             }
-            // Add AI-extracted keywords and tags
-            if !item.keywords.is_empty() {
-                entry.tags.extend(item.keywords);
-            }
-            if !item.tags.is_empty() {
-                entry.tags.extend(item.tags);
-            }
+            // Add AI-extracted keywords and tags with filtering
+            let valid_keywords: Vec<String> = item.keywords
+                .iter()
+                .filter(|k| k.len() >= 2 && !is_noise_word(k))
+                .cloned()
+                .collect();
+            
+            let valid_tags: Vec<String> = item.tags
+                .iter()
+                .filter(|t| t.len() >= 2 && !is_noise_word(t))
+                .cloned()
+                .collect();
+            
+            entry.tags.extend(valid_keywords);
+            entry.tags.extend(valid_tags);
             entry.tags.dedup();
+            
+            // Limit tag count to avoid overwhelming
+            if entry.tags.len() > 10 {
+                entry.tags.truncate(10);
+            }
 
             Some(entry)
         })
@@ -519,10 +532,21 @@ pub async fn detect_memories_smart(
             );
             return result;
         }
-        // AI failed - log and skip rule-based fallback (per user request)
-        log::warn!("AI memory extraction failed, skipping detection for this turn");
+        // AI failed - try rule-based fallback for critical memories only
+        log::warn!("AI memory extraction failed, trying rule-based fallback for critical memories");
+        
+        // Extract only the most critical memory types (avoid noise)
+        let critical_memories = detect_critical_memories(text, session_id, project_path);
+        
+        crate::debug::debug_log().memory_ai_detection(
+            "rule-fallback",
+            critical_memories.len(),
+            text_len,
+            false,
+        );
+        
         return ExtractionResult {
-            memories: vec![],
+            memories: critical_memories,
             focus_points: vec![],
             conversation_patterns: vec![],
         };
@@ -537,6 +561,52 @@ pub async fn detect_memories_smart(
     }
 }
 
+/// Detect critical memories using rule-based patterns (fallback when AI fails).
+/// Only extracts high-value memory types: structure, technical, decision.
+fn detect_critical_memories(
+    text: &str,
+    session_id: Option<&str>,
+    project_path: Option<&str>,
+) -> Vec<MemoryEntry> {
+    // Critical patterns with high importance
+    let critical_patterns = [
+        // Structure information (highest priority)
+        (MemoryCategory::Structure, ["位于", "入口", "模块", "packages/", "src/"], 85.0),
+        // Technical information (high priority)
+        (MemoryCategory::Technical, ["技术栈", "框架", "基于", "使用", ""], 80.0),
+        // Decision information (important)
+        (MemoryCategory::Decision, ["决定", "选择", "采用", "", ""], 75.0),
+    ];
+    
+    let mut entries = Vec::new();
+    let text_lower = text.to_lowercase();
+    
+    for (category, keywords, importance) in critical_patterns {
+        // Check if any keyword matches
+        for keyword in keywords {
+            if text_lower.contains(&keyword.to_lowercase()) {
+                let content = extract_memory_content(text, keyword);
+                
+                if !content.is_empty() && content.len() >= MIN_MEMORY_CONTENT_LENGTH {
+                    let mut entry = MemoryEntry::new(
+                        category,
+                        content,
+                        session_id.map(|s| s.to_string()),
+                        project_path.map(|p| p.to_string()),
+                    );
+                    // Set importance for critical memories
+                    entry.importance = importance;
+                    entries.push(entry);
+                    break; // Only one entry per category
+                }
+            }
+        }
+    }
+    
+    // Deduplicate and limit
+    deduplicate_entries(entries)
+}
+
 fn extract_memory_content(text: &str, keyword: &str) -> String {
     let text_lower = text.to_lowercase();
     let keyword_lower = keyword.to_lowercase();
@@ -546,23 +616,135 @@ fn extract_memory_content(text: &str, keyword: &str) -> String {
         None => return String::new(),
     };
 
-    // Find sentence containing the keyword
-    let start = text[..pos]
-        .rfind(['.', '。', '\n'])
-        .map(|i| i + 1)
-        .unwrap_or(0);
-
-    let end = text[pos..]
-        .find(['.', '。', '\n'])
-        .map(|i| pos + i + 1)
-        .unwrap_or(text.len());
+    // Improved sentence boundary detection
+    let start = find_sentence_start(text, pos);
+    let end = find_sentence_end(text, pos);
 
     let sentence = text[start..end].trim();
 
-    if sentence.len() > MAX_MEMORY_CONTENT_LENGTH {
-        sentence[..MAX_MEMORY_CONTENT_LENGTH].to_string()
+    // Clean and format content
+    let cleaned = clean_memory_content(sentence);
+
+    if cleaned.len() > MAX_MEMORY_CONTENT_LENGTH {
+        // Intelligent truncation: preserve key information
+        truncate_intelligently(&cleaned, MAX_MEMORY_CONTENT_LENGTH)
     } else {
-        sentence.to_string()
+        cleaned
+    }
+}
+
+/// Find sentence start position (improved boundary detection).
+fn find_sentence_start(text: &str, pos: usize) -> usize {
+    // Look backwards for sentence boundary markers
+    let mut start = pos;
+    while start > 0 {
+        let prev_chars: Vec<char> = text.chars().collect();
+        let ch = prev_chars[start - 1];
+        // Sentence boundary markers
+        if ch == '.' || ch == '。' || ch == '\n' || ch == '!' || ch == '?' || ch == '！' || ch == '？' {
+            return start;
+        }
+        // Avoid splitting code blocks (check for ```)
+        if start >= 3 {
+            let slice: String = prev_chars[start - 3..start].iter().collect();
+            if slice == "```" {
+                return start - 3;
+            }
+        }
+        start -= 1;
+    }
+    0
+}
+
+/// Find sentence end position (improved boundary detection).
+fn find_sentence_end(text: &str, pos: usize) -> usize {
+    // Look forward for sentence boundary markers
+    let chars: Vec<char> = text.chars().collect();
+    let mut end = pos;
+    while end < chars.len() {
+        let ch = chars[end];
+        // Sentence boundary markers
+        if ch == '.' || ch == '。' || ch == '\n' || ch == '!' || ch == '?' || ch == '！' || ch == '？' {
+            return end + 1;
+        }
+        // Avoid splitting code blocks (check for ```)
+        if end + 3 <= chars.len() {
+            let slice: String = chars[end..end + 3].iter().collect();
+            if slice == "```" {
+                return end + 3;
+            }
+        }
+        end += 1;
+    }
+    text.len()
+}
+
+/// Clean memory content: remove Markdown markers, normalize format.
+fn clean_memory_content(content: &str) -> String {
+    // Remove Markdown bold/italic markers
+    let cleaned = content
+        .replace("**Why:**", "原因:")
+        .replace("**Context:**", "场景:")
+        .replace("**Location:**", "位置:")
+        .replace("**Purpose:**", "功能:")
+        .replace("**Problem:**", "问题:")
+        .replace("**Key:**", "关键:")
+        .replace("**", "")
+        .replace("`", "")
+        .replace("#", "");
+    
+    // Normalize whitespace
+    let cleaned = cleaned
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    
+    cleaned.trim().to_string()
+}
+
+/// Intelligent truncation: preserve key information (paths, names).
+fn truncate_intelligently(text: &str, max_len: usize) -> String {
+    if text.len() <= max_len {
+        return text.to_string();
+    }
+
+    // Try to preserve important parts:
+    // 1. Keep "Location:" information if present
+    // 2. Keep "Purpose:" information if present
+    // 3. Keep technical names/paths
+    
+    let parts: Vec<&str> = text.split_whitespace().collect();
+    let mut result = Vec::new();
+    let mut current_len = 0;
+    
+    // Priority keywords to keep
+    let priority_keywords = ["位置:", "Location:", "功能:", "Purpose:", "packages/", "src/", ".rs", ".ts", ".js", ".py"];
+    
+    // First pass: collect priority parts (use reference to avoid move)
+    for &part in &parts {
+        if priority_keywords.iter().any(|k| part.contains(k)) {
+            if current_len + part.len() + 1 <= max_len {
+                result.push(part);
+                current_len += part.len() + 1;
+            }
+        }
+    }
+    
+    // Second pass: add other parts if space available (use reference again)
+    if result.is_empty() || current_len < max_len / 2 {
+        for &part in &parts {
+            if !result.contains(&part) && current_len + part.len() + 1 <= max_len {
+                result.push(part);
+                current_len += part.len() + 1;
+            }
+        }
+    }
+    
+    if result.is_empty() {
+        // Simple truncation as last resort
+        text.chars().take(max_len).collect()
+    } else {
+        result.join(" ")
     }
 }
 
@@ -1326,6 +1508,36 @@ pub async fn detect_unified_smart(
 
     // Return empty result for short texts or failed AI
     UnifiedExtractionResult::default()
+}
+
+/// Check if a word is a noise word (should be filtered from tags).
+fn is_noise_word(word: &str) -> bool {
+    let noise_words = [
+        // English noise words
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could",
+        "should", "may", "might", "must", "shall", "can", "need", "dare",
+        "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by",
+        "from", "as", "into", "through", "during", "before", "after",
+        "above", "below", "between", "under", "again", "further", "then",
+        "once", "here", "there", "when", "where", "why", "how", "all", "each",
+        "few", "more", "most", "other", "some", "such", "no", "nor", "not",
+        "only", "own", "same", "so", "than", "too", "very", "just", "and",
+        "but", "if", "or", "because", "until", "while", "although", "though",
+        // Chinese noise words
+        "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都",
+        "一", "个", "也", "很", "要", "这", "那", "他", "她", "它", "们",
+        "为", "与", "以", "及", "或", "但", "如", "而", "因", "所", "能",
+        "会", "可", "把", "被", "让", "给", "从", "到", "对", "向", "比",
+        "等", "时", "地", "得", "着", "过", "来", "去", "上", "下", "里",
+        "中", "外", "前", "后", "左", "右", "好", "多", "少", "大", "小",
+        "高", "低", "长", "短", "快", "慢", "新", "旧", "早", "晚", "真",
+        "假", "全", "每", "各", "哪", "什么", "怎么", "怎样", "如何",
+        "为什么", "因为", "所以", "如果", "虽然", "但是", "然后", "接着",
+        "最后", "开始", "结束", "一直", "总是", "有时", "常常", "经常",
+    ];
+    
+    noise_words.contains(&word.to_lowercase().as_str())
 }
 
 #[cfg(test)]

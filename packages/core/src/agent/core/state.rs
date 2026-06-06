@@ -6,6 +6,7 @@
 //! - Pending inputs
 //! - Todo reminders
 //! - Read history
+//! - Tool error history (for repeat error detection)
 //!
 //! By extracting state into a dedicated struct, we enable:
 //! - Clear separation between state and configuration
@@ -17,6 +18,63 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::providers::{ContentBlock, Message, MessageContent, Role, Usage};
 use crate::tools::ReadHistoryTracker;
+
+/// Maximum number of same errors before triggering intervention
+const MAX_SAME_ERROR_COUNT: usize = 3;
+
+/// A tool error entry for tracking repeated errors.
+#[derive(Debug, Clone)]
+pub struct ToolErrorEntry {
+    /// Tool name that failed
+    pub tool_name: String,
+    /// Error message (truncated for comparison)
+    pub error_key: String,
+    /// Number of times this error occurred
+    pub count: usize,
+    /// Last occurrence timestamp (for aging)
+    pub last_occurrence: std::time::Instant,
+}
+
+impl ToolErrorEntry {
+    /// Create a new error entry
+    pub fn new(tool_name: &str, error_msg: &str) -> Self {
+        // Create a key for comparison - truncate to first 100 chars
+        // This allows grouping similar errors together
+        let error_key = if error_msg.len() > 100 {
+            error_msg[..100].to_string()
+        } else {
+            error_msg.to_string()
+        };
+
+        Self {
+            tool_name: tool_name.to_string(),
+            error_key,
+            count: 1,
+            last_occurrence: std::time::Instant::now(),
+        }
+    }
+
+    /// Check if this entry matches a new error
+    pub fn matches(&self, tool_name: &str, error_msg: &str) -> bool {
+        let new_key = if error_msg.len() > 100 {
+            error_msg[..100].to_string()
+        } else {
+            error_msg.to_string()
+        };
+        self.tool_name == tool_name && self.error_key == new_key
+    }
+
+    /// Increment the count and update timestamp
+    pub fn increment(&mut self) {
+        self.count += 1;
+        self.last_occurrence = std::time::Instant::now();
+    }
+
+    /// Check if error limit reached
+    pub fn is_limit_reached(&self) -> bool {
+        self.count >= MAX_SAME_ERROR_COUNT
+    }
+}
 
 /// Agent runtime state.
 ///

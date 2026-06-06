@@ -316,7 +316,7 @@ impl AutoMemory {
         None
     }
 
-    /// Check if similar content already exists.
+    /// Check if similar content already exists (using enhanced similarity).
     pub fn has_similar(&self, content: &str) -> bool {
         let content_lower = content.to_lowercase();
 
@@ -336,7 +336,8 @@ impl AutoMemory {
                 continue;
             }
 
-            let similarity = Self::calculate_similarity(&entry_lower, &content_lower);
+            // Use enhanced similarity (Jaccard + semantic patterns)
+            let similarity = Self::calculate_similarity_enhanced(&entry_lower, &content_lower);
             if similarity >= SIMILARITY_THRESHOLD {
                 log::debug!(
                     "Similar memory found (similarity={:.2}): '{}' vs '{}'",
@@ -360,7 +361,7 @@ impl AutoMemory {
         false
     }
 
-    /// Calculate word-based similarity between two strings.
+    /// Calculate word-based similarity between two strings (Jaccard similarity).
     pub fn calculate_similarity(a: &str, b: &str) -> f64 {
         let a_words: HashSet<&str> = a.split_whitespace().collect();
         let b_words: HashSet<&str> = b.split_whitespace().collect();
@@ -377,6 +378,86 @@ impl AutoMemory {
         } else {
             intersection as f64 / union as f64
         }
+    }
+
+    /// Calculate enhanced similarity with semantic pattern detection.
+    /// This helps detect duplicates like "项目技术栈: Node.js" vs "项目技术栈: Rust".
+    pub fn calculate_similarity_enhanced(a: &str, b: &str) -> f64 {
+        // Calculate Jaccard similarity (word overlap)
+        let jaccard = Self::calculate_similarity(a, b);
+        
+        // Calculate semantic similarity (pattern matching)
+        let semantic = Self::calculate_semantic_similarity(a, b);
+        
+        // Return maximum to catch both word overlap and pattern matches
+        jaccard.max(semantic)
+    }
+
+    /// Calculate semantic similarity based on common patterns.
+    /// Detects if two strings follow the same pattern (e.g., both are tech stack declarations).
+    fn calculate_semantic_similarity(a: &str, b: &str) -> f64 {
+        // Common patterns that indicate same type of memory
+        let patterns = [
+            ("项目技术栈:", "技术栈"),      // Tech stack declarations
+            ("入口文件:", "入口"),          // Entry point declarations
+            ("模块位于", "位于"),           // Module location
+            ("位于 packages/", "packages/"), // Package path
+            ("核心功能:", "功能"),          // Core features
+            ("配置文件:", "配置"),          // Config files
+        ];
+        
+        for (pattern, _) in patterns {
+            if a.contains(pattern) && b.contains(pattern) {
+                // Both match same pattern → high semantic similarity
+                return 0.85;
+            }
+        }
+        
+        // Check category-specific patterns
+        let category_patterns = Self::extract_category_patterns(a);
+        let b_patterns = Self::extract_category_patterns(b);
+        
+        if !category_patterns.is_empty() && !b_patterns.is_empty() {
+            // Count matching patterns
+            let matches = category_patterns.intersection(&b_patterns).count();
+            if matches > 0 {
+                return 0.7 + (matches as f64 * 0.05).min(0.15); // 0.70-0.85
+            }
+        }
+        
+        0.0
+    }
+
+    /// Extract category-specific patterns from content.
+    fn extract_category_patterns(content: &str) -> HashSet<&'static str> {
+        let mut patterns = HashSet::new();
+        
+        // Decision patterns
+        if content.contains("决定") || content.contains("选择") || content.contains("采用") {
+            patterns.insert("decision");
+        }
+        
+        // Preference patterns
+        if content.contains("偏好") || content.contains("习惯") || content.contains("喜欢") {
+            patterns.insert("preference");
+        }
+        
+        // Solution patterns
+        if content.contains("解决") || content.contains("修复") || content.contains("通过") {
+            patterns.insert("solution");
+        }
+        
+        // Structure patterns
+        if content.contains("位于") || content.contains("入口") || content.contains("模块") {
+            patterns.insert("structure");
+        }
+        
+        // Technical patterns
+        if content.contains("技术栈") || content.contains("框架") || content.contains("库") {
+            patterns.insert("technical");
+        }
+        
+        patterns
     }
 
     /// Remove low-importance entries when exceeding max_entries.

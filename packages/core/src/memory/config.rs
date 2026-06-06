@@ -13,8 +13,9 @@ pub const MAX_IMPORTANCE_CEILING: f64 = 100.0;
 pub const MIN_SIMILARITY_LENGTH: usize = 10;
 
 /// Similarity threshold for considering entries as duplicates (0.0-1.0).
-/// Higher value (0.85) reduces duplicate detection false negatives.
-pub const SIMILARITY_THRESHOLD: f64 = 0.85;
+/// Lowered to 0.6 to better detect semantic duplicates (same pattern/type).
+/// Examples that should match: "项目技术栈: Node.js" vs "项目技术栈: Rust"
+pub const SIMILARITY_THRESHOLD: f64 = 0.6;
 
 /// Similarity threshold for merging similar memories (0.0-1.0).
 /// Lower than duplicate threshold to allow semantic merging.

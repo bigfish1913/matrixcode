@@ -50,13 +50,8 @@ impl TuiApp {
         let status_text = if self.activity == Activity::Idle {
             "就绪".to_string()
         } else if is_tool_activity {
-            if !self.activity_detail.is_empty() {
-                // Truncate long activity_detail to avoid status bar overflow
-                let detail_truncated: String = self.activity_detail.chars().take(20).collect();
-                format!("{} {}", self.activity.label(), detail_truncated)
-            } else {
-                self.activity.label().to_string()
-            }
+            // 只显示活动类型，不显示命令详情（避免太长）
+            self.activity.label().to_string()
         } else if self.current_request_tokens > 0 {
             format!("{} token", fmt_tokens(self.current_request_tokens))
         } else {
