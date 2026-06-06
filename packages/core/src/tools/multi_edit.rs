@@ -5,6 +5,17 @@ use serde_json::{Value, json};
 use super::{Tool, ToolDefinition};
 use crate::approval::RiskLevel;
 
+/// Normalize line endings for cross-platform compatibility
+/// Converts CRLF (\r\n) to LF (\n) to handle Windows/Linux differences
+fn normalize_line_endings(s: &str) -> String {
+    s.replace("\r\n", "\n").replace("\r", "\n")
+}
+
+/// Detect if original content uses CRLF line endings
+fn uses_crlf(content: &str) -> bool {
+    content.contains("\r\n")
+}
+
 pub struct MultiEditTool;
 
 #[async_trait]
@@ -56,7 +67,11 @@ impl Tool for MultiEditTool {
         // Show spinner while editing - RAII guard ensures cleanup on error
         // let mut spinner = ToolSpinner::new(&format!("multi-editing {} ({} edits)", path, edits.len()));
 
-        let mut content = tokio::fs::read_to_string(path).await?;
+        let original_content = tokio::fs::read_to_string(path).await?;
+
+        // Normalize line endings for cross-platform compatibility
+        let original_uses_crlf = uses_crlf(&original_content);
+        let mut content = normalize_line_endings(&original_content);
 
         for (idx, edit) in edits.iter().enumerate() {
             let old_string = edit["old_string"]
@@ -71,7 +86,11 @@ impl Tool for MultiEditTool {
                 anyhow::bail!("edit {}: 'old_string' must not be empty", idx);
             }
 
-            let count = content.matches(old_string).count();
+            // Normalize line endings for matching
+            let normalized_old = normalize_line_endings(old_string);
+            let normalized_new = normalize_line_endings(new_string);
+
+            let count = content.matches(&normalized_old).count();
             if count == 0 {
                 // spinner.finish_error(&format!("edit {} not found", idx));
                 anyhow::bail!("edit {}: old_string not found", idx);
@@ -85,35 +104,44 @@ impl Tool for MultiEditTool {
                 );
             }
 
-            content = content.replacen(old_string, new_string, 1);
+            content = content.replacen(&normalized_old, &normalized_new, 1);
         }
 
-        tokio::fs::write(path, &content).await?;
+        // Restore original line ending style if needed
+        let final_content = if original_uses_crlf {
+            content.replace('\n', "\r\n")
+        } else {
+            content
+        };
+
+        tokio::fs::write(path, &final_content).await?;
 
         // Return diff-style output
         let mut diff = format!("Applied {} edit(s) to {}\n", edits.len(), path);
         for (idx, edit) in edits.iter().enumerate() {
             let old_string = edit["old_string"].as_str().unwrap_or("");
             let new_string = edit["new_string"].as_str().unwrap_or("");
+            let normalized_old = normalize_line_endings(old_string);
+            let normalized_new = normalize_line_endings(new_string);
             if edits.len() > 1 {
                 diff.push_str(&format!("edit {}:\n", idx + 1));
             }
-            for line in old_string.lines().take(3) {
+            for line in normalized_old.lines().take(3) {
                 diff.push_str(&format!("- {}\n", line));
             }
-            if old_string.lines().count() > 3 {
+            if normalized_old.lines().count() > 3 {
                 diff.push_str(&format!(
                     "  ... ({} more lines removed)\n",
-                    old_string.lines().count() - 3
+                    normalized_old.lines().count() - 3
                 ));
             }
-            for line in new_string.lines().take(3) {
+            for line in normalized_new.lines().take(3) {
                 diff.push_str(&format!("+ {}\n", line));
             }
-            if new_string.lines().count() > 3 {
+            if normalized_new.lines().count() > 3 {
                 diff.push_str(&format!(
                     "  ... ({} more lines added)\n",
-                    new_string.lines().count() - 3
+                    normalized_new.lines().count() - 3
                 ));
             }
         }

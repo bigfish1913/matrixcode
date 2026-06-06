@@ -8,6 +8,17 @@ use crate::approval::RiskLevel;
 /// Maximum file size for safe editing (1MB)
 const MAX_EDIT_FILE_SIZE: u64 = 1_000_000;
 
+/// Normalize line endings for cross-platform compatibility
+/// Converts CRLF (\r\n) to LF (\n) to handle Windows/Linux differences
+fn normalize_line_endings(s: &str) -> String {
+    s.replace("\r\n", "\n").replace("\r", "\n")
+}
+
+/// Detect if original content uses CRLF line endings
+fn uses_crlf(content: &str) -> bool {
+    content.contains("\r\n")
+}
+
 pub struct EditTool;
 
 #[async_trait]
@@ -84,9 +95,22 @@ impl Tool for EditTool {
 
         let content = tokio::fs::read_to_string(path).await?;
 
-        let count = content.matches(old_string).count();
+        // Normalize line endings for cross-platform compatibility
+        // This handles the case where file uses CRLF but old_string uses LF
+        let original_uses_crlf = uses_crlf(&content);
+        let normalized_content = normalize_line_endings(&content);
+        let normalized_old = normalize_line_endings(old_string);
+        let normalized_new = normalize_line_endings(new_string);
+
+        let count = normalized_content.matches(&normalized_old).count();
         if count == 0 {
-            anyhow::bail!("old_string not found in {}", path);
+            // Provide helpful error message with context
+            let hint = if old_string.contains('\n') && !content.contains('\r') {
+                "\n提示: 文件使用 CRLF 换行符，请确保 old_string 与文件内容完全匹配"
+            } else {
+                ""
+            };
+            anyhow::bail!("old_string not found in {}{}", path, hint);
         }
         if count > 1 {
             anyhow::bail!(
@@ -96,12 +120,21 @@ impl Tool for EditTool {
             );
         }
 
-        let new_content = content.replacen(old_string, new_string, 1);
-        tokio::fs::write(path, &new_content).await?;
+        // Perform replacement on normalized content
+        let new_normalized_content = normalized_content.replacen(&normalized_old, &normalized_new, 1);
+
+        // Restore original line ending style if needed
+        let final_content = if original_uses_crlf {
+            new_normalized_content.replace('\n', "\r\n")
+        } else {
+            new_normalized_content
+        };
+
+        tokio::fs::write(path, &final_content).await?;
 
         // Return diff-style output
-        let old_lines: Vec<&str> = old_string.lines().collect();
-        let new_lines: Vec<&str> = new_string.lines().collect();
+        let old_lines: Vec<&str> = normalized_old.lines().collect();
+        let new_lines: Vec<&str> = normalized_new.lines().collect();
         let mut diff = format!("Successfully edited {}\n", path);
         for line in &old_lines {
             diff.push_str(&format!("- {}\n", line));

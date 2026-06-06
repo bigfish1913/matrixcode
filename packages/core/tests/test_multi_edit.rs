@@ -103,3 +103,55 @@ async fn test_multi_edit_empty_edits() {
         .expect_err("should fail");
     assert!(err.to_string().contains("at least one"));
 }
+
+#[tokio::test]
+async fn test_multi_edit_crlf_file_with_lf_search() {
+    // Test: file uses CRLF, but old_string uses LF (common AI input case)
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.txt");
+    // Write file with CRLF line endings (Windows style)
+    fs::write(&path, "line1\r\nline2\r\nline3\r\n").unwrap();
+
+    let result = MultiEditTool
+        .execute(json!({
+            "path": path.to_str().unwrap(),
+            "edits": [
+                {"old_string": "line1\nline2", "new_string": "new1\nnew2"},
+                {"old_string": "line3", "new_string": "new3"}
+            ]
+        }))
+        .await
+        .unwrap();
+
+    assert!(result.contains("Applied 2 edit(s)"));
+    // File should still have CRLF after edit
+    let content = fs::read_to_string(&path).unwrap();
+    assert!(content.contains("\r\n"), "File should retain CRLF line endings");
+    assert_eq!(content, "new1\r\nnew2\r\nnew3\r\n");
+}
+
+#[tokio::test]
+async fn test_multi_edit_lf_file_with_crlf_search() {
+    // Test: file uses LF, but old_string uses CRLF
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.txt");
+    // Write file with LF line endings (Unix style)
+    fs::write(&path, "line1\nline2\nline3\n").unwrap();
+
+    let result = MultiEditTool
+        .execute(json!({
+            "path": path.to_str().unwrap(),
+            "edits": [
+                {"old_string": "line1\r\nline2", "new_string": "new1\r\nnew2"},
+                {"old_string": "line3", "new_string": "new3"}
+            ]
+        }))
+        .await
+        .unwrap();
+
+    assert!(result.contains("Applied 2 edit(s)"));
+    // File should still have LF after edit
+    let content = fs::read_to_string(&path).unwrap();
+    assert!(!content.contains("\r\n"), "File should retain LF line endings");
+    assert_eq!(content, "new1\nnew2\nnew3\n");
+}
