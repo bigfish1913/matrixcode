@@ -19,6 +19,9 @@ use parser::SearchResult;
 pub use parser::{SearchResultParser, clean_url};
 
 /// Web search configuration
+const DEFAULT_TIMEOUT_SECS: u64 = 30;
+const MAX_TIMEOUT_SECS: u64 = 120;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchConfig {
     /// Proxy URL (e.g., "http://127.0.0.1:7890")
@@ -35,7 +38,7 @@ impl Default for WebSearchConfig {
     fn default() -> Self {
         Self {
             proxy: None,
-            timeout_secs: 30,
+            timeout_secs: DEFAULT_TIMEOUT_SECS,
             max_retries: 3,
             enable_fallback: true,
         }
@@ -133,7 +136,7 @@ impl Tool for WebSearchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "websearch".to_string(),
-            description: "使用 DuckDuckGo 搜索网络信息。返回包含标题、URL 和摘要的搜索结果列表。用于查找互联网上的最新信息。支持代理和自动重试。".to_string(),
+            description: "使用 DuckDuckGo 搜索网络信息。返回包含标题、URL 和摘要的搜索结果列表。用于查找互联网上的最新信息。支持代理、自动重试和自定义超时。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -148,6 +151,10 @@ impl Tool for WebSearchTool {
                     "use_proxy": {
                         "type": "boolean",
                         "description": "是否使用代理（默认自动检测环境变量 HTTP_PROXY）"
+                    },
+                    "timeout_secs": {
+                        "type": "integer",
+                        "description": format!("超时时间（秒，默认 {}，最大 {}）", DEFAULT_TIMEOUT_SECS, MAX_TIMEOUT_SECS)
                     }
                 },
                 "required": ["query"]
@@ -162,8 +169,13 @@ impl Tool for WebSearchTool {
             .ok_or_else(|| anyhow::anyhow!("missing 'query' parameter"))?;
         let max_results = params["max_results"].as_u64().unwrap_or(5).min(10) as usize;
         let use_proxy = params["use_proxy"].as_bool().unwrap_or(true);
+        let timeout_secs = params["timeout_secs"]
+            .as_u64()
+            .unwrap_or(DEFAULT_TIMEOUT_SECS)
+            .min(MAX_TIMEOUT_SECS);
 
         let mut config = self.config.clone();
+        config.timeout_secs = timeout_secs;
         if use_proxy && config.proxy.is_none() {
             config.proxy = load_proxy_from_env();
             if config.proxy.is_some() {

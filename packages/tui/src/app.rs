@@ -43,7 +43,8 @@ pub struct TuiApp {
     // Timing
     #[allow(dead_code)]
     pub(crate) session_start: Instant,      // When session started (for future use)
-    pub(crate) request_start: Option<Instant>,
+    pub(crate) request_start: Option<Instant>,  // When current response started (total time)
+    pub(crate) thinking_start: Option<Instant>, // When current API thinking started (per-request time)
     pub(crate) tool_start: Option<Instant>, // When current tool execution started
     // UI state
     pub(crate) frame: usize,
@@ -189,6 +190,7 @@ impl TuiApp {
             tool_calls: 0,
             session_start: Instant::now(),
             request_start: None,
+            thinking_start: None,
             tool_start: None,
             frame: 0,
             last_anim: Instant::now(),
@@ -276,6 +278,7 @@ impl TuiApp {
         _think: bool,
         _max_tokens: u32,
         context_size: Option<u64>,
+        approve_mode: Option<String>,
     ) -> Self {
         self.model = model.to_string();
         self.context_size = context_size.unwrap_or_else(|| {
@@ -291,6 +294,10 @@ impl TuiApp {
                 128_000
             }
         });
+        // Update approve_mode from config
+        if let Some(mode) = approve_mode {
+            self.approve_mode = crate::types::ApproveMode::parse(&mode);
+        }
         self
     }
 

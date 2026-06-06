@@ -151,17 +151,8 @@ impl TuiApp {
 
             // Get status message: prioritize error > starting > connected count
             let status_msg = if has_error {
-                // Find first error message, truncate to 20 chars for more meaningful display
-                self.lsp_servers
-                    .iter()
-                    .find_map(|s| match &s.status {
-                        matrixcode_core::LspServerStatus::Error(msg) => {
-                            let truncated: String = msg.chars().take(20).collect();
-                            Some(format!("err:{}", truncated))
-                        }
-                        _ => None,
-                    })
-                    .unwrap_or_else(|| "err".into())
+                // Simplify error display - just show "err" without long messages
+                "err".into()
             } else if is_starting {
                 "starting...".into()
             } else if running > 0 {
@@ -217,8 +208,8 @@ impl TuiApp {
             ));
         }
 
-        // Task elapsed time (only show when task is running)
-        if width >= 85 && self.activity != Activity::Idle && self.request_start.is_some() {
+        // Task elapsed time (show during work and after completion, until new message)
+        if width >= 85 && self.request_start.is_some() {
             if let Some(start) = self.request_start {
                 let elapsed = start.elapsed();
                 let total_secs = elapsed.as_secs();

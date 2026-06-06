@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 use matrixcode_core::{
-    AgentEvent, providers::Provider, providers::Message,
+    AgentEvent, providers::Provider,
     memory::{MemoryStorage, AutoMemory, UnifiedExtractor, UnifiedRegistry},
 };
 use crate::constants::{
@@ -147,29 +147,20 @@ pub fn should_extract_memory(turn_count: usize, has_fast_provider: bool) -> bool
     turn_count.is_multiple_of(MEMORY_EXTRACTION_INTERVAL) && has_fast_provider
 }
 
-/// Spawn background task for AI memory extraction (unified extraction)
-///
-/// Note: Keywords are now used in real-time only, not persisted.
-/// Only patterns are saved to the registry.
-pub fn spawn_extraction_task(
+/// Spawn background task for AI memory extraction with combined context.
+/// This is the preferred method - provides full conversation context for better extraction.
+pub fn spawn_extraction_task_with_context(
     event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
     project_path: Option<PathBuf>,
     fast_model: Option<String>,
-    last_message: &Message,
+    combined_text: &str,
 ) {
-    let text = match &last_message.content {
-        matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
-        matrixcode_core::providers::MessageContent::Blocks(blocks) => {
-            blocks.iter().filter_map(|b| match b {
-                matrixcode_core::ContentBlock::Text { text } => Some(text.as_str()),
-                _ => None,
-            }).collect::<Vec<_>>().join("\n")
-        }
-    };
-
-    if text.is_empty() {
+    if combined_text.is_empty() || combined_text.len() < 100 {
         return;
     }
+
+    // Clone text to owned String for async task
+    let text = combined_text.to_string();
 
     tokio::spawn(async move {
         let bg_ms = MemoryStorage::new(project_path.as_deref()).ok();
@@ -184,7 +175,7 @@ pub fn spawn_extraction_task(
         let detected = if let Some(model) = fast_model {
             matrixcode_core::debug::debug_log().log(
                 "memory_extract",
-                &format!("Background: unified extraction with model={}", model)
+                &format!("Background: unified extraction with model={}, text_len={}", model, text.len())
             );
             let extractor = UnifiedExtractor::new_minimal(model);
             matrixcode_core::memory::detect_unified_smart(
@@ -197,6 +188,16 @@ pub fn spawn_extraction_task(
         // Save memories to storage
         if !detected.memories.is_empty() {
             let detected_count = detected.memories.len();
+
+            // Log what was extracted for debugging
+            for entry in &detected.memories {
+                matrixcode_core::debug::debug_log().log(
+                    "memory_extracted",
+                    &format!("category={}, content={}", entry.category.display_name(),
+                        entry.content.chars().take(100).collect::<String>())
+                );
+            }
+
             for entry in detected.memories.clone() {
                 let is_global_category = matches!(
                     entry.category,

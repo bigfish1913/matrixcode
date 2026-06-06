@@ -125,7 +125,12 @@ impl TuiApp {
             EventType::ThinkingStart => {
                 self.activity = Activity::Thinking;
                 self.thinking.clear();
-                self.request_start = Some(std::time::Instant::now());
+                // Set thinking_start for per-API-call time display
+                self.thinking_start = Some(std::time::Instant::now());
+                // Set request_start if not already set (first API call in response)
+                if self.request_start.is_none() {
+                    self.request_start = Some(std::time::Instant::now());
+                }
             }
             EventType::ThinkingDelta => {
                 if let Some(EventData::Thinking { delta, .. }) = e.data {
@@ -142,11 +147,14 @@ impl TuiApp {
                     });
                     self.thinking.clear();
                 }
+                // Clear thinking_start when thinking ends
+                self.thinking_start = None;
             }
             EventType::TextStart => {
                 self.streaming.clear();
                 self.activity = Activity::Thinking;
-                self.request_start = Some(std::time::Instant::now());
+                // Clear thinking_start when model starts outputting text
+                self.thinking_start = None;
             }
             EventType::TextDelta => {
                 if let Some(EventData::Text { delta }) = e.data {
@@ -171,9 +179,8 @@ impl TuiApp {
                     self.activity_input = input.clone(); // Save full input for display
                     // Reset tool_start for each new tool execution
                     self.tool_start = Some(std::time::Instant::now());
-                    if self.request_start.is_none() {
-                        self.request_start = Some(std::time::Instant::now());
-                    }
+                    // Don't set request_start here - it's set when user sends message
+                    // and cleared at ResponseEnd
 
                     // Track todo_write for progress display
                     if name == "todo_write"
@@ -270,7 +277,9 @@ impl TuiApp {
 
                 // Process queue or go idle
                 if !self.process_pending_queue() {
-                    self.request_start = None;
+                    self.activity = Activity::Idle;
+                    // Don't clear request_start - keep the elapsed time displayed
+                    // It will be reset when user sends new message
                 }
                 self.activity_detail.clear();
                 self.activity_input = None;

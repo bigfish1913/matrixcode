@@ -88,6 +88,28 @@ impl ModelConfig {
 
 /// Infer context window size from model name.
 /// Honours the `CONTEXT_SIZE` env variable first so users can override.
+///
+/// # Model Context Window Reference (2025)
+///
+/// | Provider | Model | Context Window |
+/// |----------|-------|----------------|
+/// | Anthropic | Claude 3/4 series | 200K |
+/// | Anthropic | Claude 1M variants | 1M |
+/// | OpenAI | GPT-4o, GPT-4-Turbo | 128K |
+/// | OpenAI | o1, o3, o4 series | 200K |
+/// | OpenAI | GPT-4 | 8K/32K |
+/// | OpenAI | GPT-3.5 | 4K/16K |
+/// | 智谱 AI | GLM-5, GLM-4-Long | 1M |
+/// | 智谱 AI | GLM-4 | 128K |
+/// | DeepSeek | V3, R1 | 128K |
+/// | DeepSeek | V2, others | 64K |
+/// | 阿里 Qwen | Qwen2.5-Turbo, Qwen-Long | 1M |
+/// | 阿里 Qwen | Qwen2.5, Qwen3, Qwen-Max | 128K |
+/// | 阿里 Qwen | Qwen2 | 32K |
+/// | 月之暗面 | Kimi | 2M (长文本领先) |
+/// | Google | Gemini 1.5/2.0 Pro | 1M-2M |
+/// | Llama | 70B, 405B | 128K |
+/// | Llama | others | 8K |
 pub fn context_window_for(model: &str) -> Option<u32> {
     // Allow user override via environment variable
     if let Ok(raw) = std::env::var("CONTEXT_SIZE")
@@ -99,10 +121,14 @@ pub fn context_window_for(model: &str) -> Option<u32> {
 
     let m = model.to_ascii_lowercase();
 
-    // Anthropic models - 1M context window
+    // ========================================================================
+    // Anthropic Claude models
+    // ========================================================================
+    // 1M context variants
     if m.contains("1m") || m.contains("opus-4-7") || m.contains("opus-4.7") {
         return Some(1_000_000);
     }
+    // Claude 3/4 series: 200K
     if m.contains("claude-3")
         || m.contains("claude-4")
         || m.contains("claude-opus")
@@ -111,23 +137,31 @@ pub fn context_window_for(model: &str) -> Option<u32> {
     {
         return Some(200_000);
     }
+    // Claude 2: 100K
     if m.contains("claude-2") || m.contains("claude-instant") {
         return Some(100_000);
     }
 
+    // ========================================================================
     // OpenAI models
-    if m.contains("gpt-4o") || m.contains("gpt-4-turbo") {
-        return Some(128_000);
-    }
+    // ========================================================================
+    // o1, o3, o4 reasoning models: 200K
     if m.contains("o1") || m.contains("o3") || m.contains("o4") {
         return Some(200_000);
     }
+    // GPT-4o, GPT-4-Turbo: 128K
+    if m.contains("gpt-4o") || m.contains("gpt-4-turbo") || m.contains("gpt-4.1") {
+        return Some(128_000);
+    }
+    // GPT-4-32k: 32K
     if m.contains("gpt-4-32k") {
         return Some(32_768);
     }
-    if m.contains("gpt-4") && !m.contains("turbo") && !m.contains("o") {
+    // GPT-4 base: 8K
+    if m.contains("gpt-4") && !m.contains("turbo") && !m.contains("o") && !m.contains("4o") {
         return Some(8_192);
     }
+    // GPT-3.5: 4K/16K
     if m.contains("gpt-3.5-turbo-16k") {
         return Some(16_384);
     }
@@ -135,31 +169,86 @@ pub fn context_window_for(model: &str) -> Option<u32> {
         return Some(4_096);
     }
 
-    // DeepSeek models
-    if m.contains("deepseek-v3") || m.contains("deepseek-r1") {
+    // ========================================================================
+    // Google Gemini models
+    // ========================================================================
+    // Gemini 2.0 Pro: 2M
+    if m.contains("gemini-2") && m.contains("pro") {
+        return Some(2_000_000);
+    }
+    // Gemini 1.5 Pro: 2M, Flash: 1M
+    if m.contains("gemini-1.5-pro") || m.contains("gemini-1.5") && m.contains("pro") {
+        return Some(2_000_000);
+    }
+    if m.contains("gemini-1.5") {
+        return Some(1_000_000); // Flash and other 1.5 variants
+    }
+    // Gemini 1.0: 32K
+    if m.contains("gemini") {
+        return Some(32_000);
+    }
+
+    // ========================================================================
+    // 智谱 AI GLM models (中国)
+    // ========================================================================
+    // GLM-5, GLM-4-Long: 1M
+    if m.contains("glm-5") || m.contains("glm-4-long") {
+        return Some(1_000_000);
+    }
+    // GLM-4: 128K
+    if m.contains("glm-4") {
         return Some(128_000);
     }
+    // Other GLM models: 128K (保守估计)
+    if m.contains("glm") {
+        return Some(128_000);
+    }
+
+    // ========================================================================
+    // DeepSeek models (中国)
+    // ========================================================================
+    // DeepSeek-V3, DeepSeek-R1: 128K
+    if m.contains("deepseek-v3") || m.contains("deepseek-r1") || m.contains("deepseek-v3-") {
+        return Some(128_000);
+    }
+    // DeepSeek-V2 and others: 64K (API 默认限制)
     if m.contains("deepseek") {
         return Some(64_000);
     }
 
-    // Kimi models
-    if m.contains("kimi") {
+    // ========================================================================
+    // 阿里通义千问 Qwen models (中国)
+    // ========================================================================
+    // Qwen-Long, Qwen2.5-Turbo: 1M
+    if m.contains("qwen-long") || m.contains("qwen2.5-turbo") || m.contains("qwen-turbo") {
+        return Some(1_000_000);
+    }
+    // Qwen2.5, Qwen3, Qwen-Max: 128K
+    if m.contains("qwen2.5") || m.contains("qwen3") || m.contains("qwen-max") {
         return Some(128_000);
     }
-
-    // Qwen models
+    // Qwen2: 32K
+    if m.contains("qwen2") {
+        return Some(32_000);
+    }
+    // Other Qwen models: 8K (保守估计)
     if m.contains("qwen") {
-        if m.contains("qwen-max") || m.contains("qwen2.5-72b") || m.contains("qwen2.5") {
-            return Some(128_000);
-        }
-        if m.contains("qwen2") {
-            return Some(32_000);
-        }
         return Some(8_192);
     }
 
-    // Llama models
+    // ========================================================================
+    // 月之暗面 Kimi / Moonshot models (中国) - 长文本领先
+    // ========================================================================
+    // Kimi 支持 200万字 ≈ 2M tokens
+    // API 模型名称: kimi, moonshot-v1-8k, moonshot-v1-32k 等
+    if m.contains("kimi") || m.contains("moonshot") {
+        return Some(2_000_000);
+    }
+
+    // ========================================================================
+    // Meta Llama models
+    // ========================================================================
+    // Llama 3 70B, 405B: 128K
     if m.contains("llama-3") || m.contains("llama3") {
         if m.contains("70b") || m.contains("405b") {
             return Some(128_000);
@@ -167,11 +256,25 @@ pub fn context_window_for(model: &str) -> Option<u32> {
         return Some(8_192);
     }
 
-    // GLM models (Zhipu AI)
-    if m.contains("glm") {
+    // ========================================================================
+    // Mistral models
+    // ========================================================================
+    // Mistral Large: 128K
+    if m.contains("mistral-large") || m.contains("mistral") && m.contains("large") {
         return Some(128_000);
     }
+    // Mistral Medium: 32K
+    if m.contains("mistral-medium") {
+        return Some(32_000);
+    }
+    // Mistral Small, 7B: 32K
+    if m.contains("mistral") {
+        return Some(32_000);
+    }
 
+    // ========================================================================
+    // Unknown model - return None (caller should handle)
+    // ========================================================================
     None
 }
 
@@ -591,12 +694,65 @@ mod tests {
 
     #[test]
     fn test_infer_context_size() {
+        // Anthropic Claude models
         assert_eq!(infer_context_size("claude-sonnet-4"), Some(200_000));
-        assert_eq!(infer_context_size("gpt-4o"), Some(128_000));
         assert_eq!(infer_context_size("claude-3-5-haiku"), Some(200_000));
-        // 1M context models
+        assert_eq!(infer_context_size("claude-opus-4"), Some(200_000));
+        assert_eq!(infer_context_size("claude-2"), Some(100_000));
+        // 1M context variants
         assert_eq!(infer_context_size("claude-sonnet-4-1m"), Some(1_000_000));
         assert_eq!(infer_context_size("claude-opus-4-7"), Some(1_000_000));
+
+        // OpenAI models
+        assert_eq!(infer_context_size("gpt-4o"), Some(128_000));
+        assert_eq!(infer_context_size("gpt-4-turbo"), Some(128_000));
+        assert_eq!(infer_context_size("gpt-4"), Some(8_192));
+        assert_eq!(infer_context_size("gpt-4-32k"), Some(32_768));
+        assert_eq!(infer_context_size("gpt-3.5-turbo"), Some(4_096));
+        assert_eq!(infer_context_size("gpt-3.5-turbo-16k"), Some(16_384));
+        assert_eq!(infer_context_size("o1-preview"), Some(200_000));
+        assert_eq!(infer_context_size("o3-mini"), Some(200_000));
+
+        // Google Gemini models
+        assert_eq!(infer_context_size("gemini-1.5-pro"), Some(2_000_000));
+        assert_eq!(infer_context_size("gemini-1.5-flash"), Some(1_000_000));
+        assert_eq!(infer_context_size("gemini-2.0-pro"), Some(2_000_000));
+        assert_eq!(infer_context_size("gemini-pro"), Some(32_000));
+
+        // 智谱 AI GLM models
+        assert_eq!(infer_context_size("glm-5"), Some(1_000_000));
+        assert_eq!(infer_context_size("glm-4-long"), Some(1_000_000));
+        assert_eq!(infer_context_size("glm-4"), Some(128_000));
+        assert_eq!(infer_context_size("glm"), Some(128_000));
+
+        // DeepSeek models
+        assert_eq!(infer_context_size("deepseek-v3"), Some(128_000));
+        assert_eq!(infer_context_size("deepseek-r1"), Some(128_000));
+        assert_eq!(infer_context_size("deepseek-chat"), Some(64_000));
+        assert_eq!(infer_context_size("deepseek"), Some(64_000));
+
+        // 阿里 Qwen models
+        assert_eq!(infer_context_size("qwen2.5-turbo"), Some(1_000_000));
+        assert_eq!(infer_context_size("qwen-long"), Some(1_000_000));
+        assert_eq!(infer_context_size("qwen2.5-72b"), Some(128_000));
+        assert_eq!(infer_context_size("qwen3-32b"), Some(128_000));
+        assert_eq!(infer_context_size("qwen-max"), Some(128_000));
+        assert_eq!(infer_context_size("qwen2-7b"), Some(32_000));
+        assert_eq!(infer_context_size("qwen"), Some(8_192));
+
+        // 月之暗面 Kimi models
+        assert_eq!(infer_context_size("kimi"), Some(2_000_000));
+        assert_eq!(infer_context_size("moonshot-v1-8k"), Some(2_000_000));
+
+        // Mistral models
+        assert_eq!(infer_context_size("mistral-large"), Some(128_000));
+        assert_eq!(infer_context_size("mistral-medium"), Some(32_000));
+        assert_eq!(infer_context_size("mistral-7b"), Some(32_000));
+
+        // Llama models
+        assert_eq!(infer_context_size("llama-3-70b"), Some(128_000));
+        assert_eq!(infer_context_size("llama-3-8b"), Some(8_192));
+        assert_eq!(infer_context_size("llama3-405b"), Some(128_000));
     }
 
     #[test]

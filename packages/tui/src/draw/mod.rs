@@ -135,10 +135,17 @@ impl TuiApp {
             widgets::Paragraph,
         };
 
-        let elapsed = self
-            .request_start
-            .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
-            .unwrap_or_default();
+        // For thinking: use thinking_start (per-API-call time)
+        // For tools: use tool_start (per-tool time)
+        let elapsed = if self.activity == Activity::Thinking {
+            self.thinking_start
+                .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
+                .unwrap_or_default()
+        } else {
+            self.tool_start
+                .map(|s| format!(" {:.1}s", s.elapsed().as_secs_f64()))
+                .unwrap_or_default()
+        };
         let spinner_frame = self.frame % SPINNER.len();
 
         // For tool activities: only show in fixed area when user has scrolled up

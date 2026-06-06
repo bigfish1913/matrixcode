@@ -680,6 +680,7 @@ impl Default for ExtensionGateway {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::matrixrpc::NodeType;
 
     #[tokio::test]
     async fn test_gateway_creation() {

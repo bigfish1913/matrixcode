@@ -180,9 +180,50 @@ impl WatcherLock {
         format!("{}|{}|{}", self.instance_id, self.pid, self.acquired_at)
     }
 
+    /// Check if lock is stale (expired OR process dead).
+    /// Process death check ensures we don't block on orphaned locks.
     fn is_stale(&self) -> bool {
+        // Check time-based expiry
         let now = chrono::Utc::now().timestamp();
-        now - self.acquired_at > LOCK_TIMEOUT_SECS as i64
+        if now - self.acquired_at > LOCK_TIMEOUT_SECS as i64 {
+            return true;
+        }
+
+        // Check if process is still alive
+        if !self.is_process_alive() {
+            log::info!(
+                "CodeGraph: lock holder process {} is dead, treating as stale",
+                self.pid
+            );
+            return true;
+        }
+
+        false
+    }
+
+    /// Check if the PID is still running.
+    fn is_process_alive(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            std::process::Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {}", self.pid)])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map(|o| {
+                    let output = String::from_utf8_lossy(&o.stdout);
+                    // tasklist outputs "PID" column if process exists
+                    output.contains(&self.pid.to_string())
+                })
+                .unwrap_or(false)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::path::Path::new("/proc")
+                .join(self.pid.to_string())
+                .exists()
+        }
     }
 }
 

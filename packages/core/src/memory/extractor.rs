@@ -98,21 +98,29 @@ const MEMORY_EXTRACT_SYSTEM_PROMPT: &str = r#"你是记忆提取助手。从对�
 </type>
 <type>
     <name>structure</name>
-    <description>项目结构信息</description>
-    <when_to_save>发现关键入口或核心文件时</when_to_save>
+    <description>项目结构信息（重要！）</description>
+    <when_to_save>发现关键模块位置、核心文件路径、代码组织方式时</when_to_save>
+    <body_structure>先写结构描述，然后 **Location:** 具体路径，**Purpose:** 模块职责</body_structure>
+    <example>"上下文压缩模块位于 packages/core/src/compress/。**Location:** packages/core/src/compress/compressor.rs 是核心入口，**Purpose:** 负责上下文 token 优化"</example>
 </type>
 </types>
 
 # 不要保存什么到记忆中
 
-- 代码路径、文件名、目录结构 — 可从项目实时获取
 - Git 历史、最近更改 — git log/blame 是权威来源
 - 临时状态：进行中的任务、当前对话上下文
-- 已在 CLAUDE.md/MATRIX.md 中记录的内容
 - 错误信息和调试细节 — 问题解决后无需保留
+- 临时文件路径、临时变量名
 
-这些排除规则即使当用户要求保存时也适用。
-如果他们要求保存临时信息，问："有什么 surprising 或 non-obvious 的部分？"
+# 重要：应该保存的结构信息
+
+项目结构信息（structure 类型）应该保存，包括：
+- 关键模块的位置（如 "compress 模块在 packages/core/src/compress/"）
+- 核心文件的功能（如 "agent/streaming.rs 负责流式响应处理"）
+- 常见问题的定位路径（如 "上下文大小判断在 compressor.rs 的 estimate_tokens 函数"）
+- 代码组织模式（如 "providers 模块实现了 Provider trait"）
+
+这些信息能大幅减少未来会话的探索时间！
 
 # 对话模式提取
 
@@ -615,13 +623,21 @@ pub fn infer_category_from_content(content: &str) -> MemoryCategory {
 /// Unified extraction system prompt for extracting all information in one call.
 const UNIFIED_EXTRACTION_PROMPT: &str = r#"你是信息提取助手。从对话中一次性提取以下信息：
 
-## 1. 长期记忆 (memories)
+## 1. 长期记忆 (memories) - 最重要！
 - decision: 技术决策（如"决定使用 PostgreSQL"、"采用 React 架构"）
 - preference: 用户偏好（如"我喜欢简洁的代码风格"、"习惯用 VS Code"）
 - solution: 解决方案（如"通过添加缓存解决了性能问题"）
 - finding: 重要发现（如"发现内存泄漏的原因"）
 - technical: 技术栈（如"项目使用 Rust + Tokio"）
-- structure: 项目结构（如"主入口是 src/main.rs"）
+- structure: **项目结构信息（优先保存！）**（如"compress 模块在 packages/core/src/compress/"、"上下文判断逻辑在 compressor.rs:518"）
+
+## 结构信息的重要性
+
+项目结构信息（structure 类型）能大幅减少未来会话的探索时间，必须保存：
+- 关键模块位置："Agent 循环在 packages/core/src/agent/run.rs"
+- 核心文件功能："streaming.rs 负责 API 流式响应处理"
+- 问题定位路径："上下文大小判断在 estimate_tokens 函数（compressor.rs:518-561）"
+- 代码组织模式："providers 模块实现了 Provider trait"
 
 ## 2. 当前焦点 (focus_points)
 - topic: 当前讨论的主题
@@ -644,6 +660,13 @@ const UNIFIED_EXTRACTION_PROMPT: &str = r#"你是信息提取助手。从对话�
 ```json
 {
   "memories": [
+    {
+      "category": "structure",
+      "content": "上下文压缩模块位于 packages/core/src/compress/。**Location:** compressor.rs:518-561 是 estimate_tokens 函数，**Purpose:** 计算上下文 token 数量",
+      "importance": 80,
+      "keywords": ["compress", "estimate_tokens", "context"],
+      "tags": ["core", "context-management"]
+    },
     {
       "category": "decision",
       "content": "采用 PostgreSQL 作为主数据库。**Why:** 性能要求",
@@ -684,12 +707,13 @@ const UNIFIED_EXTRACTION_PROMPT: &str = r#"你是信息提取助手。从对话�
 ```
 
 ## 规则
-1. 只提取明确出现的信息，不要推测
-2. 如果某类信息没有，返回空数组/对象
-3. importance 范围：memories 0-100，focus_points 0.0-1.0
-4. confidence 范围：0.0-1.0，常见模式置信度较低
-5. 关键词提取 3-5 个核心关键词
-6. 只返回 JSON，不要其他解释"#;
+1. structure 类型的记忆优先级最高，发现就保存
+2. 只提取明确出现的信息，不要推测
+3. 如果某类信息没有，返回空数组/对象
+4. importance 范围：memories 0-100，focus_points 0.0-1.0
+5. confidence 范围：0.0-1.0，常见模式置信度较低
+6. 关键词提取 3-5 个核心关键词
+7. 只返回 JSON，不要其他解释"#;
 
 /// Unified extraction prompt with focus selection.
 /// This prompt includes existing focuses and asks AI to select or create focus.

@@ -16,7 +16,7 @@ use crate::constants::{
 };
 use super::mcp_handler::McpManager;
 use super::lsp_handler::LspHandler;
-use super::memory_handler::{load_memory, ai_select_memory, handle_feedback, periodic_cleanup, should_extract_memory, spawn_extraction_task};
+use super::memory_handler::{load_memory, ai_select_memory, handle_feedback, periodic_cleanup, should_extract_memory, spawn_extraction_task_with_context};
 use super::commands::{handle_command, is_backend_command, CommandContext};
 use super::commands::skill_activation::activate_skill;
 use super::session::save_after_turn;
@@ -358,12 +358,29 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
                 // AI memory extraction
                 if should_extract_memory(turn_count, fast_provider.is_some()) {
                     let messages = agent.get_messages();
-                    if let Some(last_msg) = messages.last() {
-                        spawn_extraction_task(
+                    // Extract from last 2-3 messages (user question + assistant response)
+                    // This provides context for better memory extraction
+                    let recent_messages: Vec<_> = messages.iter().rev().take(3).collect();
+                    if !recent_messages.is_empty() {
+                        // Combine recent messages for context
+                        let combined_text = recent_messages.iter().rev().map(|m| {
+                            match &m.content {
+                                matrixcode_core::providers::MessageContent::Text(t) => t.clone(),
+                                matrixcode_core::providers::MessageContent::Blocks(blocks) => {
+                                    blocks.iter().filter_map(|b| match b {
+                                        matrixcode_core::ContentBlock::Text { text } => Some(text.clone()),
+                                        matrixcode_core::ContentBlock::Thinking { thinking, .. } => Some(thinking.clone()),
+                                        _ => None,
+                                    }).collect::<Vec<_>>().join("\n")
+                                }
+                            }
+                        }).collect::<Vec<_>>().join("\n\n---\n\n");
+
+                        spawn_extraction_task_with_context(
                             ctx.event_tx.clone(),
                             ctx.project_path.clone(),
                             ctx.fast_model.clone(),
-                            last_msg,
+                            &combined_text,
                         );
                     }
                 }

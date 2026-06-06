@@ -8,7 +8,7 @@ async fn test_write_new_file() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.txt");
 
-    let tool = WriteTool;
+    let tool = WriteTool::new();
     let result = tool
         .execute(json!({
             "path": path.to_str().unwrap(),
@@ -26,7 +26,7 @@ async fn test_write_creates_parent_dirs() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("a/b/c/test.txt");
 
-    let tool = WriteTool;
+    let tool = WriteTool::new();
     tool.execute(json!({
         "path": path.to_str().unwrap(),
         "content": "nested"
@@ -39,14 +39,14 @@ async fn test_write_creates_parent_dirs() {
 
 #[tokio::test]
 async fn test_write_missing_params() {
-    let tool = WriteTool;
+    let tool = WriteTool::new();
     assert!(tool.execute(json!({})).await.is_err());
     assert!(tool.execute(json!({"path": "/tmp/x"})).await.is_err());
 }
 
 #[tokio::test]
 async fn test_write_definition() {
-    let tool = WriteTool;
+    let tool = WriteTool::new();
     let def = tool.definition();
     assert_eq!(def.name, "write");
     assert!(

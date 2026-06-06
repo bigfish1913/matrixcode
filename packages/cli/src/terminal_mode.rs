@@ -472,6 +472,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
             cli.think.unwrap_or(config.think),
             cli.max_tokens,
             config.context_size.map(u64::from),
+            config.approve_mode.clone(),
         )
         .with_debug_mode(debug_mode);
 

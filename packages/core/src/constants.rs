@@ -41,6 +41,14 @@ pub const THINKING_BUDGET_NEW_MODELS: u32 = 10000;
 /// Thinking budget for older models
 pub const THINKING_BUDGET_OLD_MODELS: u32 = 5000;
 
+/// Stream delta buffer size (chars) - accumulate before emitting
+/// Reduces event frequency for thinking/text deltas
+pub const STREAM_DELTA_BUFFER_SIZE: usize = 50;
+
+/// Stream delta flush interval (ms) - force emit after this time
+/// Ensures UI updates even with slow token generation
+pub const STREAM_DELTA_FLUSH_INTERVAL_MS: u64 = 100;
+
 /// Max tool result size (bytes)
 pub const MAX_TOOL_RESULT_SIZE: usize = 50_000;
 

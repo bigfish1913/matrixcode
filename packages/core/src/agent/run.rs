@@ -590,7 +590,11 @@ impl Agent {
             let api_tokens = self.state.last_input_tokens() as u32;
             let estimated_tokens = estimate_total_tokens(self.state.messages());
 
-            let current_tokens = if api_tokens > 0 && api_tokens >= estimated_tokens / 2 {
+            // 优先使用 API 返回的真实 token 数量，因为它更准确（包含缓存信息）
+            // 只有当 API 没有返回有效值时才使用估算值
+            // 注意：之前的条件 `api_tokens >= estimated_tokens / 2` 是不合理的，
+            // 因为当有缓存时，api_tokens 可能远小于 estimated_tokens，但这正是真实情况
+            let current_tokens = if api_tokens > 0 {
                 api_tokens
             } else {
                 estimated_tokens

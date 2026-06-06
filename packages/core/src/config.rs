@@ -104,6 +104,15 @@ pub struct MatrixConfig {
     /// If false, LSP servers won't be loaded and LSP tools won't be available
     #[serde(default = "default_true")]
     pub enable_lsp: bool,
+
+    /// Code verification strategy for write operations
+    /// Options: "none" (no verification), "post" (verify after write, default),
+    ///          "pre" (verify before write, block if errors),
+    ///          "pre-quick" (quick syntax check before, full check after)
+    /// When "pre" is enabled, invalid code will be blocked and errors returned to AI
+    /// for automatic correction.
+    #[serde(default = "default_verify_strategy")]
+    pub verify_strategy: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -114,6 +123,9 @@ fn default_max_tokens() -> u32 {
 }
 fn default_approve_mode() -> Option<String> {
     Some("auto".to_string())
+}
+fn default_verify_strategy() -> Option<String> {
+    Some("post".to_string())
 }
 
 /// Type alias for compatibility
@@ -226,6 +238,7 @@ impl MatrixConfig {
             mcp_servers: None,
             lsp_servers: None,
             enable_lsp: true,
+            verify_strategy: None,
         })
     }
 
@@ -265,11 +278,12 @@ impl MatrixConfig {
             plan_model: env::var("ANTHROPIC_REASONING_MODEL").ok(),
             compress_model: env::var("ANTHROPIC_DEFAULT_HAIKU_MODEL").ok(),
             fast_model: None,
-            approve_mode: env::var("APPROVE_MODE").ok().or(Some("ask".to_string())),
+            approve_mode: env::var("APPROVE_MODE").ok(), // 移除硬编码兜底，让配置文件优先
             extra_headers,
             mcp_servers: None,
             lsp_servers: None,
             enable_lsp: true,
+            verify_strategy: env::var("VERIFY_STRATEGY").ok(),
         }
     }
 
@@ -372,8 +386,10 @@ impl MatrixConfig {
         merged.approve_mode = env_config.approve_mode.or(merged.approve_mode);
         merged.extra_headers = env_config.extra_headers.or(merged.extra_headers);
 
-        // Ensure approve_mode has a default
-        merged.approve_mode = merged.approve_mode.or(Some("ask".to_string()));
+        // Final fallback: if approve_mode is truly unset everywhere (env, config files), use "ask"
+        if merged.approve_mode.is_none() {
+            merged.approve_mode = Some("ask".to_string());
+        }
 
         merged
     }
@@ -542,6 +558,7 @@ pub fn create_default_config() -> anyhow::Result<()> {
         mcp_servers: None,
         lsp_servers: None,
         enable_lsp: true,
+        verify_strategy: Some("post".to_string()),
     };
 
     config.save()?;
@@ -595,6 +612,15 @@ pub fn create_example_config() -> anyhow::Result<()> {
   "approve_mode": "ask",
   "_approve_mode_comment": "Tool approval: 'ask'=prompt each, 'auto'=approve safe, 'strict'=reject dangerous",
 
+  "verify_strategy": "post",
+  "_verify_strategy_comment": "Code verification strategy for write operations",
+  "_verify_strategy_options": {
+    "none": "No verification",
+    "post": "Verify after write (default, current behavior)",
+    "pre": "Verify before write, block if errors - returns errors to AI for correction",
+    "pre-quick": "Quick syntax check before write, full check after"
+  },
+
   "multi_model": false,
   "_multi_model_comment": "Enable multi-model configuration",
 
@@ -643,6 +669,7 @@ mod tests {
             mcp_servers: None,
             lsp_servers: None,
             enable_lsp: true,
+            verify_strategy: None,
         };
         assert!(config.api_key.is_none());
         assert!(config.model.is_none());

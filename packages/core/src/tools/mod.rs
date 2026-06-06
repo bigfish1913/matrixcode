@@ -2,6 +2,7 @@ pub mod ask;
 pub mod bash;
 pub mod browser;
 pub mod codegraph;
+pub mod code_quality_hook; // 代码质量验证 Hook
 pub mod edit;
 pub mod glob;
 pub mod grep;
@@ -17,7 +18,9 @@ pub mod skill;
 pub mod subagent_executor; // 子代理执行器
 pub mod task;
 pub mod todo_write;
+pub mod tool_hooks; // 工具执行 Hook 系统
 pub mod toolproxy; // 代理工具模块
+pub mod verify; // 代码验证
 pub mod webfetch;
 pub mod websearch;
 pub mod workflow;
@@ -120,7 +123,7 @@ fn base_tools(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
     vec![
         Box::new(ask::AskTool),
         Box::new(read::ReadTool),
-        Box::new(write::WriteTool),
+        Box::new(write::WriteTool::new()),
         Box::new(edit::EditTool),
         Box::new(multi_edit::MultiEditTool),
         Box::new(search::SearchTool),
