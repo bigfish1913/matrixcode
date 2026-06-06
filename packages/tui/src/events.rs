@@ -726,6 +726,9 @@ impl TuiApp {
             }
             EventType::CodeGraphStatus => {
                 if let Some(EventData::CodeGraphStatus { status }) = e.data {
+                    log::info!("TUI: received CodeGraph status (pending: {}, nodes: {})",
+                        status.pending_changes.added + status.pending_changes.modified + status.pending_changes.removed,
+                        status.node_count);
                     self.codegraph_status = Some(status);
                 }
             }

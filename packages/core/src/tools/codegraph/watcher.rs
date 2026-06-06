@@ -20,14 +20,18 @@ use super::ignore::IgnoreMatcher;
 use super::install::get_codegraph_path;
 use super::manager::CodeGraphManager;
 use super::project::find_project_root;
-use super::types::CodeGraphEnv;
+use super::types::{CodeGraphEnv, PendingChanges};
 use crate::cancel::CancellationToken;
 use crate::constants::CODEGRAPH_SYNC_INTERVAL_SECS;
+use crate::debug::debug_log;
 use crate::event::AgentEvent;
 use crate::memory::ProjectStructureAnalyzer;
 
 /// Git status polling interval (for non-fsmonitor fallback).
 const GIT_STATUS_POLL_INTERVAL_SECS: u64 = 2;
+
+/// Status update interval for UI (seconds).
+const STATUS_UPDATE_INTERVAL_SECS: u64 = 5;
 
 /// Handle to manage a running CodeGraph watcher.
 /// Provides lifecycle management: start, stop, status check.
@@ -50,10 +54,10 @@ impl WatcherHandle {
     /// Create handle with automatic project root detection.
     pub fn with_auto_detect(start_path: &Path) -> Self {
         let project_path = find_project_root(start_path);
-        log::info!(
-            "CodeGraph: detected project root at {}",
+        debug_log().log("codegraph", &format!(
+            "detected project root at {}",
             project_path.display()
-        );
+        ));
         Self::new(&project_path)
     }
 
@@ -67,18 +71,18 @@ impl WatcherHandle {
     /// Returns true if watcher was started.
     pub fn start_if_needed(&self, cancel_token: CancellationToken) -> bool {
         if self.is_running() {
-            log::info!("CodeGraph watcher already running");
+            debug_log().log("codegraph", "watcher already running");
             return false;
         }
 
         if CodeGraphWatcher::is_daemon_running(&self.project_path) {
-            log::info!("CodeGraph MCP daemon detected, skipping watcher to avoid conflict");
+            debug_log().log("codegraph", "MCP daemon detected, skipping watcher to avoid conflict");
             return false;
         }
 
         let watcher = CodeGraphWatcher::new(&self.project_path);
         let handle = watcher.start(cancel_token);
-        log::info!("CodeGraph watcher started (no MCP daemon detected)");
+        debug_log().log("codegraph", "watcher started (no MCP daemon detected)");
 
         *self.handle.lock().unwrap() = Some(handle);
         true
@@ -90,7 +94,7 @@ impl WatcherHandle {
         if let Some(ref h) = *guard
             && !h.is_finished()
         {
-            log::info!("Aborting CodeGraph watcher...");
+            debug_log().log("codegraph", "aborting watcher...");
             h.abort();
         }
     }
@@ -154,7 +158,7 @@ impl CodeGraphWatcher {
                         .duration_since(modified)
                         .unwrap_or(std::time::Duration::MAX);
                     if elapsed < std::time::Duration::from_secs(60) {
-                        log::info!("CodeGraph: daemon.log recently modified, daemon likely active");
+                        debug_log().log("codegraph", "daemon.log recently modified, daemon likely active");
                         return true;
                     }
                 }
@@ -177,10 +181,10 @@ impl CodeGraphWatcher {
     /// Create watcher with automatic project root detection.
     pub fn with_auto_detect(start_path: &Path) -> Self {
         let project_path = find_project_root(start_path);
-        log::info!(
-            "CodeGraph: detected project root at {}",
+        debug_log().log("codegraph", &format!(
+            "detected project root at {}",
             project_path.display()
-        );
+        ));
         Self::new(&project_path)
     }
 
@@ -214,21 +218,35 @@ impl CodeGraphWatcher {
     }
 
     /// Send CodeGraph status update to UI if event_tx is available.
+    /// pending_count is the number of files waiting to be synced (from watcher's internal tracking).
     async fn send_status_update(
         project_path: &Path,
         event_tx: &Option<mpsc::Sender<AgentEvent>>,
+        pending_count: usize,
     ) {
         if let Some(tx) = event_tx {
             let manager = CodeGraphManager::new(project_path);
             if manager.is_initialized() {
-                if let Ok(status) = manager.status() {
-                    log::debug!("CodeGraph: sending status update (pending: {})",
-                        status.pending_changes.added + status.pending_changes.modified + status.pending_changes.removed);
+                if let Ok(mut status) = manager.status() {
+                    // Override pending_changes with actual watcher state
+                    // pending_count represents files detected by watcher but not yet synced
+                    status.pending_changes = PendingChanges {
+                        added: pending_count as u32,
+                        modified: 0,
+                        removed: 0,
+                    };
+                    debug_log().log("codegraph", &format!(
+                        "sending status update (pending: {}, nodes: {})",
+                        pending_count,
+                        status.node_count
+                    ));
                     let _ = tx.send(AgentEvent::codegraph_status(status)).await;
+                } else {
+                    debug_log().log("codegraph", "failed to get status");
                 }
+            } else {
+                debug_log().log("codegraph", "not initialized, skipping status update");
             }
-        } else {
-            log::debug!("CodeGraph: no event_tx, skipping status update");
         }
     }
 
@@ -241,35 +259,33 @@ impl CodeGraphWatcher {
     ) {
         // Check if CodeGraph CLI is available (no auto-install)
         if get_codegraph_path().is_none() {
-            log::warn!(
-                "CodeGraph CLI not found, watcher disabled. Please install CodeGraph manually."
-            );
+            debug_log().log("codegraph", "CLI not found, watcher disabled. Please install CodeGraph manually.");
             return;
         }
 
         // Try to acquire watcher lock (prevent multiple instances)
         if !try_acquire_watcher_lock(&project_path) {
-            log::info!("CodeGraph: another instance is watching this project, exiting");
+            debug_log().log("codegraph", "another instance is watching this project, exiting");
             return;
         }
 
         // Check if this is a code project
         let analyzer = ProjectStructureAnalyzer::new(project_path.clone());
         if analyzer.detect_project_type().is_none() {
-            log::info!(
-                "CodeGraph: skipping non-code directory: {}",
+            debug_log().log("codegraph", &format!(
+                "skipping non-code directory: {}",
                 project_path.display()
-            );
+            ));
             return;
         }
 
         // Check if CodeGraph is initialized - DO NOT auto-initialize
         let manager = CodeGraphManager::new(&project_path);
         if !manager.is_initialized() {
-            log::info!(
-                "CodeGraph: not initialized for {}, skipping watcher. Run 'codegraph init -i' to create index.",
+            debug_log().log("codegraph", &format!(
+                "not initialized for {}, skipping watcher. Run 'codegraph init -i' to create index.",
                 project_path.display()
-            );
+            ));
             release_watcher_lock(&project_path);
             return;
         }
@@ -281,33 +297,33 @@ impl CodeGraphWatcher {
             CodeGraphEnv::NonGit
         };
 
-        log::info!(
-            "CodeGraph: environment detected as {} for: {}",
+        debug_log().log("codegraph", &format!(
+            "environment detected as {} for: {}",
             match env_type {
                 CodeGraphEnv::Git => "Git repository",
                 CodeGraphEnv::NonGit => "non-Git directory",
             },
             project_path.display()
-        );
+        ));
 
         // Check version consistency before starting
         if env_type == CodeGraphEnv::Git && has_version_changed(&project_path) {
-            log::info!("CodeGraph: version changed, performing sync before starting watcher");
+            debug_log().log("codegraph", "version changed, performing sync before starting watcher");
             if let Err(e) = manager.sync().await {
-                log::warn!("CodeGraph version sync failed: {}", e);
+                debug_log().log("codegraph", &format!("version sync failed: {}", e));
             }
             update_version_after_sync(&project_path);
         }
 
         // Initial sync on startup
-        log::info!("CodeGraph: performing initial sync on startup");
+        debug_log().log("codegraph", "performing initial sync on startup");
         if let Err(e) = manager.sync().await {
-            log::warn!("CodeGraph initial sync failed: {}", e);
+            debug_log().log("codegraph", &format!("initial sync failed: {}", e));
         }
         update_version_after_sync(&project_path);
 
-        // Send initial status update to UI
-        Self::send_status_update(&project_path, &event_tx).await;
+        // Send initial status update to UI (pending = 0 after initial sync)
+        Self::send_status_update(&project_path, &event_tx, 0).await;
 
         // Channel for file change events
         let (change_tx, mut change_rx) = mpsc::channel::<PathBuf>(100);
@@ -315,10 +331,10 @@ impl CodeGraphWatcher {
         // Create notify file watcher
         let watcher_result = Self::create_file_watcher(&project_path, change_tx.clone());
         if watcher_result.is_err() {
-            log::warn!(
-                "CodeGraph notify watcher failed to start: {}",
+            debug_log().log("codegraph", &format!(
+                "notify watcher failed to start: {}",
                 watcher_result.err().unwrap()
-            );
+            ));
             release_watcher_lock(&project_path);
             return;
         }
@@ -340,35 +356,37 @@ impl CodeGraphWatcher {
         // Start Git monitoring if in Git environment
         let git_monitoring = if env_type == CodeGraphEnv::Git {
             if start_git_fsmonitor(&project_path) {
-                log::info!("CodeGraph: Git fsmonitor daemon started");
+                debug_log().log("codegraph", "Git fsmonitor daemon started");
                 true
             } else if is_git_fsmonitor_running(&project_path) {
-                log::info!("CodeGraph: Git fsmonitor daemon already running");
+                debug_log().log("codegraph", "Git fsmonitor daemon already running");
                 true
             } else {
-                log::info!("CodeGraph: Git fsmonitor not available, using git status polling");
+                debug_log().log("codegraph", "Git fsmonitor not available, using git status polling");
                 false
             }
         } else {
             false
         };
 
-        log::info!(
-            "CodeGraph watcher started (Git monitoring: {}, notify fallback: always)",
+        debug_log().log("codegraph", &format!(
+            "watcher started (Git monitoring: {}, notify fallback: always)",
             git_monitoring
-        );
+        ));
 
         let check_interval = Duration::from_secs(1);
+        let status_update_interval = Duration::from_secs(STATUS_UPDATE_INTERVAL_SECS);
+        let mut last_status_update = Instant::now();
 
         loop {
             if cancel_token.is_cancelled() {
                 // Final sync before exit
                 let pending_count = changed_files.read().await.len();
                 if pending_count > 0 {
-                    log::info!(
-                        "CodeGraph: final sync before exit ({} unique files)",
+                    debug_log().log("codegraph", &format!(
+                        "final sync before exit ({} unique files)",
                         pending_count
-                    );
+                    ));
                     let manager = CodeGraphManager::new(&project_path);
                     if manager.is_initialized() {
                         let _ = manager.sync().await;
@@ -376,12 +394,19 @@ impl CodeGraphWatcher {
                     }
                 }
                 release_watcher_lock(&project_path);
-                log::info!("CodeGraph watcher stopped");
+                debug_log().log("codegraph", "watcher stopped");
                 break;
             }
 
             // Update heartbeat
             update_watcher_heartbeat(&project_path);
+
+            // Periodic status update to UI (with current pending count)
+            if last_status_update.elapsed() >= status_update_interval {
+                let pending = changed_files.read().await.len();
+                Self::send_status_update(&project_path, &event_tx, pending).await;
+                last_status_update = Instant::now();
+            }
 
             tokio::select! {
                 // Notify file changes
@@ -395,11 +420,6 @@ impl CodeGraphWatcher {
                             let mut files = changed_files.write().await;
                             if files.insert(path.clone()) {
                                 *last_change.lock().unwrap() = Instant::now();
-                                log::debug!(
-                                    "CodeGraph [notify]: new file {} (total unique: {})",
-                                    path.display(),
-                                    files.len()
-                                );
                             }
                         }
                     }
@@ -419,13 +439,6 @@ impl CodeGraphWatcher {
                                 if files.insert(path.clone()) {
                                     new_count += 1;
                                 }
-                            }
-                            if new_count > 0 {
-                                log::debug!(
-                                    "CodeGraph [git]: {} new changes (total unique: {})",
-                                    new_count,
-                                    files.len()
-                                );
                             }
                         }
                         if new_count > 0 {
@@ -447,11 +460,14 @@ impl CodeGraphWatcher {
                         && files_count > 0
                         && elapsed >= debounce_delay {
                         syncing_clone.store(true, Ordering::SeqCst);
-                        log::info!("CodeGraph: auto-sync triggered ({} unique files changed)", files_count);
+                        debug_log().log("codegraph", &format!(
+                            "auto-sync triggered ({} unique files changed)",
+                            files_count
+                        ));
 
                         // Check if MCP daemon is active before syncing
                         if check_mcp_daemon_active(&project_path) {
-                            log::info!("CodeGraph: MCP daemon active, skipping our sync to avoid conflict");
+                            debug_log().log("codegraph", "MCP daemon active, skipping our sync to avoid conflict");
                             syncing_clone.store(false, Ordering::SeqCst);
                         } else {
                             let our_timestamp = try_acquire_sync_lock(&project_path);
@@ -459,26 +475,23 @@ impl CodeGraphWatcher {
                                 let manager = CodeGraphManager::new(&project_path);
                                 if manager.is_initialized() {
                                     if let Err(e) = manager.sync().await {
-                                        log::warn!("CodeGraph sync failed: {}", e);
+                                        debug_log().log("codegraph", &format!("sync failed: {}", e));
                                     } else {
                                         // Check if lock still belongs to us before updating
                                         if check_sync_lock_owner(&project_path, our_timestamp) {
                                             update_version_after_sync(&project_path);
                                             changed_files.write().await.clear();
-                                            log::debug!("CodeGraph: sync completed, lock verified");
 
-                                            // Send status update to UI after successful sync
-                                            Self::send_status_update(&project_path, &event_tx).await;
+                                            // Send status update to UI after successful sync (pending = 0)
+                                            Self::send_status_update(&project_path, &event_tx, 0).await;
                                         } else {
                                             // Lock was stolen by another process, abandon this sync
-                                            log::info!("CodeGraph: sync abandoned, another process took over");
+                                            debug_log().log("codegraph", "sync abandoned, another process took over");
                                             // Don't clear changed_files, let next sync handle them
                                         }
                                     }
                                 }
                                 release_sync_lock(&project_path);
-                            } else {
-                                log::debug!("CodeGraph: skipping sync, another instance is syncing");
                             }
                             syncing_clone.store(false, Ordering::SeqCst);
                         }

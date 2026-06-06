@@ -68,6 +68,35 @@ impl LspTransport {
 
         let stdout_reader = stdout.map(|s| BufReader::new(s));
 
+        // Take stderr and spawn background task to continuously read it
+        // This prevents stderr buffer overflow which would block the LSP process
+        let stderr = child.stderr.take().map(|s| {
+            Box::new(s) as Box<dyn AsyncRead + Unpin + Send>
+        });
+
+        if let Some(stderr) = stderr {
+            let server_name_clone = server_name.clone();
+            let stderr_reader = BufReader::new(stderr).lines();
+
+            tokio::spawn(async move {
+                let mut lines = stderr_reader;
+
+                while let Ok(Some(line)) = lines.next_line().await {
+                    // Determine log level based on content
+                    let line_lower = line.to_lowercase();
+                    if line_lower.contains("error") || line_lower.contains("fatal") {
+                        log::error!("LSP '{}' stderr: {}", server_name_clone, line);
+                    } else if line_lower.contains("warn") || line_lower.contains("warning") {
+                        log::warn!("LSP '{}' stderr: {}", server_name_clone, line);
+                    } else {
+                        log::debug!("LSP '{}' stderr: {}", server_name_clone, line);
+                    }
+                }
+
+                log::info!("LSP '{}' stderr stream ended", server_name_clone);
+            });
+        }
+
         log::info!(
             "LSP server '{}' spawned successfully (pid: {:?})",
             server_name,

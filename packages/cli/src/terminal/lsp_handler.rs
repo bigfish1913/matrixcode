@@ -4,11 +4,17 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use matrixcode_core::{AgentEvent, lsp::{LspClientRegistry, LspManager, LspServerInfo}};
-use tokio::time::{Duration, timeout};
-
-/// LSP 启动超时时间（秒）- 大型 Rust 项目需要较长时间索引
-const LSP_STARTUP_TIMEOUT_SECS: u64 = 180;
+use matrixcode_core::{
+    AgentEvent,
+    lsp::{
+        LspClientRegistry,
+        LspManager,
+        LspServerInfo,
+        LoggingProgressCallback,
+        SERVER_INIT_TIMEOUT,
+    }
+};
+use tokio::time::timeout;
 
 /// LSP manager that handles server lifecycle
 pub struct LspHandler {
@@ -53,9 +59,12 @@ impl LspHandler {
             tokio::spawn(async move {
                 matrixcode_core::debug::debug_log().log("lsp", &format!("Background: starting '{}'...", name));
 
+                // Use logging progress callback for CLI environment
+                let progress_callback = Arc::new(LoggingProgressCallback);
+                
                 let start_result = timeout(
-                    Duration::from_secs(LSP_STARTUP_TIMEOUT_SECS),
-                    registry.register(&config, &project_root_clone)
+                    SERVER_INIT_TIMEOUT,
+                    registry.register_with_progress(&config, &project_root_clone, progress_callback)
                 ).await;
 
                 // Update status after startup completes and notify UI
@@ -70,7 +79,7 @@ impl LspHandler {
                     }
                     Err(_) => {
                         matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' timeout", name));
-                        manager.write().await.mark_error(&language, "Startup timeout".to_string());
+                        manager.write().await.mark_error(&language, format!("Timeout after {}s", SERVER_INIT_TIMEOUT.as_secs()));
                     }
                 }
                 

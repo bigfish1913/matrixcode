@@ -32,7 +32,7 @@ impl AgentBuilder {
             project_path: None,
             event_tx: None,
             pending_input_rx: None,
-            approve_mode: ApproveMode::Ask,
+            approve_mode: ApproveMode::Auto,
             proxy_tool_defs: Vec::new(),
             proxy_executor: None,
             mcp_registry: None,

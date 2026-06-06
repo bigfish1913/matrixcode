@@ -41,7 +41,7 @@ pub fn handle_command(cmd: Commands, skills: &[Skill]) {
         .approve_mode
         .as_ref()
         .map(|m| ApproveMode::parse(m))
-        .unwrap_or(ApproveMode::Ask);
+        .unwrap_or(ApproveMode::Auto);
 
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,

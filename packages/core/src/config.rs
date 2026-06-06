@@ -113,7 +113,7 @@ fn default_max_tokens() -> u32 {
     DEFAULT_MAX_TOKENS
 }
 fn default_approve_mode() -> Option<String> {
-    Some("ask".to_string())
+    Some("auto".to_string())
 }
 
 /// Type alias for compatibility

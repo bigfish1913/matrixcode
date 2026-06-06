@@ -151,12 +151,12 @@ impl TuiApp {
 
             // Get status message: prioritize error > starting > connected count
             let status_msg = if has_error {
-                // Find first error message, truncate to 10 chars
+                // Find first error message, truncate to 20 chars for more meaningful display
                 self.lsp_servers
                     .iter()
                     .find_map(|s| match &s.status {
                         matrixcode_core::LspServerStatus::Error(msg) => {
-                            let truncated: String = msg.chars().take(10).collect();
+                            let truncated: String = msg.chars().take(20).collect();
                             Some(format!("err:{}", truncated))
                         }
                         _ => None,
@@ -196,7 +196,8 @@ impl TuiApp {
                     (format!(" CG:{}待同步 ", total), Color::Yellow)
                 }
                 Some(status) => {
-                    (format!(" CG:{}n ", status.node_count), Color::LightGreen)
+                    // Show node count with clear format
+                    (format!(" CG:ok:{} ", status.node_count), Color::LightGreen)
                 }
             };
             spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));

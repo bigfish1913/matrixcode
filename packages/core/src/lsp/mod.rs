@@ -50,9 +50,11 @@
 //! ```
 
 pub mod client;
+pub mod constants;
 pub mod manager;
 #[cfg(test)]
 mod manager_test;
+pub mod progress;
 pub mod registry;
 pub mod tools;
 pub mod transport;
@@ -60,7 +62,9 @@ pub mod types;
 
 // Re-export main types
 pub use client::{LspClient, HoverResult, format_location, format_diagnostic, format_hover_result, path_to_uri};
+pub use constants::*; // Re-export timeout constants
 pub use manager::{LspManager, find_lsp_config, load_lsp_config};
+pub use progress::{LspProgressTracker, LspInitStatus, LspProgressCallback, NoOpProgressCallback, LoggingProgressCallback, MultiProgressCallback};
 pub use registry::LspClientRegistry;
 pub use tools::{lsp_tools, detect_language_from_path, LspHoverTool, LspDefinitionTool, LspReferencesTool, LspDiagnosticsTool};
 pub use transport::LspTransport;

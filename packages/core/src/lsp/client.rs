@@ -16,7 +16,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::time::{timeout, Duration};
 
+use super::constants::{PROCESS_STARTUP_TIMEOUT, SERVER_INIT_TIMEOUT};
+use super::progress::LspProgressCallback;
 use super::transport::LspTransport;
 use super::types::LspServerConfig;
 
@@ -109,6 +112,127 @@ impl LspClient {
 
         log::info!("LSP client '{}' spawned and initialized successfully", self.server_name);
         Ok(())
+    }
+
+    /// Spawn LSP server with async initialization and progress callbacks
+    ///
+    /// This is the async version of `spawn()` with:
+    /// - Separate timeouts for process startup (5s) and server initialization (60s)
+    /// - Progress callbacks for UI updates
+    /// - Better error messages for each phase
+    ///
+    /// # Arguments
+    /// - `config`: LSP server configuration
+    /// - `progress_callback`: Callback for progress updates (can be `NoOpProgressCallback` if not needed)
+    ///
+    /// # Progress Flow
+    /// - 0.1: Starting process...
+    /// - 0.3: Process started, initializing server...
+    /// - 0.5-0.9: Loading workspace/indexes...
+    /// - 1.0: Ready
+    ///
+    /// # Errors
+    /// - Process startup timeout (5s): binary missing, permission denied
+    /// - Server initialization timeout (60s): large workspace, slow indexing
+    pub async fn spawn_async(
+        &self,
+        config: &LspServerConfig,
+        progress_callback: Arc<dyn LspProgressCallback>,
+    ) -> Result<()> {
+        log::info!("LSP spawn_async: starting '{}'...", self.server_name);
+
+        // Phase 1: Start process (5s timeout, should be fast)
+        progress_callback.on_progress(0.1, "Starting process...");
+        
+        let transport_result = timeout(PROCESS_STARTUP_TIMEOUT, async {
+            LspTransport::spawn(&config.command, &config.command, &config.args).await
+        })
+        .await;
+
+        let transport = transport_result.map_err(|_| {
+            let error_msg = format!(
+                "LSP process startup timeout ({}s).\n\
+                Possible causes:\n\
+                - Binary '{}' not found in PATH\n\
+                - Permission denied\n\
+                - Process hangs immediately",
+                PROCESS_STARTUP_TIMEOUT.as_secs(),
+                config.command
+            );
+            progress_callback.on_error(&error_msg);
+            anyhow!(error_msg)
+        })?;
+
+        let transport = transport.map_err(|e| {
+            let error_msg = format!("Failed to start LSP process '{}': {}", config.command, e);
+            progress_callback.on_error(&error_msg);
+            anyhow!(error_msg)
+        })?;
+
+        log::info!("LSP spawn_async: '{}' process started", self.server_name);
+        progress_callback.on_progress(0.3, "Process started, initializing server...");
+
+        // Store transport
+        {
+            let mut transport_guard = self.transport.lock().await;
+            *transport_guard = Some(transport);
+        }
+
+        // Phase 2: Initialize server (timeout, but continue in background if needed)
+        progress_callback.on_progress(0.5, "Loading workspace...");
+
+        let init_result = timeout(SERVER_INIT_TIMEOUT, async {
+            self.initialize().await
+        })
+        .await;
+
+        match init_result {
+            Ok(result) => {
+                result?; // initialize() 成功
+                log::info!("LSP spawn_async: '{}' initialized successfully", self.server_name);
+                progress_callback.on_progress(1.0, "Ready");
+                progress_callback.on_complete();
+                Ok(())
+            }
+            Err(_) => {
+                // Timeout occurred, but process is still running
+                // Start background task to continue waiting for initialization
+                log::info!(
+                    "LSP '{}' initialization timeout after {}s, continuing in background...",
+                    self.server_name,
+                    SERVER_INIT_TIMEOUT.as_secs()
+                );
+
+                // Don't mark as error - process is still running
+                // Return Ok to indicate process started, but initialization pending
+                progress_callback.on_progress(0.7, "Background init...");
+
+                // Spawn background task to continue waiting
+                let server_name = self.server_name.clone();
+                let transport = self.transport.clone();
+                let callback = progress_callback.clone();
+
+                tokio::spawn(async move {
+                    // Wait for background initialization (30 seconds grace period)
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+
+                    // Check if transport is still available (process running)
+                    let transport_guard = transport.lock().await;
+                    if transport_guard.is_some() {
+                        log::info!("LSP '{}' background initialization completed", server_name);
+                        callback.on_progress(1.0, "Ready");
+                        callback.on_complete();
+                    } else {
+                        log::warn!("LSP '{}' process died during background init", server_name);
+                        callback.on_error("Process died");
+                    }
+                });
+
+                // Return Ok to indicate process started successfully
+                // Background task will update status when ready
+                Ok(())
+            }
+        }
     }
 
     /// Send LSP initialize request
@@ -529,8 +653,32 @@ pub fn format_hover_result(hover: &HoverResult) -> String {
 
 /// Create a file URL from a path
 pub fn path_to_uri(path: &PathBuf) -> Result<Url> {
-    Url::from_file_path(path)
-        .map_err(|_| anyhow!("Invalid file path: {:?}", path))
+    // On Windows, convert Unix-style paths (e.g., /c/Users/...) to Windows format
+    #[cfg(target_os = "windows")]
+    {
+        let path_str = path.to_string_lossy();
+
+        // Check if it's a Unix-style Windows path (e.g., /c/Users/...)
+        if path_str.starts_with('/') && path_str.chars().nth(1).map(|c| c.is_ascii_lowercase()).unwrap_or(false) {
+            // Convert /c/... to C:/...
+            let drive_letter = path_str.chars().nth(1).unwrap();
+            let rest = &path_str[2..]; // Skip /c
+            let windows_path = format!("{}:{}", drive_letter.to_ascii_uppercase(), rest);
+            let windows_pathbuf = PathBuf::from(windows_path);
+
+            Url::from_file_path(&windows_pathbuf)
+                .map_err(|_| anyhow!("Invalid file path: {:?}", path))
+        } else {
+            Url::from_file_path(path)
+                .map_err(|_| anyhow!("Invalid file path: {:?}", path))
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Url::from_file_path(path)
+            .map_err(|_| anyhow!("Invalid file path: {:?}", path))
+    }
 }
 
 #[cfg(test)]

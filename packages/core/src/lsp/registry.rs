@@ -10,6 +10,8 @@ use tokio::sync::RwLock;
 use tokio::time::{Duration, timeout};
 
 use super::client::LspClient;
+use super::constants::LSP_WAIT_TIMEOUT_SECS;
+use super::progress::LspProgressCallback;
 use super::types::LspServerConfig;
 
 /// LSP 客户端注册表
@@ -17,9 +19,6 @@ pub struct LspClientRegistry {
     /// 语言 -> 客户端映射
     clients: Arc<RwLock<HashMap<String, Arc<LspClient>>>>,
 }
-
-/// 默认等待 LSP 客户端启动的时间（与启动超时一致）
-const LSP_WAIT_TIMEOUT_SECS: u64 = 180;
 
 impl LspClientRegistry {
     /// 创建空注册表
@@ -33,6 +32,41 @@ impl LspClientRegistry {
     pub async fn register(&self, config: &LspServerConfig, project_root: &Path) -> Result<()> {
         let client = LspClient::from_config(config, project_root.to_path_buf());
         client.spawn(config).await?;
+        let mut clients = self.clients.write().await;
+        clients.insert(config.language.clone(), Arc::new(client));
+        log::info!("LSP client registered for language: {}", config.language);
+        Ok(())
+    }
+
+    /// 启动并注册 LSP 客户端（带进度回调）
+    ///
+    /// 使用异步初始化 + 进度回调，适合 TUI 环境显示进度条。
+    ///
+    /// # Arguments
+    /// - `config`: LSP 服务器配置
+    /// - `project_root`: 项目根目录
+    /// - `progress_callback`: 进度回调（可以使用 `NoOpProgressCallback` 如果不需要进度显示）
+    ///
+    /// # Progress Flow
+    /// - 0.1: Starting process...
+    /// - 0.3: Process started, initializing server...
+    /// - 0.5-0.9: Loading workspace...
+    /// - 1.0: Ready
+    ///
+    /// # Timeouts
+    /// - 进程启动：5 秒（快速失败）
+    /// - 服务器初始化：60 秒（大型项目可能需要）
+    pub async fn register_with_progress(
+        &self,
+        config: &LspServerConfig,
+        project_root: &Path,
+        progress_callback: Arc<dyn LspProgressCallback>,
+    ) -> Result<()> {
+        let client = LspClient::from_config(config, project_root.to_path_buf());
+        
+        // 使用异步初始化 + 进度回调
+        client.spawn_async(config, progress_callback.clone()).await?;
+        
         let mut clients = self.clients.write().await;
         clients.insert(config.language.clone(), Arc::new(client));
         log::info!("LSP client registered for language: {}", config.language);

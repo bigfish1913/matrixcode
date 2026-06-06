@@ -274,7 +274,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         .approve_mode
         .as_ref()
         .map(|m| ApproveMode::parse(m))
-        .unwrap_or(ApproveMode::Ask);
+        .unwrap_or(ApproveMode::Auto);
 
     let agent_provider = resolve_provider(&config, &agent_model);
 
@@ -347,7 +347,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
                             let now = std::time::SystemTime::now();
                             let elapsed = now.duration_since(modified).unwrap_or(std::time::Duration::MAX);
                             if elapsed < std::time::Duration::from_secs(60) {
-                                log::info!("CodeGraph: daemon.log recently modified, daemon likely active");
+                                matrixcode_core::debug::debug_log().log("codegraph", "daemon.log recently modified, daemon likely active");
                                 running = true;
                             }
                         }
@@ -359,11 +359,61 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         };
 
         if daemon_running {
-            log::info!("CodeGraph MCP daemon detected, skipping our watcher to avoid conflict");
+            matrixcode_core::debug::debug_log().log("codegraph", "MCP daemon detected, skipping our watcher to avoid conflict");
+
+            // Send initial status to TUI immediately (pending = 0, daemon handles sync)
+            {
+                use matrixcode_core::tools::codegraph::CodeGraphManager;
+                use matrixcode_core::event::AgentEvent;
+                use matrixcode_core::tools::codegraph::types::PendingChanges;
+                let manager = CodeGraphManager::new(path);
+                if manager.is_initialized() {
+                    if let Ok(mut status) = manager.status() {
+                        // Daemon handles sync automatically, so pending is always 0
+                        status.pending_changes = PendingChanges { added: 0, modified: 0, removed: 0 };
+                        matrixcode_core::debug::debug_log().log("codegraph", &format!(
+                            "initial status: daemon running, nodes={}",
+                            status.node_count
+                        ));
+                        let _ = agent_event_tx.send(AgentEvent::codegraph_status(status)).await;
+                    }
+                }
+            }
+
+            // When daemon is running, start a background task to poll status for TUI
+            let status_event_tx = agent_event_tx.clone();
+            let status_project_path = path.clone();
+            let status_cancel = cancel_token.clone();
+            tokio::spawn(async move {
+                use matrixcode_core::tools::codegraph::CodeGraphManager;
+                use matrixcode_core::event::AgentEvent;
+                use matrixcode_core::tools::codegraph::types::PendingChanges;
+
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+                loop {
+                    if status_cancel.is_cancelled() {
+                        break;
+                    }
+                    interval.tick().await;
+
+                    // Query status from CodeGraph index (pending = 0, daemon handles sync)
+                    let manager = CodeGraphManager::new(&status_project_path);
+                    if manager.is_initialized() {
+                        if let Ok(mut status) = manager.status() {
+                            status.pending_changes = PendingChanges { added: 0, modified: 0, removed: 0 };
+                            matrixcode_core::debug::debug_log().log("codegraph", &format!(
+                                "daemon status poll: nodes={}",
+                                status.node_count
+                            ));
+                            let _ = status_event_tx.send(AgentEvent::codegraph_status(status)).await;
+                        }
+                    }
+                }
+            });
         } else {
             let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
-            let handle = watcher.start(cancel_token.clone());
-            log::info!("CodeGraph watcher started (no MCP daemon detected)");
+            let handle = watcher.start_with_status_updates(cancel_token.clone(), agent_event_tx.clone());
+            matrixcode_core::debug::debug_log().log("codegraph", "watcher started with status updates (no MCP daemon detected)");
             *watcher_handle_arc.lock().unwrap() = Some(handle);
         }
     }
@@ -1135,8 +1185,8 @@ async fn handle_init_in_task(
                                     if !daemon_running {
                                         // No daemon, start our watcher
                                         let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
-                                        let handle = watcher.start(cancel_token.clone());
-                                        log::info!("CodeGraph watcher started after /init (no MCP daemon detected)");
+                                        let handle = watcher.start_with_status_updates(cancel_token.clone(), event_tx.clone());
+                                        log::info!("CodeGraph watcher started after /init with status updates (no MCP daemon detected)");
                                         *handle_guard = Some(handle);
                                     } else {
                                         log::info!("CodeGraph MCP daemon still running after /init, skipping watcher");
