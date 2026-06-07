@@ -24,32 +24,68 @@ impl TuiApp {
         match k.code {
             // Enter: send or newline
             KeyCode::Enter => {
+                // FILTER: Ignore Enter events triggered by pasted newlines
+                // Some terminals (Windows Terminal, CMD) convert pasted \n into Enter key events
+                const PASTE_ENTER_FILTER_MS: u64 = 300; // 300ms window
+                if self.last_paste_complete_time.elapsed().as_millis() < PASTE_ENTER_FILTER_MS as u128 {
+                    log::info!("⏭️ Filtering auto-triggered Enter from paste ({}ms after paste)", 
+                        self.last_paste_complete_time.elapsed().as_millis());
+                    // Don't process this Enter - it's likely from pasted newlines
+                    return;
+                }
+                
+                log::debug!("Enter key pressed: input_collapsed={}, multiline_confirm_send={}, input_len={}, has_newline={}", 
+                    self.input_collapsed, self.multiline_confirm_send, self.input.len(), self.input.contains('\n'));
+                
                 if k.modifiers.contains(KeyModifiers::SHIFT) {
                     // Shift+Enter: insert newline at cursor position
                     self.ensure_char_boundary();
                     self.input.insert(self.cursor_pos, '\n');
                     self.cursor_pos += 1; // '\n' is 1 byte
                     self.multiline_confirm_send = false; // Reset confirmation state
+                    self.input_collapsed = false; // Expand input when manually adding newlines
+                    log::debug!("Shift+Enter: inserted newline, input_collapsed=false");
                 } else if self.waiting_for_session {
                     // Handle session selection
+                    log::debug!("Enter: handling session selection");
                     self.handle_session_select();
                 } else if self.activity == Activity::Asking && self.waiting_for_ask {
                     // Handle ask confirmation or toggle selection in multi-select
+                    log::debug!("Enter: handling ask confirmation");
                     self.handle_ask_enter();
                 } else if !self.input.trim().is_empty() {
-                    // Check if input contains multiple lines
-                    if self.input.contains('\n') && !self.multiline_confirm_send {
-                        // First Enter on multiline: require confirmation
+                    // Check if input is collapsed (from paste) - first Enter should expand it
+                    if self.input_collapsed && self.input.contains('\n') {
+                        // First Enter after paste: expand input, don't send
+                        self.input_collapsed = false;
+                        self.multiline_confirm_send = true; // Mark for confirmation
+                        log::info!("✓ First Enter after paste: expanding input, NOT sending");
+                        self.push_message(Message {
+                            role: Role::System,
+                            content: "⚠️ 多行内容已展开，按 Enter 再次确认发送".into(),
+                            is_pending: false,
+                        });
+                    } else if self.input.contains('\n') && !self.multiline_confirm_send {
+                        // First Enter on manually typed multiline: require confirmation
                         self.multiline_confirm_send = true;
-                        // Don't send, just mark for confirmation
+                        log::info!("✓ First Enter on multiline: marking for confirmation, NOT sending");
+                        self.push_message(Message {
+                            role: Role::System,
+                            content: "⚠️ 多���内容，按 Enter 再次确认发送".into(),
+                            is_pending: false,
+                        });
                     } else {
-                        // Single line, or second Enter on multiline: send
+                        // Second Enter on multiline, or single line: send
+                        log::info!("✓ Sending input (second Enter or single line)");
                         self.multiline_confirm_send = false;
+                        self.input_collapsed = false;
                         self.send_input();
                     }
                 } else {
                     // Empty input: reset confirmation state
+                    log::debug!("Enter: empty input, resetting state");
                     self.multiline_confirm_send = false;
+                    self.input_collapsed = false;
                 }
             }
 
@@ -199,6 +235,9 @@ impl TuiApp {
                 if let Ok(mut clipboard) = arboard::Clipboard::new()
                     && let Ok(text) = clipboard.get_text()
                 {
+                    // Record paste for deduplication (Event::Paste might also fire)
+                    self.last_paste_content = text.clone();
+                    self.last_paste_time = Instant::now();
                     self.on_paste(&text);
                 }
             }
@@ -620,8 +659,14 @@ impl TuiApp {
     }
 
     pub(crate) fn send_input(&mut self) {
+        log::info!("🚀 send_input called: input_len={}, input_collapsed={}, multiline_confirm_send={}", 
+            self.input.len(), self.input_collapsed, self.multiline_confirm_send);
+        
         self.show_welcome = false;
         let input = self.input.trim().to_string();
+        
+        log::info!("🚀 Sending message: {} chars, {} lines", input.len(), input.lines().count());
+        
         self.input.clear();
         self.cursor_pos = 0;
 
@@ -1222,21 +1267,31 @@ impl TuiApp {
     }
 
     pub(crate) fn on_paste(&mut self, text: &str) {
-        log::debug!("Paste event: {} chars, {} lines", text.len(), text.lines().count());
+        log::info!("📥 Paste event: {} chars, {} lines, current input_len={}", 
+            text.len(), text.lines().count(), self.input.len());
+        
+        // OPTIMIZATION: Set collapsed state BEFORE inserting content
+        // This prevents rendering the full content before it's collapsed
+        if text.contains('\n') {
+            self.input_collapsed = true;
+            log::info!("✓ Pre-set collapsed state for multiline paste");
+        }
+        
         self.ensure_char_boundary();
         self.input.insert_str(self.cursor_pos, text);
         self.cursor_pos += text.len(); // cursor_pos is byte position
         
-        // Auto-collapse when pasting multiline content
+        // Final state update
         if text.contains('\n') {
-            self.input_collapsed = true;
-            // Set confirmation flag to require double Enter for multiline paste
-            // This prevents accidental send if user presses Enter after paste
-            self.multiline_confirm_send = true;
-            log::debug!("Multiline paste: auto-collapsed input, waiting for confirmation");
+            // DON'T set multiline_confirm_send here - let first Enter handle it
+            // This ensures first Enter expands the input, second Enter sends
+            log::info!("✓ Multiline paste complete: input_collapsed={}, multiline_confirm_send={}", 
+                self.input_collapsed, self.multiline_confirm_send);
         } else {
             // Single-line paste: reset confirmation state
             self.multiline_confirm_send = false;
+            self.input_collapsed = false;
+            log::debug!("Single-line paste: reset state");
         }
     }
 }

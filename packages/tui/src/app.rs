@@ -66,6 +66,11 @@ pub struct TuiApp {
     pub(crate) thinking_collapsed: bool,
     // Input multiline collapse state
     pub(crate) input_collapsed: bool,
+    // Paste deduplication state (avoid double paste from Ctrl+V + Event::Paste)
+    pub(crate) last_paste_content: String,
+    pub(crate) last_paste_time: Instant,
+    // Paste Enter filtering - prevent auto-triggered Enter from pasted newlines
+    pub(crate) last_paste_complete_time: Instant, // When paste finished (to filter Enter events)
     // Dirty flag for rendering optimization - only redraw when something changed
     pub(crate) dirty: std::cell::Cell<bool>,
     // Approval mode
@@ -205,7 +210,10 @@ impl TuiApp {
             max_scroll: std::cell::Cell::new(0),
             new_message_while_scrolled: std::cell::Cell::new(false),
             thinking_collapsed: false, // Default: expanded to show thinking content
-        input_collapsed: true, // Default: collapsed when > 3 lines
+            input_collapsed: true, // Default: collapsed when > 3 lines
+            last_paste_content: String::new(),
+            last_paste_time: Instant::now(),
+            last_paste_complete_time: Instant::now(),
             dirty: std::cell::Cell::new(true), // Initial render needed
             approve_mode: ApproveMode::Auto,
             shared_approve_mode: None,
@@ -523,17 +531,46 @@ impl TuiApp {
                     }
                     Event::Paste(text) => {
                         // Batch paste events - some terminals split long pastes into multiple events
-                        let mut pasted = text;
-                        // Collect all pending paste events within a short window
-                        while event::poll(Duration::from_millis(5)).unwrap_or(false) {
-                            if let Ok(Event::Paste(next)) = event::read() {
-                                pasted.push_str(&next);
+                        // Use a longer window (200ms) to collect all paste fragments
+                        // This ensures long pastes (e.g., code blocks) are fully merged before processing
+                        let mut pasted = text.clone();
+                        let paste_start = Instant::now();
+                        
+                        // Collect paste events for up to 200ms
+                        while paste_start.elapsed().as_millis() < 200 {
+                            if event::poll(Duration::from_millis(20)).unwrap_or(false) {
+                                if let Ok(Event::Paste(next)) = event::read() {
+                                    pasted.push_str(&next);
+                                    log::debug!("Merged paste fragment: +{} chars (total: {})", next.len(), pasted.len());
+                                } else {
+                                    // Non-paste event encountered - stop batching
+                                    // The event is still in queue, will be handled in next loop iteration
+                                    break;
+                                }
                             } else {
-                                // Non-paste event, break batching
+                                // No more events in queue
                                 break;
                             }
                         }
-                        self.on_paste(&pasted);
+                        
+                        log::info!("📥 Final merged paste: {} chars, {} lines", pasted.len(), pasted.lines().count());
+                        
+                        // Deduplication: check if this paste duplicates a recent keyboard paste
+                        // (Ctrl+V also triggers on_paste, some terminals send both)
+                        const PASTE_DEDUP_MS: u64 = 100;
+                        if self.last_paste_time.elapsed().as_millis() < PASTE_DEDUP_MS as u128
+                            && self.last_paste_content == pasted {
+                            // Duplicate paste from keyboard Ctrl+V event, skip it
+                            log::debug!("Skipping duplicate paste event ({} chars)", pasted.len());
+                        } else {
+                            // Record this paste for deduplication
+                            self.last_paste_content = pasted.clone();
+                            self.last_paste_time = Instant::now();
+                            self.on_paste(&pasted);
+                            // Record when paste finished - to filter auto-triggered Enter events
+                            self.last_paste_complete_time = Instant::now();
+                            log::info!("📥 Paste complete timestamp recorded");
+                        }
                         self.dirty.set(true);
                     }
                     _ => {}

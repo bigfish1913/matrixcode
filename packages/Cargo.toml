@@ -1,0 +1,81 @@
+[workspace]
+resolver = "2"
+members = [
+    "cli",
+    "core",
+    "tui",
+    "browser_test",
+]
+
+[workspace.package]
+version = "0.4.40"
+edition = "2024"
+authors = ["BigFish <bigfish1913@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/bigfish1913/matrixcode"
+
+[workspace.dependencies]
+# Internal crates
+matrixcode-core = { path = "core" }
+matrixcode-tui = { path = "tui" }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures-util = "0.3"
+
+# HTTP
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+anyhow = "1"
+thiserror = "2.0"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Environment
+dotenvy = "0.15"
+once_cell = "1.21"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Terminal UI
+ratatui = "0.29"
+crossterm = "0.28"
+termimad = "0.31"
+is-terminal = "0.4"
+arboard = "3.4"
+unicode-width = "0.2"
+
+# File handling
+glob = "0.3"
+regex = "1"
+tempfile = "3"
+notify = "6"
+
+# Utils
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+uuid = { version = "1", features = ["v4", "serde"] }
+urlencoding = "2.1"
+shell-words = "1.1"
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Token counting
+tiktoken-rs = "0.6"
+
+# Testing
+mockito = "1"
+tokio-test = "0.4"
+
+[workspace.package.metadata.bin]
+default-run = "matrixcode"

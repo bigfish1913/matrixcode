@@ -39,9 +39,9 @@ impl ToolErrorEntry {
     /// Create a new error entry
     pub fn new(tool_name: &str, error_msg: &str) -> Self {
         // Create a key for comparison - truncate to first 100 chars
-        // This allows grouping similar errors together
-        let error_key = if error_msg.len() > 100 {
-            error_msg[..100].to_string()
+        // Use chars() to safely handle UTF-8 multi-byte characters
+        let error_key = if error_msg.chars().count() > 100 {
+            error_msg.chars().take(100).collect::<String>()
         } else {
             error_msg.to_string()
         };
@@ -56,8 +56,9 @@ impl ToolErrorEntry {
 
     /// Check if this entry matches a new error
     pub fn matches(&self, tool_name: &str, error_msg: &str) -> bool {
-        let new_key = if error_msg.len() > 100 {
-            error_msg[..100].to_string()
+        // Use chars() to safely handle UTF-8 multi-byte characters
+        let new_key = if error_msg.chars().count() > 100 {
+            error_msg.chars().take(100).collect::<String>()
         } else {
             error_msg.to_string()
         };
