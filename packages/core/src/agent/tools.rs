@@ -9,6 +9,7 @@ use crate::event::{AgentEvent, EventData, EventType};
 use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role};
 use crate::tools::MustReadFirstError;
 use crate::truncate::truncate_with_suffix;
+use crate::agent::core::state::MAX_SAME_ERROR_COUNT;
 
 use super::helpers::extract_tool_detail;
 use super::types::Agent;
@@ -218,10 +219,204 @@ impl Agent {
                 }
             }
 
+            // === Error history tracking ===
+            // Track errors to detect repeated mistakes
+            if let Err(ref e) = result {
+                let error_msg = e.to_string();
+                let error_count = self.state.record_tool_error(name, &error_msg);
+
+                // If error repeats, provide enhanced guidance
+                if error_count >= MAX_SAME_ERROR_COUNT {
+                    log::warn!(
+                        "Tool '{}' error repeated {} times: {}",
+                        name,
+                        error_count,
+                        &error_msg[..100.min(error_msg.len())]
+                    );
+
+                    // Provide enhanced error message with guidance
+                    let enhanced_error = self.enhance_repeated_error(name, &error_msg, error_count);
+                    return Err(anyhow::anyhow!("{}", enhanced_error));
+                }
+            }
+
             result
         } else {
             Err(anyhow::anyhow!("Tool '{}' not found", name))
         }
+    }
+
+    /// Enhance error message when it repeats multiple times.
+    /// Provides specific guidance based on tool type and error pattern.
+    fn enhance_repeated_error(&self, tool_name: &str, error_msg: &str, count: usize) -> String {
+        let base_guidance = format!(
+            "⚠️ 错误已重复 {} 次。请仔细阅读错误信息并采取不同的方法。\n\n",
+            count
+        );
+
+        // Tool-specific guidance
+        let tool_guidance = match tool_name {
+            "edit" | "multi_edit" => {
+                self.enhance_edit_error(error_msg)
+            }
+            "write" => {
+                self.enhance_write_error(error_msg)
+            }
+            "read" => {
+                self.enhance_read_error(error_msg)
+            }
+            "bash" => {
+                self.enhance_bash_error(error_msg)
+            }
+            "grep" | "glob" => {
+                self.enhance_search_error(error_msg)
+            }
+            _ => {
+                format!(
+                    "原始错误: {}\n\n建议：检查工具参数是否正确，或尝试其他工具。",
+                    error_msg
+                )
+            }
+        };
+
+        format!("{}{}", base_guidance, tool_guidance)
+    }
+
+    /// Enhance edit/multi_edit tool error
+    fn enhance_edit_error(&self, error_msg: &str) -> String {
+        if error_msg.contains("not found") || error_msg.contains("old_string") {
+            format!(
+                "原始错误: {}\n\n\
+                🔧 edit 工具错误指导：\n\
+                1. 'old_string' 必须与文件内容**完全匹配**（包括空格、换行）\n\
+                2. 请先用 read 工具读取文件，确认实际内容\n\
+                3. 复制粘贴时注意不要遗漏或添加字符\n\
+                4. 如果内容有多处匹配，需要扩大上下文使其唯一\n\
+                5. Windows 文件注意换行符差异（CRLF vs LF）\n\
+                \n\
+                建议：先 read 文件，然后精确复制要替换的内容作为 old_string。",
+                error_msg
+            )
+        } else if error_msg.contains("multiple") || error_msg.contains("unique") {
+            format!(
+                "原始错误: {}\n\n\
+                🔧 多处匹配问题指导：\n\
+                1. 'old_string' 在文件中找到多处匹配\n\
+                2. 需要扩大上下文（前后添加更多行）使其唯一\n\
+                3. 或者使用 multi_edit 工具处理多处修改\n\
+                \n\
+                建议：在 old_string 中添加更多上下文行。",
+                error_msg
+            )
+        } else {
+            format!(
+                "原始错误: {}\n\n\
+                🔧 建议先读取文件确认内容，然后精确匹配 old_string。",
+                error_msg
+            )
+        }
+    }
+
+    /// Enhance write tool error
+    fn enhance_write_error(&self, error_msg: &str) -> String {
+        if error_msg.contains("must read") || error_msg.contains("read first") {
+            format!(
+                "原始错误: {}\n\n\
+                📝 write 工具前置条件：\n\
+                1. 写入已存在的文件前必须先用 read 工具读取\n\
+                2. 这是为了防止意外覆盖重要内容\n\
+                \n\
+                建议：先执行 read 工具读取目标文件。",
+                error_msg
+            )
+        } else if error_msg.contains("path") || error_msg.contains("traversal") {
+            format!(
+                "原始错误: {}\n\n\
+                📝 路径安全限制：\n\
+                1. 不允许写入系统关键目录\n\
+                2. 不允许路径穿越（如 ../../../etc/passwd）\n\
+                3. 必须在项目目录范围内\n\
+                \n\
+                建议：使用项目内的相对路径。",
+                error_msg
+            )
+        } else {
+            format!(
+                "原始错误: {}\n\n\
+                📝 建议检查路径和参数是否正确。",
+                error_msg
+            )
+        }
+    }
+
+    /// Enhance read tool error
+    fn enhance_read_error(&self, error_msg: &str) -> String {
+        if error_msg.contains("not found") || error_msg.contains("does not exist") {
+            format!(
+                "原始错误: {}\n\n\
+                📖 文件不存在指导：\n\
+                1. 检查路径是否正确（相对路径 vs 绝对路径）\n\
+                2. 使用 glob 工具搜索类似文件名\n\
+                3. 检查文件扩展名是否正确\n\
+                \n\
+                建议：先用 ls 或 glob 确认文件位置。",
+                error_msg
+            )
+        } else {
+            format!(
+                "原始错误: {}\n\n\
+                📖 建议检查文件路径和权限。",
+                error_msg
+            )
+        }
+    }
+
+    /// Enhance bash tool error
+    fn enhance_bash_error(&self, error_msg: &str) -> String {
+        if error_msg.contains("not found") || error_msg.contains("command") {
+            format!(
+                "原始错误: {}\n\n\
+                💻 命令执行错误指导：\n\
+                1. 检查命令是否存在（可能需要安装）\n\
+                2. Windows 环境注意命令语法差异\n\
+                3. 使用绝对路径或确认 PATH 环境变量\n\
+                \n\
+                建议：先确认命令可用，或使用替代命令。",
+                error_msg
+            )
+        } else if error_msg.contains("permission") || error_msg.contains("access") {
+            format!(
+                "原始错误: {}\n\n\
+                💻 权限错误指导：\n\
+                1. 检查是否有执行权限\n\
+                2. 可能需要管理员权限\n\
+                3. 检查文件/目录权限设置\n\
+                \n\
+                建议：确认权限或使用其他目录。",
+                error_msg
+            )
+        } else {
+            format!(
+                "原始错误: {}\n\n\
+                💻 建议检查命令语法和参数。",
+                error_msg
+            )
+        }
+    }
+
+    /// Enhance search tool error
+    fn enhance_search_error(&self, error_msg: &str) -> String {
+        format!(
+            "原始错误: {}\n\n\
+            🔍 搜索工具指导：\n\
+            1. 检查路径参数是否正确\n\
+            2. 检查 glob 模式语法（如 *.rs, **/*.ts）\n\
+            3. 检查正则表达式语法是否正确\n\
+            4. 确认搜索目录存在\n\
+            \n\
+            建议：先用 ls 确认目录结构。",
+            error_msg
+        )
     }
 
     /// Handle tool approval flow

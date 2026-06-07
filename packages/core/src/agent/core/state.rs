@@ -20,7 +20,7 @@ use crate::providers::{ContentBlock, Message, MessageContent, Role, Usage};
 use crate::tools::ReadHistoryTracker;
 
 /// Maximum number of same errors before triggering intervention
-const MAX_SAME_ERROR_COUNT: usize = 3;
+pub const MAX_SAME_ERROR_COUNT: usize = 3;
 
 /// A tool error entry for tracking repeated errors.
 #[derive(Debug, Clone)]
@@ -107,6 +107,10 @@ pub struct AgentState {
 
     /// Pending user inputs queued for next iteration.
     pending_inputs: Vec<String>,
+
+    /// Tool error history for detecting repeated errors.
+    /// When same error repeats, provide enhanced guidance.
+    error_history: Vec<ToolErrorEntry>,
 }
 
 impl AgentState {
@@ -121,6 +125,7 @@ impl AgentState {
             todo_reminder_count: HashMap::new(),
             read_history: ReadHistoryTracker::new(),
             pending_inputs: Vec::new(),
+            error_history: Vec::new(),
         }
     }
 
@@ -389,6 +394,59 @@ impl AgentState {
         self.messages.len()
     }
 
+    // ========================================================================
+    // Error History Management
+    // ========================================================================
+
+    /// Record a tool error and check for repeats.
+    /// Returns the count of how many times this error has occurred.
+    pub fn record_tool_error(&mut self, tool_name: &str, error_msg: &str) -> usize {
+        // Find existing entry for this error
+        for entry in &mut self.error_history {
+            if entry.matches(tool_name, error_msg) {
+                entry.increment();
+                return entry.count;
+            }
+        }
+
+        // No existing entry, create new one
+        let new_entry = ToolErrorEntry::new(tool_name, error_msg);
+        let count = new_entry.count;
+        self.error_history.push(new_entry);
+        count
+    }
+
+    /// Check if a tool has reached error limit.
+    /// Returns the entry if limit is reached.
+    pub fn check_error_limit(&self, tool_name: &str, error_msg: &str) -> Option<&ToolErrorEntry> {
+        self.error_history.iter().find(|e| {
+            e.matches(tool_name, error_msg) && e.is_limit_reached()
+        })
+    }
+
+    /// Get the count of a specific error.
+    pub fn error_count(&self, tool_name: &str, error_msg: &str) -> usize {
+        self.error_history.iter()
+            .find(|e| e.matches(tool_name, error_msg))
+            .map(|e| e.count)
+            .unwrap_or(0)
+    }
+
+    /// Clear error history (e.g., after successful correction).
+    pub fn clear_error_history(&mut self) {
+        self.error_history.clear();
+    }
+
+    /// Get total unique error count.
+    pub fn unique_error_count(&self) -> usize {
+        self.error_history.len()
+    }
+
+    /// Get total repeated error count (errors that occurred more than once).
+    pub fn repeated_error_count(&self) -> usize {
+        self.error_history.iter().filter(|e| e.count > 1).count()
+    }
+
     /// Clear all state (reset to initial state).
     pub fn clear(&mut self) {
         self.messages.clear();
@@ -399,6 +457,7 @@ impl AgentState {
         self.todo_reminder_count.clear();
         self.read_history = ReadHistoryTracker::new();
         self.pending_inputs.clear();
+        self.error_history.clear();
     }
 }
 

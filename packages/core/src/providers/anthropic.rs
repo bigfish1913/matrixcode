@@ -86,38 +86,77 @@ impl AnthropicProvider {
         self.base_url.contains("api.anthropic.com")
     }
 
-    fn convert_messages(&self, messages: &[Message]) -> Vec<Value> {
-        // Always filter out thinking blocks from message history.
-        // Thinking blocks should NOT be sent back to the API because:
-        // 1. They consume significant tokens without adding value
-        // 2. They can cause the model to repeat similar thinking patterns
-        // 3. Anthropic's thinking is meant for user visibility, not for context
-        // Note: The current turn's thinking is handled separately by the API
-        log::debug!(
-            "convert_messages: always filtering thinking blocks, base_url={}",
-            self.base_url
-        );
+    /// Filter trailing thinking blocks from the last assistant message.
+    /// The API doesn't allow assistant messages to end with thinking blocks.
+    /// This follows Claude Code's implementation: keep thinking in history,
+    /// only strip trailing thinking from the last assistant message.
+    fn filter_trailing_thinking(messages: Vec<Value>) -> Vec<Value> {
+        if messages.is_empty() {
+            return messages;
+        }
 
-        // Count thinking blocks in original messages
-        let mut thinking_count = 0;
-        for m in messages {
-            if let MessageContent::Blocks(blocks) = &m.content {
-                for b in blocks {
-                    if matches!(b, ContentBlock::Thinking { .. }) {
-                        thinking_count += 1;
+        // Find the last assistant message
+        let last_idx = messages.len() - 1;
+        let last_msg = &messages[last_idx];
+
+        // Check if it's an assistant message
+        if last_msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            return messages;
+        }
+
+        let content = last_msg.get("content");
+        if let Some(content_array) = content.and_then(|c| c.as_array()) {
+            if content_array.is_empty() {
+                return messages;
+            }
+
+            // Check if last block is thinking
+            let last_block = content_array.last();
+            if let Some(block) = last_block {
+                if block.get("type").and_then(|t| t.as_str()) == Some("thinking") {
+                    // Find the last non-thinking block index
+                    // Use i64 to allow negative values for "all thinking" case
+                    let mut last_valid_idx: i64 = content_array.len() as i64 - 1;
+                    while last_valid_idx >= 0 {
+                        let b = &content_array[last_valid_idx as usize];
+                        if b.get("type").and_then(|t| t.as_str()) != Some("thinking") {
+                            break;
+                        }
+                        last_valid_idx -= 1;
                     }
+
+                    // If all blocks are thinking, add a placeholder
+                    let filtered_content: Vec<Value> = if last_valid_idx < 0 {
+                        vec![json!({"type": "text", "text": "[No message content]"})]
+                    } else {
+                        content_array[..=last_valid_idx as usize].to_vec()
+                    };
+
+                    // Update the last message
+                    let mut result = messages;
+                    result[last_idx] = json!({
+                        "role": "assistant",
+                        "content": filtered_content
+                    });
+                    return result;
                 }
             }
         }
-        if thinking_count > 0 {
-            log::debug!(
-                "convert_messages: Filtering {} thinking blocks from {} messages",
-                thinking_count,
-                messages.len()
-            );
-        }
 
         messages
+    }
+
+    fn convert_messages(&self, messages: &[Message]) -> Vec<Value> {
+        // Keep thinking blocks in message history for reasoning continuity.
+        // This prevents the model from re-analyzing the same problem repeatedly.
+        // Only filter trailing thinking from the last assistant message (API requirement).
+        // Based on Claude Code's implementation.
+        log::debug!(
+            "convert_messages: keeping thinking blocks for continuity, base_url={}",
+            self.base_url
+        );
+
+        let converted: Vec<Value> = messages
             .iter()
             .filter(|m| m.role != Role::System)
             .map(|m| {
@@ -132,29 +171,25 @@ impl AnthropicProvider {
                     MessageContent::Blocks(blocks) => {
                         let converted: Vec<Value> = blocks
                             .iter()
-                            .filter(|b| {
-                                // Always skip thinking blocks - they should not be sent back
-                                if matches!(b, ContentBlock::Thinking { .. }) {
-                                    return false;
-                                }
-                                true
-                            })
                             .map(|b| match b {
-                                ContentBlock::Text { text } => json!({"type": "text", "text": text}),
+                                // Keep thinking blocks - they maintain reasoning continuity
+                                ContentBlock::Thinking { thinking, signature } => {
+                                    let mut obj = json!({"type": "thinking", "thinking": thinking});
+                                    if let Some(sig) = signature {
+                                        if !sig.is_empty() {
+                                            obj["signature"] = json!(sig);
+                                        }
+                                    }
+                                    obj
+                                }
+                                ContentBlock::Text { text } => {
+                                    json!({"type": "text", "text": text})
+                                }
                                 ContentBlock::ToolUse { id, name, input } => {
                                     json!({"type": "tool_use", "id": id, "name": name, "input": input})
                                 }
                                 ContentBlock::ToolResult { tool_use_id, content } => {
                                     json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content})
-                                }
-                                ContentBlock::Thinking { thinking, signature } => {
-                                    let mut obj = json!({"type": "thinking", "thinking": thinking});
-                                    // Only send non-empty signature
-                                    if let Some(sig) = signature
-                                        && !sig.is_empty() {
-                                            obj["signature"] = json!(sig);
-                                        }
-                                    obj
                                 }
                                 ContentBlock::ServerToolUse { id, name, input } => {
                                     json!({"type": "server_tool_use", "id": id, "name": name, "input": input})
@@ -184,7 +219,10 @@ impl AnthropicProvider {
                 json!({"role": role, "content": content})
             })
             .filter(|v| !v.is_null())
-            .collect()
+            .collect();
+
+        // Filter trailing thinking blocks from last assistant message
+        Self::filter_trailing_thinking(converted)
     }
 
     /// Convert tools with caching control for Anthropic prompt caching.

@@ -261,6 +261,54 @@ impl Tool for CodeGraphSyncTool {
     }
 }
 
+/// Tool for querying indexed files.
+pub struct CodeGraphFilesTool {
+    manager: Arc<CodeGraphManager>,
+}
+
+impl CodeGraphFilesTool {
+    pub fn new(project_path: &Path) -> Self {
+        Self {
+            manager: Arc::new(CodeGraphManager::new(project_path)),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for CodeGraphFilesTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "code_files".to_string(),
+            description: "查询索引中的文件列表。返回文件路径、语言类型、符号数量。支持按语言过滤，比 glob 更智能，能显示每个文件的符号密度。".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "language": {
+                        "type": "string",
+                        "description": "按语言过滤（如 'rust', 'typescript', 'python'），不填则返回所有文件"
+                    }
+                }
+            }),
+            is_priority: false,
+        }
+    }
+
+    async fn execute(&self, args: Value) -> Result<String> {
+        let language = args.get("language").and_then(|v| v.as_str());
+        let files = self.manager.files(language)?;
+        
+        Ok(serde_json::to_string(&json!({
+            "files": files,
+            "total_count": files.len(),
+            "filter": language
+        }))?)
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Safe
+    }
+}
+
 /// Create CodeGraph tools for a project path.
 pub fn codegraph_tools(project_path: &Path) -> Vec<Box<dyn Tool>> {
     vec![
@@ -269,6 +317,7 @@ pub fn codegraph_tools(project_path: &Path) -> Vec<Box<dyn Tool>> {
         Box::new(CodeGraphCalleesTool::new(project_path)),
         Box::new(CodeGraphStatusTool::new(project_path)),
         Box::new(CodeGraphSyncTool::new(project_path)),
+        Box::new(CodeGraphFilesTool::new(project_path)),
     ]
 }
 

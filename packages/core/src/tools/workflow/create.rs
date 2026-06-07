@@ -48,89 +48,53 @@ impl Tool for WorkflowCreateTool {
 【核心功能】
 此工具是 workflow 制作的核心工具，支持完整的创建-编辑-验证循环。
 
-【适用场景】
-- 创建新的 workflow
-- 修改现有 workflow（增删改节点、调整连接、修改参数）
-- 获取预定义模板作为起点
-- 验证 workflow 结构合法性
-- **多次迭代调整**：用户可能反复修改直到满意
+【节点类型和必需字段】
+**基础字段**（所有节点）:
+- id: 节点唯一标识
+- type: 节点类型 (start/end/task/condition/parallel/approval/wait/subworkflow)
+- name: 节点显示名称
+
+**特殊字段**（按节点类型）:
+- **task**: task（任务名）, params（参数）, timeout_ms, on_failure
+- **condition**: branches（条件分支列表，**必须用 name 字段**）
+  - 每个分支: {\"name\": \"分支名\", \"condition\": \"表达式\", \"target\": \"目标节点ID\"}
+  - ⚠️ 分支用 `name` 而非 `id`
+- **approval**: approvers（审批人列表）, timeout_ms
+- **parallel/pipeline**: parallel_branches（并行分支列表）
+  - 每个分支: {\"name\": \"分支名\", \"nodes\": [节点列表]}
+- **wait**: wait_ms（等待时间）
+- **subworkflow**: workflow（子工作流名称）
 
 【功能模式】
 - **create**: 创建新 workflow（首次创建）
 - **edit**: 编辑现有 workflow（精确修改节点、边、参数）
-- **template**: 获取模板（快速开始）
+- **template**: 获取模板（快速开始，推荐先用模板）
 - **validate**: 验证结构（检查错误）
-- **info**: 查看 workflow 详情（查看节点、边、参数）
+- **info**: 查看 workflow 详情
 
-【迭代修改流程】
-典型使用流程：
-1. template → 获取模板作为起点
+【推荐流程】
+1. template → 获取 condition/parallel/approval 模板作为起点
 2. create → 创建初始版本
-3. edit → 多次调整（修改节点名称、添加节点、调整连接）
-4. validate → 验证最终版本
+3. validate → 检查是否有错误
+4. edit → 多次调整直到满意
 
-【edit 模式操作类型】
-- add_node: 添加节点
-- remove_node: 删除节点
-- update_node: 更新节点属性（name, task, params, on_failure）
-- add_edge: 添加连接
-- remove_edge: 删除连接
-- add_input: 添加输入参数
-- remove_input: 删除输入参数
-- update_input: 更新输入参数
-- add_output: 添加输出参数
-- remove_output: 删除输出参数
-- update_output: 更新输出参数
-- update_metadata: 更新元数据（name, description, version）
-
-【参数说明】
-- mode: 操作模式 (create/edit/template/validate/info)
-- workflow_id: 目标 workflow ID (edit/info 模式必需)
-- workflow: workflow 定义 (create 模式必需)
-- yaml_content: YAML 内容字符串 (可选，用于直接提供 YAML)
-- edit_operation: 编辑操作类型 (edit 模式必需)
-- edit_target: 编辑目标 (节点ID、边ID等)
-- edit_value: 新值 (更新操作必需)
-- location: 保存位置 (project/user，默认 project)
-- template_type: 模板类型 (template 模式使用)
+【常见错误】
+1. ❌ branches 分支用 id 而非 name → 正确: {\"name\": \"分支名\", ...}
+2. ❌ 缺少 start 或 end 节点 → 必须有这两种节点
+3. ❌ 边引用不存在节点 → 检查节点 ID 是否正确
+4. ❌ approval 缺少 approvers → 必须指定审批人
 
 【使用示例】
-创建 workflow:
-{
-  \"mode\": \"create\",
-  \"workflow\": {\"id\": \"my-workflow\", \"name\": \"My Workflow\", ...}
-}
+获取 condition 模板:
+{\"mode\": \"template\", \"template_type\": \"condition\"}
 
-添加节点:
-{
-  \"mode\": \"edit\",
-  \"workflow_id\": \"my-workflow\",
-  \"edit_operation\": \"add_node\",
-  \"edit_value\": {\"id\": \"new_task\", \"type\": \"task\", \"name\": \"New Task\", \"task\": \"process\"}
-}
+创建带条件分支的节点:
+{\"id\": \"check\", \"type\": \"condition\", \"name\": \"检查\", 
+ \"branches\": [{\"name\": \"是\", \"condition\": \"{{value}} > 0\", \"target\": \"yes_node\"}]}
 
-修改节点名称:
-{
-  \"mode\": \"edit\",
-  \"workflow_id\": \"my-workflow\",
-  \"edit_operation\": \"update_node\",
-  \"edit_target\": \"task1\",
-  \"edit_value\": {\"name\": \"Updated Task Name\"}
-}
-
-添加连接:
-{
-  \"mode\": \"edit\",
-  \"workflow_id\": \"my-workflow\",
-  \"edit_operation\": \"add_edge\",
-  \"edit_value\": {\"from\": \"task1\", \"to\": \"new_task\"}
-}
-
-查看详情:
-{
-  \"mode\": \"info\",
-  \"workflow_id\": \"my-workflow\"
-}".to_string(),
+创建审批节点:
+{\"id\": \"approve\", \"type\": \"approval\", \"name\": \"用户确认\",
+ \"approvers\": [\"user\"], \"timeout_ms\": 300000}".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -179,7 +143,7 @@ impl Tool for WorkflowCreateTool {
                     },
                     "template_type": {
                         "type": "string",
-                        "enum": ["simple", "parallel", "condition", "research", "batch"],
+                        "enum": ["simple", "parallel", "condition", "research", "batch", "approval"],
                         "description": "模板类型 (template 模式)"
                     },
                     "overwrite": {
@@ -276,8 +240,9 @@ impl WorkflowCreateTool {
             "condition" => self.get_condition_template(),
             "research" => self.get_research_template(),
             "batch" => self.get_batch_template(),
+            "approval" => self.get_approval_template(),
             _ => bail!(
-                "Unknown template type: {}. Available: simple, parallel, condition, research, batch",
+                "Unknown template type: {}. Available: simple, parallel, condition, research, batch, approval",
                 template_type
             ),
         };
@@ -642,7 +607,7 @@ impl WorkflowCreateTool {
         r#"id: my-workflow
 name: My Workflow
 version: "1.0.0"
-description: A simple workflow example
+description: A simple workflow example using bash tool
 
 inputs:
   - name: param1
@@ -652,7 +617,7 @@ inputs:
 
 outputs:
   - name: result
-    value: "{{nodes.end.output}}"
+    value: "{{nodes.task1.output}}"
 
 nodes:
   - id: start
@@ -662,9 +627,10 @@ nodes:
   - id: task1
     type: task
     name: First Task
-    task: example_task
+    task: bash
     params:
-      input: "{{inputs.param1}}"
+      command: "echo '{{inputs.param1}}'"
+    timeout_ms: 5000
     on_failure:
       type: abort
 
@@ -686,7 +652,7 @@ edges:
         r#"id: parallel-workflow
 name: Parallel Workflow
 version: "1.0.0"
-description: A workflow with parallel execution
+description: A workflow with parallel execution using bash tool
 
 inputs:
   - name: data
@@ -708,25 +674,25 @@ nodes:
           - id: task_a
             type: task
             name: Task A
-            task: process_a
+            task: bash
             params:
-              data: "{{inputs.data}}"
+              command: "echo 'Processing A: {{inputs.data}}'"
       - name: Branch B
         nodes:
           - id: task_b
             type: task
             name: Task B
-            task: process_b
+            task: bash
             params:
-              data: "{{inputs.data}}"
+              command: "echo 'Processing B: {{inputs.data}}'"
 
   - id: merge
     type: task
     name: Merge Results
-    task: merge_results
+    task: bash
     params:
-      result_a: "{{nodes.task_a.output}}"
-      result_b: "{{nodes.task_b.output}}"
+      command: "echo 'Merged results from A and B'"
+    timeout_ms: 10000
 
   - id: end
     type: end
@@ -748,7 +714,7 @@ edges:
         r#"id: condition-workflow
 name: Conditional Workflow
 version: "1.0.0"
-description: A workflow with conditional branches
+description: A workflow with conditional branches using bash tool
 
 inputs:
   - name: value
@@ -778,17 +744,26 @@ nodes:
   - id: positive_task
     type: task
     name: Handle Positive
-    task: handle_positive
+    task: bash
+    params:
+      command: "echo 'Value is positive'"
+    timeout_ms: 5000
 
   - id: negative_task
     type: task
     name: Handle Negative
-    task: handle_negative
+    task: bash
+    params:
+      command: "echo 'Value is negative'"
+    timeout_ms: 5000
 
   - id: zero_task
     type: task
     name: Handle Zero
-    task: handle_zero
+    task: bash
+    params:
+      command: "echo 'Value is zero'"
+    timeout_ms: 5000
 
   - id: end
     type: end
@@ -950,6 +925,96 @@ edges:
   - from: process_items
     to: aggregate_results
   - from: aggregate_results
+    to: end
+"#
+        .to_string()
+    }
+
+    /// 审批工作流模板
+    fn get_approval_template(&self) -> String {
+        r#"id: approval-workflow
+name: Approval Workflow
+version: "1.0.0"
+description: Workflow with user approval checkpoint
+
+inputs:
+  - name: task_data
+    type: string
+    required: true
+    description: Data to process before approval
+
+outputs:
+  - name: final_result
+    value: "{{nodes.final_task.output}}"
+
+nodes:
+  - id: start
+    type: start
+    name: Start
+
+  - id: prepare_task
+    type: task
+    name: Prepare Content
+    task: bash
+    params:
+      command: "echo 'Processing: {{inputs.task_data}}'"
+    timeout_ms: 10000
+
+  - id: user_approval
+    type: approval
+    name: User Approval
+    description: Please review and approve the result
+    approvers:
+      - "user"
+    timeout_ms: 300000
+
+  - id: check_approval
+    type: condition
+    name: Check Approval Result
+    branches:
+      - name: Approved
+        condition: "{{approval_result}} == 'approved'"
+        target: final_task
+      - name: Rejected
+        condition: "{{approval_result}} == 'rejected'"
+        target: revise_task
+
+  - id: revise_task
+    type: task
+    name: Revise Content
+    task: bash
+    params:
+      command: "echo 'Revising content based on feedback'"
+    timeout_ms: 10000
+
+  - id: final_task
+    type: task
+    name: Final Output
+    task: bash
+    params:
+      command: "echo 'Final approved output'"
+    timeout_ms: 10000
+
+  - id: end
+    type: end
+    name: End
+
+edges:
+  - from: start
+    to: prepare_task
+  - from: prepare_task
+    to: user_approval
+  - from: user_approval
+    to: check_approval
+  - from: check_approval
+    to: final_task
+    label: Approved
+  - from: check_approval
+    to: revise_task
+    label: Rejected
+  - from: revise_task
+    to: user_approval
+  - from: final_task
     to: end
 "#
         .to_string()

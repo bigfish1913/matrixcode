@@ -20,8 +20,8 @@ pub use self::install::{ensure_codegraph, get_codegraph_path, is_codegraph_insta
 pub use self::manager::CodeGraphManager;
 pub use self::project::find_project_root;
 pub use self::tools::{
-    CodeGraphCalleesTool, CodeGraphCallersTool, CodeGraphSearchTool, CodeGraphStatusTool,
-    CodeGraphSyncTool, codegraph_tools, codegraph_tools_if_installed,
+    CodeGraphCalleesTool, CodeGraphCallersTool, CodeGraphFilesTool, CodeGraphSearchTool,
+    CodeGraphStatusTool, CodeGraphSyncTool, codegraph_tools, codegraph_tools_if_installed,
     codegraph_tools_with_auto_detect, should_inject_codegraph_tools,
 };
 pub use self::types::{CodeGraphEnv, Edge, FileInfo, IndexStatus, Node, PendingChanges};

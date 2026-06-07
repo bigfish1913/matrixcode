@@ -37,15 +37,19 @@ trigger: 用户请求创建 workflow、设计自动化流程、制作工作流�
 
 根据需求设计 workflow 节点：
 
-**节点类型**：
-- `start`: 开始节点（必需）
-- `end`: 结束节点（必需）
-- `task`: 任务节点（执行具体操作）
-- `condition`: 条件分支节点
-- `parallel`: 并行执行节点
-- `wait`: 等待节点
-- `approval`: 人工审批节点
-- `subworkflow`: 子工作流节点
+**节点类型及特殊字段**：
+- `start`: 开始节点（必需，无特殊字段）
+- `end`: 结束节点（必需，无特殊字段）
+- `task`: 任务节点（需要 `task` 字段指定任务名，可选 `params`, `timeout_ms`, `on_failure`）
+- `condition`: 条件分支节点（需要 `branches` 字段）
+  - ⚠️ **重要**：branches 分支用 `name` 而非 `id`
+  - 格式：`{"name": "分支名", "condition": "表达式", "target": "目标节点ID"}`
+- `parallel`: 并行执行节点（需要 `parallel_branches` 字段）
+  - 格式：`{"name": "分支名", "nodes": [节点列表]}`
+- `approval`: 人工审批节点（需要 `approvers` 字段）
+  - 格式：`{"approvers": ["user"], "timeout_ms": 300000}`
+- `wait`: 等待节点（需要 `wait_ms` 字段）
+- `subworkflow`: 子工作流节点（需要 `workflow` 字段指定子工作流名称）
 
 **示例结构**：
 
@@ -53,6 +57,7 @@ trigger: 用户请求创建 workflow、设计自动化流程、制作工作流�
 简单流程：    start → task1 → task2 → end
 条件分支：    start → condition → [branch_a 或 branch_b] → end
 并行执行：    start → parallel → [task_a + task_b] → merge → end
+审批流程：    start → task → approval → condition → [通过/拒绝] → end
 ```
 
 ### 步骤 3：生成 YAML
@@ -266,7 +271,7 @@ description: "搜索多个来源，汇总信息后进行分析"
 - `yaml_content`: 直接提供 YAML 字符串
 - `location`: `project` 或 `user`
 - `overwrite`: 是否覆盖已存在文件
-- `template_type`: 模板类型（simple/parallel/condition/research/batch）
+- `template_type`: 模板类型（simple/parallel/condition/research/batch/approval）
 
 **示例调用**：
 
@@ -300,6 +305,21 @@ description: "搜索多个来源，汇总信息后进行分析"
 3. **边的完整性**：所有节点必须通过边连接（start → ... → end）
 4. **输入必填项**：标记为 `required: true` 的输入必须提供 `default` 或在运行时提供
 5. **文件存在检查**：不设置 `overwrite` 时，已存在文件会导致创建失败
+
+### 常见错误
+
+1. ❌ **branches 分支用 id 而非 name** 
+   - 错误：`{"id": "分支名", ...}`
+   - 正确：`{"name": "分支名", "condition": "...", "target": "..."}`
+
+2. ❌ **approval 缺少 approvers**
+   - approval 节点必须指定 `approvers` 字段
+
+3. ❌ **边引用不存在节点**
+   - 检查 edges 中的 `from` 和 `to` 是否匹配 nodes 的 `id`
+
+4. ❌ **condition 节点缺少 branches**
+   - condition 节点必须有 branches 列表
 
 ## 📖 延伸阅读
 
