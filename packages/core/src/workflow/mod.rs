@@ -48,40 +48,85 @@
 //! println!("Workflow status: {:?}", context.status);
 //! ```
 
-pub mod context;
 pub mod def;
+pub mod parser;
+pub mod context;
+pub mod template;
+pub mod rule_engine;
 pub mod engine;
 pub mod executors;
-pub mod parser;
 pub mod persistence;
 pub mod registry;
-pub mod rule_engine;
-pub mod template;
 
 // 重导出公共接口
 pub use def::{
-    BranchDef, EdgeDef, FailureStrategy, InputDef, NodeDef, NodeType, OutputDef, ParallelBranchDef,
     WorkflowDef,
+    NodeDef,
+    EdgeDef,
+    NodeType,
+    FailureStrategy,
+    InputDef,
+    OutputDef,
+    BranchDef,
+    ParallelBranchDef,
 };
 
-pub use parser::{parse_workflow, parse_workflow_from_file, to_yaml};
+pub use parser::{
+    parse_workflow,
+    parse_workflow_from_file,
+    to_yaml,
+};
 
-pub use context::{NodeExecution, NodeStatus, WorkflowContext, WorkflowStatus};
+pub use context::{
+    WorkflowContext,
+    WorkflowStatus,
+    NodeStatus,
+    NodeExecution,
+};
 
-pub use template::{TemplateRenderer, render as render_template};
+pub use template::{
+    TemplateRenderer,
+    render as render_template,
+};
 
-pub use rule_engine::{Rule, RuleEngine, ValidationResult, evaluate_expression};
+pub use rule_engine::{
+    Rule,
+    RuleEngine,
+    ValidationResult,
+    evaluate_expression,
+};
 
-pub use engine::{DefaultTaskExecutor, EventListener, TaskExecutor, WorkflowEngine, WorkflowEvent};
+pub use engine::{
+    WorkflowEngine,
+    WorkflowEvent,
+    EventListener,
+    TaskExecutor,
+    DefaultTaskExecutor,
+};
 
-pub use persistence::WorkflowPersistence;
+pub use persistence::{
+    WorkflowPersistence,
+};
 
-pub use registry::{WorkflowInfo, WorkflowRegistry, WorkflowSource};
+pub use registry::{
+    WorkflowRegistry,
+    WorkflowInfo,
+    WorkflowSource,
+};
 
 pub use executors::{
-    AiExecutor, AiExecutorConfig, CompositeExecutor, CompositeMode, ConditionExecutor,
-    ExecutorFactory, NodeExecutor, ProxyExecutor, ToolExecutor, ToolExecutorConfig,
-    ValidateExecutor, ValidateExecutorConfig,
+    NodeExecutor,
+    AiExecutor,
+    AiExecutorConfig,
+    ToolExecutor,
+    ToolExecutorConfig,
+    ProxyExecutor,
+    ConditionExecutor,
+    ValidateExecutor,
+    ValidateExecutorConfig,
+    CompositeExecutor,
+    CompositeMode,
+    ExecutorFactory,
 };
 
 #[cfg(test)]
@@ -162,7 +207,6 @@ edges:
                     timeout_ms: None,
                     branches: None,
                     parallel_branches: None,
-                    execution_mode: None,
                     workflow: None,
                     wait_ms: None,
                     approvers: None,
@@ -178,7 +222,6 @@ edges:
                     timeout_ms: None,
                     branches: None,
                     parallel_branches: None,
-                    execution_mode: None,
                     workflow: None,
                     wait_ms: None,
                     approvers: None,

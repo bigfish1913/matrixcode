@@ -12,11 +12,7 @@ use crate::workflow::def::NodeDef;
 #[async_trait]
 pub trait NodeExecutor: Send + Sync {
     /// 执行节点
-    async fn execute(
-        &self,
-        node: &NodeDef,
-        context: &mut WorkflowContext,
-    ) -> Result<serde_json::Value>;
+    async fn execute(&self, node: &NodeDef, context: &mut WorkflowContext) -> Result<serde_json::Value>;
 
     /// 执行器名称（用于日志和调试）
     fn name(&self) -> &str;

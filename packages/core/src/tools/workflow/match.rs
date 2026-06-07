@@ -16,9 +16,7 @@ impl Tool for WorkflowMatchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "workflow_match".to_string(),
-            description:
-                "根据意图查找匹配的 workflow。传入自然语言描述，返回最相关的 workflow 列表。"
-                    .to_string(),
+            description: "根据意图查找匹配的 workflow。传入自然语言描述，返回最相关的 workflow 列表。".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -34,8 +32,7 @@ impl Tool for WorkflowMatchTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let query = params
-            .get("query")
+        let query = params.get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 query 参数"))?;
 
@@ -45,10 +42,7 @@ impl Tool for WorkflowMatchTool {
         let matches = registry.match_workflows(query);
 
         if matches.is_empty() {
-            return Ok(format!(
-                "未找到匹配 '{}' 的 workflow。用 workflow_discover 查看全部。",
-                query
-            ));
+            return Ok(format!("未找到匹配 '{}' 的 workflow。用 workflow_discover 查看全部。", query));
         }
 
         let mut result = format!("匹配 '{}' 的 workflow:\n\n", query);

@@ -7,8 +7,8 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::BORDER_PADDING;
 use crate::app::TuiApp;
+use crate::BORDER_PADDING;
 use crate::types::Activity;
 use crate::utils::{truncate, truncate_visual, truncate_visual_end};
 
@@ -17,7 +17,7 @@ impl TuiApp {
         let mut spans: Vec<Span> = vec![
             Span::styled("⏳ ", Style::default().fg(Color::Magenta)),
             Span::styled(
-                format!("队列 ({}): ", self.pending_messages.len()),
+                format!("Queue ({}): ", self.pending_messages.len()),
                 Style::default()
                     .fg(Color::Magenta)
                     .add_modifier(Modifier::BOLD),
@@ -40,27 +40,6 @@ impl TuiApp {
     }
 
     pub(crate) fn draw_input(&self, f: &mut ratatui::Frame, area: Rect) {
-        let frame_style = Style::default().fg(Color::DarkGray);
-        let border = "─".repeat(area.width as usize);
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(border.clone(), frame_style))),
-            Rect::new(area.x, area.y, area.width, 1),
-        );
-        f.render_widget(
-            Paragraph::new(Line::from(Span::styled(border, frame_style))),
-            Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1),
-        );
-
-        let area = Rect::new(
-            area.x,
-            area.y.saturating_add(1),
-            area.width,
-            area.height.saturating_sub(2),
-        );
-        if area.height == 0 {
-            return;
-        }
-
         let (prompt, prompt_color) = match self.activity {
             Activity::Idle => ("❯ ", Color::Yellow),
             Activity::Asking => ("⚡ ", Color::Red),
@@ -71,11 +50,10 @@ impl TuiApp {
 
         // History mode indicator
         let history_indicator = if self.history_index.is_some() {
-            format!("历史({}) ", self.input_history.len())
+            "📜 "
         } else {
-            String::new()
+            ""
         };
-
 
         // Ask mode handling
         if self.activity == Activity::Asking && self.waiting_for_ask {
@@ -93,9 +71,9 @@ impl TuiApp {
                 // Show compact instruction
                 spans.push(Span::styled(
                     if self.ask_multi_select {
-                        "[↑↓] 选择  [Space] 切换  [Enter] 确认"
+                        "↑↓选择  Space切换  Enter确认"
                     } else {
-                        "[↑↓] 选择  [Enter] 确认"
+                        "↑↓选择  Enter确认"
                     },
                     Style::default().fg(Color::DarkGray),
                 ));
@@ -114,21 +92,13 @@ impl TuiApp {
                     // Selection arrow
                     opt_spans.push(Span::styled(
                         if is_selected { "▶ " } else { "  " },
-                        Style::default().fg(if is_selected {
-                            Color::Cyan
-                        } else {
-                            Color::DarkGray
-                        }),
+                        Style::default().fg(if is_selected { Color::Cyan } else { Color::DarkGray }),
                     ));
 
                     // Checkbox/radio indicator
                     if self.ask_multi_select {
                         let box_char = if is_checked { "◆" } else { "◇" };
-                        let box_color = if is_checked {
-                            Color::Green
-                        } else {
-                            Color::Gray
-                        };
+                        let box_color = if is_checked { Color::Green } else { Color::Gray };
                         opt_spans.push(Span::styled(
                             format!("{} ", box_char),
                             Style::default().fg(box_color),
@@ -146,11 +116,7 @@ impl TuiApp {
                     // Option label
                     let label_style = if is_submit {
                         Style::default()
-                            .fg(if is_checked {
-                                Color::Yellow
-                            } else {
-                                Color::White
-                            })
+                            .fg(if is_checked { Color::Yellow } else { Color::White })
                             .add_modifier(Modifier::BOLD)
                     } else if is_checked {
                         Style::default()
@@ -174,7 +140,7 @@ impl TuiApp {
                     // Other option hint
                     if is_other && is_selected && !is_checked {
                         opt_spans.push(Span::styled(
-                            " ✏️ [Enter] 自定义",
+                            " ✏️自定义",
                             Style::default().fg(Color::Yellow),
                         ));
                     }
@@ -186,7 +152,7 @@ impl TuiApp {
                 if self.input.is_empty() {
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                     spans.push(Span::styled(
-                        "输入 y/n  [Enter] 提交  [Esc] 取消",
+                        "Type y/n, Enter to submit  ESC abort",
                         Style::default().fg(Color::DarkGray),
                     ));
                 } else {
@@ -196,7 +162,7 @@ impl TuiApp {
                     ));
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                     spans.push(Span::styled(
-                        "  [Enter] 提交  [Esc] 取消",
+                        "  Enter to submit  ESC abort",
                         Style::default().fg(Color::DarkGray),
                     ));
                 }
@@ -224,7 +190,7 @@ impl TuiApp {
                 };
                 lines.push(input_line);
                 lines.push(Line::styled(
-                    "  [Enter] 确认  [Esc] 取消",
+                    "  [Enter确认  Esc取消]",
                     Style::default().fg(Color::DarkGray),
                 ));
             }
@@ -234,6 +200,21 @@ impl TuiApp {
         }
 
         let is_multiline = self.input.contains('\n');
+
+        // Show queue indicator when AI is processing and user is typing
+        let queue_hint = if self.activity != Activity::Idle
+            && self.activity != Activity::Asking
+            && !self.input.is_empty()
+        {
+            let queue_count = self.pending_messages.len();
+            if queue_count > 0 {
+                format!(" [queue: {}]", queue_count + 1)
+            } else {
+                " [will queue]".to_string()
+            }
+        } else {
+            String::new()
+        };
 
         if !is_multiline {
             let mut spans: Vec<Span> = vec![Span::styled(
@@ -256,31 +237,23 @@ impl TuiApp {
                 // Show helpful shortcuts hints
                 if self.history_index.is_some() {
                     spans.push(Span::styled(
-                        "[↑↓] 导航  [Enter] 使用  [Esc] 返回",
+                        "↑↓ navigate  Enter use  Esc back",
                         Style::default().fg(Color::DarkGray),
                     ));
                 } else {
                     spans.push(Span::styled(
-                        " 输入问题... ",
+                        " Ask anything... ",
                         Style::default().fg(Color::DarkGray),
                     ));
                     spans.push(Span::styled(
-                        "[Ctrl+V] 粘贴 │ [↑↓] 历史 │ [Shift+Enter] 换行",
+                        "(Ctrl+V paste │ ↑↓ history │ Shift+Enter newline)",
                         Style::default().fg(Color::DarkGray),
                     ));
                 }
             } else {
-                // Calculate character position (not byte position) for correct IME cursor
-                let char_pos = self.input[..self.cursor_pos].chars().count();
-                let chars: Vec<char> = self.input.chars().collect();
-                
-                let before_cursor_chars: Vec<char> = chars[..char_pos.min(chars.len())].to_vec();
-                let after_cursor_chars: Vec<char> = chars[char_pos.min(chars.len())..].to_vec();
-                
-                let before_cursor: String = before_cursor_chars.iter().collect();
-                let after_cursor: String = after_cursor_chars.iter().collect();
-                
                 let display_width = max_w.saturating_sub(15);
+                let before_cursor = &self.input[..self.cursor_pos];
+                let after_cursor = &self.input[self.cursor_pos..];
 
                 let before_vis_width: usize = before_cursor
                     .chars()
@@ -293,36 +266,39 @@ impl TuiApp {
 
                 if before_vis_width + after_vis_width <= display_width {
                     spans.push(Span::styled(
-                        before_cursor,
+                        before_cursor.to_string(),
                         Style::default().fg(Color::White),
                     ));
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                     spans.push(Span::styled(
-                        after_cursor,
+                        after_cursor.to_string(),
                         Style::default().fg(Color::White),
                     ));
+                    if !queue_hint.is_empty() {
+                        spans.push(Span::styled(queue_hint, Style::default().fg(Color::Yellow)));
+                    }
                 } else if before_vis_width < display_width {
                     spans.push(Span::styled(
-                        before_cursor,
+                        before_cursor.to_string(),
                         Style::default().fg(Color::White),
                     ));
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                     let remaining = display_width.saturating_sub(before_vis_width);
-                    let truncated_after = truncate_visual(&after_cursor, remaining);
+                    let truncated_after = truncate_visual(after_cursor, remaining);
                     spans.push(Span::styled(
                         truncated_after,
                         Style::default().fg(Color::White),
                     ));
                 } else {
                     let start_width = display_width.saturating_sub(10);
-                    let truncated_before = truncate_visual_end(&before_cursor, start_width);
+                    let truncated_before = truncate_visual_end(before_cursor, start_width);
                     spans.push(Span::styled(
                         format!("…{}", truncated_before),
                         Style::default().fg(Color::White),
                     ));
                     spans.push(Span::styled("▌", Style::default().fg(Color::Cyan)));
                     let remaining = display_width.saturating_sub(start_width + 1);
-                    let truncated_after = truncate_visual(&after_cursor, remaining);
+                    let truncated_after = truncate_visual(after_cursor, remaining);
                     spans.push(Span::styled(
                         truncated_after,
                         Style::default().fg(Color::White),
@@ -335,133 +311,74 @@ impl TuiApp {
             // Multiline mode
             let mut lines: Vec<Line> = Vec::new();
             let input_lines: Vec<&str> = self.input.split('\n').collect();
+            let cursor_line = self.input[..self.cursor_pos].matches('\n').count();
+            let cursor_col_byte = self.input[..self.cursor_pos]
+                .rfind('\n')
+                .map(|i| self.cursor_pos - i - 1)
+                .unwrap_or(self.cursor_pos);
+
             let total_lines_count = input_lines.len();
-            
-            // Collapse if ≥2 lines and collapsed state is true (auto-set on multiline paste)
-            let should_collapse = total_lines_count >= 2 && self.input_collapsed;
-            
-            if should_collapse {
-                // Collapsed: show only first line + summary
-                let first_line = input_lines.first().map_or("", |v| v);
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        prompt,
-                        Style::default()
-                            .fg(prompt_color)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(truncate(first_line, max_w.saturating_sub(25)), Style::default().fg(Color::White)),
-                    Span::styled(
-                        format!(" … ({}) ", total_lines_count),
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                    Span::styled(
-                        if self.multiline_confirm_send {
-                            "⏎ 再次 Enter 发送"
-                        } else {
-                            "[Alt+T] 展开"
-                        },
-                        Style::default().fg(if self.multiline_confirm_send {
-                            Color::Yellow
-                        } else {
-                            Color::DarkGray
-                        }),
-                    ),
-                ]));
-            } else {
-                // Expanded: show all lines (with scrolling if needed)
-                // Calculate cursor position in characters (not bytes) for correct IME positioning
-                let cursor_line = self.input[..self.cursor_pos].matches('\n').count();
-                
-                // Convert byte position to character position for the column
-                let cursor_line_start_byte = self.input[..self.cursor_pos]
-                    .rfind('\n')
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
-                let cursor_line_bytes = &self.input[cursor_line_start_byte..self.cursor_pos];
-                let cursor_col_chars = cursor_line_bytes.chars().count();
-                
-                // Get the current line as characters
-                let full_line_bytes = input_lines.get(cursor_line).map_or("", |v| v);
-                let _full_line_chars: Vec<char> = full_line_bytes.chars().collect();
-                
-                let show_char_count = self.input.chars().count() > 50 || total_lines_count > 1;
-                let max_display_lines =
-                    (area.height as usize).saturating_sub(if show_char_count { 1 } else { 0 });
+            // Use area height minus 1 for char count line if needed
+            let show_char_count = self.input.chars().count() > 50 || total_lines_count > 1;
+            let max_display_lines = (area.height as usize).saturating_sub(if show_char_count { 1 } else { 0 });
 
-                for (i, line) in input_lines.iter().enumerate().take(max_display_lines) {
-                    let line_prompt = if i == 0 { prompt } else { "  " };
-                    let line_prompt_color = if i == 0 {
-                        prompt_color
-                    } else {
-                        Color::DarkGray
-                    };
+            for (i, line) in input_lines.iter().enumerate().take(max_display_lines) {
+                let line_prompt = if i == 0 { prompt } else { "  " };
+                let line_prompt_color = if i == 0 {
+                    prompt_color
+                } else {
+                    Color::DarkGray
+                };
 
-                    let line_num_hint = if i == cursor_line && total_lines_count > 1 {
-                        format!("({}/{}) ", i + 1, total_lines_count)
-                    } else {
-                        String::new()
-                    };
+                // Add line number indicator for multiline
+                let line_num_hint = if i == cursor_line && total_lines_count > 1 {
+                    format!("({}/{}) ", i + 1, total_lines_count)
+                } else {
+                    String::new()
+                };
 
-                    if i == cursor_line {
-                        // Use character position to split the line for correct IME cursor
-                        let line_chars: Vec<char> = line.chars().collect();
-                        let before_chars: Vec<char> = line_chars[..cursor_col_chars.min(line_chars.len())].to_vec();
-                        let after_chars: Vec<char> = line_chars[cursor_col_chars.min(line_chars.len())..].to_vec();
-                        
-                        let before: String = before_chars.iter().collect();
-                        let after: String = after_chars.iter().collect();
-                        
-                        lines.push(Line::from(vec![
-                            Span::styled(
-                                line_prompt,
-                                Style::default()
-                                    .fg(line_prompt_color)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                            Span::styled(line_num_hint, Style::default().fg(Color::DarkGray)),
-                            Span::styled(before, Style::default().fg(Color::White)),
-                            Span::styled("▌", Style::default().fg(Color::Cyan)),
-                            Span::styled(after, Style::default().fg(Color::White)),
-                        ]));
-                    } else {
-                        lines.push(Line::from(vec![
-                            Span::styled(
-                                line_prompt,
-                                Style::default()
-                                    .fg(line_prompt_color)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                            Span::styled(truncate(line, max_w), Style::default().fg(Color::White)),
-                        ]));
-                    }
+                if i == cursor_line {
+                    let before = &line[..cursor_col_byte.min(line.len())];
+                    let after = &line[cursor_col_byte.min(line.len())..];
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            line_prompt,
+                            Style::default()
+                                .fg(line_prompt_color)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(line_num_hint, Style::default().fg(Color::DarkGray)),
+                        Span::styled(before.to_string(), Style::default().fg(Color::White)),
+                        Span::styled("▌", Style::default().fg(Color::Cyan)),
+                        Span::styled(after.to_string(), Style::default().fg(Color::White)),
+                    ]));
+                } else {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            line_prompt,
+                            Style::default()
+                                .fg(line_prompt_color)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(truncate(line, max_w), Style::default().fg(Color::White)),
+                    ]));
                 }
+            }
 
-                if total_lines_count > max_display_lines {
-                    lines.push(Line::styled(
-                        format!("  … ({}/{} 行)", max_display_lines, total_lines_count),
-                        Style::default().fg(Color::DarkGray),
-                    ));
-                }
+            let total_lines = input_lines.len();
+            if total_lines > max_display_lines {
+                lines.push(Line::styled(
+                    format!("  … ({}/{} lines)", max_display_lines, total_lines),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
 
-                if show_char_count {
-                    // Show confirmation state when multiline_confirm_send is true
-                    if self.multiline_confirm_send {
-                        lines.push(Line::styled(
-                            "  ⏎ 再次按 [Enter] 发送，或 [Esc] 取消",
-                            Style::default().fg(Color::Yellow),
-                        ));
-                    } else {
-                        lines.push(Line::styled(
-                            format!(
-                                "  {} 字符, {} 行",
-                                self.input.chars().count(),
-                                total_lines_count
-                            ),
-                            Style::default().fg(Color::DarkGray),
-                        ));
-                    }
-                }
+            // Show character count at the bottom for multiline input
+            if show_char_count {
+                lines.push(Line::styled(
+                    format!("  {} chars, {} lines", self.input.chars().count(), total_lines_count),
+                    Style::default().fg(Color::DarkGray),
+                ));
             }
 
             f.render_widget(Paragraph::new(lines), area);

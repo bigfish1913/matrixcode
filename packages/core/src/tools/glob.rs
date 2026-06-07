@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{Tool, ToolContext, ToolDefinition};
+use super::{Tool, ToolDefinition};
 
 pub struct GlobTool;
 
@@ -12,35 +12,13 @@ const MAX_RESULTS: usize = 200;
 
 #[async_trait]
 impl Tool for GlobTool {
-    fn definition_with_context(&self, ctx: &ToolContext) -> ToolDefinition {
-        // Dynamic description based on CodeGraph availability
-        let prefer_section = if ctx.codegraph_available {
-            "【优先使用 code_files 的场景】
-- 查看某个目录下有哪些代码文件 → code_files（更快）
-- 获取项目的文件结构概览 → code_files"
-        } else {
-            "【glob 的适用场景】
-- 查找非代码文件（配置文件、文档等）
-- 搜索特定命名模式的文件"
-        };
-
-        let description = format!(
-            "通过 glob 模式查找文件路径。
-
-适用场景：
-- 按文件名模式查找（如 '**/*.rs'、'src/*.toml'）
-- 查找特定扩展名的所有文件
-- 定位配置文件位置
-
-{}
-
-返回匹配路径，按修改时间排序（最新在前）。",
-            prefer_section
-        );
-
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "glob".to_string(),
-            description,
+            description: "通过 glob 模式查找文件（如 '**/*.rs'、'src/*.toml'）。\
+                 返回匹配的文件路径，按修改时间排序（最新的在前）。\
+                 用于按名称定位文件；若要查找文件内容请使用 'search'。"
+                .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -50,17 +28,13 @@ impl Tool for GlobTool {
                     },
                     "path": {
                         "type": "string",
-                        "description": "搜索的基础目录（默认 '.'）。⚠️ 尽量指定路径避免全目录搜索，如 'src' 而非 '.'"
+                        "description": "搜索的基础目录（默认 '.'）"
                     }
                 },
                 "required": ["pattern"]
             }),
             ..Default::default()
         }
-    }
-
-    fn definition(&self) -> ToolDefinition {
-        self.definition_with_context(&ToolContext::default())
     }
 
     async fn execute(&self, params: Value) -> Result<String> {

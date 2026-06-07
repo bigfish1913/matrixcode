@@ -107,17 +107,17 @@ fn has_ask_tool(message: &Message) -> bool {
 /// Check if message indicates todo completion.
 fn has_todo_completion(message: &Message) -> bool {
     match &message.content {
-        MessageContent::Blocks(blocks) => blocks.iter().any(|b| match b {
-            ContentBlock::ToolUse { name, .. } => name == "todo_write",
-            ContentBlock::ToolResult { content, .. } => {
-                content.contains("completed") || content.contains("done")
+        MessageContent::Blocks(blocks) => blocks.iter().any(|b| {
+            match b {
+                ContentBlock::ToolUse { name, .. } => name == "todo_write",
+                ContentBlock::ToolResult { content, .. } => {
+                    content.contains("completed") || content.contains("done")
+                }
+                _ => false,
             }
-            _ => false,
         }),
         MessageContent::Text(text) => {
-            text.contains("任务完成")
-                || text.contains("task completed")
-                || text.contains("all done")
+            text.contains("任务完成") || text.contains("task completed") || text.contains("all done")
         }
     }
 }
@@ -149,14 +149,13 @@ mod tests {
 
     #[test]
     fn test_detect_initial_request() {
-        let messages = vec![Message {
-            role: Role::User,
-            content: MessageContent::Text("Hello".to_string()),
-        }];
-        assert_eq!(
-            PhaseDetector::detect(&messages),
-            ConversationPhase::InitialRequest
-        );
+        let messages = vec![
+            Message {
+                role: Role::User,
+                content: MessageContent::Text("Hello".to_string()),
+            },
+        ];
+        assert_eq!(PhaseDetector::detect(&messages), ConversationPhase::InitialRequest);
     }
 
     #[test]
@@ -182,10 +181,7 @@ mod tests {
                 }]),
             },
         ];
-        assert_eq!(
-            PhaseDetector::detect(&messages),
-            ConversationPhase::InitialRequest
-        );
+        assert_eq!(PhaseDetector::detect(&messages), ConversationPhase::InitialRequest);
     }
 
     #[test]
@@ -213,9 +209,6 @@ mod tests {
             },
         ];
         // With 3 messages, still InitialRequest
-        assert_eq!(
-            PhaseDetector::detect(&messages),
-            ConversationPhase::InitialRequest
-        );
+        assert_eq!(PhaseDetector::detect(&messages), ConversationPhase::InitialRequest);
     }
 }

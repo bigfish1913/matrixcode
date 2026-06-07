@@ -3,40 +3,16 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 
-use super::{Tool, ToolContext, ToolDefinition};
+use super::{Tool, ToolDefinition};
 
 pub struct SearchTool;
 
 #[async_trait]
 impl Tool for SearchTool {
-    fn definition_with_context(&self, ctx: &ToolContext) -> ToolDefinition {
-        // Dynamic description based on CodeGraph availability
-        let prefer_section = if ctx.codegraph_available {
-            "【优先使用 code_search 的场景】
-- 查找函数/类/方法/变量的定义 → code_search（快10-100倍）
-- 查找符号的调用关系 → code_callers/callees"
-        } else {
-            "【search 的适用场景】
-- 搜索非代码文本（错误消息、日志文本）
-- 搜索字符串常量
-- 需要搜索特定文件类型的内容"
-        };
-
-        let description = format!(
-            "在文件内容中搜索匹配的文本模式。
-
-适用场景：
-- 搜索文本内容（错误消息、日志、注释）
-- 搜索字符串常量
-- 不确定目标是否是代码符号
-
-{}",
-            prefer_section
-        );
-
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "search".to_string(),
-            description,
+            description: "在文件中搜索模式，类似 grep 功能".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -46,21 +22,17 @@ impl Tool for SearchTool {
                     },
                     "path": {
                         "type": "string",
-                        "description": "搜索的目录或文件路径（默认 '.'）。⚠️ 尽量指定路径避免全目录搜索，如 'src' 而非 '.'"
+                        "description": "搜索的目录或文件路径（默认 '.'）"
                     },
                     "glob": {
                         "type": "string",
-                        "description": "文件过滤的 glob 模式（如 '*.rs'）。推荐使用以缩小搜索范围"
+                        "description": "文件过滤的 glob 模式（如 '*.rs'）"
                     }
                 },
                 "required": ["pattern"]
             }),
             ..Default::default()
         }
-    }
-
-    fn definition(&self) -> ToolDefinition {
-        self.definition_with_context(&ToolContext::default())
     }
 
     async fn execute(&self, params: Value) -> Result<String> {

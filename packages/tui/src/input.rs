@@ -24,68 +24,29 @@ impl TuiApp {
         match k.code {
             // Enter: send or newline
             KeyCode::Enter => {
-                // FILTER: Ignore Enter events triggered by pasted newlines
-                // Some terminals (Windows Terminal, CMD) convert pasted \n into Enter key events
-                const PASTE_ENTER_FILTER_MS: u64 = 300; // 300ms window
-                if self.last_paste_complete_time.elapsed().as_millis() < PASTE_ENTER_FILTER_MS as u128 {
-                    log::info!("⏭️ Filtering auto-triggered Enter from paste ({}ms after paste)", 
-                        self.last_paste_complete_time.elapsed().as_millis());
-                    // Don't process this Enter - it's likely from pasted newlines
-                    return;
-                }
-                
-                log::debug!("Enter key pressed: input_collapsed={}, multiline_confirm_send={}, input_len={}, has_newline={}", 
-                    self.input_collapsed, self.multiline_confirm_send, self.input.len(), self.input.contains('\n'));
-                
                 if k.modifiers.contains(KeyModifiers::SHIFT) {
                     // Shift+Enter: insert newline at cursor position
                     self.ensure_char_boundary();
                     self.input.insert(self.cursor_pos, '\n');
                     self.cursor_pos += 1; // '\n' is 1 byte
                     self.multiline_confirm_send = false; // Reset confirmation state
-                    self.input_collapsed = false; // Expand input when manually adding newlines
-                    log::debug!("Shift+Enter: inserted newline, input_collapsed=false");
-                } else if self.waiting_for_session {
-                    // Handle session selection
-                    log::debug!("Enter: handling session selection");
-                    self.handle_session_select();
                 } else if self.activity == Activity::Asking && self.waiting_for_ask {
                     // Handle ask confirmation or toggle selection in multi-select
-                    log::debug!("Enter: handling ask confirmation");
                     self.handle_ask_enter();
                 } else if !self.input.trim().is_empty() {
-                    // Check if input is collapsed (from paste) - first Enter should expand it
-                    if self.input_collapsed && self.input.contains('\n') {
-                        // First Enter after paste: expand input, don't send
-                        self.input_collapsed = false;
-                        self.multiline_confirm_send = true; // Mark for confirmation
-                        log::info!("✓ First Enter after paste: expanding input, NOT sending");
-                        self.push_message(Message {
-                            role: Role::System,
-                            content: "⚠️ 多行内容已展开，按 Enter 再次确认发送".into(),
-                            is_pending: false,
-                        });
-                    } else if self.input.contains('\n') && !self.multiline_confirm_send {
-                        // First Enter on manually typed multiline: require confirmation
+                    // Check if input contains multiple lines
+                    if self.input.contains('\n') && !self.multiline_confirm_send {
+                        // First Enter on multiline: require confirmation
                         self.multiline_confirm_send = true;
-                        log::info!("✓ First Enter on multiline: marking for confirmation, NOT sending");
-                        self.push_message(Message {
-                            role: Role::System,
-                            content: "⚠️ 多���内容，按 Enter 再次确认发送".into(),
-                            is_pending: false,
-                        });
+                        // Don't send, just mark for confirmation
                     } else {
-                        // Second Enter on multiline, or single line: send
-                        log::info!("✓ Sending input (second Enter or single line)");
+                        // Single line, or second Enter on multiline: send
                         self.multiline_confirm_send = false;
-                        self.input_collapsed = false;
                         self.send_input();
                     }
                 } else {
                     // Empty input: reset confirmation state
-                    log::debug!("Enter: empty input, resetting state");
                     self.multiline_confirm_send = false;
-                    self.input_collapsed = false;
                 }
             }
 
@@ -97,20 +58,9 @@ impl TuiApp {
                         let removed = self.pending_messages.remove(0);
                         self.push_message(Message {
                             role: Role::System,
-                            content: format!("已从队列移除: {}", truncate(&removed, 50)),
-                            is_pending: false,
+                            content: format!("🗑️ Removed from queue: {}", truncate(&removed, 50)),
                         });
                     }
-                } else if self.waiting_for_session {
-                    // Cancel session selection
-                    self.waiting_for_session = false;
-                    self.activity = Activity::Idle;
-                    self.session_list.clear();
-                    self.push_message(Message {
-                        role: Role::System,
-                        content: "会话选择已取消".into(),
-                        is_pending: false,
-                    });
                 } else if self.multiline_confirm_send {
                     // Cancel multiline send confirmation
                     self.multiline_confirm_send = false;
@@ -132,7 +82,6 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: "⚠️ 已取消".into(),
-                        is_pending: false,
                     });
                     if let Some(ask_tx) = &self.ask_tx {
                         ask_tx.try_send("abort".to_string()).ok();
@@ -147,8 +96,7 @@ impl TuiApp {
                     self.cancel.cancel();
                     self.push_message(Message {
                         role: Role::System,
-                        content: "⚡ 已中断".into(),
-                        is_pending: false,
+                        content: "⚡ Interrupted".into(),
                     });
                 } else if !self.input.is_empty() {
                     // Clear input when idle
@@ -181,7 +129,6 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: "⚡ 已中断".into(),
-                        is_pending: false,
                     });
                 }
             }
@@ -194,20 +141,18 @@ impl TuiApp {
             // Shift+D: toggle debug panel (when debug_mode is on)
             KeyCode::Char('D') | KeyCode::Char('d')
                 if k.modifiers.contains(KeyModifiers::SHIFT)
-                    && !k.modifiers.contains(KeyModifiers::ALT)
-                    && !k.modifiers.contains(KeyModifiers::CONTROL)
-                    && self.debug_mode =>
-            {
+                && !k.modifiers.contains(KeyModifiers::ALT)
+                && !k.modifiers.contains(KeyModifiers::CONTROL)
+                && self.debug_mode => {
                 self.toggle_debug_panel();
             }
 
             // Shift+C: clear debug logs (when debug panel is visible)
             KeyCode::Char('C') | KeyCode::Char('c')
                 if k.modifiers.contains(KeyModifiers::SHIFT)
-                    && !k.modifiers.contains(KeyModifiers::ALT)
-                    && !k.modifiers.contains(KeyModifiers::CONTROL)
-                    && self.show_debug_panel =>
-            {
+                && !k.modifiers.contains(KeyModifiers::ALT)
+                && !k.modifiers.contains(KeyModifiers::CONTROL)
+                && self.show_debug_panel => {
                 self.clear_debug_logs();
             }
 
@@ -227,17 +172,12 @@ impl TuiApp {
             }
 
             // Ctrl+V or Super+V (Mac Cmd+V): paste from clipboard
-            KeyCode::Char('v')
-                if k.modifiers.contains(KeyModifiers::CONTROL)
-                    || k.modifiers.contains(KeyModifiers::SUPER) =>
-            {
+            KeyCode::Char('v') if k.modifiers.contains(KeyModifiers::CONTROL)
+                || k.modifiers.contains(KeyModifiers::SUPER) => {
                 // Try to get text from clipboard
                 if let Ok(mut clipboard) = arboard::Clipboard::new()
                     && let Ok(text) = clipboard.get_text()
                 {
-                    // Record paste for deduplication (Event::Paste might also fire)
-                    self.last_paste_content = text.clone();
-                    self.last_paste_time = Instant::now();
                     self.on_paste(&text);
                 }
             }
@@ -298,18 +238,11 @@ impl TuiApp {
                 }
             }
 
-            // Up arrow: session selection, ask selection, history navigation, or multiline cursor
+            // Up arrow: ask selection, history navigation, or multiline cursor
             KeyCode::Up if !k.modifiers.contains(KeyModifiers::ALT) => {
-                // Session selector mode
-                if self.waiting_for_session && !self.session_list.is_empty() {
-                    if self.session_selected_index > 0 {
-                        self.session_selected_index -= 1;
-                    }
-                }
                 // If in "Other" input mode or multiline input, allow navigation
-                else if (self.ask_other_input_active || self.input.contains('\n'))
-                    && self.move_cursor_up_line()
-                {
+                if (self.ask_other_input_active || self.input.contains('\n'))
+                    && self.move_cursor_up_line() {
                     // Cursor moved successfully
                 } else if self.activity == Activity::Asking
                     && self.waiting_for_ask
@@ -339,18 +272,11 @@ impl TuiApp {
                 }
             }
 
-            // Down arrow: session selection, ask selection, history navigation, or multiline cursor
+            // Down arrow: ask selection, history navigation, or multiline cursor
             KeyCode::Down if !k.modifiers.contains(KeyModifiers::ALT) => {
-                // Session selector mode
-                if self.waiting_for_session && !self.session_list.is_empty() {
-                    if self.session_selected_index < self.session_list.len() - 1 {
-                        self.session_selected_index += 1;
-                    }
-                }
                 // If in "Other" input mode or multiline input, allow navigation
-                else if (self.ask_other_input_active || self.input.contains('\n'))
-                    && self.move_cursor_down_line()
-                {
+                if (self.ask_other_input_active || self.input.contains('\n'))
+                    && self.move_cursor_down_line() {
                     // Cursor moved successfully
                 } else if self.activity == Activity::Asking
                     && self.waiting_for_ask
@@ -397,13 +323,9 @@ impl TuiApp {
                 self.sync_approve_mode();
             }
 
-            // Alt+T: toggle thinking and input collapse
+            // Alt+T: toggle thinking collapse
             KeyCode::Char('t') if k.modifiers.contains(KeyModifiers::ALT) => {
                 self.thinking_collapsed = !self.thinking_collapsed;
-                // Also toggle input collapse if multiline
-                if self.input.contains('\n') {
-                    self.input_collapsed = !self.input_collapsed;
-                }
             }
 
             // Alt+W: toggle workflow panel
@@ -515,7 +437,6 @@ impl TuiApp {
     /// Sync approve_mode to the shared atomic and notify agent task.
     /// If switching to Auto and there's a pending approval, auto-approve it.
     pub(crate) fn sync_approve_mode(&mut self) {
-        let old_mode = self.approve_mode;
         if let Some(ref shared) = self.shared_approve_mode {
             shared.store(
                 self.approve_mode.to_u8(),
@@ -533,18 +454,6 @@ impl TuiApp {
         self.tx
             .try_send(format!("/mode:{}", self.approve_mode))
             .ok();
-
-        // Show mode change notification
-        let mode_desc = match self.approve_mode {
-            ApproveMode::Auto => "自动执行，无需确认",
-            ApproveMode::Ask => "询问确认危险操作",
-            ApproveMode::Strict => "严格确认所有操作",
-        };
-        self.push_message(Message {
-            role: Role::System,
-            content: format!("⚡ 批准模式: {} → {} ({})", old_mode, self.approve_mode, mode_desc),
-            is_pending: false,
-        });
     }
 
     /// Find the byte position of the previous character boundary.
@@ -603,7 +512,8 @@ impl TuiApp {
 
         let char_pos = self.byte_pos_to_char_pos();
         let input_chars: Vec<char> = self.input.chars().collect();
-        let before_cursor_str: String = input_chars[..char_pos.min(input_chars.len())]
+        let before_cursor_str: String = input_chars
+           [..char_pos.min(input_chars.len())]
             .iter()
             .collect();
 
@@ -659,14 +569,8 @@ impl TuiApp {
     }
 
     pub(crate) fn send_input(&mut self) {
-        log::info!("🚀 send_input called: input_len={}, input_collapsed={}, multiline_confirm_send={}", 
-            self.input.len(), self.input_collapsed, self.multiline_confirm_send);
-        
         self.show_welcome = false;
         let input = self.input.trim().to_string();
-        
-        log::info!("🚀 Sending message: {} chars, {} lines", input.len(), input.lines().count());
-        
         self.input.clear();
         self.cursor_pos = 0;
 
@@ -684,7 +588,6 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::User,
                 content: input.clone(),
-                is_pending: false,
             });
             if let Some(ask_tx) = &self.ask_tx {
                 ask_tx.try_send(input).ok();
@@ -694,75 +597,23 @@ impl TuiApp {
             self.auto_scroll = true;
         } else if input.starts_with('/') {
             // Command
-            crate::commands::handle_command(self, &input);
+            self.handle_command(&input);
         } else if self.activity == Activity::Idle {
             // Send immediately
-            log::info!(
-                "TUI send_input: sending message '{}' (len={})",
-                input.chars().take(50).collect::<String>(),
-                input.len()
-            );
+            log::info!("TUI send_input: sending message '{}' (len={})", input.chars().take(50).collect::<String>(), input.len());
             self.push_message(Message {
                 role: Role::User,
                 content: input.clone(),
-                is_pending: false,
             });
             let send_result = self.tx.try_send(input);
-            log::info!(
-                "TUI send_input: try_send result = {:?}",
-                send_result.is_ok()
-            );
+            log::info!("TUI send_input: try_send result = {:?}", send_result.is_ok());
             self.activity = Activity::Thinking;
             self.request_start = Some(Instant::now());
             self.auto_scroll = true;
         } else {
-            // AI is processing - real-time append message
-            // Immediately display message with "对接中" status
-            self.push_message(Message {
-                role: Role::User,
-                content: input.clone(),
-                is_pending: true, // Mark as pending (对接中)
-            });
+            // Queue message (AI is processing)
             self.pending_messages.push(input.clone());
-            log::info!(
-                "TUI: real-time message added to waiting queue (len={})",
-                input.len()
-            );
-
-            // Push to Agent immediately via pending_input channel
-            if let Some(pending_tx) = &self.pending_input_tx {
-                if pending_tx.try_send(input.clone()).is_ok() {
-                    log::info!("TUI: message sent to Agent channel, waiting for confirmation");
-                } else {
-                    log::warn!("TUI: pending_input channel full, message stays in local queue");
-                }
-            }
-            self.auto_scroll = true; // Ensure new message is visible
         }
-    }
-
-    /// Handle Enter key in session selector mode - load selected session
-    pub(crate) fn handle_session_select(&mut self) {
-        if self.session_list.is_empty() {
-            return;
-        }
-
-        let idx = self.session_selected_index;
-        if idx < self.session_list.len() {
-            let session = &self.session_list[idx];
-            // Send /resume command with session ID to backend
-            let _ = self.tx.try_send(format!("/load {}", session.short_id));
-            self.push_message(Message {
-                role: Role::System,
-                content: format!("加载会话 {}...", session.short_id),
-                is_pending: false,
-            });
-        }
-
-        // Exit session selection mode
-        self.waiting_for_session = false;
-        self.activity = Activity::Idle;
-        self.session_list.clear();
     }
 
     /// Handle Enter key in Ask mode - toggle selection in multi-select or confirm
@@ -863,7 +714,7 @@ impl TuiApp {
 
         content.push_str("┌──────────────────────────────────────┐\n");
         content.push_str(&format!(
-            "│  ⚡ 问题 {} / {} ([Tab] 切换) ⚡          │\n",
+            "│  ⚡ 问题 {} / {} (Tab切换) ⚡          │\n",
             self.current_question_idx + 1,
             self.ask_questions.len()
         ));
@@ -888,23 +739,23 @@ impl TuiApp {
             match q.submit_mode {
                 SubmitMode::Direct => {
                     if self.current_question_idx < self.ask_questions.len() - 1 {
-                        content.push_str("选项 ([↑↓] 导航 [Space/Enter] 切换 [Enter] 下一题):\n");
+                        content.push_str("选项 (↑↓导航 Space/Enter切换 Enter下一题):\n");
                     } else {
-                        content.push_str("选项 ([↑↓] 导航 [Space/Enter] 切换 [Enter] 提交):\n");
+                        content.push_str("选项 (↑↓导航 Space/Enter切换 Enter提交):\n");
                     }
                 }
                 SubmitMode::Option => {
-                    content.push_str("选项 ([↑↓] 导航 [Space/Enter] 切换 选中 [✓提交]):\n")
+                    content.push_str("选项 (↑↓导航 Space/Enter切换 选中[✓提交]):\n")
                 }
                 SubmitMode::Button => {
-                    content.push_str("选项 ([↑↓] 导航 [Space/Enter] 切换 [Enter] 提交):\n")
+                    content.push_str("选项 (↑↓导航 Space/Enter切换 Enter提交):\n")
                 }
             }
         } else {
             if self.current_question_idx < self.ask_questions.len() - 1 {
-                content.push_str("选项 ([↑↓] 选择 [Enter] 下一题):\n");
+                content.push_str("选项 (↑↓选择 Enter下一题):\n");
             } else {
-                content.push_str("选项 ([↑↓] 选择 [Enter] 提交):\n");
+                content.push_str("选项 (↑↓选择 Enter提交):\n");
             }
         }
 
@@ -928,15 +779,8 @@ impl TuiApp {
                 } else {
                     format!("[{}]", (b'A' + i as u8) as char)
                 };
-                // For non-multi-select mode, show current selection indicator using question's own selected_index
-                let selected_indicator = if !q.multi_select && i == q.selected_index {
-                    "● "
-                } else {
-                    "  "
-                };
                 content.push_str(&format!(
-                    "{}{} {}{}\n",
-                    selected_indicator,
+                    "  {} {}{}\n",
                     marker,
                     opt.label,
                     opt.format_description()
@@ -1073,7 +917,6 @@ impl TuiApp {
                 self.push_message(Message {
                     role: Role::User,
                     content: display_response,
-                    is_pending: false,
                 });
                 if let Some(ask_tx) = &self.ask_tx {
                     ask_tx.try_send(response).ok();
@@ -1088,7 +931,6 @@ impl TuiApp {
                 self.push_message(Message {
                     role: Role::User,
                     content: custom_text.clone(),
-                    is_pending: false,
                 });
                 if let Some(ask_tx) = &self.ask_tx {
                     ask_tx.try_send(custom_text).ok();
@@ -1184,7 +1026,6 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::User,
                 content: display_response,
-                is_pending: false,
             });
             if let Some(ask_tx) = &self.ask_tx {
                 ask_tx.try_send(response).ok();
@@ -1259,7 +1100,6 @@ impl TuiApp {
         self.push_message(Message {
             role: Role::User,
             content: display_response,
-            is_pending: false,
         });
         if let Some(ask_tx) = &self.ask_tx {
             ask_tx.try_send(response).ok();
@@ -1267,31 +1107,10 @@ impl TuiApp {
     }
 
     pub(crate) fn on_paste(&mut self, text: &str) {
-        log::info!("📥 Paste event: {} chars, {} lines, current input_len={}", 
-            text.len(), text.lines().count(), self.input.len());
-        
-        // OPTIMIZATION: Set collapsed state BEFORE inserting content
-        // This prevents rendering the full content before it's collapsed
-        if text.contains('\n') {
-            self.input_collapsed = true;
-            log::info!("✓ Pre-set collapsed state for multiline paste");
-        }
-        
         self.ensure_char_boundary();
         self.input.insert_str(self.cursor_pos, text);
         self.cursor_pos += text.len(); // cursor_pos is byte position
-        
-        // Final state update
-        if text.contains('\n') {
-            // DON'T set multiline_confirm_send here - let first Enter handle it
-            // This ensures first Enter expands the input, second Enter sends
-            log::info!("✓ Multiline paste complete: input_collapsed={}, multiline_confirm_send={}", 
-                self.input_collapsed, self.multiline_confirm_send);
-        } else {
-            // Single-line paste: reset confirmation state
-            self.multiline_confirm_send = false;
-            self.input_collapsed = false;
-            log::debug!("Single-line paste: reset state");
-        }
+        // Reset multiline confirmation on paste (user may want to edit before sending)
+        self.multiline_confirm_send = false;
     }
 }

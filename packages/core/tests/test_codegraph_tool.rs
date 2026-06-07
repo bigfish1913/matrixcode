@@ -1,7 +1,7 @@
 //! Integration test for CodeGraph tools
 
-use matrixcode_core::tools::Tool;
 use matrixcode_core::tools::codegraph::{CodeGraphSearchTool, CodeGraphStatusTool};
+use matrixcode_core::tools::Tool;
 use std::path::PathBuf;
 
 fn get_project_path() -> PathBuf {
@@ -18,10 +18,7 @@ async fn test_codegraph_search_tool_execute() {
 
     let codegraph_dir = project_path.join(".codegraph");
     if !codegraph_dir.exists() {
-        eprintln!(
-            "Skipping test: .codegraph directory not found at {}",
-            codegraph_dir.display()
-        );
+        eprintln!("Skipping test: .codegraph directory not found at {}", codegraph_dir.display());
         return;
     }
 
@@ -30,12 +27,10 @@ async fn test_codegraph_search_tool_execute() {
     assert_eq!(def.name, "code_search");
 
     // Search for a common symbol
-    let result = tool
-        .execute(serde_json::json!({
-            "pattern": "Agent",
-            "limit": 5
-        }))
-        .await;
+    let result = tool.execute(serde_json::json!({
+        "pattern": "Agent",
+        "limit": 5
+    })).await;
 
     match result {
         Ok(output) => {
@@ -43,10 +38,7 @@ async fn test_codegraph_search_tool_execute() {
             assert!(!output.is_empty(), "Search should return results");
         }
         Err(e) => {
-            println!(
-                "Search error (may be expected if no matching symbols): {}",
-                e
-            );
+            println!("Search error (may be expected if no matching symbols): {}", e);
         }
     }
 }
@@ -57,10 +49,7 @@ async fn test_codegraph_status_tool_execute() {
 
     let codegraph_dir = project_path.join(".codegraph");
     if !codegraph_dir.exists() {
-        eprintln!(
-            "Skipping test: .codegraph directory not found at {}",
-            codegraph_dir.display()
-        );
+        eprintln!("Skipping test: .codegraph directory not found at {}", codegraph_dir.display());
         return;
     }
 
@@ -76,9 +65,9 @@ async fn test_codegraph_status_tool_execute() {
             // Check for Chinese or English output
             assert!(
                 status.contains("node_count")
-                    || status.contains("节点数")
-                    || status.contains("initialized")
-                    || status.contains("文件数"),
+                || status.contains("节点数")
+                || status.contains("initialized")
+                || status.contains("文件数"),
                 "Status should show index info"
             );
         }
@@ -90,7 +79,6 @@ async fn test_codegraph_status_tool_execute() {
 
 #[test]
 fn test_generate_tools_prompt_with_codegraph() {
-    use matrixcode_core::tools::codegraph::should_inject_codegraph_tools;
     use matrixcode_core::tools::generate_tools_prompt_with_path;
 
     let project_path = get_project_path();
@@ -99,37 +87,15 @@ fn test_generate_tools_prompt_with_codegraph() {
 
     println!("Tools prompt:\n{}", prompt);
 
-    // CodeGraph tools are only included when conditions are met
-    if should_inject_codegraph_tools(&project_path) {
-        assert!(
-            prompt.contains("code_search"),
-            "Prompt should include code_search when conditions met"
-        );
-        assert!(
-            prompt.contains("code_callers"),
-            "Prompt should include code_callers when conditions met"
-        );
-        assert!(
-            prompt.contains("code_callees"),
-            "Prompt should include code_callees when conditions met"
-        );
-        assert!(
-            prompt.contains("code_status"),
-            "Prompt should include code_status when conditions met"
-        );
-    } else {
-        // When conditions not met, codegraph tools should NOT appear
-        assert!(
-            !prompt.contains("code_search"),
-            "Prompt should NOT include code_search without .codegraph"
-        );
-    }
+    assert!(prompt.contains("code_search"), "Prompt should include code_search");
+    assert!(prompt.contains("code_callers"), "Prompt should include code_callers");
+    assert!(prompt.contains("code_callees"), "Prompt should include code_callees");
+    assert!(prompt.contains("code_status"), "Prompt should include code_status");
 }
 
 #[test]
 fn test_build_system_prompt_with_codegraph() {
-    use matrixcode_core::prompt::{PromptProfile, build_system_prompt_with_workflows};
-    use matrixcode_core::tools::codegraph::should_inject_codegraph_tools;
+    use matrixcode_core::prompt::{build_system_prompt_with_workflows, PromptProfile};
 
     let project_path = get_project_path();
 
@@ -139,24 +105,9 @@ fn test_build_system_prompt_with_codegraph() {
         None,
         None,
         Some(&project_path),
-        None, // LSP servers not available in test
     );
 
-    // CodeGraph tools are only included when conditions are met
-    if should_inject_codegraph_tools(&project_path) {
-        assert!(
-            prompt.contains("code_search"),
-            "System prompt should include code_search when conditions met"
-        );
-        assert!(
-            prompt.contains("code_callers"),
-            "System prompt should include code_callers when conditions met"
-        );
-    } else {
-        // When conditions not met, codegraph tools should NOT appear
-        assert!(
-            !prompt.contains("code_search"),
-            "System prompt should NOT include code_search without .codegraph"
-        );
-    }
+    // Check if codegraph tools are mentioned in the prompt
+    assert!(prompt.contains("code_search"), "System prompt should include code_search");
+    assert!(prompt.contains("code_callers"), "System prompt should include code_callers");
 }

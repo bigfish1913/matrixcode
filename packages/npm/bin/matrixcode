@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+
+console.error('MatrixCode binary not found.');
+console.error('Please install via cargo: cargo install matrixcode');
+console.error('Or reinstall this package to download the binary.');
+process.exit(1);

@@ -3,8 +3,8 @@
 //! Tests complete workflow execution scenarios
 
 use matrixcode_core::workflow::{
-    WorkflowEngine, WorkflowPersistence, WorkflowStatus, parse_workflow, parse_workflow_from_file,
-    to_yaml,
+    parse_workflow, parse_workflow_from_file, WorkflowEngine, WorkflowPersistence,
+    WorkflowStatus, to_yaml,
 };
 use std::collections::HashMap;
 
@@ -33,9 +33,9 @@ edges:
     let engine = WorkflowEngine::new(workflow).expect("Failed to create engine");
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-    let context = rt
-        .block_on(async { engine.run(HashMap::new()).await })
-        .expect("Failed to run workflow");
+    let context = rt.block_on(async {
+        engine.run(HashMap::new()).await
+    }).expect("Failed to run workflow");
 
     assert_eq!(context.status, WorkflowStatus::Completed);
     assert_eq!(context.execution_path.len(), 2);
@@ -75,15 +75,12 @@ edges:
     inputs.insert("user_name".to_string(), serde_json::json!("Alice"));
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-    let context = rt
-        .block_on(async { engine.run(inputs).await })
-        .expect("Failed to run workflow");
+    let context = rt.block_on(async {
+        engine.run(inputs).await
+    }).expect("Failed to run workflow");
 
     assert_eq!(context.status, WorkflowStatus::Completed);
-    assert_eq!(
-        context.get_input("user_name").unwrap(),
-        &serde_json::json!("Alice")
-    );
+    assert_eq!(context.get_input("user_name").unwrap(), &serde_json::json!("Alice"));
 }
 
 /// Test missing required input fails
@@ -113,7 +110,9 @@ edges:
     let engine = WorkflowEngine::new(workflow).expect("Failed to create engine");
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-    let result = rt.block_on(async { engine.run(HashMap::new()).await });
+    let result = rt.block_on(async {
+        engine.run(HashMap::new()).await
+    });
 
     assert!(result.is_err());
 }
@@ -143,9 +142,9 @@ edges:
     let engine = WorkflowEngine::new(workflow).expect("Failed to create engine");
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-    let context = rt
-        .block_on(async { engine.run(HashMap::new()).await })
-        .expect("Failed to run workflow");
+    let context = rt.block_on(async {
+        engine.run(HashMap::new()).await
+    }).expect("Failed to run workflow");
 
     // Save to temp directory
     let dir = tempdir().expect("Failed to create temp dir");
@@ -154,8 +153,7 @@ edges:
     persistence.save(&context).expect("Failed to save");
 
     // Load back
-    let loaded = persistence
-        .load(&context.instance_id)
+    let loaded = persistence.load(&context.instance_id)
         .expect("Failed to load")
         .expect("No context found");
 
@@ -202,8 +200,8 @@ fn test_parse_workflow_from_file() {
     let example_path = std::path::PathBuf::from("workflows/hello-world.yaml");
 
     if example_path.exists() {
-        let workflow =
-            parse_workflow_from_file(&example_path).expect("Failed to parse workflow from file");
+        let workflow = parse_workflow_from_file(&example_path)
+            .expect("Failed to parse workflow from file");
 
         assert_eq!(workflow.id, "hello-world");
         assert_eq!(workflow.name, "Hello World Workflow");
@@ -234,9 +232,9 @@ edges:
     let engine = WorkflowEngine::new(workflow).expect("Failed to create engine");
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-    let mut context = rt
-        .block_on(async { engine.run(HashMap::new()).await })
-        .expect("Failed to run workflow");
+    let mut context = rt.block_on(async {
+        engine.run(HashMap::new()).await
+    }).expect("Failed to run workflow");
 
     // Pause
     context.pause();
@@ -281,7 +279,9 @@ edges:
 
     // Without executor, task will fail but ignore strategy should allow continuation
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-    let context = rt.block_on(async { engine.run(HashMap::new()).await });
+    let context = rt.block_on(async {
+        engine.run(HashMap::new()).await
+    });
 
     // Should complete even though task failed (ignore strategy)
     // Note: This may still fail if there's no fallback executor
@@ -327,8 +327,6 @@ fn test_workflow_rule_validation() {
         ],
     };
 
-    let result = engine
-        .validate(&rule, &context)
-        .expect("Failed to validate");
+    let result = engine.validate(&rule, &context).expect("Failed to validate");
     assert!(result.passed);
 }

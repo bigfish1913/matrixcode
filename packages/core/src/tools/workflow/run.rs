@@ -2,11 +2,11 @@
 //!
 //! 让 AI 执行工作流
 
-use crate::config::MatrixConfig;
-use crate::providers::Provider;
 use crate::tools::{Tool, ToolDefinition};
+use crate::workflow::{WorkflowRegistry, WorkflowEngine, WorkflowPersistence, WorkflowStatus};
 use crate::workflow::executors::ExecutorFactory;
-use crate::workflow::{WorkflowEngine, WorkflowPersistence, WorkflowRegistry, WorkflowStatus};
+use crate::providers::Provider;
+use crate::config::MatrixConfig;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -27,18 +27,13 @@ impl WorkflowRunTool {
 
     /// 创建带 Provider 的 WorkflowRunTool
     pub fn with_provider(provider: Arc<dyn Provider>) -> Self {
-        Self {
-            provider: Some(provider),
-        }
+        Self { provider: Some(provider) }
     }
 
     /// Get provider - from instance or create from config
     fn get_provider(&self) -> Result<Arc<dyn Provider>> {
         if let Some(p) = &self.provider {
-            log::info!(
-                "WorkflowRunTool: using injected provider for model {}",
-                p.model_name()
-            );
+            log::info!("WorkflowRunTool: using injected provider for model {}", p.model_name());
             Ok(p.clone())
         } else {
             log::info!("WorkflowRunTool: no injected provider, creating from config");
@@ -78,13 +73,11 @@ impl Tool for WorkflowRunTool {
     }
 
     async fn execute(&self, params: Value) -> Result<String> {
-        let workflow_id = params
-            .get("workflow_id")
+        let workflow_id = params.get("workflow_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 workflow_id 参数"))?;
 
-        let inputs: HashMap<String, Value> = params
-            .get("inputs")
+        let inputs: HashMap<String, Value> = params.get("inputs")
             .and_then(|v| v.as_object())
             .map(|m| m.clone().into_iter().collect())
             .unwrap_or_default();
@@ -93,19 +86,16 @@ impl Tool for WorkflowRunTool {
         let registry = WorkflowRegistry::new(project_path.as_ref());
 
         // Load workflow
-        let workflow_def = registry.load_workflow(workflow_id)?.ok_or_else(|| {
-            anyhow::anyhow!(
-                "Workflow '{}' 不存在。用 workflow_discover 查看可用列表。",
-                workflow_id
-            )
-        })?;
+        let workflow_def = registry.load_workflow(workflow_id)?
+            .ok_or_else(|| anyhow::anyhow!("Workflow '{}' 不存在。用 workflow_discover 查看可用列表。", workflow_id))?;
 
         // Get provider
         let provider = self.get_provider()?;
 
         // Create engine with executor factory
         let factory = ExecutorFactory::new().with_provider(provider);
-        let engine = WorkflowEngine::new(workflow_def)?.with_executor_factory(factory);
+        let engine = WorkflowEngine::new(workflow_def)?
+            .with_executor_factory(factory);
 
         let context = engine.run(inputs).await?;
 

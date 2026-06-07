@@ -1,7 +1,7 @@
 //! API Connection Tests
 //! Tests both Anthropic and OpenAI protocols for DashScope
 
-use matrixcode_core::providers::{ProviderType, StreamEvent, create_provider_with_headers};
+use matrixcode_core::providers::{create_provider_with_headers, ProviderType, StreamEvent};
 use matrixcode_core::{ChatRequest, Message, MessageContent, Role};
 use std::collections::HashMap;
 
@@ -50,8 +50,7 @@ async fn test_anthropic_protocol() {
         model.to_string(),
         Some(base_url.to_string()),
         get_extra_headers(),
-    )
-    .expect("Failed to create Anthropic provider");
+    ).expect("Failed to create Anthropic provider");
 
     let request = create_test_request();
     let result = provider.chat(request).await;
@@ -61,10 +60,7 @@ async fn test_anthropic_protocol() {
             println!("✓ Anthropic protocol success!");
             println!("  Content: {:?}", response.content);
             println!("  Stop reason: {:?}", response.stop_reason);
-            println!(
-                "  Usage: in={}, out={}",
-                response.usage.input_tokens, response.usage.output_tokens
-            );
+            println!("  Usage: in={}, out={}", response.usage.input_tokens, response.usage.output_tokens);
             assert!(!response.content.is_empty());
         }
         Err(e) => {
@@ -85,10 +81,9 @@ async fn test_openai_protocol() {
     let model = "glm-5";
 
     // OpenAI protocol needs X-DashScope-SSE header for streaming
-    let headers = get_extra_headers().or(Some(HashMap::from([(
-        "X-DashScope-SSE".to_string(),
-        "enable".to_string(),
-    )])));
+    let headers = get_extra_headers().or(Some(HashMap::from([
+        ("X-DashScope-SSE".to_string(), "enable".to_string()),
+    ])));
 
     let provider = create_provider_with_headers(
         ProviderType::OpenAI,
@@ -96,8 +91,7 @@ async fn test_openai_protocol() {
         model.to_string(),
         Some(base_url.to_string()),
         headers,
-    )
-    .expect("Failed to create OpenAI provider");
+    ).expect("Failed to create OpenAI provider");
 
     let request = create_test_request();
     let result = provider.chat(request).await;
@@ -107,10 +101,7 @@ async fn test_openai_protocol() {
             println!("✓ OpenAI protocol success!");
             println!("  Content: {:?}", response.content);
             println!("  Stop reason: {:?}", response.stop_reason);
-            println!(
-                "  Usage: in={}, out={}",
-                response.usage.input_tokens, response.usage.output_tokens
-            );
+            println!("  Usage: in={}, out={}", response.usage.input_tokens, response.usage.output_tokens);
             assert!(!response.content.is_empty());
         }
         Err(e) => {
@@ -135,8 +126,7 @@ async fn test_anthropic_streaming() {
         model.to_string(),
         Some(base_url.to_string()),
         get_extra_headers(),
-    )
-    .expect("Failed to create Anthropic provider");
+    ).expect("Failed to create Anthropic provider");
 
     let request = create_test_request();
     let result = provider.chat_stream(request).await;
@@ -174,10 +164,9 @@ async fn test_openai_streaming() {
     let base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1";
     let model = "glm-5";
 
-    let headers = get_extra_headers().or(Some(HashMap::from([(
-        "X-DashScope-SSE".to_string(),
-        "enable".to_string(),
-    )])));
+    let headers = get_extra_headers().or(Some(HashMap::from([
+        ("X-DashScope-SSE".to_string(), "enable".to_string()),
+    ])));
 
     let provider = create_provider_with_headers(
         ProviderType::OpenAI,
@@ -185,8 +174,7 @@ async fn test_openai_streaming() {
         model.to_string(),
         Some(base_url.to_string()),
         headers,
-    )
-    .expect("Failed to create OpenAI provider");
+    ).expect("Failed to create OpenAI provider");
 
     let request = create_test_request();
     let result = provider.chat_stream(request).await;

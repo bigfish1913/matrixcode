@@ -13,9 +13,8 @@ pub const MAX_IMPORTANCE_CEILING: f64 = 100.0;
 pub const MIN_SIMILARITY_LENGTH: usize = 10;
 
 /// Similarity threshold for considering entries as duplicates (0.0-1.0).
-/// Lowered to 0.6 to better detect semantic duplicates (same pattern/type).
-/// Examples that should match: "项目技术栈: Node.js" vs "项目技术栈: Rust"
-pub const SIMILARITY_THRESHOLD: f64 = 0.6;
+/// Higher value (0.85) reduces duplicate detection false negatives.
+pub const SIMILARITY_THRESHOLD: f64 = 0.85;
 
 /// Similarity threshold for merging similar memories (0.0-1.0).
 /// Lower than duplicate threshold to allow semantic merging.
@@ -52,6 +51,10 @@ pub const CONTEXT_IMPORTANCE_WEIGHT: f64 = 0.4;
 /// Default model for cost-effective memory extraction.
 pub const DEFAULT_MEMORY_EXTRACTOR_MODEL: &str = "claude-3-5-haiku-20241022";
 
+/// Minimum keywords threshold for triggering AI fallback.
+/// If rule-based extraction produces fewer keywords than this, AI is used.
+pub const MIN_KEYWORDS_FOR_AI_FALLBACK: usize = 2;
+
 /// Default fast model for AI memory extraction.
 pub const DEFAULT_FAST_MODEL: &str = "claude-3-5-haiku-20241022";
 
@@ -63,6 +66,53 @@ pub const DEFAULT_IMPORTANCE_PREF: f64 = 65.0;
 pub const DEFAULT_IMPORTANCE_FINDING: f64 = 55.0;
 pub const DEFAULT_IMPORTANCE_TECH: f64 = 45.0;
 pub const DEFAULT_IMPORTANCE_STRUCTURE: f64 = 35.0;
+
+// ============================================================================
+// AI Modes
+// ============================================================================
+
+/// AI keyword extraction mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AiKeywordMode {
+    /// Hybrid mode: rule-based first, AI fallback when keywords are insufficient (default).
+    #[default]
+    Auto,
+    /// Always use AI for keyword extraction.
+    Always,
+    /// Never use AI, only rule-based extraction.
+    Never,
+}
+
+impl AiKeywordMode {
+    /// Parse from environment variable string.
+    pub fn from_env() -> Self {
+        match std::env::var("MEMORY_AI_KEYWORDS")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str()
+        {
+            "always" | "true" | "1" => AiKeywordMode::Always,
+            "never" | "false" | "0" => AiKeywordMode::Never,
+            "auto" | "" => AiKeywordMode::Auto,
+            other => {
+                log::warn!(
+                    "Unknown MEMORY_AI_KEYWORDS value: '{}', using 'auto'",
+                    other
+                );
+                AiKeywordMode::Auto
+            }
+        }
+    }
+
+    /// Whether AI extraction should be used given the keyword count.
+    pub fn should_use_ai(&self, keyword_count: usize) -> bool {
+        match self {
+            AiKeywordMode::Always => true,
+            AiKeywordMode::Never => false,
+            AiKeywordMode::Auto => keyword_count < MIN_KEYWORDS_FOR_AI_FALLBACK,
+        }
+    }
+}
 
 /// AI memory detection mode.
 /// Controls whether AI is used for memory category detection.

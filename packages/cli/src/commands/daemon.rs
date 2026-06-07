@@ -10,7 +10,6 @@ use matrixcode_core::{
     tools::all_tools_full,
     approval::ApproveMode,
     session::SessionManager,
-    prompt::preprocess_with_skills, prompt::ProcessResult,
 };
 use serde::Deserialize;
 use std::io::{BufRead, Write};
@@ -154,32 +153,7 @@ fn handle_chat_request(request: &DaemonRequest) -> Result<Vec<AgentEvent>> {
                 .approve_mode(ApproveMode::Auto)
                 .build();
 
-            // Pre-process: detect skill/workflow triggers with skills
-            let processed_content = match preprocess_with_skills(&content, &skills) {
-                ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
-                    if let Some(body) = skill_body {
-                        format!(
-                            "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
-                            skill_id, body, content
-                        )
-                    } else {
-                        format!(
-                            "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
-                            skill_id, content
-                        )
-                    }
-                }
-                ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
-                    let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
-                    format!(
-                        "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
-                        workflow_id, inputs_json, content
-                    )
-                }
-                ProcessResult::Continue => content.clone(),
-            };
-
-            agent.run(processed_content).await
+            agent.run(content.clone()).await
         });
 
         match result {
@@ -236,32 +210,7 @@ fn handle_quick_action_request(request: &DaemonRequest) -> Result<Vec<AgentEvent
                 .approve_mode(ApproveMode::Auto)
                 .build();
 
-            // Pre-process: detect skill/workflow triggers with skills
-            let processed_prompt = match preprocess_with_skills(&prompt, &skills) {
-                ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
-                    if let Some(body) = skill_body {
-                        format!(
-                            "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
-                            skill_id, body, prompt
-                        )
-                    } else {
-                        format!(
-                            "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
-                            skill_id, prompt
-                        )
-                    }
-                }
-                ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
-                    let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
-                    format!(
-                        "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
-                        workflow_id, inputs_json, prompt
-                    )
-                }
-                ProcessResult::Continue => prompt.clone(),
-            };
-
-            agent.run(processed_prompt).await
+            agent.run(prompt).await
         });
 
         match result {

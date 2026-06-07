@@ -17,7 +17,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }
-thiserror = "2.0"
 clap = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
@@ -33,18 +32,6 @@ dirs = { workspace = true }
 serde_yaml = "0.9"
 rusqlite = { workspace = true }
 notify = { workspace = true }
-tempfile = { workspace = true }  # For code quality hook temporary files
-
-# MCP dependencies
-tracing = "0.1"
-shell-words = { workspace = true }
-toml = "0.8"
-
-# LSP dependencies
-lsp-types = "0.95"
-
-# Token counting
-tiktoken-rs = { workspace = true }
 
 [dev-dependencies]
 mockito = { workspace = true }

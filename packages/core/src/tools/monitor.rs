@@ -29,8 +29,8 @@ impl Tool for MonitorTool {
                     },
                     "timeout": {
                         "type": "integer",
-                        "default": 5000,
-                        "description": "超时时间（毫秒，默认 5 秒）"
+                        "default": 30000,
+                        "description": "超时时间（毫秒，默认 30 秒）"
                     },
                     "condition": {
                         "type": "string",
@@ -54,23 +54,13 @@ impl Tool for MonitorTool {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing 'mode'"))?;
         let target = params["target"].as_str().map(|s| s.to_string());
-        let timeout_ms = params["timeout"].as_u64().unwrap_or(5000);
+        let timeout_ms = params["timeout"].as_u64().unwrap_or(30000);
         let condition = params["condition"].as_str().unwrap_or("available");
-
-        // Timer mode uses async sleep (no blocking needed)
-        if mode == "timer" {
-            let duration = Duration::from_millis(timeout_ms);
-            tokio::time::sleep(duration).await;
-            return Ok(format!(
-                "Timer completed after {:.1}s",
-                duration.as_secs_f64()
-            ));
-        }
 
         let mode = mode.to_string();
         let condition = condition.to_string();
 
-        // Other modes use spawn_blocking for synchronous monitoring
+        // Use spawn_blocking for synchronous monitoring operations
         tokio::task::spawn_blocking(move || {
             let timeout = Duration::from_millis(timeout_ms);
             let start = std::time::Instant::now();
@@ -79,6 +69,7 @@ impl Tool for MonitorTool {
                 "process" => monitor_process(target.as_deref(), &condition, timeout, start),
                 "file" => monitor_file(target.as_deref(), &condition, timeout, start),
                 "port" => monitor_port(target.as_deref(), timeout, start),
+                "timer" => monitor_timer(timeout_ms, start),
                 _ => Ok(format!("Unknown monitor mode: {}", mode)),
             }
         })
@@ -233,6 +224,22 @@ fn monitor_port(
         }
 
         std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// Simple timer countdown
+fn monitor_timer(timeout_ms: u64, start: std::time::Instant) -> Result<String> {
+    let duration = Duration::from_millis(timeout_ms);
+    loop {
+        let elapsed = start.elapsed();
+        if elapsed >= duration {
+            return Ok(format!(
+                "Timer completed after {:.1}s",
+                duration.as_secs_f64()
+            ));
+        }
+
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 

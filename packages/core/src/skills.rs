@@ -28,105 +28,19 @@
 //! 2. The `skill` tool loads the full skill body (and lists the
 //!    skill's files) when the model decides to use one. This keeps
 //!    baseline token cost low even with many skills installed.
-//!
-//! ## Skill Priority and Type
-//!
-//! Skills have priority levels that determine invocation order:
-//! - **Process** (priority 1): brainstorming, debugging, planning
-//! - **Implementation** (priority 2): frontend-design, mcp-builder, code-review
-//!
-//! Skills also have types that determine flexibility:
-//! - **Rigid**: Must be followed exactly (TDD, debugging workflows)
-//! - **Flexible**: Can be adapted to context (patterns, style guides)
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-/// Skill type determines how strictly the skill should be followed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SkillType {
-    /// Rigid skill - must be followed exactly (TDD, debugging)
-    Rigid,
-    /// Flexible skill - can be adapted to context (patterns)
-    #[default]
-    Flexible,
-}
-
-impl SkillType {
-    /// Parse from string
-    pub fn from_str(s: &str) -> Self {
-        match s.trim().to_lowercase().as_str() {
-            "rigid" => Self::Rigid,
-            "flexible" => Self::Flexible,
-            _ => Self::default(),
-        }
-    }
-
-    /// Convert to string
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Rigid => "rigid",
-            Self::Flexible => "flexible",
-        }
-    }
-}
-
-/// Skill priority determines invocation order.
-/// Lower number = higher priority (processed first).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
-pub enum SkillPriority {
-    /// Process skills (brainstorming, debugging, planning) - highest priority
-    Process = 1,
-    /// Implementation skills (frontend, mcp-builder) - second priority
-    #[default]
-    Implementation = 2,
-}
-
-impl SkillPriority {
-    /// Parse from string
-    pub fn from_str(s: &str) -> Self {
-        match s.trim().to_lowercase().as_str() {
-            "process" => Self::Process,
-            "implementation" => Self::Implementation,
-            _ => Self::default(),
-        }
-    }
-
-    /// Convert to string
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Process => "process",
-            Self::Implementation => "implementation",
-        }
-    }
-
-    /// Get display label for prompt
-    pub fn display_label(&self) -> &'static str {
-        match self {
-            Self::Process => "Process",
-            Self::Implementation => "Implementation",
-        }
-    }
-}
-
 /// A loaded skill ready to be advertised to the model.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Skill {
     /// Canonical identifier, taken from frontmatter `name` or file name.
     /// Used as the argument to the `skill` tool.
     pub name: String,
     /// Short one-line description shown in the system prompt.
     pub description: String,
-    /// Trigger conditions (optional). When to use this skill.
-    /// Example: "代码审查请求"、"用户说 'review'、"修改多个文件后"
-    pub trigger: Option<String>,
-    /// Skill type: Rigid (must follow exactly) or Flexible (adapt to context)
-    pub skill_type: SkillType,
-    /// Skill priority: Process (first) or Implementation (second)
-    pub priority: SkillPriority,
-    /// Whether this skill is mandatory to invoke when triggered
-    pub mandatory: bool,
     /// Absolute path to the skill directory.
     pub dir: PathBuf,
     /// Full markdown body (without frontmatter).
@@ -169,7 +83,7 @@ pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {
             let path = entry.path();
 
             if path.is_dir() {
-                // Try Format 1: SKILL.md exists (package index)
+                // Try Format 1: SKILL.md exists
                 let skill_md = path.join("SKILL.md");
                 if skill_md.is_file() {
                     match load_skill_from_file(&skill_md, &path) {
@@ -180,11 +94,10 @@ pub fn discover_skills(roots: &[PathBuf]) -> Vec<Skill> {
                             eprintln!("[warn] skipping skill at {}: {e}", path.display());
                         }
                     }
-                    // Don't continue here - also load other .md files in the directory
-                    // (SKILL.md acts as package index, other .md files are individual skills)
+                    continue;
                 }
 
-                // Try Format 2: multiple .md files in directory (including alongside SKILL.md)
+                // Try Format 2: multiple .md files in directory
                 load_multi_file_skills(&path, &mut out);
             } else if path.is_file() {
                 // Format 3: standalone .md file directly in root
@@ -226,8 +139,6 @@ fn add_skill(out: &mut Vec<Skill>, skill: Skill) {
 
 /// Load skills from a directory containing multiple .md files.
 /// Each .md file with frontmatter becomes a separate skill.
-/// Note: SKILL.md is skipped here (handled separately as package index),
-/// but other .md files are loaded even when SKILL.md exists.
 fn load_multi_file_skills(dir: &Path, out: &mut Vec<Skill>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -300,34 +211,9 @@ pub fn load_skill_from_file(md_path: &Path, dir: &Path) -> Result<Skill> {
         .cloned()
         .unwrap_or_else(|| "(no description)".to_string());
 
-    // Extract trigger field (optional)
-    let trigger = front.get("trigger").cloned();
-
-    // Extract skill_type (optional, default to Flexible)
-    let skill_type = front
-        .get("type")
-        .map(|s| SkillType::from_str(s))
-        .unwrap_or_default();
-
-    // Extract priority (optional, default to Implementation)
-    let priority = front
-        .get("priority")
-        .map(|s| SkillPriority::from_str(s))
-        .unwrap_or_default();
-
-    // Extract mandatory flag (optional, default to false)
-    let mandatory = front
-        .get("mandatory")
-        .map(|s| s.trim().to_lowercase() == "true")
-        .unwrap_or(false);
-
     Ok(Skill {
         name,
         description,
-        trigger,
-        skill_type,
-        priority,
-        mandatory,
         dir: dir.to_path_buf(),
         body: body.to_string(),
         source_file: md_path.to_path_buf(),
@@ -419,51 +305,21 @@ fn unquote(s: &str) -> String {
 /// Render the skills catalogue body for insertion into a prompt section.
 /// Returns `None` if there are no skills, so callers can skip injection
 /// entirely rather than bolting on an empty section.
-///
-/// Skills are sorted by priority (Process first, then Implementation).
-/// Mandatory skills are marked with ⚠️ indicator.
 pub fn format_catalogue(skills: &[Skill]) -> Option<String> {
     if skills.is_empty() {
         return None;
     }
-
-    // Sort by priority (Process first)
-    let mut sorted_skills = skills.to_vec();
-    sorted_skills.sort_by_key(|s| s.priority);
-
     let mut s = String::from(
-        "Use the `skill` tool with the skill's name to load its full instructions.\n\n",
+        "Use the `skill` tool with the skill's name to load its full instructions:
+",
     );
-
-    // Group by priority
-    let process_skills: Vec<_> = sorted_skills.iter().filter(|s| s.priority == SkillPriority::Process).collect();
-    let impl_skills: Vec<_> = sorted_skills.iter().filter(|s| s.priority == SkillPriority::Implementation).collect();
-
-    if !process_skills.is_empty() {
-        s.push_str("**Process Skills** (invoke first for workflow guidance):\n");
-        for sk in process_skills {
-            let mandatory_marker = if sk.mandatory { "⚠️ " } else { "" };
-            let type_marker = if sk.skill_type == SkillType::Rigid { "[rigid] " } else { "" };
-            s.push_str(&format!(
-                "- {}{}{}: {}\n",
-                mandatory_marker, type_marker, sk.name, sk.description
-            ));
-        }
-        s.push_str("\n");
+    for sk in skills {
+        s.push_str(&format!(
+            "- {}: {}
+",
+            sk.name, sk.description
+        ));
     }
-
-    if !impl_skills.is_empty() {
-        s.push_str("**Implementation Skills** (invoke after process skills):\n");
-        for sk in impl_skills {
-            let mandatory_marker = if sk.mandatory { "⚠️ " } else { "" };
-            let type_marker = if sk.skill_type == SkillType::Rigid { "[rigid] " } else { "" };
-            s.push_str(&format!(
-                "- {}{}{}: {}\n",
-                mandatory_marker, type_marker, sk.name, sk.description
-            ));
-        }
-    }
-
     Some(s)
 }
 
@@ -681,10 +537,6 @@ mod tests {
         let s = Skill {
             name: "demo".into(),
             description: "does stuff".into(),
-            trigger: None,
-            skill_type: SkillType::Flexible,
-            priority: SkillPriority::Implementation,
-            mandatory: false,
             dir: PathBuf::from("/tmp"),
             body: String::new(),
             source_file: PathBuf::from("/tmp/demo.md"),
@@ -692,62 +544,6 @@ mod tests {
         let cat = format_catalogue(&[s]).unwrap();
         assert!(cat.contains("Use the `skill` tool"));
         assert!(cat.contains("demo: does stuff"));
-        assert!(cat.contains("Implementation Skills"));
-    }
-
-    #[test]
-    fn catalogue_groups_by_priority() {
-        let process_skill = Skill {
-            name: "brainstorm".into(),
-            description: "brainstorm ideas".into(),
-            trigger: None,
-            skill_type: SkillType::Flexible,
-            priority: SkillPriority::Process,
-            mandatory: false,
-            dir: PathBuf::from("/tmp"),
-            body: String::new(),
-            source_file: PathBuf::from("/tmp/brainstorm.md"),
-        };
-        let impl_skill = Skill {
-            name: "frontend".into(),
-            description: "frontend design".into(),
-            trigger: None,
-            skill_type: SkillType::Rigid,
-            priority: SkillPriority::Implementation,
-            mandatory: true,
-            dir: PathBuf::from("/tmp"),
-            body: String::new(),
-            source_file: PathBuf::from("/tmp/frontend.md"),
-        };
-        let cat = format_catalogue(&[impl_skill, process_skill]).unwrap();
-        // Process skills should appear first
-        let process_idx = cat.find("Process Skills").unwrap();
-        let impl_idx = cat.find("Implementation Skills").unwrap();
-        assert!(process_idx < impl_idx, "Process skills should come before Implementation");
-        // Mandatory marker should appear
-        assert!(cat.contains("⚠️"), "Mandatory skill should have marker");
-        // Rigid marker should appear
-        assert!(cat.contains("[rigid]"), "Rigid skill should have marker");
-    }
-
-    #[test]
-    fn skill_type_parsing() {
-        assert_eq!(SkillType::from_str("rigid"), SkillType::Rigid);
-        assert_eq!(SkillType::from_str("RIGID"), SkillType::Rigid);
-        assert_eq!(SkillType::from_str("flexible"), SkillType::Flexible);
-        assert_eq!(SkillType::from_str("unknown"), SkillType::Flexible);
-    }
-
-    #[test]
-    fn skill_priority_parsing() {
-        assert_eq!(SkillPriority::from_str("process"), SkillPriority::Process);
-        assert_eq!(SkillPriority::from_str("PROCESS"), SkillPriority::Process);
-        assert_eq!(SkillPriority::from_str("implementation"), SkillPriority::Implementation);
-        assert_eq!(SkillPriority::from_str("unknown"), SkillPriority::Implementation);
-    }
-
-    #[test]
-    fn skill_priority_ordering() {
-        assert!(SkillPriority::Process < SkillPriority::Implementation);
+        assert!(!cat.contains("Available skills"));
     }
 }

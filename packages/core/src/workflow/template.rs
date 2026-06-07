@@ -39,11 +39,7 @@ impl TemplateRenderer {
     /// - `{{var}}` - 简单变量替换
     /// - `{{var.field}}` - 嵌套访问
     /// - `{{var|default}}` - 带默认值
-    pub fn render(
-        &self,
-        template: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<String> {
+    pub fn render(&self, template: &str, variables: &HashMap<String, serde_json::Value>) -> Result<String> {
         let mut result = template.to_string();
 
         // 先处理嵌套访问（更具体的模式）
@@ -59,11 +55,7 @@ impl TemplateRenderer {
     }
 
     /// 渲染简单变量 {{var}}
-    fn render_simple(
-        &self,
-        template: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<String> {
+    fn render_simple(&self, template: &str, variables: &HashMap<String, serde_json::Value>) -> Result<String> {
         let mut result = template.to_string();
 
         for cap in self.var_pattern.captures_iter(template) {
@@ -80,11 +72,7 @@ impl TemplateRenderer {
     }
 
     /// 渲染嵌套访问 {{var.field}}
-    fn render_nested(
-        &self,
-        template: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<String> {
+    fn render_nested(&self, template: &str, variables: &HashMap<String, serde_json::Value>) -> Result<String> {
         let mut result = template.to_string();
 
         for cap in self.nested_pattern.captures_iter(template) {
@@ -101,11 +89,7 @@ impl TemplateRenderer {
     }
 
     /// 渲染带默认值 {{var|default}}
-    fn render_with_default(
-        &self,
-        template: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<String> {
+    fn render_with_default(&self, template: &str, variables: &HashMap<String, serde_json::Value>) -> Result<String> {
         let mut result = template.to_string();
 
         for cap in self.default_pattern.captures_iter(template) {
@@ -124,11 +108,7 @@ impl TemplateRenderer {
     }
 
     /// 解析路径（如 var.field.subfield）
-    fn resolve_path(
-        &self,
-        path: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<Option<serde_json::Value>> {
+    fn resolve_path(&self, path: &str, variables: &HashMap<String, serde_json::Value>) -> Result<Option<serde_json::Value>> {
         let parts: Vec<&str> = path.split('.').collect();
         if parts.is_empty() {
             return Ok(None);
@@ -254,17 +234,12 @@ mod tests {
     fn test_nested_access() {
         let renderer = TemplateRenderer::new();
         let mut vars = HashMap::new();
-        vars.insert(
-            "user".to_string(),
-            json!({
-                "name": "Bob",
-                "age": 30
-            }),
-        );
+        vars.insert("user".to_string(), json!({
+            "name": "Bob",
+            "age": 30
+        }));
 
-        let result = renderer
-            .render("Name: {{user.name}}, Age: {{user.age}}", &vars)
-            .unwrap();
+        let result = renderer.render("Name: {{user.name}}, Age: {{user.age}}", &vars).unwrap();
         assert_eq!(result, "Name: Bob, Age: 30");
     }
 

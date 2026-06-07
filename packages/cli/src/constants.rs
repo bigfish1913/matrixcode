@@ -14,8 +14,8 @@ pub const QUICK_ACTION_MAX_TOKENS: u32 = 4096;
 /// Event channel buffer size
 pub const EVENT_CHANNEL_BUFFER: usize = 100;
 
-/// Task channel buffer size (increased for merged queue messages)
-pub const TASK_CHANNEL_BUFFER: usize = 100;
+/// Task channel buffer size
+pub const TASK_CHANNEL_BUFFER: usize = 10;
 
 /// Ask channel buffer size
 pub const ASK_CHANNEL_BUFFER: usize = 1;
@@ -31,9 +31,7 @@ pub const SESSION_CLEANUP_DAYS: u64 = 30;
 
 /// Display limits
 pub const DISPLAY_SESSIONS_LIMIT: usize = 10;
-#[allow(dead_code)]
 pub const DISPLAY_OVERVIEW_CHARS_LIMIT: usize = 2000;
-#[allow(dead_code)]
 pub const DISPLAY_MEMORY_SEARCH_LIMIT: usize = 10;
 pub const DISPLAY_ERROR_CHARS_LIMIT: usize = 50;
 

@@ -3,13 +3,10 @@
 use crate::providers::{
     ChatRequest, ChatResponse, ContentBlock, Message, MessageContent, Provider, Role,
 };
-use crate::tokenizer::{count_tokens, message_overhead};
 use crate::truncate::truncate_with_suffix;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashSet;
-
-use super::dependency::DependencyBuilder;
 
 use super::config::{CompressionBias, CompressionConfig};
 use super::types::{CompressionStrategy, SummarizedSegment};
@@ -36,66 +33,36 @@ pub trait Compressor: Send + Sync {
 pub struct AiCompressor {
     provider: Box<dyn Provider>,
     model: String,
-    hardcode_config: crate::compress::hardcode_config::HardcodeConfig,
 }
 
 impl AiCompressor {
     pub fn new(provider: Box<dyn Provider>, model: String) -> Self {
-        Self {
-            provider,
-            model,
-            hardcode_config: crate::compress::hardcode_config::HardcodeConfig::default(),
-        }
-    }
-    
-    /// Set custom hardcode config
-    pub fn with_hardcode_config(mut self, config: crate::compress::hardcode_config::HardcodeConfig) -> Self {
-        self.hardcode_config = config;
-        self
+        Self { provider, model }
     }
 }
 
-const SUMMARY_SYSTEM_PROMPT: &str = r#"CRITICAL: 仅用文本响应。不要调用任何工具。
-
-- 不要使用 read、bash、grep、glob、edit、write 或任何其他工具
-- 你已在上方对话中获得所需的所有上下文
-- 工具调用将被拒绝并浪费你唯一的 turn — 你将失败任务
-- 你的整个响应必须是纯文本摘要
-
----
-
-你是一个对话历史压缩助手。将对话压缩为结构化摘要。
-
-在提供最终摘要前，将你的分析包裹在 <analysis> 标签中以组织思路：
-<analysis>
-1. 按时间顺序分析每条消息
-2. 识别：用户请求、助手行动、关键决策、错误及修复
-3. 特别注意用户的敏感指令（禁止/必须）
-4. 双重检查技术准确性和完整性
-</analysis>
+const SUMMARY_SYSTEM_PROMPT: &str = r#"你是一个对话历史压缩助手。将对话压缩为结构化摘要。
 
 输出要求：
 - 结构化：使用9个章节格式
 - 关键：只保留重要信息，忽略无关细节
-- 敏感：必须保留用户的敏感指令（禁止、必须等）— 原样保留
+- 敏感：必须保留用户的敏感指令（禁止、必须等）
 - 任务：必须保留未完成的待办事项
 - 决策：必须保留关键方案选择和理由
 
 9章节输出格式：
 【摘要】一句话概括主要工作（50字以内）
 【已完成】列出已完成的操作（工具调用、文件变更）
-【未完成】列出待办任务和阻塞项 — 最关键，压缩后恢复需要
+【未完成】列出待办任务和阻塞项
 【关键决策】重要选择及理由（技术选型、方案决策）
 【敏感指令】用户的禁止/必须指令（必须原样保留）
 【技术栈】使用的语言、框架、库、工具
 【文件变更】读取、修改、创建的文件路径
 【问题记录】遇到的问题及解决方案
-【下一步】建议的下一步操作（直接引用最近对话展示任务中断点）
+【下一步】建议的下一步操作
 
 每章节控制在100字以内，空章节可省略。
-输出摘要后立即停止，不要添加任何解释或后续建议。
-
-REMINDER: 不要调用任何工具。仅用纯文本响应。"#;
+请直接输出内容。"#;
 
 #[async_trait]
 impl Compressor for AiCompressor {
@@ -121,7 +88,7 @@ impl Compressor for AiCompressor {
 
         let response = self.provider.chat(request).await?;
         let summary_text = extract_text_from_response(&response);
-        let (summary, key_points) = parse_summary_response(&summary_text, &self.hardcode_config);
+        let (summary, key_points) = parse_summary_response(&summary_text);
 
         Ok(SummarizedSegment {
             time_range: (chrono::Utc::now(), chrono::Utc::now()),
@@ -151,21 +118,14 @@ fn extract_text_from_response(response: &ChatResponse) -> String {
         .join("\n")
 }
 
-fn parse_summary_response(text: &str, config: &crate::compress::hardcode_config::HardcodeConfig) -> (String, Vec<String>) {
+fn parse_summary_response(text: &str) -> (String, Vec<String>) {
     let mut summary = String::new();
     let mut key_points: Vec<String> = Vec::new();
 
     // Parse 9-section structured format
     let sections = [
-        "【摘要】",
-        "【已完成】",
-        "【未完成】",
-        "【关键决策】",
-        "【敏感指令】",
-        "【技术栈】",
-        "【文件变更】",
-        "【问题记录】",
-        "【下一步】",
+        "【摘要】", "【已完成】", "【未完成】", "【关键决策】",
+        "【敏感指令】", "【技术栈】", "【文件变更】", "【问题记录】", "【下一步】"
     ];
 
     for line in text.lines() {
@@ -207,8 +167,8 @@ fn parse_summary_response(text: &str, config: &crate::compress::hardcode_config:
     // Fallback if no structured format found
     if summary.is_empty() && !text.is_empty() {
         summary = text.lines().take(3).collect::<Vec<_>>().join(" ");
-        if summary.len() > config.summary_length_threshold {
-            summary = truncate_with_suffix(&summary, config.summary_length_threshold);
+        if summary.len() > 200 {
+            summary = truncate_with_suffix(&summary, 200);
         }
     }
 
@@ -295,15 +255,16 @@ pub fn compress_with_bias(
 
 fn calculate_preservation_score(
     message: &Message,
-    _index: usize,
-    _total: usize, // Reserved for future use (total message count)
+    index: usize,
+    _total: usize,  // Reserved for future use (total message count)
     bias: &CompressionBias,
 ) -> f64 {
     let mut score: f64 = 10.0;
 
-    // Note: First message is no longer given unconditional high priority
-    // It will be scored based on its content like other messages.
-    // This prevents context pollution when user starts a new topic in multi-turn conversations.
+    // First message (user's original request) gets highest priority
+    if index == 0 {
+        score += 100.0;
+    }
 
     match message.role {
         Role::User => {
@@ -420,139 +381,103 @@ fn sliding_window_compress(
         return Ok(messages.to_vec());
     }
 
-    // Build dependency graph to preserve tool_use/tool_result pairs
-    let deps = DependencyBuilder::build(messages);
+    // Enhanced sliding window strategy:
+    // 1. Always keep first message (original user request)
+    // 2. Summarize middle messages if too long
+    // 3. Keep recent messages intact
 
-    // Enhanced sliding window strategy with dependency protection:
-    // 1. Preserve tool_use/tool_result pairs
-    // 2. Keep recent messages intact
-    // Note: First message is NOT automatically preserved - it competes based on content scoring
-
+    let first_msg = messages.first().cloned();
     let recent_start = messages.len().saturating_sub(config.min_preserve_messages);
+    let recent_msgs = &messages[recent_start..];
 
-    // Collect indices to preserve
-    let mut preserve_indices: HashSet<usize> = HashSet::new();
-
-    // Preserve recent messages (including the current user message which is likely at the end)
-    for i in recent_start..messages.len() {
-        preserve_indices.insert(i);
-
-        // Also preserve dependency pairs for recent messages
-        for pair_idx in deps.get_pair_indices(i) {
-            preserve_indices.insert(pair_idx);
-        }
-    }
-
-    // Calculate tokens for preserved messages
-    let preserved_msgs: Vec<Message> = preserve_indices
-        .iter()
-        .filter(|&i| *i < messages.len())
-        .map(|&i| messages[i].clone())
-        .collect();
-
-    let preserved_tokens = estimate_total_tokens(&preserved_msgs);
+    // Calculate tokens for first + recent
+    let first_tokens = first_msg.as_ref().map(estimate_tokens).unwrap_or(0);
+    let recent_tokens = estimate_total_tokens(recent_msgs);
     let current_total = estimate_total_tokens(messages);
     let target_tokens = (current_total as f64 * config.target_ratio) as u32;
 
-    // If preserved messages fit within target, return them sorted by index
-    if preserved_tokens <= target_tokens {
-        let mut sorted_indices: Vec<usize> = preserve_indices.iter().cloned().collect();
-        sorted_indices.sort();
-        let result: Vec<Message> = sorted_indices
-            .iter()
-            .filter(|&i| *i < messages.len())
-            .map(|&i| messages[i].clone())
-            .collect();
+    // If first + recent already exceeds target, just use recent (drop first)
+    if first_tokens + recent_tokens <= target_tokens {
+        // We can keep first message + recent messages
+        let mut result: Vec<Message> = Vec::new();
+        if let Some(first) = first_msg {
+            result.push(first);
+        }
+        result.extend(recent_msgs.iter().cloned());
         return Ok(result);
     }
 
-    // If still too long, try dropping older messages while preserving pairs
-    let mut sorted_indices: Vec<usize> = preserve_indices.iter().cloned().collect();
-    sorted_indices.sort();
-
-    // Try removing from the oldest messages
-    while sorted_indices.len() > config.min_preserve_messages {
-        let candidate_tokens = sorted_indices
-            .iter()
-            .copied()
-            .filter(|&i| i < messages.len())
-            .map(|i| estimate_tokens(&messages[i]))
-            .sum::<u32>();
-
-        if candidate_tokens <= target_tokens {
-            break;
-        }
-
-        // Find the oldest message and try to drop it
-        // But keep its pair if it's a tool_use/tool_result
-        if sorted_indices.len() > 2 {
-            let oldest_idx = sorted_indices[0];
-            let pair_indices = deps.get_pair_indices(oldest_idx);
-
-            // Only drop if dropping won't orphan a pair
-            if pair_indices.is_empty() || pair_indices.iter().all(|p| !sorted_indices.contains(p)) {
-                sorted_indices.remove(0);
-            } else {
-                // Can't drop this one, try next
-                sorted_indices.remove(1);
-            }
-        } else {
-            break;
+    // If still too long, try dropping older messages from recent section
+    for drop_count in 0..recent_msgs.len() {
+        let candidate = &recent_msgs[drop_count..];
+        if estimate_total_tokens(candidate) <= target_tokens {
+            return Ok(candidate.to_vec());
         }
     }
 
-    let result: Vec<Message> = sorted_indices
-        .iter()
-        .filter(|&i| *i < messages.len())
-        .map(|&i| messages[i].clone())
-        .collect();
-
-    Ok(result)
+    // Last resort: just keep minimum recent messages
+    Ok(messages[messages.len() - config.min_preserve_messages..].to_vec())
 }
 
 // ============================================================================
 // Token Estimation
 // ============================================================================
 
-/// Count tokens for a message using tiktoken (accurate).
+/// Estimate token count for a message.
 pub fn estimate_tokens(message: &Message) -> u32 {
-    let content_text = match &message.content {
-        MessageContent::Text(t) => t.clone(),
+    let (ascii, non_ascii) = match &message.content {
+        MessageContent::Text(t) => count_chars(t),
         MessageContent::Blocks(blocks) => {
-            let mut text = String::new();
+            let mut a = 0u32;
+            let mut n = 0u32;
             for block in blocks {
                 match block {
-                    ContentBlock::Text { text: t } => {
-                        text.push_str(t);
-                        text.push(' '); // Separator
+                    ContentBlock::Text { text } => {
+                        let (ca, cn) = count_chars(text);
+                        a += ca;
+                        n += cn;
                     }
                     ContentBlock::ToolUse { name, input, .. } => {
-                        text.push_str(name);
-                        text.push(' '); // Separator
-                        text.push_str(&input.to_string());
-                        text.push(' '); // Separator
+                        let (ca, cn) = count_chars(name);
+                        a += ca;
+                        n += cn;
+                        let (ja, jn) = count_chars(&input.to_string());
+                        a += ja;
+                        n += jn;
                     }
                     ContentBlock::ToolResult { content, .. } => {
-                        text.push_str(content);
-                        text.push(' '); // Separator
+                        let (ca, cn) = count_chars(content);
+                        a += ca;
+                        n += cn;
                     }
                     ContentBlock::Thinking { thinking, .. } => {
-                        text.push_str(thinking);
-                        text.push(' '); // Separator
+                        let (ca, cn) = count_chars(thinking);
+                        a += ca;
+                        n += cn;
                     }
                     _ => {}
                 }
             }
-            text
+            (a, n)
         }
     };
 
-    // Use tiktoken for accurate token counting
-    let content_tokens = count_tokens(&content_text);
-    let role_tokens = count_tokens(&format!("{:?}: ", message.role));
-    
-    // Total = content + role prefix + overhead
-    content_tokens + role_tokens + message_overhead()
+    let ascii_tokens = (ascii as f64 * 0.25).ceil() as u32;
+    let non_ascii_tokens = (non_ascii as f64 * 0.67).ceil() as u32;
+    (ascii_tokens + non_ascii_tokens + 10).max(1)
+}
+
+fn count_chars(s: &str) -> (u32, u32) {
+    let mut ascii = 0u32;
+    let mut non_ascii = 0u32;
+    for ch in s.chars() {
+        if ch.is_ascii() {
+            ascii += 1;
+        } else {
+            non_ascii += 1;
+        }
+    }
+    (ascii, non_ascii)
 }
 
 /// Estimate total tokens for a message list.
@@ -637,9 +562,7 @@ pub async fn compress_messages_with_ai(
         _ => CompressionPipeline::new_rule_only(config.clone()),
     };
 
-    let result = pipeline
-        .execute(messages, ai_mode, token_usage, context_window)
-        .await?;
+    let result = pipeline.execute(messages, ai_mode, token_usage, context_window).await?;
     Ok(result.messages)
 }
 
@@ -655,12 +578,13 @@ pub async fn compress_messages_with_full_ai(
     token_usage: u32,
     context_window: u32,
 ) -> Result<Vec<Message>> {
-    let mut pipeline =
-        CompressionPipeline::new_with_full_ai(config.clone(), fast_model, main_model);
+    let mut pipeline = CompressionPipeline::new_with_full_ai(
+        config.clone(),
+        fast_model,
+        main_model,
+    );
 
-    let result = pipeline
-        .execute(messages, ai_mode, token_usage, context_window)
-        .await?;
+    let result = pipeline.execute(messages, ai_mode, token_usage, context_window).await?;
     Ok(result.messages)
 }
 

@@ -3,8 +3,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use super::entry::{MemoryCategory, MemoryEntry};
 use super::storage::MemoryStorage;
+use super::entry::{MemoryCategory, MemoryEntry};
 
 // ============================================================================
 // Project Type Configuration

@@ -47,19 +47,10 @@ impl Tool for SkillTool {
 
         ToolDefinition {
             name: "skill".to_string(),
-            description: "加载指定技能的完整指令。
-
-【阻塞要求】当技能匹配用户请求时，必须在生成任何其他响应前调用此工具。
-
-重要规则：
-- 可用技能列在系统提示的 [AVAILABLE SKILLS] 部分
-- 用户引用 \"slash command\" 或 \"/<something>\" 时，指的是技能
-- 绝不要提及技能而不实际调用此工具
-- 不要调用已在运行的技能
-- 如果看到 <command-name> 标签，技能已加载 — 直接遵循指令
-
-返回：包含技能内容和技能目录中的文件列表，可用 `read` 工具读取。"
-                .to_string(),
+            description:
+                "加载指定技能的完整指令。当系统提示中列出的技能与用户请求相关时调用此工具。\
+                 返回包含技能内容和技能目录中的文件列表，可用 `read` 工具读取。"
+                    .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": props,
@@ -126,10 +117,6 @@ mod tests {
         Skill {
             name: name.to_string(),
             description: "desc".to_string(),
-            trigger: None,
-            skill_type: crate::skills::SkillType::Flexible,
-            priority: crate::skills::SkillPriority::Implementation,
-            mandatory: false,
             dir: PathBuf::from("/nonexistent"),
             body: body.to_string(),
             source_file: PathBuf::from("/nonexistent/SKILL.md"),

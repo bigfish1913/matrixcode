@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::constants::{
-    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_READ_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS,
+    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS, DEFAULT_READ_TIMEOUT_SECS,
 };
 use crate::models::context_window_for;
 use crate::tools::ToolDefinition;
@@ -76,15 +76,13 @@ impl OpenAIProvider {
                 (Role::Assistant, MessageContent::Blocks(blocks)) => {
                     let mut tool_calls = Vec::new();
                     let mut text_parts = Vec::new();
-                    // Note: We intentionally DO NOT include thinking/reasoning blocks from history
-                    // to prevent the model from repeating similar thinking patterns.
-                    // Thinking blocks are for user visibility only, not for API context.
+                    let mut reasoning_parts = Vec::new();
 
                     for block in blocks {
                         match block {
-                            // Skip thinking blocks - they should not be sent back to the API
-                            ContentBlock::Thinking { .. } => {
-                                continue;
+                            ContentBlock::Thinking { thinking, .. } => {
+                                // DeepSeek requires reasoning_content before content
+                                reasoning_parts.push(thinking.clone());
                             }
                             ContentBlock::Text { text } => text_parts.push(text.clone()),
                             ContentBlock::ToolUse { id, name, input } => {
@@ -102,7 +100,10 @@ impl OpenAIProvider {
                     }
 
                     let mut msg_obj = json!({"role": "assistant"});
-                    // Note: reasoning_content is NOT included from history to prevent repeated thinking
+                    // DeepSeek: reasoning_content must be before content
+                    if !reasoning_parts.is_empty() {
+                        msg_obj["reasoning_content"] = json!(reasoning_parts.join("\n"));
+                    }
                     if !text_parts.is_empty() {
                         msg_obj["content"] = json!(text_parts.join("\n"));
                     }
@@ -222,8 +223,7 @@ impl Provider for OpenAIProvider {
         let url = format!("{}/chat/completions", self.base_url);
 
         // Debug: log request
-        crate::debug::debug_log()
-            .api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
+        crate::debug::debug_log().api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
 
         let mut req = self
             .client
@@ -237,27 +237,26 @@ impl Provider for OpenAIProvider {
             req = req.header(name, value);
         }
 
-        let response = req
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("HTTP request failed: {} (url: {})", e, url))?;
+        let response = req.send().await.map_err(|e| {
+            anyhow::anyhow!("HTTP request failed: {} (url: {})", e, url)
+        })?;
 
         let status = response.status();
-        let response_body: Value = response
-            .json()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to parse response JSON: {}", e))?;
+        let response_body: Value = response.json().await.map_err(|e| {
+            anyhow::anyhow!("Failed to parse response JSON: {}", e)
+        })?;
 
         // Debug: log response
-        crate::debug::debug_log().api_response(
-            status.as_u16(),
-            &serde_json::to_string(&response_body).unwrap_or_default(),
-        );
+        crate::debug::debug_log().api_response(status.as_u16(), &serde_json::to_string(&response_body).unwrap_or_default());
 
         if !status.is_success() {
             let err_msg = response_body["error"]["message"]
                 .as_str()
-                .unwrap_or_else(|| response_body["error"].as_str().unwrap_or("unknown error"));
+                .unwrap_or_else(|| {
+                    response_body["error"]
+                        .as_str()
+                        .unwrap_or("unknown error")
+                });
             anyhow::bail!("API error ({}): {}", status, err_msg);
         }
 

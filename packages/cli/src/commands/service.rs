@@ -8,7 +8,7 @@ use matrixcode_core::{
     create_provider_with_headers,
     providers::{MessageContent, Role, ContentBlock},
     tools::all_tools_full,
-    prompt::{build_system_prompt_with_workflows, PromptProfile, preprocess_with_skills, ProcessResult},
+    prompt::{build_system_prompt, PromptProfile},
     approval::ApproveMode,
     session::SessionManager,
     memory::MemoryStorage,
@@ -41,7 +41,7 @@ pub fn handle_command(cmd: Commands, skills: &[Skill]) {
         .approve_mode
         .as_ref()
         .map(|m| ApproveMode::parse(m))
-        .unwrap_or(ApproveMode::Auto);
+        .unwrap_or(ApproveMode::Ask);
 
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
@@ -97,8 +97,7 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                 if let Some(msg) = message {
                     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
 
-                    let project_path = std::env::current_dir().unwrap_or_default();
-                    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Default, &skills, None, None, Some(&project_path), None);
+                    let system_prompt = build_system_prompt(&PromptProfile::Default, &skills, None, None);
 
                     let provider = match create_provider_with_headers(
                         resolve_provider(&config, &model),
@@ -110,7 +109,7 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                         Ok(p) => p,
                         Err(e) => {
                             println!("{}", AgentEvent::error(format!("Failed to create provider: {}", e), None, None).to_json()?);
-                            return Ok(())
+                            return Ok(());
                         }
                     };
 
@@ -121,38 +120,13 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                         .tools(all_tools_full(
                             Arc::new(skills.clone()),
                             provider.clone_arc(),
-                            project_path,
+                            std::env::current_dir().unwrap_or_default(),
                         ))
                         .approve_mode(ApproveMode::Auto)
                         .event_tx(event_tx)
                         .build();
 
-                    // Pre-process: detect skill/workflow triggers with skills
-                    let processed_msg = match preprocess_with_skills(&msg, &skills) {
-                        ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
-                            if let Some(body) = skill_body {
-                                format!(
-                                    "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
-                                    skill_id, body, msg
-                                )
-                            } else {
-                                format!(
-                                    "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
-                                    skill_id, msg
-                                )
-                            }
-                        }
-                        ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
-                            let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
-                            format!(
-                                "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
-                                workflow_id, inputs_json, msg
-                            )
-                        }
-                        ProcessResult::Continue => msg.clone(),
-                    };
-
-                    let run_result = agent.run(processed_msg).await;
+                    let run_result = agent.run(msg).await;
 
                     while let Some(event) = event_rx.recv().await {
                         match event.event_type {
@@ -234,8 +208,7 @@ async fn handle_chat(
     approve_mode: ApproveMode,
     msg: String,
 ) {
-    let project_path = std::env::current_dir().unwrap_or_default();
-    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Default, skills, None, None, Some(&project_path), None);
+    let system_prompt = build_system_prompt(&PromptProfile::Default, skills, None, None);
 
     let provider = match create_provider_with_headers(
         resolve_provider(config, model),
@@ -260,7 +233,7 @@ async fn handle_chat(
         .tools(all_tools_full(
             Arc::new(skills.to_vec()),
             provider.clone_arc(),
-            project_path,
+            std::env::current_dir().unwrap_or_default(),
         ))
         .approve_mode(approve_mode)
         .event_tx(event_tx)
@@ -270,32 +243,7 @@ async fn handle_chat(
         )
         .build();
 
-    // Pre-process: detect skill/workflow triggers with skills
-    let processed_msg = match preprocess_with_skills(&msg, &skills) {
-        ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
-            if let Some(body) = skill_body {
-                format!(
-                    "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
-                    skill_id, body, msg
-                )
-            } else {
-                format!(
-                    "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
-                    skill_id, msg
-                )
-            }
-        }
-        ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
-            let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
-            format!(
-                "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
-                workflow_id, inputs_json, msg
-            )
-        }
-        ProcessResult::Continue => msg.clone(),
-    };
-
-    let run_future = agent.run(processed_msg);
+    let run_future = agent.run(msg);
     let event_task = tokio::spawn(async move {
         while let Some(event) = event_rx.recv().await {
             if event.event_type == matrixcode_core::EventType::Error
@@ -333,9 +281,8 @@ async fn handle_quick_action(
         println!("  Target: {}", f);
     }
 
-    let project_path = std::env::current_dir().unwrap_or_default();
     let prompt = build_action_prompt(&action, &file);
-    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Fast, skills, None, None, Some(&project_path), None);
+    let system_prompt = build_system_prompt(&PromptProfile::Fast, skills, None, None);
 
     let provider = match create_provider_with_headers(
         resolve_provider(config, model),
@@ -358,37 +305,12 @@ async fn handle_quick_action(
         .tools(all_tools_full(
             Arc::new(skills.to_vec()),
             provider.clone_arc(),
-            project_path,
+            std::env::current_dir().unwrap_or_default(),
         ))
         .approve_mode(ApproveMode::Auto)
         .build();
 
-    // Pre-process: detect skill/workflow triggers with skills
-    let processed_prompt = match preprocess_with_skills(&prompt, &skills) {
-        ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
-            if let Some(body) = skill_body {
-                format!(
-                    "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
-                    skill_id, body, prompt
-                )
-            } else {
-                format!(
-                    "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
-                    skill_id, prompt
-                )
-            }
-        }
-        ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
-            let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
-            format!(
-                "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
-                workflow_id, inputs_json, prompt
-            )
-        }
-        ProcessResult::Continue => prompt.clone(),
-    };
-
-    match agent.run(processed_prompt).await {
+    match agent.run(prompt).await {
         Ok(_) => {
             show_agent_response(&agent);
             let (input, output) = agent.get_token_counts();
@@ -424,13 +346,6 @@ fn handle_status(config: &Config, _model: &str) {
         println!("  Approve Mode: {}", mode);
     } else {
         println!("  Approve Mode: ask (default)");
-    }
-
-    // Show LSP status
-    if config.enable_lsp {
-        println!("  LSP: ✓ enabled");
-    } else {
-        println!("  LSP: ❌ disabled (enable_lsp=false in config)");
     }
 
     if let Ok(mgr) = SessionManager::new() {
@@ -562,9 +477,8 @@ async fn handle_quick_action_json(
     action: String,
     file: Option<String>,
 ) -> Result<()> {
-    let project_path = std::env::current_dir().unwrap_or_default();
     let prompt = build_action_prompt(&action, &file);
-    let system_prompt = build_system_prompt_with_workflows(&PromptProfile::Fast, skills, None, None, Some(&project_path), None);
+    let system_prompt = build_system_prompt(&PromptProfile::Fast, skills, None, None);
 
     let provider = create_provider_with_headers(
         resolve_provider(config, model),
@@ -581,37 +495,12 @@ async fn handle_quick_action_json(
         .tools(all_tools_full(
             Arc::new(skills.to_vec()),
             provider.clone_arc(),
-            project_path,
+            std::env::current_dir().unwrap_or_default(),
         ))
         .approve_mode(ApproveMode::Auto)
         .build();
 
-    // Pre-process: detect skill/workflow triggers with skills
-    let processed_prompt = match preprocess_with_skills(&prompt, &skills) {
-        ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
-            if let Some(body) = skill_body {
-                format!(
-                    "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
-                    skill_id, body, prompt
-                )
-            } else {
-                format!(
-                    "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
-                    skill_id, prompt
-                )
-            }
-        }
-        ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
-            let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
-            format!(
-                "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
-                workflow_id, inputs_json, prompt
-            )
-        }
-        ProcessResult::Continue => prompt.clone(),
-    };
-
-    agent.run(processed_prompt).await?;
+    agent.run(prompt).await?;
     println!("{}", AgentEvent::progress("Action completed".to_string(), None).to_json()?);
 
     Ok(())

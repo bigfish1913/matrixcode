@@ -13,13 +13,13 @@ use tokio::sync::mpsc;
 use crate::constants::{ANTHROPIC_DEFAULT_BASE_URL, OPENAI_DEFAULT_BASE_URL};
 use crate::tools::ToolDefinition;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     pub content: MessageContent,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     System,
@@ -35,7 +35,7 @@ pub enum MessageContent {
     Blocks(Vec<ContentBlock>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum ContentBlock {
     #[serde(rename = "text")]
@@ -67,45 +67,12 @@ pub enum ContentBlock {
         name: String,
         input: serde_json::Value,
     },
-    #[serde(rename = "server_tool_result")]
-    ServerToolResult {
-        tool_use_id: String,
-        content: String,
-    },
     /// Result from a server-side web search tool.
     #[serde(rename = "web_search_tool_result")]
     WebSearchResult {
         tool_use_id: String,
         content: WebSearchContent,
     },
-}
-
-// Manual PartialEq implementation for ContentBlock (serde_json::Value doesn't derive PartialEq)
-impl PartialEq for ContentBlock {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (ContentBlock::Text { text: a }, ContentBlock::Text { text: b }) => a == b,
-            (ContentBlock::ToolUse { id: a, name: b, .. }, ContentBlock::ToolUse { id: c, name: d, .. }) => {
-                a == c && b == d
-            },
-            (ContentBlock::ToolResult { tool_use_id: a, content: b }, ContentBlock::ToolResult { tool_use_id: c, content: d }) => {
-                a == c && b == d
-            },
-            (ContentBlock::Thinking { thinking: a, signature: b }, ContentBlock::Thinking { thinking: c, signature: d }) => {
-                a == c && b == d
-            },
-            (ContentBlock::ServerToolUse { id: a, name: b, .. }, ContentBlock::ServerToolUse { id: c, name: d, .. }) => {
-                a == c && b == d
-            },
-            (ContentBlock::ServerToolResult { tool_use_id: a, content: b }, ContentBlock::ServerToolResult { tool_use_id: c, content: d }) => {
-                a == c && b == d
-            },
-            (ContentBlock::WebSearchResult { tool_use_id: a, .. }, ContentBlock::WebSearchResult { tool_use_id: b, .. }) => {
-                a == b  // Compare by tool_use_id only for web search results
-            },
-            _ => false,
-        }
-    }
 }
 
 /// Content returned by the server-side web search tool.
@@ -199,12 +166,6 @@ pub enum StreamEvent {
     /// received for this block — useful for driving progress indicators
     /// while the model streams large arguments (e.g. a full file body).
     ToolInputDelta { bytes_so_far: usize },
-    /// Complete tool input assembled before the final Done event.
-    ToolInputComplete {
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
     /// Real-time usage update (output tokens so far).
     Usage { output_tokens: u32 },
     /// Final turn result — includes the full assembled content blocks.
@@ -236,29 +197,8 @@ pub trait Provider: Send + Sync {
         let response = self.chat(request).await?;
         let _ = tx.send(StreamEvent::FirstByte).await;
         for block in &response.content {
-            match block {
-                ContentBlock::Thinking { thinking, .. } => {
-                    let _ = tx.send(StreamEvent::ThinkingDelta(thinking.clone())).await;
-                }
-                ContentBlock::Text { text } => {
-                    let _ = tx.send(StreamEvent::TextDelta(text.clone())).await;
-                }
-                ContentBlock::ToolUse { id, name, input } => {
-                    let _ = tx
-                        .send(StreamEvent::ToolUseStart {
-                            id: id.clone(),
-                            name: name.clone(),
-                        })
-                        .await;
-                    let _ = tx
-                        .send(StreamEvent::ToolInputComplete {
-                            id: id.clone(),
-                            name: name.clone(),
-                            input: input.clone(),
-                        })
-                        .await;
-                }
-                _ => {}
+            if let ContentBlock::Text { text } = block {
+                let _ = tx.send(StreamEvent::TextDelta(text.clone())).await;
             }
         }
         let _ = tx.send(StreamEvent::Done(response)).await;
@@ -330,53 +270,34 @@ pub fn create_provider_with_headers(
     }
 }
 
-/// Create a minimal provider using full configuration chain.
-/// Uses the same config loading as main agent: env vars > ~/.matrix/config.json > ~/.claude/settings.json
-/// Suitable for subagents and background tasks.
+/// Create a minimal provider from environment variables (for background tasks).
+/// Uses global config for API key and base URL, suitable for non-blocking background operations.
 pub fn create_minimal_provider(model: &str) -> Box<dyn Provider> {
-    // Use full configuration loading chain (same as main agent)
-    let config = crate::config::MatrixConfig::load();
+    // Try to load .env first (background tasks may not have .env loaded)
+    let _ = dotenvy::dotenv();
 
-    // Resolve API key from full config chain
-    let api_key = config
-        .resolve_api_key()
-        .unwrap_or_else(|| {
-            // Fallback: try env vars directly if config didn't have it
-            std::env::var("API_KEY")
-                .or_else(|_| std::env::var("ANTHROPIC_AUTH_TOKEN"))
-                .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
-                .or_else(|_| std::env::var("OPENAI_API_KEY"))
-                .unwrap_or_default()
-        });
+    // Get API key from env (try multiple env vars)
+    let api_key = std::env::var("API_KEY")
+        .or_else(|_| std::env::var("ANTHROPIC_AUTH_TOKEN"))
+        .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
+        .or_else(|_| std::env::var("OPENAI_API_KEY"))
+        .unwrap_or_default();
 
-    if api_key.is_empty() {
-        panic!("Failed to create minimal provider: no API key configured. \
-               Please set API_KEY env var or configure ~/.matrix/config.json")
-    }
+    // Get base URL from env
+    let base_url = std::env::var("BASE_URL")
+        .or_else(|_| std::env::var("ANTHROPIC_BASE_URL"))
+        .ok();
 
-    // Resolve base URL from config or env
-    let base_url = config
-        .resolve_base_url()
-        .or_else(|| {
-            std::env::var("BASE_URL")
-                .or_else(|_| std::env::var("ANTHROPIC_BASE_URL"))
-                .ok()
-        });
+    // Infer provider type from model name
+    let provider_type = infer_provider_type(model);
 
-    // Resolve provider type from config or infer from model
-    let provider_type = config.resolve_provider_type(model);
-
-    // Create provider with full config support (including extra_headers)
-    create_provider_with_headers(
-        provider_type,
-        api_key,
-        model.to_string(),
-        base_url,
-        config.extra_headers.clone(),
-    )
-    .unwrap_or_else(|e| {
-        panic!("Failed to create minimal provider for model '{}': {}", model, e)
-    })
+    // Create provider (ignore errors, return a default)
+    create_provider_with_headers(provider_type, api_key, model.to_string(), base_url, None)
+        .unwrap_or_else(|_| {
+            // Fallback: create a dummy provider that returns empty
+            // This won't actually work, but prevents crashes
+            panic!("Failed to create minimal provider for background task: no API key configured")
+        })
 }
 
 /// Infer provider type from model name.

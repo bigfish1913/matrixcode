@@ -23,9 +23,7 @@ pub fn compute_layout(def: &WorkflowDef) -> LayoutResult {
     let mut visited: HashMap<String, bool> = HashMap::new();
 
     // Find start node
-    let start_node = def
-        .nodes
-        .iter()
+    let start_node = def.nodes.iter()
         .find(|n| n.node_type == matrixcode_core::workflow::NodeType::Start)
         .map(|n| n.id.clone());
 

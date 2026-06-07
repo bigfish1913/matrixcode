@@ -7,7 +7,6 @@ license.workspace = true
 repository.workspace = true
 description = "MatrixCode - AI Code Agent CLI"
 publish = true
-default-run = "matrixcode"
 
 [[bin]]
 name = "matrixcode"

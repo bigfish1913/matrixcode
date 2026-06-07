@@ -6,10 +6,10 @@
 use std::collections::HashMap;
 
 use super::config::MIN_MEMORY_CONTENT_LENGTH;
-use super::entry::{MemoryCategory, MemoryEntry};
 use super::extractor::infer_category_from_content;
-use super::manager::AutoMemory;
 use super::retrieval::extract_context_keywords;
+use super::entry::{MemoryCategory, MemoryEntry};
+use super::manager::AutoMemory;
 
 // ============================================================================
 // Feedback Detection
@@ -145,12 +145,7 @@ fn extract_feedback_content(text: &str, pattern: &str) -> String {
         .map(|i| remaining[..i].chars().count())
         .unwrap_or(remaining.chars().count().min(100));
 
-    remaining
-        .chars()
-        .take(end_char_count)
-        .collect::<String>()
-        .trim()
-        .to_string()
+    remaining.chars().take(end_char_count).collect::<String>().trim().to_string()
 }
 
 /// Apply feedback to memory.
@@ -208,8 +203,7 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
         }
         FeedbackAction::NegativePreference => {
             if let Some(ref content) = feedback.new_content {
-                let mut entry =
-                    MemoryEntry::manual_global(MemoryCategory::Preference, content.clone());
+                let mut entry = MemoryEntry::manual_global(MemoryCategory::Preference, content.clone());
                 entry.tags.push("negative".to_string());
                 memory.add(entry);
                 changes += 1;
@@ -291,8 +285,7 @@ pub fn infer_preferences_from_behavior(
     let mut word_freq: HashMap<String, usize> = HashMap::new();
     for text in &user_texts {
         for word in text.to_lowercase().split_whitespace() {
-            if word.len() > 3 {
-                // Skip short words
+            if word.len() > 3 { // Skip short words
                 *word_freq.entry(word.to_string()).or_default() += 1;
             }
         }
@@ -320,12 +313,7 @@ pub fn infer_preferences_from_behavior(
 
 /// Convert inference to memory entry (global preference).
 pub fn inference_to_memory_entry(inference: &BehaviorInference) -> MemoryEntry {
-    let mut entry = MemoryEntry::new(
-        MemoryCategory::Preference,
-        inference.content.clone(),
-        None,
-        None,
-    );
+    let mut entry = MemoryEntry::new(MemoryCategory::Preference, inference.content.clone(), None, None);
     entry.importance = (inference.confidence * 70.0 + 30.0).min(80.0);
     entry.tags = inference.keywords.clone();
     entry

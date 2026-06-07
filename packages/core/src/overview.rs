@@ -171,12 +171,13 @@ impl ProjectOverview {
             .with_context(|| format!("reading overview file {}", path.display()))?;
 
         // Limit to 200 lines to prevent excessively long content
-        let limited_content = content.lines().take(200).collect::<Vec<_>>().join("\n");
+        let limited_content = content
+            .lines()
+            .take(200)
+            .collect::<Vec<_>>()
+            .join("\n");
 
-        Ok(Some(Self {
-            content: limited_content,
-            path,
-        }))
+        Ok(Some(Self { content: limited_content, path }))
     }
 
     /// Generate and save a new overview using AI analysis.
@@ -214,86 +215,20 @@ impl ProjectOverview {
             enable_caching: false, // No caching for overview generation
         };
 
-        let model_name = provider.model_name();
+        let response = provider
+            .chat(request)
+            .await
+            .with_context(|| "calling AI for overview generation")?;
+
+        // Log usage for debugging
         log::info!(
-            "Overview generation: sending request to AI (model: {}, max_tokens: {})",
-            model_name,
-            MAX_OUTPUT_TOKENS
+            "Overview generation: input_tokens={}, output_tokens={}",
+            response.usage.input_tokens,
+            response.usage.output_tokens
         );
 
-        // Use streaming API (same as Agent) for better compatibility with DashScope
-        let mut rx = provider
-            .chat_stream(request)
-            .await
-            .map_err(|e| {
-                log::error!("Overview generation failed to start stream: {}", e);
-                e
-            })
-            .with_context(|| {
-                format!(
-                    "starting AI stream for overview generation (model: {})",
-                    model_name
-                )
-            })?;
-
-        // Collect streaming response
-        let mut content = String::new();
-        let mut input_tokens: u32;
-        let mut output_tokens: u32;
-
-        while let Some(event) = rx.recv().await {
-            match event {
-                crate::providers::StreamEvent::FirstByte => {
-                    log::debug!("Overview generation: received first byte");
-                }
-                crate::providers::StreamEvent::TextDelta { 0: delta } => {
-                    content.push_str(&delta);
-                }
-                crate::providers::StreamEvent::ThinkingDelta { 0: thinking } => {
-                    log::debug!("Overview thinking chunk: {} chars", thinking.len());
-                }
-                crate::providers::StreamEvent::ToolUseStart { id, name } => {
-                    log::debug!("Overview tool use start: {} ({})", name, id);
-                }
-                crate::providers::StreamEvent::ToolInputDelta { bytes_so_far } => {
-                    log::debug!("Overview tool input delta: {} bytes", bytes_so_far);
-                }
-                crate::providers::StreamEvent::ToolInputComplete { .. } => {
-                    // Overview generation does not execute tools; ignore complete tool inputs.
-                }
-                crate::providers::StreamEvent::Usage { output_tokens: _ } => {
-                    // Usage events are sent during streaming, but we only need the final
-                    // token counts from the Done event
-                }
-                crate::providers::StreamEvent::Done(response) => {
-                    input_tokens = response.usage.input_tokens;
-                    output_tokens = response.usage.output_tokens;
-                    log::info!(
-                        "Overview generation complete: input_tokens={}, output_tokens={}",
-                        input_tokens,
-                        output_tokens
-                    );
-                    // Use final content from response if our accumulated content is empty
-                    if content.is_empty() {
-                        for block in &response.content {
-                            if let crate::providers::ContentBlock::Text { text } = block {
-                                content.push_str(text);
-                            }
-                        }
-                    }
-                }
-                crate::providers::StreamEvent::Error { 0: msg } => {
-                    log::error!("Overview stream error: {}", msg);
-                    return Err(anyhow::anyhow!("Stream error: {}", msg));
-                }
-            }
-        }
-
-        if content.is_empty() {
-            return Err(anyhow::anyhow!(
-                "Overview generation returned empty content"
-            ));
-        }
+        // Extract content from response
+        let content = extract_response_content(&response);
 
         // Save to file
         let path = overview_path(project_root);
@@ -636,6 +571,17 @@ pub fn truncate_content(content: &str, max_len: usize) -> String {
         truncated.push_str("\n... (truncated)");
         truncated
     }
+}
+
+/// Extract content from AI response.
+fn extract_response_content(response: &crate::providers::ChatResponse) -> String {
+    let mut content = String::new();
+    for block in &response.content {
+        if let crate::providers::ContentBlock::Text { text } = block {
+            content.push_str(text);
+        }
+    }
+    content
 }
 
 #[cfg(test)]

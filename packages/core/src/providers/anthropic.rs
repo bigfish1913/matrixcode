@@ -7,9 +7,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::constants::{
-    ANTHROPIC_API_VERSION, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_CONTENT_TIMEOUT_SECS,
-    DEFAULT_READ_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS, THINKING_BUDGET_NEW_MODELS,
-    THINKING_BUDGET_OLD_MODELS,
+    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_REQUEST_TIMEOUT_SECS, DEFAULT_READ_TIMEOUT_SECS,
+    THINKING_BUDGET_NEW_MODELS, THINKING_BUDGET_OLD_MODELS,
+    DEFAULT_CONTENT_TIMEOUT_SECS, ANTHROPIC_API_VERSION,
 };
 use crate::models::context_window_for;
 use crate::tools::ToolDefinition;
@@ -59,11 +59,10 @@ impl AnthropicProvider {
 
         // Add proxy from environment if available
         if let Some(proxy_url) = Self::load_proxy_from_env()
-            && let Ok(proxy) = reqwest::Proxy::all(&proxy_url)
-        {
-            log::info!("AnthropicProvider using proxy: {}", proxy_url);
-            client_builder = client_builder.proxy(proxy);
-        }
+            && let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+                log::info!("AnthropicProvider using proxy: {}", proxy_url);
+                client_builder = client_builder.proxy(proxy);
+            }
 
         let client = client_builder
             .build()
@@ -86,77 +85,29 @@ impl AnthropicProvider {
         self.base_url.contains("api.anthropic.com")
     }
 
-    /// Filter trailing thinking blocks from the last assistant message.
-    /// The API doesn't allow assistant messages to end with thinking blocks.
-    /// This follows Claude Code's implementation: keep thinking in history,
-    /// only strip trailing thinking from the last assistant message.
-    fn filter_trailing_thinking(messages: Vec<Value>) -> Vec<Value> {
-        if messages.is_empty() {
-            return messages;
-        }
+    fn convert_messages(&self, messages: &[Message]) -> Vec<Value> {
+        // For non-official APIs (like glm-5/DashScope), filter out thinking blocks
+        // to prevent API from entering extended thinking mode and hanging
+        // This is necessary because some APIs don't properly support thinking blocks
+        let filter_thinking = !self.is_official_anthropic();
+        log::debug!("convert_messages: filter_thinking={}, base_url={}", filter_thinking, self.base_url);
 
-        // Find the last assistant message
-        let last_idx = messages.len() - 1;
-        let last_msg = &messages[last_idx];
-
-        // Check if it's an assistant message
-        if last_msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
-            return messages;
-        }
-
-        let content = last_msg.get("content");
-        if let Some(content_array) = content.and_then(|c| c.as_array()) {
-            if content_array.is_empty() {
-                return messages;
-            }
-
-            // Check if last block is thinking
-            let last_block = content_array.last();
-            if let Some(block) = last_block {
-                if block.get("type").and_then(|t| t.as_str()) == Some("thinking") {
-                    // Find the last non-thinking block index
-                    // Use i64 to allow negative values for "all thinking" case
-                    let mut last_valid_idx: i64 = content_array.len() as i64 - 1;
-                    while last_valid_idx >= 0 {
-                        let b = &content_array[last_valid_idx as usize];
-                        if b.get("type").and_then(|t| t.as_str()) != Some("thinking") {
-                            break;
-                        }
-                        last_valid_idx -= 1;
+        // Count thinking blocks in original messages
+        let mut thinking_count = 0;
+        for m in messages {
+            if let MessageContent::Blocks(blocks) = &m.content {
+                for b in blocks {
+                    if matches!(b, ContentBlock::Thinking { .. }) {
+                        thinking_count += 1;
                     }
-
-                    // If all blocks are thinking, add a placeholder
-                    let filtered_content: Vec<Value> = if last_valid_idx < 0 {
-                        vec![json!({"type": "text", "text": "[No message content]"})]
-                    } else {
-                        content_array[..=last_valid_idx as usize].to_vec()
-                    };
-
-                    // Update the last message
-                    let mut result = messages;
-                    result[last_idx] = json!({
-                        "role": "assistant",
-                        "content": filtered_content
-                    });
-                    return result;
                 }
             }
         }
+        if thinking_count > 0 {
+            log::debug!("convert_messages: Found {} thinking blocks in {} messages, filter_thinking={}", thinking_count, messages.len(), filter_thinking);
+        }
 
         messages
-    }
-
-    fn convert_messages(&self, messages: &[Message]) -> Vec<Value> {
-        // Keep thinking blocks in message history for reasoning continuity.
-        // This prevents the model from re-analyzing the same problem repeatedly.
-        // Only filter trailing thinking from the last assistant message (API requirement).
-        // Based on Claude Code's implementation.
-        log::debug!(
-            "convert_messages: keeping thinking blocks for continuity, base_url={}",
-            self.base_url
-        );
-
-        let converted: Vec<Value> = messages
             .iter()
             .filter(|m| m.role != Role::System)
             .map(|m| {
@@ -171,31 +122,32 @@ impl AnthropicProvider {
                     MessageContent::Blocks(blocks) => {
                         let converted: Vec<Value> = blocks
                             .iter()
+                            .filter(|b| {
+                                // Skip thinking blocks for non-official APIs
+                                if filter_thinking && matches!(b, ContentBlock::Thinking { .. }) {
+                                    return false;
+                                }
+                                true
+                            })
                             .map(|b| match b {
-                                // Keep thinking blocks - they maintain reasoning continuity
-                                ContentBlock::Thinking { thinking, signature } => {
-                                    let mut obj = json!({"type": "thinking", "thinking": thinking});
-                                    if let Some(sig) = signature {
-                                        if !sig.is_empty() {
-                                            obj["signature"] = json!(sig);
-                                        }
-                                    }
-                                    obj
-                                }
-                                ContentBlock::Text { text } => {
-                                    json!({"type": "text", "text": text})
-                                }
+                                ContentBlock::Text { text } => json!({"type": "text", "text": text}),
                                 ContentBlock::ToolUse { id, name, input } => {
                                     json!({"type": "tool_use", "id": id, "name": name, "input": input})
                                 }
                                 ContentBlock::ToolResult { tool_use_id, content } => {
                                     json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content})
                                 }
+                                ContentBlock::Thinking { thinking, signature } => {
+                                    let mut obj = json!({"type": "thinking", "thinking": thinking});
+                                    // Only send non-empty signature
+                                    if let Some(sig) = signature
+                                        && !sig.is_empty() {
+                                            obj["signature"] = json!(sig);
+                                        }
+                                    obj
+                                }
                                 ContentBlock::ServerToolUse { id, name, input } => {
                                     json!({"type": "server_tool_use", "id": id, "name": name, "input": input})
-                                }
-                                ContentBlock::ServerToolResult { tool_use_id, content } => {
-                                    json!({"type": "server_tool_result", "tool_use_id": tool_use_id, "content": content})
                                 }
                                 ContentBlock::WebSearchResult { tool_use_id, content } => {
                                     json!({"type": "web_search_tool_result", "tool_use_id": tool_use_id, "content": content})
@@ -219,14 +171,10 @@ impl AnthropicProvider {
                 json!({"role": role, "content": content})
             })
             .filter(|v| !v.is_null())
-            .collect();
-
-        // Filter trailing thinking blocks from last assistant message
-        Self::filter_trailing_thinking(converted)
+            .collect()
     }
 
     /// Convert tools with caching control for Anthropic prompt caching.
-    /// Only adds cache_control for official Anthropic API.
     fn convert_tools_with_caching(
         &self,
         tools: &[ToolDefinition],
@@ -244,8 +192,7 @@ impl AnthropicProvider {
             .collect();
 
         // Add cache_control to the last tool definition for tools caching
-        // Only for official Anthropic API - third-party APIs may not support this
-        if enable_caching && self.is_official_anthropic() && !converted.is_empty() {
+        if enable_caching && !converted.is_empty() {
             let last_idx = converted.len() - 1;
             if let Some(obj) = converted[last_idx].as_object_mut() {
                 obj.insert("cache_control".to_string(), json!({"type": "ephemeral"}));
@@ -264,8 +211,7 @@ impl AnthropicProvider {
         });
 
         // Add prompt caching for system prompt (Anthropic-specific)
-        // Only add cache_control for official Anthropic API - third-party APIs may not support this
-        if request.enable_caching && self.is_official_anthropic() {
+        if request.enable_caching {
             if let Some(system) = &request.system {
                 // System prompt caching: add cache_control to enable caching
                 body["system"] = json!([
@@ -281,7 +227,10 @@ impl AnthropicProvider {
         }
 
         if !request.tools.is_empty() {
-            let tools = self.convert_tools_with_caching(&request.tools, request.enable_caching);
+            let tools = self.convert_tools_with_caching(
+                &request.tools,
+                request.enable_caching,
+            );
             body["tools"] = json!(tools);
         }
 
@@ -342,7 +291,7 @@ fn thinking_config(model: &str) -> Value {
     if adaptive {
         json!({"type": "enabled", "budget_tokens": THINKING_BUDGET_NEW_MODELS})
     } else {
-        // to prevent hanging on long histories
+         // to prevent hanging on long histories
         json!({"type": "enabled", "budget_tokens": THINKING_BUDGET_OLD_MODELS})
     }
 }
@@ -383,8 +332,7 @@ impl Provider for AnthropicProvider {
         let url = format!("{}/v1/messages", self.base_url);
 
         // Debug: log request
-        crate::debug::debug_log()
-            .api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
+        crate::debug::debug_log().api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
 
         let mut req = self
             .client
@@ -418,10 +366,7 @@ impl Provider for AnthropicProvider {
         let response_body: Value = response.json().await?;
 
         // Debug: log response
-        crate::debug::debug_log().api_response(
-            status.as_u16(),
-            &serde_json::to_string(&response_body).unwrap_or_default(),
-        );
+        crate::debug::debug_log().api_response(status.as_u16(), &serde_json::to_string(&response_body).unwrap_or_default());
 
         if !status.is_success() {
             let err_msg = response_body["error"]["message"]
@@ -484,8 +429,7 @@ impl Provider for AnthropicProvider {
         let url = format!("{}/v1/messages", self.base_url);
 
         // Debug: log streaming request
-        crate::debug::debug_log()
-            .api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
+        crate::debug::debug_log().api_request(&url, &serde_json::to_string(&body).unwrap_or_default());
 
         let mut req = self
             .client
@@ -542,21 +486,13 @@ impl Provider for AnthropicProvider {
                     Err(e) => {
                         // Log detailed error for debugging
                         let error_msg = e.to_string();
-                        let is_timeout =
-                            error_msg.contains("timeout") || error_msg.contains("timed out");
-                        let is_decode =
-                            error_msg.contains("decode") || error_msg.contains("decoding");
+                        let is_timeout = error_msg.contains("timeout") || error_msg.contains("timed out");
+                        let is_decode = error_msg.contains("decode") || error_msg.contains("decoding");
 
                         let msg = if is_timeout {
-                            format!(
-                                "Stream timeout - the API took too long to respond: {}",
-                                error_msg
-                            )
+                            format!("Stream timeout - the API took too long to respond: {}", error_msg)
                         } else if is_decode {
-                            format!(
-                                "Stream decode error - possibly interrupted or corrupted response: {}",
-                                error_msg
-                            )
+                            format!("Stream decode error - possibly interrupted or corrupted response: {}", error_msg)
                         } else {
                             format!("Stream read error: {}", error_msg)
                         };
@@ -564,13 +500,11 @@ impl Provider for AnthropicProvider {
                         // Try to finalize any partial content we have
                         if sent_first_byte && !blocks.is_empty() {
                             debug!("finalizing partial stream due to error");
-                            let _ = tx
-                                .send(StreamEvent::Done(finalize_incomplete_stream(
-                                    std::mem::take(&mut blocks),
-                                    stop_reason,
-                                    usage,
-                                )))
-                                .await;
+                            let _ = tx.send(StreamEvent::Done(finalize_incomplete_stream(
+                                std::mem::take(&mut blocks),
+                                stop_reason,
+                                usage,
+                            ))).await;
                         } else {
                             let _ = tx.send(StreamEvent::Error(msg)).await;
                         }
@@ -588,30 +522,19 @@ impl Provider for AnthropicProvider {
                 // Check for timeout: if only ping events for too long, force finalize
                 let elapsed = last_content_time.elapsed().as_secs();
                 if elapsed > CONTENT_TIMEOUT_SECS && !blocks.is_empty() {
-                    crate::debug::debug_log().stream_chunk(
-                        "TIMEOUT_FORCE_FINALIZE",
-                        &format!("elapsed={}s, blocks={}", elapsed, blocks.len()),
-                    );
-                    let _ = tx
-                        .send(StreamEvent::Done(finalize_incomplete_stream(
-                            std::mem::take(&mut blocks),
-                            stop_reason,
-                            usage,
-                        )))
-                        .await;
+                    crate::debug::debug_log().stream_chunk("TIMEOUT_FORCE_FINALIZE",
+                        &format!("elapsed={}s, blocks={}", elapsed, blocks.len()));
+                    let _ = tx.send(StreamEvent::Done(finalize_incomplete_stream(
+                        std::mem::take(&mut blocks),
+                        stop_reason,
+                        usage,
+                    ))).await;
                     return;
                 }
 
                 while let Some(frame) = take_next_sse_frame(&mut buffer) {
-                    if handle_sse_frame(
-                        &frame,
-                        &mut blocks,
-                        &mut stop_reason,
-                        &mut usage,
-                        &tx,
-                        &mut last_content_time,
-                    )
-                    .await
+                    if handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx, &mut last_content_time)
+                        .await
                     {
                         return;
                     }
@@ -619,15 +542,7 @@ impl Provider for AnthropicProvider {
             }
 
             if let Some(frame) = take_trailing_sse_frame(&mut buffer)
-                && handle_sse_frame(
-                    &frame,
-                    &mut blocks,
-                    &mut stop_reason,
-                    &mut usage,
-                    &tx,
-                    &mut last_content_time,
-                )
-                .await
+                && handle_sse_frame(&frame, &mut blocks, &mut stop_reason, &mut usage, &tx, &mut last_content_time).await
             {
                 return;
             }
@@ -870,28 +785,6 @@ async fn handle_sse_event(
                     }
                 }
                 _ => {}
-            }
-        }
-        "content_block_stop" => {
-            let idx = evt["index"].as_u64().unwrap_or(0) as usize;
-            if let Some(AssembledBlock::ToolUse {
-                id,
-                name,
-                input_json,
-            }) = blocks.get(idx)
-            {
-                let input: Value = if input_json.is_empty() {
-                    json!({})
-                } else {
-                    serde_json::from_str(input_json).unwrap_or(json!({}))
-                };
-                let _ = tx
-                    .send(StreamEvent::ToolInputComplete {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input,
-                    })
-                    .await;
             }
         }
         "message_delta" => {

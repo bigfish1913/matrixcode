@@ -7,11 +7,11 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::node_executor::NodeExecutor;
 use crate::tools::{Tool, ToolDefinition};
 use crate::workflow::context::WorkflowContext;
 use crate::workflow::def::NodeDef;
 use crate::workflow::template::TemplateRenderer;
+use super::node_executor::NodeExecutor;
 
 /// 工具执行器配置
 #[derive(Debug, Clone)]
@@ -121,23 +121,18 @@ impl NodeExecutor for ToolExecutor {
         context: &mut WorkflowContext,
     ) -> Result<serde_json::Value> {
         // 获取工具名称
-        let tool_name = node
-            .task
-            .as_ref()
+        let tool_name = node.task.as_ref()
             .ok_or_else(|| anyhow::anyhow!("Tool executor requires a task name"))?;
 
         // 查找工具
-        let tool = self
-            .tools
-            .get(tool_name)
+        let tool = self.tools.get(tool_name)
             .ok_or_else(|| anyhow::anyhow!("Tool '{}' not found", tool_name))?;
 
         // 渲染参数
         let params = self.render_params(&node.params, context)?;
 
         // 执行工具
-        let result = tool
-            .execute(params.clone())
+        let result = tool.execute(params.clone())
             .await
             .with_context(|| format!("Tool '{}' execution failed", tool_name));
 
@@ -145,15 +140,14 @@ impl NodeExecutor for ToolExecutor {
         match result {
             Ok(output_str) => {
                 // 尝试解析为 JSON
-                let output =
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output_str) {
-                        json
-                    } else {
-                        serde_json::json!({
-                            "result": output_str,
-                            "tool": tool_name,
-                        })
-                    };
+                let output = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                    json
+                } else {
+                    serde_json::json!({
+                        "result": output_str,
+                        "tool": tool_name,
+                    })
+                };
 
                 // 更新上下文
                 if let serde_json::Value::Object(map) = &output {

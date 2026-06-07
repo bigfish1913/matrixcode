@@ -23,9 +23,7 @@ impl Scorer {
 
     /// Create a new scorer with AI assistance.
     pub fn new_with_ai(fast_model: Box<dyn Provider>) -> Self {
-        Self {
-            fast_model: Some(fast_model),
-        }
+        Self { fast_model: Some(fast_model) }
     }
 
     /// Score all messages.
@@ -61,7 +59,11 @@ impl Scorer {
     }
 
     /// Score a single message with AI assistance.
-    async fn score_with_ai(&self, message: &Message, mode: AiCompressionMode) -> Result<f64> {
+    async fn score_with_ai(
+        &self,
+        message: &Message,
+        mode: AiCompressionMode,
+    ) -> Result<f64> {
         if self.fast_model.is_none() {
             return Ok(0.0);
         }
@@ -71,20 +73,18 @@ impl Scorer {
 
         // Use fast model for quick judgment
         let provider = self.fast_model.as_ref().unwrap();
-        let response = provider
-            .chat(crate::providers::ChatRequest {
-                messages: vec![Message {
-                    role: Role::User,
-                    content: MessageContent::Text(prompt),
-                }],
-                tools: vec![],
-                system: Some(AI_SCORE_SYSTEM_PROMPT.to_string()),
-                think: false,
-                max_tokens: 100,
-                server_tools: vec![],
-                enable_caching: false,
-            })
-            .await?;
+        let response = provider.chat(crate::providers::ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text(prompt),
+            }],
+            tools: vec![],
+            system: Some(AI_SCORE_SYSTEM_PROMPT.to_string()),
+            think: false,
+            max_tokens: 100,
+            server_tools: vec![],
+            enable_caching: false,
+        }).await?;
 
         // Extract score from response (0-30 range)
         let score_text = extract_text_from_response(&response);
@@ -135,16 +135,7 @@ fn content_score(content: &MessageContent, weights: &PhaseWeights) -> f64 {
             }
 
             // Check for important keywords
-            let keywords = [
-                "决定",
-                "decision",
-                "重要",
-                "important",
-                "关键",
-                "key",
-                "完成",
-                "done",
-            ];
+            let keywords = ["决定", "decision", "重要", "important", "关键", "key", "完成", "done"];
             for kw in keywords {
                 if text.to_lowercase().contains(kw) {
                     score += 15.0;
@@ -192,10 +183,7 @@ fn content_score(content: &MessageContent, weights: &PhaseWeights) -> f64 {
                     }
                     ContentBlock::Thinking { thinking, .. } => {
                         // Thinking can contain key insights
-                        if thinking.contains("决定")
-                            || thinking.contains("问题")
-                            || thinking.contains("关键")
-                        {
+                        if thinking.contains("决定") || thinking.contains("问题") || thinking.contains("关键") {
                             score += 30.0;
                         }
                     }
@@ -214,7 +202,11 @@ fn content_score(content: &MessageContent, weights: &PhaseWeights) -> f64 {
 }
 
 /// Apply dependency bonus to scored messages.
-fn apply_dependency_bonus(scored: &mut [ScoredMessage], deps: &DependencyGraph, bonus: f64) {
+fn apply_dependency_bonus(
+    scored: &mut [ScoredMessage],
+    deps: &DependencyGraph,
+    bonus: f64,
+) {
     for dep in &deps.dependencies {
         // Add bonus to ToolUse message
         if let Some(sm) = scored.get_mut(dep.tool_use_idx) {
@@ -248,14 +240,8 @@ fn is_critical_tool(name: &str) -> bool {
 fn contains_sensitive_instructions(text: &str) -> bool {
     let lower = text.to_lowercase();
     let patterns = [
-        "不要",
-        "禁止",
-        "必须",
-        "不允许",
-        "never",
-        "must not",
-        "do not",
-        "important",
+        "不要", "禁止", "必须", "不允许",
+        "never", "must not", "do not", "important",
     ];
     patterns.iter().any(|p| lower.contains(p))
 }
@@ -276,16 +262,17 @@ fn should_ai_score(message: &Message) -> bool {
 fn estimate_content_length(content: &MessageContent) -> usize {
     match content {
         MessageContent::Text(text) => text.len(),
-        MessageContent::Blocks(blocks) => blocks
-            .iter()
-            .map(|b| match b {
-                ContentBlock::Text { text } => text.len(),
-                ContentBlock::ToolUse { input, .. } => input.to_string().len(),
-                ContentBlock::ToolResult { content, .. } => content.len(),
-                ContentBlock::Thinking { thinking, .. } => thinking.len(),
-                _ => 0,
-            })
-            .sum(),
+        MessageContent::Blocks(blocks) => {
+            blocks.iter().map(|b| {
+                match b {
+                    ContentBlock::Text { text } => text.len(),
+                    ContentBlock::ToolUse { input, .. } => input.to_string().len(),
+                    ContentBlock::ToolResult { content, .. } => content.len(),
+                    ContentBlock::Thinking { thinking, .. } => thinking.len(),
+                    _ => 0,
+                }
+            }).sum()
+        }
     }
 }
 
@@ -300,18 +287,16 @@ fn get_content_preview(message: &Message, max_len: usize) -> String {
             }
         }
         MessageContent::Blocks(blocks) => {
-            let preview: Vec<String> = blocks
-                .iter()
-                .take(3)
-                .map(|b| match b {
+            let preview: Vec<String> = blocks.iter().take(3).map(|b| {
+                match b {
                     ContentBlock::Text { text } => text.chars().take(100).collect(),
                     ContentBlock::ToolUse { name, .. } => format!("[Tool: {}]", name),
                     ContentBlock::ToolResult { content, .. } => {
                         content.chars().take(100).collect::<String>() + "..."
-                    }
+                    },
                     _ => "...".to_string(),
-                })
-                .collect();
+                }
+            }).collect();
             preview.join(" | ")
         }
     }
@@ -334,9 +319,7 @@ fn build_ai_score_prompt(content: &str, mode: AiCompressionMode) -> String {
 
 /// Extract text from response.
 fn extract_text_from_response(response: &crate::providers::ChatResponse) -> String {
-    response
-        .content
-        .iter()
+    response.content.iter()
         .filter_map(|b| {
             if let ContentBlock::Text { text } = b {
                 Some(text.clone())
