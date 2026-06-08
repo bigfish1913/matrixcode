@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.40"
+version = "0.4.43"
 edition = "2024"
 authors = ["BigFish <bigfish1913@gmail.com>"]
 license = "MIT"
@@ -16,8 +16,8 @@ repository = "https://github.com/bigfish1913/matrixcode"
 
 [workspace.dependencies]
 # Internal crates
-matrixcode-core = { path = "core" }
-matrixcode-tui = { path = "tui" }
+matrixcode-core = { path = "core", version = "0.4.43" }
+matrixcode-tui = { path = "tui", version = "0.4.43" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
