@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod ask;
 pub mod bash;
 pub mod browser;
@@ -55,6 +56,9 @@ pub struct ToolContext {
 
 /// Type alias for boxed tool
 pub type BoxedTool = Box<dyn Tool>;
+
+/// Type alias for arc tool (for subagent use)
+pub type ArcTool = Arc<dyn Tool>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -121,6 +125,7 @@ pub fn all_tools() -> Vec<Box<dyn Tool>> {
 /// Base toolset without workflow tools (to avoid duplicates).
 fn base_tools(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
     vec![
+        Box::new(agent::AgentTool::new()),
         Box::new(ask::AskTool),
         Box::new(read::ReadTool),
         Box::new(write::WriteTool::new()),
@@ -144,6 +149,36 @@ fn base_tools(skills: Arc<Vec<Skill>>) -> Vec<Box<dyn Tool>> {
         Box::new(plan_mode::EnterPlanModeTool),
         Box::new(plan_mode::ExitPlanModeTool),
         Box::new(monitor::MonitorTool),
+    ]
+}
+
+/// Subagent toolset as Arc<dyn Tool> - for use in AgentTool and SubagentExecutor.
+/// Does NOT include AgentTool itself to avoid recursive spawning.
+pub fn subagent_tools_arc(skills: Arc<Vec<Skill>>) -> Vec<Arc<dyn Tool>> {
+    vec![
+        Arc::new(ask::AskTool),
+        Arc::new(read::ReadTool),
+        Arc::new(write::WriteTool::new()),
+        Arc::new(edit::EditTool),
+        Arc::new(multi_edit::MultiEditTool),
+        Arc::new(search::SearchTool),
+        Arc::new(grep::GrepTool),
+        Arc::new(glob::GlobTool),
+        Arc::new(ls::LsTool),
+        Arc::new(bash::BashTool),
+        Arc::new(browser::BrowserOpenTool),
+        Arc::new(todo_write::TodoWriteTool),
+        Arc::new(websearch::WebSearchTool::new()),
+        Arc::new(webfetch::WebFetchTool),
+        Arc::new(skill::SkillTool::new(skills)),
+        Arc::new(task::TaskTool),
+        Arc::new(task::TaskCreateTool),
+        Arc::new(task::TaskGetTool),
+        Arc::new(task::TaskListTool),
+        Arc::new(task::TaskStopTool),
+        Arc::new(plan_mode::EnterPlanModeTool),
+        Arc::new(plan_mode::ExitPlanModeTool),
+        Arc::new(monitor::MonitorTool),
     ]
 }
 

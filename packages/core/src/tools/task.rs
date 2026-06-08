@@ -286,9 +286,8 @@ async fn execute_subagent_task(
 /// Get tools for subagent execution
 /// Returns a minimal set of tools suitable for background tasks
 fn get_subagent_tools() -> Vec<Arc<dyn Tool>> {
-    // In production, this would get tools from the main agent's tool registry
-    // For now, return empty set - the executor will handle tool filtering
-    Vec::new()
+    // Use the subagent tools arc function from mod.rs
+    super::subagent_tools_arc(Arc::new(Vec::new()))
 }
 
 /// TaskCreate tool for creating background tasks

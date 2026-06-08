@@ -1,0 +1,25 @@
+[package]
+name = "matrixcode-gui"
+version = "0.1.0"
+description = "MatrixCode Desktop GUI Application"
+authors = ["MatrixCode Team"]
+edition = "2021"
+rust-version = "1.70"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+matrixcode-core = { path = "../../core" }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[workspace]
