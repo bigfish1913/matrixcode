@@ -7,6 +7,7 @@ use matrixcode_core::{
     AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
     create_provider_with_headers, infer_provider_type, providers::Provider,
     tools::all_tools_full, approval::ApproveMode, prompt::preprocess_with_skills, prompt::ProcessResult,
+    tools::code_quality_hook::VerificationStrategy,
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
 use std::path::PathBuf;
@@ -700,6 +701,9 @@ async fn run_agent_task(
         .max_tokens(max_tokens)
         .context_size(config.context_size)
         .think(think)
+        .verify_strategy(VerificationStrategy::from_str(
+            config.verify_strategy.as_deref().unwrap_or("post")
+        ))
         .tools(base_tools)
         .project_path(project_path_for_tools)
         .event_tx(event_tx.clone())

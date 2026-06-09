@@ -1,0 +1,145 @@
+import React, { type ReactNode, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import type { ChatMessage } from '../stores/chatStore';
+
+interface Props {
+  message: ChatMessage;
+  isLast?: boolean;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute top-1 right-1 px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground bg-muted/80 rounded transition-colors"
+      title="Copy"
+    >
+      {copied ? '✓' : 'Copy'}
+    </button>
+  );
+}
+
+export function MessageBubble({ message, isLast = false }: Props) {
+  const isUser = message.role === 'user';
+  const isError = message.isError || message.role === 'error';
+  const isTool = message.role === 'tool';
+
+  let contentNode: ReactNode;
+
+  if (isTool && !message.isToolResult && message.toolName) {
+    // Tool use call
+    contentNode = (
+      <details className="cursor-pointer group">
+        <summary className="text-xs font-mono text-muted-foreground flex items-center gap-1.5 select-none">
+          <span className="text-amber-500 group-open:rotate-90 transition-transform">▶</span>
+          <span className="text-amber-600 dark:text-amber-400">⚡ {message.toolName}</span>
+        </summary>
+        <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-auto max-h-60 relative">
+          <CopyButton text={message.toolInput ? JSON.stringify(message.toolInput, null, 2) : ''} />
+          {message.toolInput
+            ? JSON.stringify(message.toolInput, null, 2)
+            : ''}
+        </pre>
+      </details>
+    );
+  } else if (isTool && message.isToolResult) {
+    // Tool result
+    contentNode = (
+      <details className="cursor-pointer group">
+        <summary className="text-xs font-mono text-muted-foreground flex items-center gap-1.5 select-none">
+          <span className="text-green-500 group-open:rotate-90 transition-transform">▶</span>
+          <span className="text-green-600 dark:text-green-400">✓ {message.toolName} result</span>
+        </summary>
+        <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-auto max-h-80 relative">
+          <CopyButton text={message.content} />
+          {message.content}
+        </pre>
+      </details>
+    );
+  } else if (isUser) {
+    contentNode = <p className="whitespace-pre-wrap">{message.content}</p>;
+  } else {
+    // Assistant message with syntax-highlighted code blocks
+    contentNode = (
+      <div className="prose prose-sm dark:prose-invert max-w-none">
+        <ReactMarkdown
+          components={{
+            code({ className, children, ...props }) {
+              const match = /language-(\w+)/.exec(className || '');
+              const codeString = String(children).replace(/\n$/, '');
+
+              if (match) {
+                return (
+                  <div className="relative group/code">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground bg-muted/50 px-3 py-1 rounded-t-lg border-b">
+                      <span>{match[1]}</span>
+                    </div>
+                    <SyntaxHighlighter
+                      style={oneDark}
+                      language={match[1]}
+                      PreTag="div"
+                      customStyle={{
+                        margin: 0,
+                        borderRadius: '0 0 0.5rem 0.5rem',
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      {codeString}
+                    </SyntaxHighlighter>
+                    <CopyButton text={codeString} />
+                  </div>
+                );
+              }
+
+              return (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              );
+            },
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
+    >
+      <div
+        className={`max-w-[85%] rounded-lg px-4 py-2.5 text-sm ${
+          isError
+            ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-700'
+            : isUser
+              ? 'bg-primary text-primary-foreground'
+              : isTool
+                ? 'bg-muted border'
+                : 'bg-card border shadow-sm'
+        }`}
+      >
+        {isError && (
+          <div className="text-xs font-semibold mb-1 flex items-center gap-1">
+            <span>⚠️</span> Error
+          </div>
+        )}
+        {contentNode}
+        {message.isStreaming && isLast && (
+          <span className="inline-block w-2 h-4 ml-1 bg-foreground/50 animate-pulse" />
+        )}
+      </div>
+    </div>
+  );
+}

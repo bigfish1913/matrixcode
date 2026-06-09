@@ -8,6 +8,7 @@ use matrixcode_core::{
     create_provider_with_headers,
     providers::{MessageContent, Role, ContentBlock},
     tools::all_tools_full,
+    tools::code_quality_hook::VerificationStrategy,
     prompt::{build_system_prompt_with_workflows, PromptProfile, preprocess_with_skills, ProcessResult},
     approval::ApproveMode,
     session::SessionManager,
@@ -118,6 +119,9 @@ pub fn run_service_mode(cli: Cli) -> Result<()> {
                         .system_prompt(system_prompt)
                         .model_name(model)
                         .max_tokens(QUICK_ACTION_MAX_TOKENS)
+                        .verify_strategy(VerificationStrategy::from_str(
+                            config.verify_strategy.as_deref().unwrap_or("post")
+                        ))
                         .tools(all_tools_full(
                             Arc::new(skills.clone()),
                             provider.clone_arc(),
@@ -257,6 +261,9 @@ async fn handle_chat(
         .system_prompt(system_prompt)
         .model_name(model.to_string())
         .max_tokens(QUICK_ACTION_MAX_TOKENS)
+        .verify_strategy(VerificationStrategy::from_str(
+            config.verify_strategy.as_deref().unwrap_or("post")
+        ))
         .tools(all_tools_full(
             Arc::new(skills.to_vec()),
             provider.clone_arc(),
@@ -355,6 +362,9 @@ async fn handle_quick_action(
         .system_prompt(system_prompt)
         .model_name(model.to_string())
         .max_tokens(QUICK_ACTION_MAX_TOKENS)
+        .verify_strategy(VerificationStrategy::from_str(
+            config.verify_strategy.as_deref().unwrap_or("post")
+        ))
         .tools(all_tools_full(
             Arc::new(skills.to_vec()),
             provider.clone_arc(),
@@ -578,6 +588,9 @@ async fn handle_quick_action_json(
         .system_prompt(system_prompt)
         .model_name(model.to_string())
         .max_tokens(QUICK_ACTION_MAX_TOKENS)
+        .verify_strategy(VerificationStrategy::from_str(
+            config.verify_strategy.as_deref().unwrap_or("post")
+        ))
         .tools(all_tools_full(
             Arc::new(skills.to_vec()),
             provider.clone_arc(),

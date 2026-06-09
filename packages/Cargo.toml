@@ -5,6 +5,7 @@ members = [
     "core",
     "tui",
     "browser_test",
+    "gui/src-tauri",
 ]
 
 [workspace.package]

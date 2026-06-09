@@ -13,6 +13,7 @@ use crate::providers::{ChatRequest, ChatResponse, ContentBlock, StopReason, Stre
 use crate::providers::Provider;
 use crate::skills::Skill;
 use crate::tools::Tool;
+use crate::tools::code_quality_hook::VerificationStrategy;
 #[cfg(test)]
 use async_trait::async_trait;
 
@@ -108,6 +109,7 @@ pub struct AgentBuilder {
     pub(crate) context_size_override: Option<u32>,
     pub(crate) think: bool,
     pub(crate) compression_config: CompressionConfig,
+    pub(crate) verify_strategy: VerificationStrategy,
 
     // === Context (AgentContext) ===
     pub(crate) profile: PromptProfile,

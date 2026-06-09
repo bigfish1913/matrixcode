@@ -8,6 +8,7 @@ use matrixcode_core::{
     AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
     create_provider_with_headers, infer_provider_type, providers::Provider,
     tools::all_tools_full_with_lsp, approval::ApproveMode, skills::Skill,
+    tools::code_quality_hook::VerificationStrategy,
     memory::AutoMemory, prompt::preprocess_with_skills, prompt::ProcessResult,
 };
 use crate::constants::{
@@ -178,6 +179,9 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
         .max_tokens(ctx.max_tokens)
         .context_size(ctx.config.context_size)
         .think(ctx.think)
+        .verify_strategy(VerificationStrategy::from_str(
+            ctx.config.verify_strategy.as_deref().unwrap_or("post")
+        ))
         .tools(base_tools)
         .project_path(project_path_for_tools)
         .event_tx(ctx.event_tx.clone())

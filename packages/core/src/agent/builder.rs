@@ -11,6 +11,7 @@ use crate::prompt::PromptProfile;
 use crate::providers::Provider;
 use crate::skills::Skill;
 use crate::tools::Tool;
+use crate::tools::code_quality_hook::VerificationStrategy;
 use crate::tools::toolproxy::{ProxyToolDef, ProxyToolExecutor};
 
 use super::types::{Agent, AgentBuilder};
@@ -25,6 +26,7 @@ impl AgentBuilder {
             context_size_override: None,
             think: false,
             compression_config: CompressionConfig::default(),
+            verify_strategy: VerificationStrategy::default(),
             profile: PromptProfile::Default,
             skills: Vec::new(),
             project_overview: None,
@@ -64,6 +66,18 @@ impl AgentBuilder {
 
     pub fn think(mut self, enabled: bool) -> Self {
         self.think = enabled;
+        self
+    }
+
+    /// Set code verification strategy for write operations.
+    ///
+    /// Controls whether and when code quality checks run on edit/write/multi_edit.
+    /// - `None`: No verification
+    /// - `Post`: Verify after write (default)
+    /// - `Pre`: Verify before write, block if errors
+    /// - `PreQuick`: Quick syntax check before, full check after
+    pub fn verify_strategy(mut self, strategy: VerificationStrategy) -> Self {
+        self.verify_strategy = strategy;
         self
     }
 

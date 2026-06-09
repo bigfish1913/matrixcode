@@ -31,12 +31,15 @@ impl Agent {
         });
 
         // Create modular components from builder
-        let config = AgentConfig::new(
-            builder.max_tokens,
-            builder.context_size_override,
-            builder.think,
-            builder.compression_config,
-        );
+        let config = AgentConfig {
+            max_tokens: builder.max_tokens,
+            context_size_override: builder.context_size_override,
+            think: builder.think,
+            compression: builder.compression_config,
+            verify_strategy: builder.verify_strategy,
+            project_path: builder.project_path.clone(),
+            ..AgentConfig::default()
+        };
 
         let state = AgentState::new();
 
@@ -115,6 +118,16 @@ impl Agent {
     /// Get think flag (from config)
     pub(crate) fn think(&self) -> bool {
         self.config.think()
+    }
+
+    /// Get verify strategy (from config)
+    pub(crate) fn verify_strategy(&self) -> crate::tools::code_quality_hook::VerificationStrategy {
+        self.config.verify_strategy()
+    }
+
+    /// Get project path for verification (from config)
+    pub(crate) fn verify_project_path(&self) -> Option<&std::path::Path> {
+        self.config.project_path()
     }
 
     /// Get compression config (from config)

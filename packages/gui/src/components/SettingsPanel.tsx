@@ -1,0 +1,281 @@
+import React, { useEffect, useState } from 'react';
+import { useConfigStore } from '../stores/configStore';
+
+export function SettingsPanel() {
+  const config = useConfigStore((s) => s.config);
+  const loadConfig = useConfigStore((s) => s.loadConfig);
+  const updateConfig = useConfigStore((s) => s.updateConfig);
+  const projectPath = useConfigStore((s) => s.projectPath);
+  const setProjectPath = useConfigStore((s) => s.setProjectPath);
+  const [pathInput, setPathInput] = useState(projectPath ?? '');
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+
+  // Sync pathInput when projectPath changes externally
+  useEffect(() => {
+    setPathInput(projectPath ?? '');
+  }, [projectPath]);
+
+  const handleSetPath = () => {
+    if (pathInput.trim()) {
+      setProjectPath(pathInput.trim());
+    }
+  };
+
+  const handleSetApiKey = async () => {
+    if (apiKeyInput.trim()) {
+      setSaveStatus('saving');
+      try {
+        await updateConfig({ api_key: apiKeyInput.trim() });
+        setApiKeyInput('');
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } catch (e) {
+        setSaveStatus('error');
+        console.error('Failed to save API key:', e);
+      }
+    }
+  };
+
+  const handleSaveConfig = async (updates: Record<string, unknown>) => {
+    setSaveStatus('saving');
+    try {
+      await updateConfig(updates);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (e) {
+      setSaveStatus('error');
+      console.error('Failed to save config:', e);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="border-b p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">Settings</h2>
+          {saveStatus === 'saving' && (
+            <span className="text-xs text-muted-foreground">Saving...</span>
+          )}
+          {saveStatus === 'saved' && (
+            <span className="text-xs text-green-600">✓ Saved</span>
+          )}
+          {saveStatus === 'error' && (
+            <span className="text-xs text-red-600">Save failed</span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl mx-auto p-4 space-y-6">
+          {/* API Key Settings */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold border-b pb-2">API Configuration</h3>
+
+            <div>
+              <label className="text-sm font-medium">API Key</label>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="Enter new API key to update"
+                  className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm"
+                />
+                <button
+                  onClick={handleSetApiKey}
+                  disabled={!apiKeyInput.trim()}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Set
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {config?.api_key_set
+                  ? '✓ API key is configured'
+                  : '⚠ API key not configured - agent will not work'}
+              </p>
+            </div>
+          </section>
+
+          {/* Provider Settings */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold border-b pb-2">Provider</h3>
+
+            <div>
+              <label className="text-sm font-medium">Provider Type</label>
+              <select
+                value={config?.provider ?? 'anthropic'}
+                onChange={(e) => handleSaveConfig({ provider: e.target.value })}
+                className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+              >
+                <option value="anthropic">Anthropic</option>
+                <option value="openai">OpenAI</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="ollama">Ollama</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Model</label>
+              <input
+                type="text"
+                value={config?.model ?? ''}
+                onChange={(e) => handleSaveConfig({ model: e.target.value })}
+                placeholder="claude-sonnet-4-20250514"
+                className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Base URL</label>
+              <input
+                type="text"
+                value={config?.base_url ?? ''}
+                onChange={(e) => handleSaveConfig({ base_url: e.target.value })}
+                placeholder="https://api.anthropic.com"
+                className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+              />
+            </div>
+          </section>
+
+          {/* Project Settings */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold border-b pb-2">Project</h3>
+            <div>
+              <label className="text-sm font-medium">Project Path</label>
+              <div className="flex gap-2 mt-1">
+                <input
+                  type="text"
+                  value={pathInput}
+                  onChange={(e) => setPathInput(e.target.value)}
+                  placeholder="/path/to/project"
+                  className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm"
+                />
+                <button
+                  onClick={handleSetPath}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90 transition-colors"
+                >
+                  Set
+                </button>
+              </div>
+              {projectPath && (
+                <p className="text-xs text-muted-foreground mt-1">Current: {projectPath}</p>
+              )}
+            </div>
+          </section>
+
+          {/* Agent Settings */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold border-b pb-2">Agent</h3>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium">Extended Thinking</label>
+                <p className="text-xs text-muted-foreground">Enable deep thinking mode</p>
+              </div>
+              <button
+                onClick={() => handleSaveConfig({ think: !config?.think })}
+                className={`relative w-10 h-5 rounded-full transition-colors ${
+                  config?.think ? 'bg-primary' : 'bg-muted'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                    config?.think ? 'translate-x-5' : ''
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium">LSP Integration</label>
+                <p className="text-xs text-muted-foreground">Enable language server protocol</p>
+              </div>
+              <button
+                onClick={() => handleSaveConfig({ enable_lsp: !config?.enable_lsp })}
+                className={`relative w-10 h-5 rounded-full transition-colors ${
+                  config?.enable_lsp ? 'bg-primary' : 'bg-muted'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                    config?.enable_lsp ? 'translate-x-5' : ''
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Max Tokens</label>
+              <input
+                type="number"
+                value={config?.max_tokens ?? 4096}
+                onChange={(e) => handleSaveConfig({ max_tokens: parseInt(e.target.value, 10) || 4096 })}
+                min={1}
+                max={128000}
+                className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Approve Mode</label>
+              <select
+                value={config?.approve_mode ?? 'suggest'}
+                onChange={(e) => handleSaveConfig({ approve_mode: e.target.value })}
+                className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+              >
+                <option value="suggest">Suggest</option>
+                <option value="auto-edit">Auto Edit</option>
+                <option value="full-auto">Full Auto</option>
+              </select>
+            </div>
+          </section>
+
+          {/* Multi-Model Settings */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold border-b pb-2">Multi-Model</h3>
+
+            <div>
+              <label className="text-sm font-medium">Plan Model</label>
+              <input
+                type="text"
+                value={config?.plan_model ?? ''}
+                onChange={(e) => handleSaveConfig({ plan_model: e.target.value })}
+                placeholder="claude-opus-4-20250514"
+                className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Compress Model</label>
+              <input
+                type="text"
+                value={config?.compress_model ?? ''}
+                onChange={(e) => handleSaveConfig({ compress_model: e.target.value })}
+                placeholder="claude-haiku-4-20250514"
+                className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Fast Model</label>
+              <input
+                type="text"
+                value={config?.fast_model ?? ''}
+                onChange={(e) => handleSaveConfig({ fast_model: e.target.value })}
+                placeholder="claude-haiku-4-20250514"
+                className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+              />
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}

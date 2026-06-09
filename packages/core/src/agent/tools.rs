@@ -1,6 +1,7 @@
 //! Agent tool execution implementation.
 
 use anyhow::Result;
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use tokio::time::{Duration, sleep};
 
@@ -8,6 +9,8 @@ use crate::approval::{ApproveMode, needs_approval, RiskLevel};
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role};
 use crate::tools::MustReadFirstError;
+use crate::tools::code_quality_hook::VerificationStrategy;
+use crate::tools::verify::{VerifyTool, ProjectType};
 use crate::truncate::truncate_with_suffix;
 use crate::agent::core::state::MAX_SAME_ERROR_COUNT;
 
@@ -174,6 +177,15 @@ impl Agent {
             }
         }
 
+        // === Pre-write verification ===
+        // Verify code before writing (for "pre" strategy)
+        if matches!(name, "edit" | "multi_edit" | "write") {
+            if let Err(e) = self.pre_verify_write(name, &input).await {
+                log::warn!("Pre-write verification blocked {}: {}", name, e);
+                return Err(e);
+            }
+        }
+
         // Find tool and extract info needed for approval check
         let tool = self.tools.iter().find(|t| t.definition().name == name);
 
@@ -239,6 +251,20 @@ impl Agent {
                     return Err(anyhow::anyhow!("{}", enhanced_error));
                 }
             }
+
+            // === Post-write verification and impact hints ===
+            // For write/edit/multi_edit, run verification after successful write
+            let result = if matches!(name, "edit" | "multi_edit" | "write") {
+                match result {
+                    Ok(raw_result) => {
+                        let enhanced = self.post_verify_write(name, &input, &raw_result).await;
+                        Ok(enhanced)
+                    }
+                    Err(e) => Err(e),
+                }
+            } else {
+                result
+            };
 
             result
         } else {
@@ -632,4 +658,423 @@ impl Agent {
             ))
         }
     }
+
+    // =========================================================================
+    // Code Verification Methods
+    // =========================================================================
+
+    /// Pre-write verification: check if the code compiles before writing.
+    ///
+    /// For `write`: verify the content to be written (from params).
+    /// For `edit`/`multi_edit`: simulate the edit, then verify resulting content.
+    ///
+    /// Only runs when verify_strategy is `Pre` or `PreQuick`.
+    /// Returns error to block write if verification fails.
+    async fn pre_verify_write(&self, tool_name: &str, input: &serde_json::Value) -> Result<()> {
+        let strategy = self.verify_strategy();
+        if strategy == VerificationStrategy::None || strategy == VerificationStrategy::Post {
+            return Ok(()); // No pre-verify for none/post strategy
+        }
+
+        let file_path = input["path"].as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
+
+        // Determine the content that will exist after the write
+        let content = match tool_name {
+            "write" => {
+                // write tool: content is directly provided in params
+                input["content"].as_str()
+                    .ok_or_else(|| anyhow::anyhow!("missing 'content'"))?
+                    .to_string()
+            }
+            "edit" | "multi_edit" => {
+                // edit/multi_edit: simulate the edit to get resulting content
+                self.simulate_edit_content(tool_name, input).await?
+            }
+            _ => return Ok(()),
+        };
+
+        // Only verify code files
+        if !is_code_file(file_path) {
+            return Ok(());
+        }
+
+        // Write to temp file and verify
+        self.verify_code_temp(file_path, &content).await
+    }
+
+    /// Simulate an edit operation and return the resulting file content.
+    ///
+    /// Reads the current file, applies the edit(s), returns the new content.
+    async fn simulate_edit_content(&self, tool_name: &str, input: &serde_json::Value) -> Result<String> {
+        let path = input["path"].as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing 'path'"))?;
+        let content = tokio::fs::read_to_string(path).await
+            .map_err(|e| anyhow::anyhow!("cannot read {} for pre-verification: {}", path, e))?;
+
+        let original_uses_crlf = content.contains("\r\n");
+        let mut normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+
+        match tool_name {
+            "edit" => {
+                let old = input["old_string"].as_str()
+                    .ok_or_else(|| anyhow::anyhow!("missing 'old_string'"))?;
+                let new = input["new_string"].as_str()
+                    .ok_or_else(|| anyhow::anyhow!("missing 'new_string'"))?;
+                let norm_old = old.replace("\r\n", "\n").replace('\r', "\n");
+                let norm_new = new.replace("\r\n", "\n").replace('\r', "\n");
+
+                // Check match count
+                let count = normalized.matches(&norm_old).count();
+                if count != 1 {
+                    // Can't simulate exactly, return original content (verification will be skipped)
+                    return Ok(content);
+                }
+                normalized = normalized.replacen(&norm_old, &norm_new, 1);
+            }
+            "multi_edit" => {
+                let edits = input["edits"].as_array()
+                    .ok_or_else(|| anyhow::anyhow!("missing 'edits'"))?;
+                for edit in edits {
+                    let old = edit["old_string"].as_str().unwrap_or("");
+                    let new = edit["new_string"].as_str().unwrap_or("");
+                    if old.is_empty() { continue; }
+                    let norm_old = old.replace("\r\n", "\n").replace('\r', "\n");
+                    let norm_new = new.replace("\r\n", "\n").replace('\r', "\n");
+                    let count = normalized.matches(&norm_old).count();
+                    if count != 1 {
+                        // Can't simulate exactly, return original
+                        return Ok(content);
+                    }
+                    normalized = normalized.replacen(&norm_old, &norm_new, 1);
+                }
+            }
+            _ => {}
+        }
+
+        if original_uses_crlf {
+            Ok(normalized.replace('\n', "\r\n"))
+        } else {
+            Ok(normalized)
+        }
+    }
+
+    /// Verify code content by writing to a temp file and running checks.
+    async fn verify_code_temp(&self, file_path: &str, content: &str) -> Result<()> {
+        let ext = Path::new(file_path).extension().and_then(|e| e.to_str());
+        if !matches!(ext, Some("rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go")) {
+            return Ok(());
+        }
+
+        // Create temp directory for verification
+        let temp_dir = tempfile::TempDir::new()?;
+        let temp_path = temp_dir.path().join(
+            Path::new(file_path).file_name().unwrap_or_default()
+        );
+        tokio::fs::write(&temp_path, content).await?;
+
+        let project_root = self.verify_project_path()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let project_type = VerifyTool::detect_project_type(&project_root);
+
+        let errors = match project_type {
+            ProjectType::Rust if ext == Some("rs") => {
+                self.run_rust_verify(&project_root).await
+            }
+            ProjectType::NodeJs if matches!(ext, Some("ts") | Some("tsx")) => {
+                self.run_tsc_verify(&project_root).await
+            }
+            ProjectType::Python if ext == Some("py") => {
+                self.run_python_verify(&temp_path).await
+            }
+            ProjectType::Go if ext == Some("go") => {
+                self.run_go_verify(&project_root).await
+            }
+            _ => Vec::new(),
+        };
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "❌ 代码验证失败，请修正以下错误后再写入：\n{}",
+                errors.join("\n")
+            ))
+        }
+    }
+
+    /// Post-write verification: run checks after file is written + add impact hints.
+    ///
+    /// Returns enhanced result string with verification status and suggestions.
+    async fn post_verify_write(&self, _tool_name: &str, input: &serde_json::Value, result: &str) -> String {
+        let strategy = self.verify_strategy();
+        if strategy == VerificationStrategy::None {
+            return result.to_string();
+        }
+
+        let file_path = match input["path"].as_str() {
+            Some(p) => p,
+            None => return result.to_string(),
+        };
+
+        let mut enhanced = result.to_string();
+
+        // 1. Code verification (for Post and PreQuick strategies)
+        if strategy == VerificationStrategy::Post || strategy == VerificationStrategy::PreQuick {
+            if is_code_file(file_path) {
+                match self.verify_code_after_write(file_path).await {
+                    Ok(msg) => enhanced.push_str(&format!("\n📝 代码验证: {}", msg)),
+                    Err(e) => enhanced.push_str(&format!("\n⚠️ 代码验证: {}", e)),
+                }
+            }
+        }
+
+        // 2. Impact analysis - suggest related tests and verification commands
+        let project_root = self.verify_project_path()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let verify_tool = VerifyTool::new(project_root);
+        let suggestion = verify_tool.generate_suggestion(file_path);
+
+        if !suggestion.related_tests.is_empty() {
+            enhanced.push_str(&format!(
+                "\n📋 可能受影响的测试: {}",
+                suggestion.related_tests.join(", ")
+            ));
+        }
+        if !suggestion.commands.is_empty() {
+            let cmds: Vec<String> = suggestion.commands.iter().take(2)
+                .map(|c| format!("{} ({})", c.command, c.description.as_deref().unwrap_or("")))
+                .collect();
+            enhanced.push_str(&format!("\n💡 建议验证命令: {}", cmds.join("; ")));
+        }
+
+        enhanced
+    }
+
+    /// Verify code after it's been written to disk (full project check).
+    async fn verify_code_after_write(&self, file_path: &str) -> Result<String> {
+        let ext = Path::new(file_path).extension().and_then(|e| e.to_str());
+        let project_root = self.verify_project_path()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let project_type = VerifyTool::detect_project_type(&project_root);
+
+        match project_type {
+            ProjectType::Rust if ext == Some("rs") => {
+                self.run_rust_verify_full(&project_root).await
+            }
+            ProjectType::NodeJs if matches!(ext, Some("ts") | Some("tsx")) => {
+                self.run_tsc_verify_full(&project_root).await
+            }
+            ProjectType::Python if ext == Some("py") => {
+                self.run_python_verify_file(file_path).await
+            }
+            ProjectType::Go if ext == Some("go") => {
+                self.run_go_verify_full(&project_root).await
+            }
+            _ => Ok("(非代码文件或无对应检测)".to_string()),
+        }
+    }
+
+    // =========================================================================
+    // Language-specific verification methods
+    // =========================================================================
+
+    /// Run cargo check on the project (full check for post-verify).
+    async fn run_rust_verify_full(&self, project_root: &Path) -> Result<String> {
+        let output = tokio::process::Command::new("cargo")
+            .args(["check", "--quiet"])
+            .current_dir(project_root)
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => Ok("✅ cargo check 通过".to_string()),
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                let errors: Vec<&str> = stderr.lines()
+                    .filter(|l| l.contains("error"))
+                    .take(5)
+                    .collect();
+                if errors.is_empty() {
+                    Ok("⚠️ cargo check 有警告".to_string())
+                } else {
+                    Ok(format!("❌ cargo check 失败:\n{}", errors.join("\n")))
+                }
+            }
+            Err(e) => Ok(format!("⚠️ 无法运行 cargo check: {}", e)),
+        }
+    }
+
+    /// Run cargo check for pre-verify (returns errors as Vec).
+    async fn run_rust_verify(&self, project_root: &Path) -> Vec<String> {
+        let output = tokio::process::Command::new("cargo")
+            .args(["check", "--quiet"])
+            .current_dir(project_root)
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => Vec::new(),
+            Ok(o) => {
+                String::from_utf8_lossy(&o.stderr)
+                    .lines()
+                    .filter(|l| l.contains("error"))
+                    .take(5)
+                    .map(|l| l.to_string())
+                    .collect()
+            }
+            Err(_) => Vec::new(), // Can't verify, allow
+        }
+    }
+
+    /// Run tsc --noEmit for TypeScript verification.
+    async fn run_tsc_verify(&self, project_root: &Path) -> Vec<String> {
+        let output = tokio::process::Command::new("npx")
+            .args(["tsc", "--noEmit"])
+            .current_dir(project_root)
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => Vec::new(),
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                stderr.lines().chain(stdout.lines())
+                    .filter(|l| l.contains("error TS"))
+                    .take(5)
+                    .map(|l| l.to_string())
+                    .collect()
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Run python -m py_compile for single file.
+    async fn run_python_verify(&self, file_path: &Path) -> Vec<String> {
+        let output = tokio::process::Command::new("python")
+            .args(["-m", "py_compile"])
+            .arg(file_path)
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => Vec::new(),
+            Ok(o) => {
+                String::from_utf8_lossy(&o.stderr)
+                    .lines()
+                    .filter(|l| l.contains("Error") || l.contains("SyntaxError"))
+                    .take(3)
+                    .map(|l| l.to_string())
+                    .collect()
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Run python -m py_compile on written file.
+    async fn run_python_verify_file(&self, file_path: &str) -> Result<String> {
+        let output = tokio::process::Command::new("python")
+            .args(["-m", "py_compile"])
+            .arg(file_path)
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => Ok("✅ Python 语法检查通过".to_string()),
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                let errors: Vec<&str> = stderr.lines()
+                    .filter(|l| l.contains("Error") || l.contains("SyntaxError"))
+                    .take(3)
+                    .collect();
+                if errors.is_empty() {
+                    Ok("⚠️ Python 检查有警告".to_string())
+                } else {
+                    Ok(format!("❌ Python 语法检查失败:\n{}", errors.join("\n")))
+                }
+            }
+            Err(e) => Ok(format!("⚠️ 无法运行 Python 检查: {}", e)),
+        }
+    }
+
+    /// Run go vet for Go verification.
+    async fn run_go_verify(&self, project_root: &Path) -> Vec<String> {
+        let output = tokio::process::Command::new("go")
+            .args(["vet"])
+            .current_dir(project_root)
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => Vec::new(),
+            Ok(o) => {
+                String::from_utf8_lossy(&o.stderr)
+                    .lines()
+                    .filter(|l| l.contains("error") || l.contains("undefined"))
+                    .take(3)
+                    .map(|l| l.to_string())
+                    .collect()
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Run tsc --noEmit for post-verify (returns Result<String>).
+    async fn run_tsc_verify_full(&self, project_root: &Path) -> Result<String> {
+        let output = tokio::process::Command::new("npx")
+            .args(["tsc", "--noEmit"])
+            .current_dir(project_root)
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => Ok("✅ tsc --noEmit 通过".to_string()),
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let errors: Vec<&str> = stderr.lines().chain(stdout.lines())
+                    .filter(|l| l.contains("error TS"))
+                    .take(5)
+                    .collect();
+                if errors.is_empty() {
+                    Ok("⚠️ TypeScript 类型检查有警告".to_string())
+                } else {
+                    Ok(format!("❌ TypeScript 类型检查失败:\n{}", errors.join("\n")))
+                }
+            }
+            Err(e) => Ok(format!("⚠️ 无法运行 tsc: {}", e)),
+        }
+    }
+
+    /// Run go vet for post-verify (returns Result<String>).
+    async fn run_go_verify_full(&self, project_root: &Path) -> Result<String> {
+        let output = tokio::process::Command::new("go")
+            .args(["vet"])
+            .current_dir(project_root)
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => Ok("✅ go vet 通过".to_string()),
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                let errors: Vec<&str> = stderr.lines()
+                    .filter(|l| l.contains("error") || l.contains("undefined"))
+                    .take(3)
+                    .collect();
+                if errors.is_empty() {
+                    Ok("⚠️ go vet 有警告".to_string())
+                } else {
+                    Ok(format!("❌ go vet 失败:\n{}", errors.join("\n")))
+                }
+            }
+            Err(e) => Ok(format!("⚠️ 无法运行 go vet: {}", e)),
+        }
+    }
+}
+
+// =========================================================================
+// Helper functions
+// =========================================================================
+
+/// Check if a file is a code file that needs verification.
+fn is_code_file(path: &str) -> bool {
+    let ext = Path::new(path).extension().and_then(|e| e.to_str());
+    matches!(ext, Some("rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go"))
 }

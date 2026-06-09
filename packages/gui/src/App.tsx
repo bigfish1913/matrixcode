@@ -1,30 +1,33 @@
-import { useState } from 'react'
+import { useState } from 'react';
+import { Sidebar, type ViewType } from './components/Sidebar';
+import { ChatView } from './components/ChatView';
+import { TaskView } from './components/TaskView';
+import { SettingsPanel } from './components/SettingsPanel';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [currentView, setCurrentView] = useState<ViewType>('chat');
+
+  const renderView = () => {
+    switch (currentView) {
+      case 'chat':
+        return <ChatView />;
+      case 'tasks':
+        return <TaskView />;
+      case 'settings':
+        return <SettingsPanel />;
+      default:
+        return <ChatView />;
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto p-8">
-        <h1 className="text-4xl font-bold mb-8">MatrixCode GUI</h1>
-        
-        <div className="card p-6 rounded-lg border shadow-sm">
-          <p className="text-muted-foreground mb-4">
-            Welcome to MatrixCode Desktop Application
-          </p>
-          
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setCount(count + 1)}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-            >
-              Count is {count}
-            </button>
-          </div>
-        </div>
-      </div>
+    <div className="flex h-screen bg-background text-foreground">
+      <Sidebar currentView={currentView} onViewChange={setCurrentView} />
+      <main className="flex-1 flex flex-col min-w-0">
+        {renderView()}
+      </main>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

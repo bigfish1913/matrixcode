@@ -9,6 +9,7 @@
 //! - Clearer documentation of defaults
 
 use crate::compress::CompressionConfig;
+use crate::tools::code_quality_hook::VerificationStrategy;
 
 /// Maximum number of iterations in the main loop.
 ///
@@ -120,6 +121,21 @@ pub struct AgentConfig {
     ///
     /// **Default**: false
     pub think: bool,
+
+    /// Code verification strategy for write operations.
+    ///
+    /// Controls whether and when code quality checks run on edit/write/multi_edit.
+    /// - `None`: No verification
+    /// - `Post`: Verify after write (default)
+    /// - `Pre`: Verify before write, block if errors
+    /// - `PreQuick`: Quick syntax check before, full check after
+    pub verify_strategy: VerificationStrategy,
+
+    /// Project root path for code verification.
+    ///
+    /// Used to detect project type (Rust/Node.js/Python/Go) and run
+    /// appropriate verification commands (cargo check, tsc, etc.).
+    pub project_path: Option<std::path::PathBuf>,
 }
 
 impl Default for AgentConfig {
@@ -135,6 +151,8 @@ impl Default for AgentConfig {
             max_tokens: crate::constants::QUICK_ACTION_MAX_TOKENS,
             context_size_override: None,
             think: false,
+            verify_strategy: VerificationStrategy::default(),
+            project_path: None,
         }
     }
 }
@@ -152,6 +170,18 @@ impl AgentConfig {
             context_size_override,
             think,
             compression,
+            ..Self::default()
+        }
+    }
+
+    /// Create a new config with verification strategy.
+    pub fn with_verify_strategy(
+        verify_strategy: VerificationStrategy,
+        project_path: Option<std::path::PathBuf>,
+    ) -> Self {
+        Self {
+            verify_strategy,
+            project_path,
             ..Self::default()
         }
     }
@@ -227,6 +257,16 @@ impl AgentConfig {
     /// Get mutable compression config.
     pub fn compression_config_mut(&mut self) -> &mut CompressionConfig {
         &mut self.compression
+    }
+
+    /// Get verification strategy.
+    pub fn verify_strategy(&self) -> VerificationStrategy {
+        self.verify_strategy
+    }
+
+    /// Get project path for verification.
+    pub fn project_path(&self) -> Option<&std::path::Path> {
+        self.project_path.as_deref()
     }
 }
 

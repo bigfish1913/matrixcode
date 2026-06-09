@@ -10,6 +10,7 @@ use matrixcode_core::{
     tools::all_tools_full,
     approval::ApproveMode,
     session::SessionManager,
+    tools::code_quality_hook::VerificationStrategy,
     prompt::preprocess_with_skills, prompt::ProcessResult,
 };
 use serde::Deserialize;
@@ -146,6 +147,9 @@ fn handle_chat_request(request: &DaemonRequest) -> Result<Vec<AgentEvent>> {
             let mut agent = AgentBuilder::new(provider.clone_box())
                 .model_name(model)
                 .max_tokens(max_tokens)
+                .verify_strategy(VerificationStrategy::from_str(
+                    config.verify_strategy.as_deref().unwrap_or("post")
+                ))
                 .tools(all_tools_full(
                     Arc::new(skills.clone()),
                     provider.clone_arc(),
@@ -228,6 +232,9 @@ fn handle_quick_action_request(request: &DaemonRequest) -> Result<Vec<AgentEvent
             let mut agent = AgentBuilder::new(provider.clone_box())
                 .model_name(model)
                 .max_tokens(QUICK_ACTION_MAX_TOKENS)
+                .verify_strategy(VerificationStrategy::from_str(
+                    config.verify_strategy.as_deref().unwrap_or("post")
+                ))
                 .tools(all_tools_full(
                     Arc::new(skills.clone()),
                     provider.clone_arc(),
