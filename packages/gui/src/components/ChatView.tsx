@@ -2,10 +2,39 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useChatStore } from '../stores/chatStore';
 import { MessageBubble } from './MessageBubble';
 
+// Loading spinner component for thinking state
+function ThinkingIndicator() {
+  return (
+    <div className="flex items-center gap-2 px-4 py-3 text-muted-foreground">
+      <div className="flex gap-1">
+        <span className="w-2 h-2 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+        <span className="w-2 h-2 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+        <span className="w-2 h-2 rounded-full bg-primary animate-bounce" />
+      </div>
+      <span className="text-sm">思考中...</span>
+    </div>
+  );
+}
+
+// Stop button icon (square)
+function StopIcon() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <rect x="6" y="6" width="12" height="12" rx="2" strokeWidth="2" />
+    </svg>
+  );
+}
+
 export function ChatView() {
   const messages = useChatStore((s) => s.messages);
   const status = useChatStore((s) => s.status);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const stopAgent = useChatStore((s) => s.stopAgent);
   const startListening = useChatStore((s) => s.startListening);
   const inputTokens = useChatStore((s) => s.inputTokens);
   const outputTokens = useChatStore((s) => s.outputTokens);
@@ -23,12 +52,12 @@ export function ChatView() {
     };
   }, [startListening, stopListening]);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive or status changes
   useEffect(() => {
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages]);
+  }, [messages, status]);
 
   // Auto-resize textarea based on content
   const adjustTextareaHeight = useCallback(() => {
@@ -91,6 +120,8 @@ export function ChatView() {
           {messages.map((msg, idx) => (
             <MessageBubble key={msg.id} message={msg} isLast={idx === messages.length - 1} />
           ))}
+          {/* Thinking indicator when agent is running */}
+          {status === 'running' && <ThinkingIndicator />}
           <div ref={bottomRef} />
         </div>
       </div>
@@ -123,20 +154,23 @@ export function ChatView() {
               rows={1}
               className="flex-1 resize-none rounded-lg border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 min-h-[40px] max-h-[200px]"
             />
-            <button
-              onClick={handleSend}
-              disabled={status === 'running' || !input.trim()}
-              className="px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
-            >
-              {status === 'running' ? (
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-2 h-2 rounded-full bg-current animate-pulse" />
-                  Running
-                </span>
-              ) : (
-                'Send'
-              )}
-            </button>
+            {status === 'running' ? (
+              <button
+                onClick={stopAgent}
+                className="px-4 py-2.5 bg-destructive text-destructive-foreground rounded-lg text-sm font-medium hover:bg-destructive/90 transition-colors shrink-0 flex items-center gap-1.5"
+              >
+                <StopIcon />
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                className="px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+              >
+                Send
+              </button>
+            )}
           </div>
         </div>
       </div>
