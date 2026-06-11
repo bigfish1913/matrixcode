@@ -7,6 +7,14 @@ import type { ChatMessage } from '../stores/chatStore';
 interface Props {
   message: ChatMessage;
   isLast?: boolean;
+  onRetry?: () => void;
+}
+
+// Format timestamp to readable time
+function formatTime(timestamp?: number): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -29,12 +37,50 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function MessageBubble({ message, isLast = false }: Props) {
+// Copy button for message content (not in pre block)
+function MessageCopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground bg-muted/50 rounded transition-colors opacity-0 group-hover:opacity-100"
+      title="Copy message"
+    >
+      {copied ? '✓ Copied' : 'Copy'}
+    </button>
+  );
+}
+
+export function MessageBubble({ message, isLast = false, onRetry }: Props) {
   const isUser = message.role === 'user';
   const isError = message.isError || message.role === 'error';
   const isTool = message.role === 'tool';
+  const hasThinking = message.thinking && message.thinking.length > 0;
 
   let contentNode: ReactNode;
+
+  // Thinking block (shown before main content)
+  const thinkingNode = hasThinking && (
+    <details className="cursor-pointer group mb-2">
+      <summary className="text-xs font-mono text-muted-foreground flex items-center gap-1.5 select-none">
+        <span className="text-purple-500 group-open:rotate-90 transition-transform">▶</span>
+        <span className="text-purple-600 dark:text-purple-400">💭 Thinking</span>
+        {message.isThinkingStreaming && (
+          <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse ml-1" />
+        )}
+      </summary>
+      <pre className="mt-2 text-xs bg-purple-50 dark:bg-purple-900/20 p-2 rounded overflow-auto max-h-60 text-purple-900 dark:text-purple-100">
+        {message.thinking}
+      </pre>
+    </details>
+  );
 
   if (isTool && !message.isToolResult && message.toolName) {
     // Tool use call
@@ -120,7 +166,7 @@ export function MessageBubble({ message, isLast = false }: Props) {
       className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
     >
       <div
-        className={`max-w-[85%] rounded-lg px-4 py-2.5 text-sm ${
+        className={`group max-w-[85%] rounded-lg px-4 py-2.5 text-sm ${
           isError
             ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-700'
             : isUser
@@ -135,9 +181,30 @@ export function MessageBubble({ message, isLast = false }: Props) {
             <span>⚠️</span> Error
           </div>
         )}
+        {/* Thinking block for assistant messages */}
+        {!isUser && !isTool && !isError && thinkingNode}
         {contentNode}
         {message.isStreaming && isLast && (
           <span className="inline-block w-2 h-4 ml-1 bg-foreground/50 animate-pulse" />
+        )}
+        {/* Timestamp, copy button, and retry button - only for non-user messages */}
+        {!isUser && (
+          <div className="flex items-center justify-between mt-1 pt-1 border-t border-transparent group">
+            {message.timestamp && (
+              <span className="text-xs opacity-50">{formatTime(message.timestamp)}</span>
+            )}
+            {!isError && !isTool && !message.isStreaming && (
+              <MessageCopyButton content={message.content} />
+            )}
+            {isError && onRetry && (
+              <button
+                onClick={onRetry}
+                className="text-xs px-2 py-0.5 bg-red-200 dark:bg-red-800 rounded hover:bg-red-300 dark:hover:bg-red-700 transition-colors"
+              >
+                Retry
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

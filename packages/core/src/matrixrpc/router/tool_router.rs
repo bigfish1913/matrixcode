@@ -137,8 +137,8 @@ impl ToolRouter {
             for cap in &service.capabilities {
                 if cap.name == "tools" {
                     // Parse tools from capability config
-                    if let Some(tools_json) = cap.config.get("tools") {
-                        if let Ok(tools) = serde_json::from_value::<Vec<JsonValue>>(tools_json.clone()) {
+                    if let Some(tools_json) = cap.config.get("tools")
+                        && let Ok(tools) = serde_json::from_value::<Vec<JsonValue>>(tools_json.clone()) {
                             for tool in tools {
                                 if let Some(name) = tool.get("name").and_then(|n| n.as_str()) {
                                     let def = ToolDefinition {
@@ -152,7 +152,6 @@ impl ToolRouter {
                                 }
                             }
                         }
-                    }
                 }
             }
         }
@@ -297,7 +296,6 @@ impl ToolRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::matrixrpc::{Capability, ExtensionService};
 
     #[tokio::test]
     async fn test_tool_router_creation() {

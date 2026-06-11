@@ -1,5 +1,6 @@
 //! Memory extraction: AI-based and rule-based detection.
 
+use std::collections::HashSet;
 use crate::truncate::truncate_chars;
 use anyhow::Result;
 use serde::Deserialize;
@@ -635,18 +636,18 @@ fn extract_memory_content(text: &str, keyword: &str) -> String {
 
 /// Find sentence start position (improved boundary detection).
 fn find_sentence_start(text: &str, pos: usize) -> usize {
-    // Look backwards for sentence boundary markers
+    // Collect chars once at function start for O(n) instead of O(n^2)
+    let chars: Vec<char> = text.chars().collect();
     let mut start = pos;
     while start > 0 {
-        let prev_chars: Vec<char> = text.chars().collect();
-        let ch = prev_chars[start - 1];
+        let ch = chars[start - 1];
         // Sentence boundary markers
         if ch == '.' || ch == '。' || ch == '\n' || ch == '!' || ch == '?' || ch == '！' || ch == '？' {
             return start;
         }
         // Avoid splitting code blocks (check for ```)
         if start >= 3 {
-            let slice: String = prev_chars[start - 3..start].iter().collect();
+            let slice: String = chars[start - 3..start].iter().collect();
             if slice == "```" {
                 return start - 3;
             }
@@ -694,10 +695,15 @@ fn clean_memory_content(content: &str) -> String {
         .replace("#", "");
     
     // Normalize whitespace
-    let cleaned = cleaned
+    let cleaned: String = cleaned
         .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+        .fold(String::new(), |mut acc, s| {
+            if !acc.is_empty() {
+                acc.push(' ');
+            }
+            acc.push_str(s);
+            acc
+        });
     
     cleaned.trim().to_string()
 }
@@ -712,39 +718,45 @@ fn truncate_intelligently(text: &str, max_len: usize) -> String {
     // 1. Keep "Location:" information if present
     // 2. Keep "Purpose:" information if present
     // 3. Keep technical names/paths
-    
+
     let parts: Vec<&str> = text.split_whitespace().collect();
-    let mut result = Vec::new();
+    let mut result_vec = Vec::new();
+    let mut result_set = HashSet::new(); // O(1) lookup for dedup
     let mut current_len = 0;
-    
-    // Priority keywords to keep
-    let priority_keywords = ["位置:", "Location:", "功能:", "Purpose:", "packages/", "src/", ".rs", ".ts", ".js", ".py"];
-    
-    // First pass: collect priority parts (use reference to avoid move)
+
+    // Priority keywords to keep (small array, direct iteration is fine)
+    const PRIORITY_KEYWORDS: [&str; 10] = [
+        "位置:", "Location:", "功能:", "Purpose:",
+        "packages/", "src/", ".rs", ".ts", ".js", ".py"
+    ];
+
+    // First pass: collect priority parts
     for &part in &parts {
-        if priority_keywords.iter().any(|k| part.contains(k)) {
-            if current_len + part.len() + 1 <= max_len {
-                result.push(part);
+        if PRIORITY_KEYWORDS.iter().any(|k| part.contains(k))
+            && current_len + part.len() < max_len
+            && !result_set.contains(part) {
+                result_vec.push(part);
+                result_set.insert(part);
                 current_len += part.len() + 1;
             }
-        }
     }
-    
-    // Second pass: add other parts if space available (use reference again)
-    if result.is_empty() || current_len < max_len / 2 {
+
+    // Second pass: add other parts if space available
+    if result_vec.is_empty() || current_len < max_len / 2 {
         for &part in &parts {
-            if !result.contains(&part) && current_len + part.len() + 1 <= max_len {
-                result.push(part);
+            if !result_set.contains(part) && current_len + part.len() < max_len {
+                result_vec.push(part);
+                result_set.insert(part);
                 current_len += part.len() + 1;
             }
         }
     }
-    
-    if result.is_empty() {
+
+    if result_vec.is_empty() {
         // Simple truncation as last resort
         text.chars().take(max_len).collect()
     } else {
-        result.join(" ")
+        result_vec.join(" ")
     }
 }
 

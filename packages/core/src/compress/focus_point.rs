@@ -67,6 +67,7 @@ pub struct FocusPoint {
 
 /// 焦点类型分类
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum FocusType {
     /// 问题解决类：修复 bug、解决错误
     ProblemSolving,
@@ -84,14 +85,10 @@ pub enum FocusType {
     CodeOptimization,
     
     /// 一般对话：其他类型
+    #[default]
     General,
 }
 
-impl Default for FocusType {
-    fn default() -> Self {
-        FocusType::General
-    }
-}
 
 /// 焦点反馈记录
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -473,6 +470,12 @@ impl FocusPoint {
     }
 }
 
+impl Default for FocusManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FocusManager {
     pub fn new() -> Self {
         let hardcode_config = HardcodeConfig::default();
@@ -551,11 +554,10 @@ impl FocusManager {
                 current.status = FocusStatus::Suspended;
             }
             // 新增：从焦点栈顶部移除，但保留在栈中（可切换回来）
-            if let Some(pos) = self.focus_stack.iter().position(|id| id == current_id) {
-                if pos == self.focus_stack.len() - 1 {
+            if let Some(pos) = self.focus_stack.iter().position(|id| id == current_id)
+                && pos == self.focus_stack.len() - 1 {
                     self.focus_stack.pop();
                 }
-            }
             self.active_foci.remove(current_id);
         }
         
@@ -581,11 +583,10 @@ impl FocusManager {
             .min_by_key(|(_, f)| f.last_active)
             .map(|(id, _)| id.clone());
         
-        if let Some(id) = oldest_active {
-            if let Some(focus) = self.foci.get_mut(&id) {
+        if let Some(id) = oldest_active
+            && let Some(focus) = self.foci.get_mut(&id) {
                 focus.status = FocusStatus::Suspended;
             }
-        }
     }
     
     /// 计算用户输入与各聚焦点的相关性
@@ -620,11 +621,10 @@ impl FocusManager {
         score += entity_matches as f32 * 0.3;
         
         // 核心问题匹配
-        if let Some(question) = &focus.core_question {
-            if self.question_similar(input, question) {
+        if let Some(question) = &focus.core_question
+            && self.question_similar(input, question) {
                 score += 0.4;
             }
-        }
         
         // 重要性加成
         score *= focus.importance;
@@ -641,10 +641,15 @@ impl FocusManager {
     fn question_similar(&self, input: &str, question: &str) -> bool {
         let input_words = self.extract_words(input);
         let question_words = self.extract_words(question);
-        
+
+        // Guard against division by zero
+        if question_words.is_empty() {
+            return false;
+        }
+
         let common = input_words.intersection(&question_words).count();
         let total = question_words.len();
-        
+
         common as f32 / total as f32 > 0.5
     }
     
@@ -743,8 +748,8 @@ impl FocusManager {
         if self.focus_history.len() > 1 {
             message.push_str("**Previous Focuses:**\n");
             for (idx, focus_id) in self.focus_history.iter().rev().take(3).enumerate() {
-                if let Some(f) = self.foci.get(focus_id) {
-                    if f.id != current.id {
+                if let Some(f) = self.foci.get(focus_id)
+                    && f.id != current.id {
                         message.push_str(&format!(
                             "{}. {} ({})\n",
                             idx + 1,
@@ -752,7 +757,6 @@ impl FocusManager {
                             f.status
                         ));
                     }
-                }
             }
         }
         
@@ -846,21 +850,19 @@ impl FocusManager {
     pub fn wake_related_foci(&mut self, focus_id: &str, min_strength: f32) {
         if let Some(related) = self.focus_graph.get(focus_id) {
             for (related_id, strength) in related {
-                if *strength >= min_strength {
-                    if let Some(focus) = self.foci.get_mut(related_id) {
+                if *strength >= min_strength
+                    && let Some(focus) = self.foci.get_mut(related_id) {
                         focus.wake_up();
                         focus.status = FocusStatus::Active;
                         self.active_foci.insert(related_id.clone());
                     }
-                }
             }
         }
     }
     
     /// 获取最相关的焦点（根据关联图）
     pub fn get_related_foci(&self, focus_id: &str) -> Vec<(String, f32)> {
-        self.focus_graph.get(focus_id)
-            .map(|relations| relations.clone())
+        self.focus_graph.get(focus_id).cloned()
             .unwrap_or_default()
     }
     
@@ -974,14 +976,13 @@ impl FocusManager {
     
     /// 预测下一个焦点
     pub fn predict_next_focus(&self) -> Option<String> {
-        if let Some(current_id) = &self.current_focus_id {
-            if let Some(transitions) = self.focus_graph.get(current_id) {
+        if let Some(current_id) = &self.current_focus_id
+            && let Some(transitions) = self.focus_graph.get(current_id) {
                 // 返回关联强度最高的焦点
                 return transitions.iter()
                     .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
                     .map(|(id, _)| id.clone());
             }
-        }
         None
     }
     
@@ -992,16 +993,18 @@ impl FocusManager {
         for (focus_id, focus) in &self.foci {
             if focus.status == FocusStatus::Active {
                 // 计算关键词重叠率
+                if focus.keywords.is_empty() {
+                    continue; // Skip foci with no keywords
+                }
                 let overlap = keywords.iter()
                     .filter(|kw| focus.keywords.contains(kw))
                     .count() as f32;
                 let score = overlap / focus.keywords.len() as f32;
                 
-                if score > 0.3 {
-                    if best_match.is_none() || score > best_match.as_ref().unwrap().1 {
+                if score > 0.3
+                    && (best_match.is_none() || score > best_match.as_ref().unwrap().1) {
                         best_match = Some((focus_id.clone(), score));
                     }
-                }
             }
         }
         

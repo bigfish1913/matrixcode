@@ -180,7 +180,7 @@ impl CompressionPipeline {
                             })
                             .collect();
                         Message {
-                            role: msg.role.clone(),
+                            role: msg.role,
                             content: MessageContent::Blocks(new_blocks),
                         }
                     }
@@ -207,7 +207,7 @@ impl CompressionPipeline {
                             .cloned()
                             .collect();
                         Message {
-                            role: msg.role.clone(),
+                            role: msg.role,
                             content: MessageContent::Blocks(new_blocks),
                         }
                     }
@@ -275,7 +275,7 @@ impl CompressionPipeline {
                             })
                             .collect();
                         Message {
-                            role: msg.role.clone(),
+                            role: msg.role,
                             content: MessageContent::Blocks(new_blocks),
                         }
                     }
@@ -536,7 +536,7 @@ impl CompressionPipeline {
     ) -> Vec<Message> {
         // Sort by score (descending)
         let mut sorted = scored;
-        sorted.sort_by(|a, b| b.final_score.partial_cmp(&a.final_score).unwrap());
+        sorted.sort_by(|a, b| b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal));
 
         // Build a set of indices to preserve
         let mut preserve_indices: std::collections::HashSet<usize> =

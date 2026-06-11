@@ -85,7 +85,13 @@ impl CommandValidator {
 
     /// Validate a command for safety
     pub fn validate(&self, cmd: &str) -> ValidationResult {
-        let norm: String = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
+        let norm: String = cmd.split_whitespace().fold(String::new(), |mut acc, s| {
+            if !acc.is_empty() {
+                acc.push(' ');
+            }
+            acc.push_str(s);
+            acc
+        });
 
         // Check exact banned prefixes
         for bad in &self.banned_exact_prefixes {

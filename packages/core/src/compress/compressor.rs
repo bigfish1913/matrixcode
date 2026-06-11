@@ -326,8 +326,9 @@ fn calculate_preservation_score(
 
     match &message.content {
         MessageContent::Text(text) => {
+            let text_lower = text.to_lowercase();
             for keyword in &bias.preserve_keywords {
-                if text.to_lowercase().contains(&keyword.to_lowercase()) {
+                if text_lower.contains(&keyword.to_lowercase()) {
                     score += 15.0;
                 }
             }

@@ -60,10 +60,10 @@ pub fn get_git_status_changes(project_path: &Path) -> GitStatusChanges {
 
     let mut changes = GitStatusChanges::default();
 
-    if let Ok(o) = output {
-        if o.status.success() {
+    if let Ok(o) = output
+        && o.status.success() {
             for line in String::from_utf8_lossy(&o.stdout).lines() {
-                if line.len() < 2 {
+                if line.len() < 4 {
                     continue;
                 }
                 let status = &line[..2];
@@ -95,7 +95,6 @@ pub fn get_git_status_changes(project_path: &Path) -> GitStatusChanges {
                 }
             }
         }
-    }
 
     changes
 }
@@ -237,8 +236,8 @@ pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
 
     if lock_path.exists() {
         let content = std::fs::read_to_string(&lock_path).ok();
-        if let Some(s) = content {
-            if let Some(lock) = WatcherLock::decode(&s) {
+        if let Some(s) = content
+            && let Some(lock) = WatcherLock::decode(&s) {
                 if !lock.is_stale() {
                     log::info!(
                         "CodeGraph: watcher lock held by instance {} (PID {}), skipping",
@@ -253,7 +252,6 @@ pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
                     lock.pid
                 );
             }
-        }
     }
 
     let lock = WatcherLock::new();
@@ -351,8 +349,8 @@ pub fn check_mcp_daemon_active(project_path: &Path) -> bool {
     }
 
     // Check if log was modified recently (daemon is active)
-    if let Ok(metadata) = std::fs::metadata(&daemon_log_path) {
-        if let Ok(modified) = metadata.modified() {
+    if let Ok(metadata) = std::fs::metadata(&daemon_log_path)
+        && let Ok(modified) = metadata.modified() {
             let now = std::time::SystemTime::now();
             let elapsed = now
                 .duration_since(modified)
@@ -361,7 +359,6 @@ pub fn check_mcp_daemon_active(project_path: &Path) -> bool {
                 return true;
             }
         }
-    }
 
     false
 }
@@ -373,10 +370,13 @@ pub fn check_mcp_daemon_active(project_path: &Path) -> bool {
 /// Save current Git HEAD SHA to version file.
 fn save_version_sha(project_path: &Path, sha: &str) {
     let version_path = project_path.join(".codegraph").join(VERSION_FILE);
-    if let Some(parent) = version_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if let Some(parent) = version_path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent) {
+            log::warn!("CodeGraph: Failed to create .codegraph directory: {}", e);
+        }
+    if let Err(e) = std::fs::write(&version_path, sha) {
+        log::warn!("CodeGraph: Failed to write version file: {}", e);
     }
-    let _ = std::fs::write(&version_path, sha);
 }
 
 /// Load stored Git HEAD SHA from version file.

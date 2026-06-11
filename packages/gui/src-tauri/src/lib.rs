@@ -56,6 +56,8 @@ struct SessionInfo {
 struct MessageInfo {
     role: String,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timestamp: Option<u64>,  // Message timestamp in milliseconds
 }
 
 /// Task info for the frontend task manager.
@@ -265,7 +267,9 @@ async fn get_messages(
                             .collect::<Vec<_>>()
                             .join("\n"),
                     };
-                    MessageInfo { role, content }
+                    // Note: core Message struct doesn't have timestamp yet
+                    // Frontend will generate approximate timestamps
+                    MessageInfo { role, content, timestamp: None }
                 })
                 .collect()
         })

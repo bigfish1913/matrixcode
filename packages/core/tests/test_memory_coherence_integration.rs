@@ -795,7 +795,7 @@ fn test_find_segmentation_points_long_conversation() {
 
     // May find segmentation points at topic boundaries
     // (points indicate where coherence drops)
-    assert!(points.len() >= 0, "Should return valid segmentation points");
+    // Note: points.len() is always >= 0 for usize, so no need to check
 
     // All points should be valid indices
     for point in &points {
@@ -945,8 +945,7 @@ fn test_registry_stats_after_learning() {
     // Total should increase
     assert!(new_stats.total >= initial_stats.total);
 
-    // Should have learned patterns
-    assert!(new_stats.learned >= 0);
+    // Should have learned patterns (learned is usize, always >= 0)
 }
 
 #[test]

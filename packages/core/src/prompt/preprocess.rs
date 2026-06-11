@@ -174,22 +174,24 @@ impl WorkflowTrigger {
         let mut inputs = HashMap::new();
 
         // Simple topic extraction for common patterns
-        if self.extractable_inputs.contains(&"topic".to_string()) {
-            // Pattern: "generate article about X" or "X article"
-            let patterns = [
-                r"(?i)(?:generate|create|write).*(?:article|post|content).*?about\s+(.+?)(?:\.|$)",
-                r"(?i)(?:article|post|content)\s+about\s+(.+?)(?:\.|$)",
-            ];
+        if self.extractable_inputs.iter().any(|s| s == "topic") {
+            // Pre-compiled patterns for topic extraction
+            static TOPIC_PATTERNS: std::sync::OnceLock<Vec<Regex>> = std::sync::OnceLock::new();
+            let patterns = TOPIC_PATTERNS.get_or_init(|| {
+                [
+                    r"(?i)(?:generate|create|write).*(?:article|post|content).*?about\s+(.+?)(?:\.|$)",
+                    r"(?i)(?:article|post|content)\s+about\s+(.+?)(?:\.|$)",
+                ].iter()
+                .filter_map(|p| Regex::new(p).ok())
+                .collect()
+            });
 
-            for pattern in patterns {
-                if let Ok(re) = Regex::new(pattern) {
-                    if let Some(caps) = re.captures(message) {
-                        if let Some(topic) = caps.get(1) {
-                            inputs.insert("topic".to_string(), topic.as_str().trim().to_string());
-                            break;
-                        }
+            for re in patterns {
+                if let Some(caps) = re.captures(message)
+                    && let Some(topic) = caps.get(1) {
+                        inputs.insert("topic".to_string(), topic.as_str().trim().to_string());
+                        break;
                     }
-                }
             }
         }
 
@@ -229,7 +231,7 @@ impl PreProcessHook {
         // Convert skills with triggers to patterns
         let skill_patterns: Vec<SkillPattern> = skills
             .iter()
-            .filter_map(|s| SkillPattern::from_skill(s))
+            .filter_map(SkillPattern::from_skill)
             .collect();
 
         // If no skills have triggers, fall back to default patterns
@@ -329,8 +331,8 @@ impl PreProcessHook {
     pub fn process(&self, message: &str) -> ProcessResult {
         // Step 1: Check for skill triggers
         for skill in &self.skills {
-            if let Some(confidence) = skill.matches(message) {
-                if confidence >= self.confidence_threshold {
+            if let Some(confidence) = skill.matches(message)
+                && confidence >= self.confidence_threshold {
                     // Auto-load skill body if available
                     let skill_body = skill.get_skill_body().map(|s| s.to_string());
                     return ProcessResult::SkillTriggered {
@@ -339,7 +341,6 @@ impl PreProcessHook {
                         skill_body,
                     };
                 }
-            }
         }
 
         // Step 2: Check for workflow triggers

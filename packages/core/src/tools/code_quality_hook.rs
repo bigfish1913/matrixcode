@@ -229,7 +229,7 @@ impl CodeQualityHook {
                 // Format issues - treat as warning, not blocking
                 let stderr = String::from_utf8_lossy(&o.stderr);
                 if !stderr.is_empty() {
-                    warnings.push(format!("格式问题: 建议运行 rustfmt"));
+                    warnings.push("格式问题: 建议运行 rustfmt".to_string());
                 }
             }
             Err(_) => {
@@ -268,8 +268,8 @@ impl CodeQualityHook {
         }
 
         // 3. If we have project context, run cargo check
-        if errors.is_empty() {
-            if let Some(root) = &self.project_root {
+        if errors.is_empty()
+            && let Some(root) = &self.project_root {
                 let cargo_output = tokio::process::Command::new("cargo")
                     .args(["check", "--quiet"])
                     .current_dir(root.as_ref())
@@ -287,7 +287,6 @@ impl CodeQualityHook {
                     _ => {}
                 }
             }
-        }
 
         if errors.is_empty() && warnings.is_empty() {
             Ok(VerifyOutcome::Pass)
@@ -331,8 +330,8 @@ impl CodeQualityHook {
         }
 
         // If we have project context, run project-level check
-        if errors.is_empty() {
-            if let Some(root) = &self.project_root {
+        if errors.is_empty()
+            && let Some(root) = &self.project_root {
                 let project_output = tokio::process::Command::new("npx")
                     .args(["tsc", "--noEmit"])
                     .current_dir(root.as_ref())
@@ -350,7 +349,6 @@ impl CodeQualityHook {
                     _ => {}
                 }
             }
-        }
 
         if errors.is_empty() && warnings.is_empty() {
             Ok(VerifyOutcome::Pass)

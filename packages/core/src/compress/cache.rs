@@ -197,13 +197,16 @@ impl CompressionCache {
     pub fn get(&mut self, message: &Message) -> Option<&CacheEntry> {
         let hash = Self::hash_message(message);
 
+        // Check if entry exists and is not expired
         if let Some(entry) = self.entries.get(&hash) {
-            // Check TTL
             if entry.created_at.elapsed() < self.config.ttl {
                 self.stats.hits += 1;
-                let entry = self.entries.get_mut(&hash).unwrap();
-                entry.hit_count += 1;
-                return Some(entry);
+                // Update hit count - safe unwrap since we just verified entry exists
+                if let Some(mut_entry) = self.entries.get_mut(&hash) {
+                    mut_entry.hit_count += 1;
+                }
+                // Return the entry
+                return self.entries.get(&hash);
             } else {
                 // Expired, remove it
                 self.entries.remove(&hash);
@@ -398,7 +401,7 @@ impl ExtendedCompressionCache {
     pub fn update_priority_incremental(&mut self, new_keywords: &[String], _existing_messages: &[Message]) {
         let now = Utc::now();
 
-        for (_id, cached) in &mut self.priority_scores {
+        for cached in self.priority_scores.values_mut() {
             // 检查关键词重叠
             let overlap_count = cached.keywords.iter()
                 .filter(|kw| new_keywords.contains(kw))

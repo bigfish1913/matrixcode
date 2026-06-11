@@ -362,8 +362,10 @@ impl ServiceDefinition {
 /// Service transport type (for TOML serialization)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ServiceTransportType {
     /// Stdio transport
+    #[default]
     Stdio,
     /// TCP transport
     Tcp,
@@ -374,11 +376,6 @@ pub enum ServiceTransportType {
     Unix,
 }
 
-impl Default for ServiceTransportType {
-    fn default() -> Self {
-        Self::Stdio
-    }
-}
 
 impl From<ServiceTransportType> for TransportType {
     fn from(value: ServiceTransportType) -> Self {

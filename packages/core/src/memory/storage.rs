@@ -279,7 +279,7 @@ impl MemoryStorage {
         if let Some(project) = self.load_project()? {
             for entry in project.entries {
                 let mut tagged_entry = entry;
-                if !tagged_entry.tags.contains(&"project".to_string()) {
+                if !tagged_entry.tags.iter().any(|t| t == "project") {
                     tagged_entry.tags.push("project".to_string());
                 }
                 combined.entries.push(tagged_entry);

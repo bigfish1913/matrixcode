@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 
 /// LSP 服务器状态
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum LspServerStatus {
     /// 未启动（灰色）
+    #[default]
     NotStarted,
     /// 正在启动（黄色）
     Starting,
@@ -17,11 +19,6 @@ pub enum LspServerStatus {
     Error(String),
 }
 
-impl Default for LspServerStatus {
-    fn default() -> Self {
-        Self::NotStarted
-    }
-}
 
 impl LspServerStatus {
     /// 获取状态显示文本

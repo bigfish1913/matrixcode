@@ -45,8 +45,10 @@ impl From<String> for ServiceId {
 /// Extension service status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ServiceStatus {
     /// Service is starting up
+    #[default]
     Starting,
     /// Service is running and healthy
     Running,
@@ -60,11 +62,6 @@ pub enum ServiceStatus {
     Reconnecting,
 }
 
-impl Default for ServiceStatus {
-    fn default() -> Self {
-        Self::Starting
-    }
-}
 
 /// Extension service metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]

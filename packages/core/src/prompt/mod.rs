@@ -60,6 +60,7 @@ pub use orchestrator::PromptProfile as LegacyPromptProfile;
 /// Legacy OverviewContext for project overview generation
 /// Used by overview.rs to generate MATRIX.md content
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct OverviewContext {
     pub project_name: String,
     pub project_type: String,
@@ -69,18 +70,6 @@ pub struct OverviewContext {
     pub source_files: Vec<(String, String)>, // (filename, content)
 }
 
-impl Default for OverviewContext {
-    fn default() -> Self {
-        Self {
-            project_name: String::new(),
-            project_type: String::new(),
-            directory_structure: String::new(),
-            config_files: Vec::new(),
-            readme: None,
-            source_files: Vec::new(),
-        }
-    }
-}
 
 /// Build overview prompt from context (legacy compatibility)
 /// This function generates the AI prompt for MATRIX.md generation
@@ -305,11 +294,10 @@ pub fn build_system_prompt_with_workflows_and_lsp(
     }
 
     // Add LSP servers section if active (dynamic injection)
-    if let Some(servers) = lsp_servers {
-        if let Some(lsp_section) = crate::prompt::constants::get_lsp_section(servers) {
+    if let Some(servers) = lsp_servers
+        && let Some(lsp_section) = crate::prompt::constants::get_lsp_section(servers) {
             parts.push(lsp_section);
         }
-    }
 
     parts.join("\n\n")
 }

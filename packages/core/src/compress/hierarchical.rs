@@ -135,32 +135,30 @@ impl HierarchicalSummarizer {
     
     /// Brief summary: Extract core intent only
     fn brief_summary(&self, content: &str, role: &Role) -> String {
-        let sentences: Vec<&str> = content
-            .split(|c| c == '。' || c == '.' || c == '\n')
-            .filter(|s| !s.trim().is_empty())
-            .collect();
-        
-        if sentences.is_empty() {
+        // Use iterator directly to avoid collecting entire Vec
+        let first_sentence = content
+            .split(['。', '.', '\n'])
+            .find(|s| !s.trim().is_empty())
+            .map(|s| s.trim());
+
+        if first_sentence.is_none() {
             return truncate_to_chars(content, 50);
         }
-        
-        // Extract first sentence + key entities
-        let first_sentence = sentences[0].trim();
-        
+
         // Find key verbs/actions
         let key_actions = extract_key_actions(content);
-        
+
         if key_actions.is_empty() {
-            format!("[{}] {}", role_label(role), truncate_to_chars(first_sentence, 40))
+            format!("[{}] {}", role_label(role), truncate_to_chars(first_sentence.unwrap(), 40))
         } else {
-            format!("[{}] {} | {}", role_label(role), truncate_to_chars(first_sentence, 30), key_actions.join(", "))
+            format!("[{}] {} | {}", role_label(role), truncate_to_chars(first_sentence.unwrap(), 30), key_actions.join(", "))
         }
     }
     
     /// Standard summary: Keep key details
     fn standard_summary(&self, content: &str, role: &Role) -> String {
         let sentences: Vec<&str> = content
-            .split(|c| c == '。' || c == '.' || c == '\n')
+            .split(['。', '.', '\n'])
             .filter(|s| !s.trim().is_empty())
             .collect();
         
@@ -177,18 +175,16 @@ impl HierarchicalSummarizer {
         }
         
         // Middle key sentence (if exists)
-        if sentences.len() > self.hardcode_config.brief_summary_sentence_count {
-            if let Some(key_sentence) = find_key_sentence(&sentences[1..sentences.len()-1], &self.hardcode_config) {
+        if sentences.len() > self.hardcode_config.brief_summary_sentence_count
+            && let Some(key_sentence) = find_key_sentence(&sentences[1..sentences.len()-1], &self.hardcode_config) {
                 summary_parts.push(key_sentence);
             }
-        }
         
         // Last sentence (conclusion)
-        if sentences.len() > self.hardcode_config.min_messages_for_compression {
-            if let Some(last) = sentences.last() {
+        if sentences.len() > self.hardcode_config.min_messages_for_compression
+            && let Some(last) = sentences.last() {
                 summary_parts.push(last.trim().to_string());
             }
-        }
         
         // Extract key entities
         let entities = extract_entities(content, &self.hardcode_config);
@@ -202,7 +198,7 @@ impl HierarchicalSummarizer {
     /// Detailed summary: Preserve context
     fn detailed_summary(&self, content: &str, role: &Role) -> String {
         let sentences: Vec<&str> = content
-            .split(|c| c == '。' || c == '.' || c == '\n')
+            .split(['。', '.', '\n'])
             .filter(|s| !s.trim().is_empty())
             .collect();
         

@@ -5,17 +5,28 @@
 use anyhow::{Context, Result};
 use regex::Regex;
 use std::collections::HashMap;
+use std::sync::OnceLock;
+
+// Pre-compiled static regex patterns
+static VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
+static NESTED_PATTERN: OnceLock<Regex> = OnceLock::new();
+static DEFAULT_PATTERN: OnceLock<Regex> = OnceLock::new();
+
+fn get_var_pattern() -> &'static Regex {
+    VAR_PATTERN.get_or_init(|| Regex::new(r"\{\{(\w+)\}\}").unwrap())
+}
+
+fn get_nested_pattern() -> &'static Regex {
+    NESTED_PATTERN.get_or_init(|| Regex::new(r"\{\{(\w+(?:\.\w+)+)\}\}").unwrap())
+}
+
+fn get_default_pattern() -> &'static Regex {
+    DEFAULT_PATTERN.get_or_init(|| Regex::new(r"\{\{(\w+)\|([^}]+)\}\}").unwrap())
+}
 
 /// 模板渲染器
 #[derive(Debug)]
-pub struct TemplateRenderer {
-    /// 变量模式：{{var}}
-    var_pattern: Regex,
-    /// 嵌套访问模式：{{var.field}}
-    nested_pattern: Regex,
-    /// 默认值模式：{{var|default}}
-    default_pattern: Regex,
-}
+pub struct TemplateRenderer;
 
 impl Default for TemplateRenderer {
     fn default() -> Self {
@@ -26,11 +37,7 @@ impl Default for TemplateRenderer {
 impl TemplateRenderer {
     /// 创建新的模板渲染器
     pub fn new() -> Self {
-        Self {
-            var_pattern: Regex::new(r"\{\{(\w+)\}\}").unwrap(),
-            nested_pattern: Regex::new(r"\{\{(\w+(?:\.\w+)+)\}\}").unwrap(),
-            default_pattern: Regex::new(r"\{\{(\w+)\|([^}]+)\}\}").unwrap(),
-        }
+        Self
     }
 
     /// 渲染模板字符串
@@ -65,8 +72,9 @@ impl TemplateRenderer {
         variables: &HashMap<String, serde_json::Value>,
     ) -> Result<String> {
         let mut result = template.to_string();
+        let var_pattern = get_var_pattern();
 
-        for cap in self.var_pattern.captures_iter(template) {
+        for cap in var_pattern.captures_iter(template) {
             let full_match = cap.get(0).unwrap().as_str();
             let var_name = cap.get(1).unwrap().as_str();
 
@@ -86,8 +94,9 @@ impl TemplateRenderer {
         variables: &HashMap<String, serde_json::Value>,
     ) -> Result<String> {
         let mut result = template.to_string();
+        let nested_pattern = get_nested_pattern();
 
-        for cap in self.nested_pattern.captures_iter(template) {
+        for cap in nested_pattern.captures_iter(template) {
             let full_match = cap.get(0).unwrap().as_str();
             let path = cap.get(1).unwrap().as_str();
 
@@ -107,8 +116,9 @@ impl TemplateRenderer {
         variables: &HashMap<String, serde_json::Value>,
     ) -> Result<String> {
         let mut result = template.to_string();
+        let default_pattern = get_default_pattern();
 
-        for cap in self.default_pattern.captures_iter(template) {
+        for cap in default_pattern.captures_iter(template) {
             let full_match = cap.get(0).unwrap().as_str();
             let var_name = cap.get(1).unwrap().as_str();
             let default_value = cap.get(2).unwrap().as_str();
@@ -168,19 +178,22 @@ impl TemplateRenderer {
     /// 从模板中提取所有变量名
     pub fn extract_variables(&self, template: &str) -> Vec<String> {
         let mut vars = Vec::new();
+        let var_pattern = get_var_pattern();
+        let nested_pattern = get_nested_pattern();
+        let default_pattern = get_default_pattern();
 
-        for cap in self.var_pattern.captures_iter(template) {
+        for cap in var_pattern.captures_iter(template) {
             vars.push(cap.get(1).unwrap().as_str().to_string());
         }
 
-        for cap in self.nested_pattern.captures_iter(template) {
+        for cap in nested_pattern.captures_iter(template) {
             let path = cap.get(1).unwrap().as_str();
             if let Some(first) = path.split('.').next() {
                 vars.push(first.to_string());
             }
         }
 
-        for cap in self.default_pattern.captures_iter(template) {
+        for cap in default_pattern.captures_iter(template) {
             vars.push(cap.get(1).unwrap().as_str().to_string());
         }
 
@@ -191,9 +204,9 @@ impl TemplateRenderer {
 
     /// 检查模板是否包含未解析的变量
     pub fn has_unresolved(&self, rendered: &str) -> bool {
-        self.var_pattern.is_match(rendered)
-            || self.nested_pattern.is_match(rendered)
-            || self.default_pattern.is_match(rendered)
+        get_var_pattern().is_match(rendered)
+            || get_nested_pattern().is_match(rendered)
+            || get_default_pattern().is_match(rendered)
     }
 
     /// 渲染参数 HashMap

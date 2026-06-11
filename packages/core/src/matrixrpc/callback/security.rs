@@ -276,17 +276,16 @@ impl SecurityValidator {
         // Check if service has too many tokens
         {
             let service_tokens = self.service_tokens.read().await;
-            if let Some(tokens) = service_tokens.get(&service_id) {
-                if tokens.len() >= self.config.max_tokens_per_service as usize {
+            if let Some(tokens) = service_tokens.get(&service_id)
+                && tokens.len() >= self.config.max_tokens_per_service as usize {
                     return Err(SecurityError::RateLimitExceeded(service_id.to_string()));
                 }
-            }
         }
 
         // Generate unique token
         let token = format!(
             "cb_{}_{}",
-            uuid::Uuid::new_v4().to_string(),
+            uuid::Uuid::new_v4(),
             &request_id[..8.min(request_id.len())]
         );
 

@@ -55,7 +55,7 @@ impl OptimizedCompressor {
         );
 
         // Step 2: Calculate current token usage (accurate with tiktoken)
-        let current_tokens: u32 = messages.iter().map(|m| estimate_tokens(m)).sum();
+        let current_tokens: u32 = messages.iter().map(estimate_tokens).sum();
         let context_limit = context_size.unwrap_or(100_000);
 
         log::info!(
@@ -251,7 +251,7 @@ impl OptimizedCompressor {
             }
             SemanticStrategy::OldOnly | SemanticStrategy::Aggressive => {
                 // Check if semantic compression is suitable
-                if self.semantic_compressor.should_summarize(&[message.clone()]) {
+                if self.semantic_compressor.should_summarize(std::slice::from_ref(message)) {
                     // Would use AI to summarize (not implemented in this example)
                     // For now, just truncate
                     self.truncate_message(message)
@@ -282,19 +282,19 @@ impl OptimizedCompressor {
                 // Compress blocks
                 let compressed_blocks = blocks
                     .iter()
-                    .filter_map(|block| {
+                    .map(|block| {
                         match block {
                             crate::providers::ContentBlock::Text { text } => {
                                 if text.len() > self.hardcode_config.long_text_threshold {
                                     let keep_len = (self.hardcode_config.long_text_threshold as f64 * 0.75) as usize;
-                                    Some(crate::providers::ContentBlock::Text {
+                                    crate::providers::ContentBlock::Text {
                                         text: format!("{}...[compressed]", &text.chars().take(keep_len).collect::<String>()),
-                                    })
+                                    }
                                 } else {
-                                    Some(block.clone())
+                                    block.clone()
                                 }
                             }
-                            _ => Some(block.clone()),
+                            _ => block.clone(),
                         }
                     })
                     .collect();
@@ -382,11 +382,10 @@ pub async fn example_optimized_compression() -> Result<()> {
 
     // Verify focus is preserved
     for msg in compressed.iter() {
-        if let MessageContent::Text(text) = &msg.content {
-            if text.contains("Current Conversation Focus") {
+        if let MessageContent::Text(text) = &msg.content
+            && text.contains("Current Conversation Focus") {
                 println!("\nFocus message found:\n{}", text);
             }
-        }
     }
 
     Ok(())
@@ -408,7 +407,7 @@ mod tests {
 
     #[test]
     fn test_focus_detection() {
-        let mut compressor = OptimizedCompressor::new(
+        let compressor = OptimizedCompressor::new(
             CompressionConfig::default(),
             CacheConfig::default(),
             SemanticStrategy::None,
@@ -431,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_combined_scoring() {
-        let mut compressor = OptimizedCompressor::new(
+        let compressor = OptimizedCompressor::new(
             CompressionConfig::default(),
             CacheConfig::default(),
             SemanticStrategy::None,

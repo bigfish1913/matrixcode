@@ -229,13 +229,12 @@ impl Transport for StdioTransport {
             .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "No reader available"))?;
 
         // Try to parse a complete message from existing buffer first
-        if !self.read_buffer.is_empty() {
-            if let (_, Some(message)) = self.codec.decode_from_buffer(&self.read_buffer)? {
+        if !self.read_buffer.is_empty()
+            && let (_, Some(message)) = self.codec.decode_from_buffer(&self.read_buffer)? {
                 // Remove consumed data
                 self.read_buffer.clear();
                 return Ok(Some(message));
             }
-        }
 
         // Read more data
         let mut temp_buf = vec![0u8; 8192];
@@ -309,11 +308,8 @@ impl Transport for StdioTransport {
 #[allow(dead_code)]
 /// Uses Arc<Mutex<>> to allow sharing between multiple tasks.
 pub type SharedStdioTransport = Arc<Mutex<StdioTransport>>;
-#[allow(dead_code)]
-#[allow(dead_code)]
 
 /// Create a shared stdio transport
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub fn shared_stdio_transport() -> SharedStdioTransport {
     Arc::new(Mutex::new(StdioTransport::with_tokio_stdio()))

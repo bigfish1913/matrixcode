@@ -113,7 +113,7 @@ pub fn tool_guidelines_section() -> PromptSection {
 }
 
 /// Predefined red flags content
-const RED_FLAGS_CONTENT: &'static str = "
+const RED_FLAGS_CONTENT: &str = "
 ## Red Flags - STOP and reconsider
 
 These thoughts mean STOP — you're rationalizing:
@@ -137,7 +137,7 @@ These thoughts mean STOP — you're rationalizing:
 ";
 
 /// Predefined skill priority content
-const SKILL_PRIORITY_CONTENT: &'static str = "
+const SKILL_PRIORITY_CONTENT: &str = "
 ## Skill Priority
 
 When multiple skills could apply, use this order:
@@ -159,7 +159,7 @@ The skill itself tells you which type it is.
 ";
 
 /// Predefined skill rules content
-const SKILL_RULES_CONTENT: &'static str = "
+const SKILL_RULES_CONTENT: &str = "
 <EXTREMELY-IMPORTANT>
 If you think there is even a **1% chance** a skill might apply to what you are doing,
 you **ABSOLUTELY MUST** invoke the skill.
@@ -177,7 +177,7 @@ If an invoked skill turns out to be wrong for the situation, you don't need to u
 ";
 
 /// Predefined tool guidelines content
-const TOOL_GUIDELINES_CONTENT: &'static str = "
+const TOOL_GUIDELINES_CONTENT: &str = "
 ## Tool Usage Guidelines
 
 ### When to use tools

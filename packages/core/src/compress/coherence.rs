@@ -127,26 +127,30 @@ impl CoherenceDetector {
             return 0.5; // Neutral if no patterns available
         }
 
+        // Pre-compile regex patterns once, track which original patterns failed
+        let compiled: Vec<Option<regex::Regex>> = patterns.iter()
+            .map(|p| regex::Regex::new(&format!("(?i){}", p)).ok())
+            .collect();
+
         let mut has_references = false;
 
         for i in 1..messages.len() {
             let content_lower = self.get_message_content_lower(&messages[i]);
 
-            for pattern in &patterns {
-                // Try regex match first (case-insensitive), fallback to simple contains for non-regex patterns
-                if let Ok(re) = regex::Regex::new(&format!("(?i){}", pattern)) {
-                    if re.is_match(&content_lower) {
-                        has_references = true;
-                        break;
+            for (pat_idx, opt_re) in compiled.iter().enumerate() {
+                let matched = match opt_re {
+                    Some(re) => re.is_match(&content_lower),
+                    None => {
+                        // Fallback to simple contains for invalid regex patterns
+                        content_lower.contains(patterns.get(pat_idx).unwrap_or(&String::new()).to_lowercase().as_str())
                     }
-                } else {
-                    // Fallback to simple contains for invalid regex patterns
-                    if content_lower.contains(pattern.to_lowercase().as_str()) {
-                        has_references = true;
-                        break;
-                    }
+                };
+                if matched {
+                    has_references = true;
+                    break;
                 }
             }
+            if has_references { break; }
         }
 
         if has_references {
@@ -163,20 +167,27 @@ impl CoherenceDetector {
             return 0.5; // Neutral if no patterns available
         }
 
+        // Pre-compile regex patterns once
+        let compiled: Vec<regex::Regex> = patterns.iter()
+            .filter_map(|p| regex::Regex::new(&format!("(?i){}", p)).ok())
+            .collect();
+
         let mut code_messages = Vec::new();
 
         for (i, msg) in messages.iter().enumerate() {
             let content_lower = self.get_message_content_lower(msg);
 
-            for pattern in &patterns {
-                // Try regex match first (case-insensitive), fallback to simple contains for non-regex patterns
-                if let Ok(re) = regex::Regex::new(&format!("(?i){}", pattern)) {
-                    if re.is_match(&content_lower) {
-                        code_messages.push(i);
-                        break;
-                    }
-                } else {
-                    // Fallback to simple contains for invalid regex patterns
+            let mut matched = false;
+            for re in &compiled {
+                if re.is_match(&content_lower) {
+                    code_messages.push(i);
+                    matched = true;
+                    break;
+                }
+            }
+            // Fallback to simple contains for patterns that failed to compile as regex
+            if !matched {
+                for pattern in &patterns {
                     if content_lower.contains(pattern.to_lowercase().as_str()) {
                         code_messages.push(i);
                         break;
@@ -245,31 +256,34 @@ impl CoherenceDetector {
     /// Extract topic keywords from message content.
     fn extract_topic_keywords(&self, content: &str) -> HashSet<String> {
         let content_lower = content.to_lowercase();
-        let words = content_lower
+        
+        content_lower
             .split_whitespace()
             .filter(|w| w.len() > self.hardcode_config.min_word_length) // Skip short words
             .take(20) // Limit to 20 keywords
             .map(|w| w.to_string())
-            .collect();
-        words
+            .collect()
     }
 
     /// Extract entities (file names, function names) from content.
     fn extract_entities(&self, content: &str) -> HashSet<String> {
+        static FILE_PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        static NAME_PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        // Common words to skip (checked without allocation)
+        const SKIP_WORDS: &[&str] = &["true", "false", "null", "some", "none", "this", "that", "here", "there"];
+
         let mut entities = HashSet::new();
 
-        // Pattern: file.rs, module.ts, etc.
-        let file_pattern = regex::Regex::new(r"\b[\w]+\.[\w]{2,4}\b").unwrap();
-        for cap in file_pattern.find_iter(content) {
+        let file_re = FILE_PATTERN.get_or_init(|| regex::Regex::new(r"\b[\w]+\.[\w]{2,4}\b").unwrap());
+        for cap in file_re.find_iter(content) {
             entities.insert(cap.as_str().to_string());
         }
 
-        // Pattern: function_name, ClassName, etc.
-        let name_pattern = regex::Regex::new(r"\b[A-Z][a-zA-Z]+\b|\b[a-z_][a-z0-9_]{3,}\b").unwrap();
-        for cap in name_pattern.find_iter(content) {
+        let name_re = NAME_PATTERN.get_or_init(|| regex::Regex::new(r"\b[A-Z][a-zA-Z]+\b|\b[a-z_][a-z0-9_]{3,}\b").unwrap());
+        for cap in name_re.find_iter(content) {
             let name = cap.as_str();
-            // Skip common words
-            if !["true", "false", "null", "some", "none", "this", "that", "here", "there"].contains(&name.to_lowercase().as_str()) {
+            let name_lower = name.to_lowercase();
+            if !SKIP_WORDS.contains(&name_lower.as_str()) {
                 entities.insert(name.to_string());
             }
         }

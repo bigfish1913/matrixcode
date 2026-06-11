@@ -51,7 +51,7 @@ impl Memory {
 
         if let Some(_storage) = &ctx.memory_storage {
             // 显示记忆统计
-            info.push_str(&format!("记忆存储已初始化\n"));
+            info.push_str("记忆存储已初始化\n");
             // TODO: 添加更多统计信息
         } else {
             info.push_str("记忆存储未初始化\n");

@@ -711,7 +711,8 @@ impl AutoMemory {
             .entries
             .iter()
             .filter(|e| {
-                e.content.to_lowercase().contains(&query_lower)
+                let e_lower = e.content.to_lowercase();
+                e_lower.contains(&query_lower)
                     || e.tags
                         .iter()
                         .any(|t| t.to_lowercase().contains(&query_lower))

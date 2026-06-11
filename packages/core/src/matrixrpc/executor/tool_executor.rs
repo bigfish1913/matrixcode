@@ -383,11 +383,10 @@ impl ToolExecutor {
     ) -> Result<Arc<TransportConnection>, ToolExecutorError> {
         let connections = self.connections.read().await;
 
-        if let Some(conn) = connections.get(service_id) {
-            if conn.is_connected().await {
+        if let Some(conn) = connections.get(service_id)
+            && conn.is_connected().await {
                 return Ok(conn.clone());
             }
-        }
 
         drop(connections);
 

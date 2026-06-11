@@ -112,8 +112,8 @@ impl AnthropicProvider {
 
             // Check if last block is thinking
             let last_block = content_array.last();
-            if let Some(block) = last_block {
-                if block.get("type").and_then(|t| t.as_str()) == Some("thinking") {
+            if let Some(block) = last_block
+                && block.get("type").and_then(|t| t.as_str()) == Some("thinking") {
                     // Find the last non-thinking block index
                     // Use i64 to allow negative values for "all thinking" case
                     let mut last_valid_idx: i64 = content_array.len() as i64 - 1;
@@ -140,7 +140,6 @@ impl AnthropicProvider {
                     });
                     return result;
                 }
-            }
         }
 
         messages
@@ -175,11 +174,10 @@ impl AnthropicProvider {
                                 // Keep thinking blocks - they maintain reasoning continuity
                                 ContentBlock::Thinking { thinking, signature } => {
                                     let mut obj = json!({"type": "thinking", "thinking": thinking});
-                                    if let Some(sig) = signature {
-                                        if !sig.is_empty() {
+                                    if let Some(sig) = signature
+                                        && !sig.is_empty() {
                                             obj["signature"] = json!(sig);
                                         }
-                                    }
                                     obj
                                 }
                                 ContentBlock::Text { text } => {
@@ -846,7 +844,7 @@ async fn handle_sse_event(
                 }
                 ("signature_delta", AssembledBlock::Thinking { signature, .. }) => {
                     if let Some(s) = delta["signature"].as_str() {
-                        signature.get_or_insert_with(String::new).push_str(s);
+                        signature.get_or_insert_default().push_str(s);
                     }
                 }
                 ("input_json_delta", AssembledBlock::ToolUse { input_json, .. }) => {

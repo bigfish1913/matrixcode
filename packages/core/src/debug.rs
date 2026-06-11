@@ -61,15 +61,15 @@ impl DebugLog {
         // Generate session ID if not provided
         let sid = session_id
             .map(|s| s.to_string())
-            .unwrap_or_else(|| Self::generate_session_id());
+            .unwrap_or_else(Self::generate_session_id);
 
         if let Ok(mut guard) = self.session_id.lock() {
             *guard = Some(sid.clone());
         }
 
         // Create new log file for this session
-        if let Ok(mut file_guard) = self.file.lock() {
-            if let Ok(mut path_guard) = self.current_file.lock() {
+        if let Ok(mut file_guard) = self.file.lock()
+            && let Ok(mut path_guard) = self.current_file.lock() {
                 match Self::open_session_log_file(&sid, 0) {
                     Ok((file, path)) => {
                         *file_guard = Some(file);
@@ -80,7 +80,6 @@ impl DebugLog {
                     }
                 }
             }
-        }
     }
 
     /// Disable debug logging
@@ -138,15 +137,14 @@ impl DebugLog {
         if let Ok(mut file_guard) = self.file.lock()
             && let Ok(mut path_guard) = self.current_file.lock()
             && let Ok(session_guard) = self.session_id.lock()
-        {
-            if let (Some(file), Some(_path), Some(session_id)) = (
+            && let (Some(file), Some(_path), Some(session_id)) = (
                 file_guard.as_mut(),
                 path_guard.as_ref(),
                 session_guard.as_ref(),
             ) {
                 // Check file size
-                if let Ok(metadata) = file.metadata() {
-                    if metadata.len() > MAX_LOG_SIZE {
+                if let Ok(metadata) = file.metadata()
+                    && metadata.len() > MAX_LOG_SIZE {
                         // Find next available rotation number
                         let mut rotation = 1u32;
                         loop {
@@ -157,6 +155,11 @@ impl DebugLog {
                                 break;
                             }
                             rotation += 1;
+                            // Prevent infinite loop
+                            if rotation > 10000 {
+                                log::warn!("Log rotation limit reached (10000), using current rotation");
+                                break;
+                            }
                         }
 
                         // Open new rotated file
@@ -167,9 +170,7 @@ impl DebugLog {
                             *path_guard = Some(new_path);
                         }
                     }
-                }
             }
-        }
     }
 
     /// Clean up old log files (keep last N sessions)
@@ -417,13 +418,12 @@ impl DebugLog {
         }
 
         // Write to file only, don't print to console (would mess up TUI)
-        if let Ok(mut guard) = self.file.lock() {
-            if let Some(ref mut file) = *guard {
+        if let Ok(mut guard) = self.file.lock()
+            && let Some(ref mut file) = *guard {
                 let _ = file.write_all(msg.as_bytes());
                 let _ = file.write_all(b"\n");
                 let _ = file.flush();
             }
-        }
 
         // Check for rotation after write
         self.rotate_if_needed();

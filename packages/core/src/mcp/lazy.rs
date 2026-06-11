@@ -136,6 +136,16 @@ impl LazyMcpTool {
             client.shutdown().await?;
             tracing::info!("Lazy MCP server '{}' stopped", self.server_name);
         }
+        // Clear cached state so subsequent calls re-initialize properly
+        drop(client_lock);
+        {
+            let mut client_lock = self.client.lock().await;
+            *client_lock = None;
+        }
+        {
+            let mut tool_lock = self.actual_tool.lock().await;
+            *tool_lock = None;
+        }
         Ok(())
     }
 }
@@ -297,6 +307,16 @@ impl McpToolPlaceholder {
         let client_lock = self.client.read().await;
         if let Some(client) = client_lock.as_ref() {
             client.shutdown().await?;
+        }
+        // Clear cached state so subsequent calls re-initialize properly
+        drop(client_lock);
+        {
+            let mut client_lock = self.client.write().await;
+            *client_lock = None;
+        }
+        {
+            let mut tools_lock = self.tools.write().await;
+            *tools_lock = None;
         }
         Ok(())
     }

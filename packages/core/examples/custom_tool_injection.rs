@@ -20,7 +20,7 @@ async fn search_internal_knowledge(query: &str, limit: usize) -> Result<String, 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // 模拟搜索结果
-    let results = vec![
+    let results = [
         "MatrixCode 是一个 AI 编程助手",
         "支持自定义工具注入",
         "事件驱动架构",

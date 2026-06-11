@@ -2,9 +2,6 @@
 //!
 //! 简单测试 LSP 启动和初始化
 
-use std::sync::Arc;
-use std::path::PathBuf;
-
 use matrixcode_core::lsp::{LspClient, LspServerConfig};
 
 #[tokio::main]

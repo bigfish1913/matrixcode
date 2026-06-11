@@ -410,11 +410,10 @@ impl PatternRegistry {
     pub fn save_to_file(&self, path: &Path) -> Result<()> {
         // Ensure parent directory exists
         let parent = path.parent();
-        if let Some(dir) = parent {
-            if !dir.exists() {
+        if let Some(dir) = parent
+            && !dir.exists() {
                 fs::create_dir_all(dir)?;
             }
-        }
 
         // Serialize to JSON
         let json = serde_json::to_string_pretty(self)?;

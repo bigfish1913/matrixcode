@@ -449,7 +449,7 @@ pub fn format_catalogue(skills: &[Skill]) -> Option<String> {
                 mandatory_marker, type_marker, sk.name, sk.description
             ));
         }
-        s.push_str("\n");
+        s.push('\n');
     }
 
     if !impl_skills.is_empty() {

@@ -66,7 +66,7 @@ impl LspTransport {
             Box::new(s) as Box<dyn AsyncRead + Unpin + Send>
         });
 
-        let stdout_reader = stdout.map(|s| BufReader::new(s));
+        let stdout_reader = stdout.map(BufReader::new);
 
         // Take stderr and spawn background task to continuously read it
         // This prevents stderr buffer overflow which would block the LSP process
@@ -172,15 +172,14 @@ impl LspTransport {
                 let json: serde_json::Value = serde_json::from_str(&message)?;
 
                 // 检查是否是我们要的响应
-                if let Some(id) = json.get("id").and_then(|i| i.as_u64()) {
-                    if id == expected_id as u64 {
+                if let Some(id) = json.get("id").and_then(|i| i.as_u64())
+                    && id == expected_id as u64 {
                         // 检查是否有错误
                         if let Some(error) = json.get("error") {
                             return Err(anyhow!("LSP error: {:?}", error));
                         }
                         return Ok(json.get("result").cloned().unwrap_or(serde_json::Value::Null));
                     }
-                }
 
                 // 不是我们要的响应，继续等待（可能是 notification）
                 log::debug!("LSP '{}' received other message: {}", self.server_name, message);

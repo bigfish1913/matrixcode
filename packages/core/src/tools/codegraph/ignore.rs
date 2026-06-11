@@ -65,8 +65,8 @@ impl IgnoreMatcher {
 
         // Load .gitignore
         let gitignore_path = project_path.join(".gitignore");
-        if gitignore_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&gitignore_path) {
+        if gitignore_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&gitignore_path) {
                 for line in content.lines() {
                     let line = line.trim();
                     if line.is_empty() || line.starts_with('#') {
@@ -79,7 +79,6 @@ impl IgnoreMatcher {
                     }
                 }
             }
-        }
 
         Self {
             patterns,

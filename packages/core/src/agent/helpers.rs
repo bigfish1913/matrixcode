@@ -151,17 +151,17 @@ impl Agent {
                         match block {
                             ContentBlock::Text { text } => {
                                 preview.push_str(text);
-                                preview.push_str("\n");
+                                preview.push('\n');
                             }
                             ContentBlock::ToolUse { name, input, .. } => {
                                 preview.push_str(&format!("[Tool: {}]\n", name));
                                 preview.push_str(&serde_json::to_string_pretty(input).unwrap_or_default());
-                                preview.push_str("\n");
+                                preview.push('\n');
                             }
                             ContentBlock::ToolResult { tool_use_id, content } => {
                                 preview.push_str(&format!("[Tool Result: {}]\n", tool_use_id));
                                 preview.push_str(content);
-                                preview.push_str("\n");
+                                preview.push('\n');
                             }
                             // Thinking blocks are NOT sent to LLM, skip them
                             ContentBlock::Thinking { .. } => {
@@ -173,7 +173,7 @@ impl Agent {
                             ContentBlock::ServerToolResult { tool_use_id, content, .. } => {
                                 preview.push_str(&format!("[Server Tool Result: {}]\n", tool_use_id));
                                 preview.push_str(content);
-                                preview.push_str("\n");
+                                preview.push('\n');
                             }
                             _ => {
                                 continue; // Skip other non-sendable content
@@ -328,13 +328,11 @@ impl Agent {
     pub(crate) fn last_message_was_todo_reminder(&self) -> bool {
         // Check the last few messages for a todo reminder
         for msg in self.messages().iter().rev().take(3) {
-            if msg.role == Role::User {
-                if let MessageContent::Text(text) = &msg.content {
-                    if text.contains("任务尚未完成") && text.contains("待办项需要处理") {
+            if msg.role == Role::User
+                && let MessageContent::Text(text) = &msg.content
+                    && text.contains("任务尚未完成") && text.contains("待办项需要处理") {
                         return true;
                     }
-                }
-            }
         }
         false
     }

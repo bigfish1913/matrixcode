@@ -483,14 +483,13 @@ impl ExtensionGateway {
         match result {
             Ok(res) => {
                 // Emit event
-                if let Some(params) = &request.params {
-                    if let Some(service_id) = params.get("service_id").and_then(|v| v.as_str()) {
+                if let Some(params) = &request.params
+                    && let Some(service_id) = params.get("service_id").and_then(|v| v.as_str()) {
                         let _ = self.event_tx.send(GatewayEvent::CallbackReceived {
                             callback_type: res.callback_type(),
                             service_id: ServiceId::new(service_id),
                         });
                     }
-                }
                 Ok(res)
             }
             Err(e) => {
@@ -739,7 +738,7 @@ mod tests {
                 timeout_ms: Some(5000),
             });
 
-        let service_id = gateway.register_service(request).await.unwrap();
+        let _service_id = gateway.register_service(request).await.unwrap();
 
         // Tool should be registered
         assert!(gateway.has_tool("test_tool").await);
@@ -761,7 +760,7 @@ mod tests {
                 params_schema: None,
             });
 
-        let service_id = gateway.register_service(request).await.unwrap();
+        let _service_id = gateway.register_service(request).await.unwrap();
 
         // Node should be registered
         assert!(gateway.has_node("test_node").await);
@@ -857,7 +856,7 @@ mod tests {
         let request = ServiceRegistrationRequest::new("test-service", "1.0.0");
         gateway.register_service(request).await.unwrap();
 
-        let unhealthy = gateway.health_check().await;
+        let _unhealthy = gateway.health_check().await;
         // Newly registered service should not be unhealthy initially
         // (depends on heartbeat timing)
     }

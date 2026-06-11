@@ -359,8 +359,8 @@ impl SubagentExecutor {
     /// Tag event with subagent context
     fn tag_event(event: AgentEvent, task_id: &str) -> AgentEvent {
         // Add subagent prefix to text events for identification
-        if let Some(ref data) = event.data {
-            if let crate::event::EventData::Text { delta } = data {
+        if let Some(ref data) = event.data
+            && let crate::event::EventData::Text { delta } = data {
                 return AgentEvent::with_data(
                     event.event_type,
                     crate::event::EventData::Text {
@@ -368,7 +368,6 @@ impl SubagentExecutor {
                     },
                 );
             }
-        }
         event
     }
 

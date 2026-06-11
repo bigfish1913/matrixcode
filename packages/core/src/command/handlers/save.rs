@@ -33,8 +33,8 @@ impl Command for Save {
                 let messages = ctx.agent.get_messages();
                 mgr.set_messages(messages.to_vec());
 
-                if let Some(n) = name {
-                    if let Err(e) = mgr.rename_current(n) {
+                if let Some(n) = name
+                    && let Err(e) = mgr.rename_current(n) {
                         let _ = ctx
                             .event_tx
                             .send(crate::AgentEvent::error(
@@ -44,7 +44,6 @@ impl Command for Save {
                             ))
                             .await;
                     }
-                }
 
                 if let Err(e) = mgr.save_current() {
                     let _ = ctx

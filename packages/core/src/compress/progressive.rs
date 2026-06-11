@@ -287,11 +287,10 @@ impl ProgressiveCompressor {
                         }
                         
                         // Medium relevance (0.3-0.7) - keep if has code/questions
-                        if relevance > 0.3 {
-                            if content.contains("```") || content.contains("?") || content.contains("？") {
+                        if relevance > 0.3
+                            && (content.contains("```") || content.contains("?") || content.contains("？")) {
                                 return true;
                             }
-                        }
                         
                         // Low relevance (< 0.3) - can remove if short
                         if content.len() < 50 && !content.contains("```") {
@@ -299,7 +298,7 @@ impl ProgressiveCompressor {
                             return false;
                         }
                         
-                        return true;
+                        true
                     } else {
                         // No focus manager, use simple heuristic
                         let content = self.get_message_content(msg);
@@ -307,8 +306,11 @@ impl ProgressiveCompressor {
                             return true;
                         }
                         
-                        if content.contains("?") || content.contains("？") || 
-                           content.to_lowercase().contains("how") || content.to_lowercase().contains("如何") {
+                        if content.contains("?") || content.contains("？") {
+                            return true;
+                        }
+                        let content_lower = content.to_lowercase();
+                        if content_lower.contains("how") || content_lower.contains("如何") {
                             return true;
                         }
                         

@@ -609,7 +609,7 @@ pub fn format_location(location: &Location) -> String {
 /// Format a diagnostic for human-readable output
 pub fn format_diagnostic(diagnostic: &Diagnostic) -> String {
     let severity = diagnostic.severity
-        .map(|s| format_severity(s))
+        .map(format_severity)
         .unwrap_or_else(|| "error".to_string());
 
     let message = &diagnostic.message;

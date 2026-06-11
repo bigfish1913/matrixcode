@@ -55,7 +55,7 @@ async fn test_registry_remove_server() {
 
     assert_eq!(registry.server_status().await.len(), 1);
 
-    registry.remove_server("playwright").await;
+    let _ = registry.remove_server("playwright").await;
 
     assert_eq!(registry.server_status().await.len(), 0);
     println!("✅ remove_server() 工作正常");

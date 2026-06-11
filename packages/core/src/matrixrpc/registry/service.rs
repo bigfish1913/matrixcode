@@ -72,17 +72,15 @@ impl ServiceFilter {
 
     /// Check if a service matches this filter
     pub fn matches(&self, service: &ExtensionService) -> bool {
-        if let Some(status) = &self.status {
-            if service.status != *status {
+        if let Some(status) = &self.status
+            && service.status != *status {
                 return false;
             }
-        }
 
-        if let Some(cap) = &self.capability {
-            if !service.has_capability(cap) {
+        if let Some(cap) = &self.capability
+            && !service.has_capability(cap) {
                 return false;
             }
-        }
 
         true
     }
@@ -326,13 +324,12 @@ impl RegistryService {
 
         let mut services = self.services.write().await;
         for (id, registration) in services.iter_mut() {
-            if !registration.service.is_healthy(timeout) {
-                if registration.service.status == ServiceStatus::Running {
+            if !registration.service.is_healthy(timeout)
+                && registration.service.status == ServiceStatus::Running {
                     registration.service.set_status(ServiceStatus::Reconnecting);
                     registration.touch();
                     unhealthy.push(id.clone());
                 }
-            }
         }
 
         unhealthy

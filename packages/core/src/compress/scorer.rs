@@ -145,8 +145,9 @@ fn content_score(content: &MessageContent, weights: &PhaseWeights) -> f64 {
                 "完成",
                 "done",
             ];
+            let text_lower = text.to_lowercase();
             for kw in keywords {
-                if text.to_lowercase().contains(kw) {
+                if text_lower.contains(kw) {
                     score += 15.0;
                 }
             }
@@ -294,7 +295,8 @@ fn get_content_preview(message: &Message, max_len: usize) -> String {
     match &message.content {
         MessageContent::Text(text) => {
             if text.len() > max_len {
-                text[..max_len].to_string() + "..."
+                // Use chars() to avoid UTF-8 boundary panic
+                text.chars().take(max_len).collect::<String>() + "..."
             } else {
                 text.clone()
             }

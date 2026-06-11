@@ -80,6 +80,17 @@ impl SmartMemoryRetriever {
     ) -> Self {
         // Normalize weights to sum to 1.0
         let total = focus_weight + time_decay_weight + importance_weight + tfidf_weight + usage_weight;
+        // Prevent division by zero - use default weights if total is zero
+        if total == 0.0 {
+            return Self {
+                time_decay_config: TimeDecayConfig::default(),
+                focus_weight: 0.3,
+                time_decay_weight: 0.25,
+                importance_weight: 0.25,
+                tfidf_weight: 0.15,
+                usage_weight: 0.05,
+            };
+        }
         Self {
             time_decay_config: TimeDecayConfig::default(),
             focus_weight: focus_weight / total,
@@ -311,7 +322,7 @@ impl SmartMemoryRetriever {
             for focus in active_foci {
                 summary.push_str(&format!("  • {} (重要性: {:.0}%)\n", focus.topic, focus.importance * 100.0));
             }
-            summary.push_str("\n");
+            summary.push('\n');
         }
 
         // Add memories by category
@@ -320,7 +331,7 @@ impl SmartMemoryRetriever {
             for entry in entries {
                 summary.push_str(&format!("  {}\n", entry.format_for_prompt()));
             }
-            summary.push_str("\n");
+            summary.push('\n');
         }
 
         summary

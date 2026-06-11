@@ -12,15 +12,21 @@ pub struct DuckDuckGoHtmlParser;
 
 impl SearchResultParser for DuckDuckGoHtmlParser {
     fn parse(&self, html: &str, max_results: usize) -> Vec<SearchResult> {
-        let mut results = Vec::new();
-        let link_regex = regex::Regex::new(
-            r#"<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#,
-        )
-        .ok();
-        let snippet_regex =
-            regex::Regex::new(r#"<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>"#).ok();
+        static LINK_RE: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
+        static SNIPPET_RE: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
 
-        if let Some(ref link_re) = link_regex {
+        let link_regex = LINK_RE.get_or_init(|| {
+            regex::Regex::new(
+                r#"<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#,
+            ).ok()
+        });
+        let snippet_regex = SNIPPET_RE.get_or_init(|| {
+            regex::Regex::new(r#"<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>"#).ok()
+        });
+
+        let mut results = Vec::new();
+
+        if let Some(link_re) = link_regex {
             for cap in link_re.captures_iter(html) {
                 if results.len() >= max_results {
                     break;
@@ -76,9 +82,13 @@ pub struct DuckDuckGoLiteParser;
 
 impl SearchResultParser for DuckDuckGoLiteParser {
     fn parse(&self, html: &str, max_results: usize) -> Vec<SearchResult> {
+        static LINK_RE: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
+
+        let link_re = LINK_RE.get_or_init(|| {
+            regex::Regex::new(r#"<a[^>]*rel="nofollow"[^>]*href="([^"]*)"[^>]*>([^<]+)</a>"#).ok()
+        });
+
         let mut results = Vec::new();
-        let link_re =
-            regex::Regex::new(r#"<a[^>]*rel="nofollow"[^>]*href="([^"]*)"[^>]*>([^<]+)</a>"#).ok();
 
         if let Some(re) = link_re {
             for cap in re.captures_iter(html) {
@@ -106,9 +116,11 @@ impl SearchResultParser for DuckDuckGoLiteParser {
 }
 
 fn fallback_parse(html: &str, max_results: usize, results: &mut Vec<SearchResult>) {
-    let alt_link_re =
-        regex::Regex::new(r#"<a[^>]*class="[^"]*result[^"]*"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>"#)
-            .ok();
+    static ALT_LINK_RE: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
+
+    let alt_link_re = ALT_LINK_RE.get_or_init(|| {
+        regex::Regex::new(r#"<a[^>]*class="[^"]*result[^"]*"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>"#).ok()
+    });
 
     if let Some(re) = alt_link_re {
         for cap in re.captures_iter(html) {

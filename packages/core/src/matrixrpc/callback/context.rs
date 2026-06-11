@@ -15,8 +15,10 @@ use crate::matrixrpc::{ErrorCode, JsonRpcError, JsonRpcId, JsonRpcResponse, Serv
 /// Context operation type
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ContextOperation {
     /// Get a value from context
+    #[default]
     Get,
 
     /// Set a value in context
@@ -35,11 +37,6 @@ pub enum ContextOperation {
     Clear,
 }
 
-impl Default for ContextOperation {
-    fn default() -> Self {
-        Self::Get
-    }
-}
 
 impl ContextOperation {
     /// Get the string representation
@@ -205,7 +202,7 @@ impl ContextStore {
     fn set(&mut self, namespace: &str, key: &str, value: JsonValue) {
         self.namespaces
             .entry(namespace.to_string())
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(key.to_string(), value);
     }
 
@@ -428,11 +425,10 @@ impl ContextCallbackHandler {
         }
 
         // Check service-specific namespaces
-        if let Some(namespaces) = self.namespace_config.service_namespaces.get(service_id) {
-            if namespaces.contains(&namespace.to_string()) {
+        if let Some(namespaces) = self.namespace_config.service_namespaces.get(service_id)
+            && namespaces.contains(&namespace.to_string()) {
                 return true;
             }
-        }
 
         false
     }

@@ -44,20 +44,23 @@ pub fn extract_context_keywords(context: &str) -> Vec<String> {
     }
 
     // 2. Extract tech patterns (camelCase, snake_case, file paths)
-    let tech_regexes = [
-        r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z]{1,4}", // file extensions
-        r"[A-Z][a-z]+[A-Z][a-zA-Z]*",             // CamelCase
-        r"[a-z][a-z0-9]*_[a-z][a-z0-9_]*",        // snake_case
-        r"[0-9]+[kKmMgGtT][bB]?",                 // sizes like 4KB
-    ];
+    static TECH_REGEXES: std::sync::OnceLock<Vec<regex::Regex>> = std::sync::OnceLock::new();
+    let tech_patterns = TECH_REGEXES.get_or_init(|| {
+        [
+            r"[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z]{1,4}", // file extensions
+            r"[A-Z][a-z]+[A-Z][a-zA-Z]*",             // CamelCase
+            r"[a-z][a-z0-9]*_[a-z][a-z0-9_]*",        // snake_case
+            r"[0-9]+[kKmMgGtT][bB]?",                 // sizes like 4KB
+        ].iter()
+        .filter_map(|p| regex::Regex::new(p).ok())
+        .collect()
+    });
 
-    for pattern in tech_regexes {
-        if let Ok(re) = regex::Regex::new(pattern) {
-            for cap in re.find_iter(&lower) {
-                let match_str = cap.as_str();
-                if !stop_words.contains(match_str) {
-                    keywords.insert(match_str.to_string());
-                }
+    for re in tech_patterns {
+        for cap in re.find_iter(&lower) {
+            let match_str = cap.as_str();
+            if !stop_words.contains(match_str) {
+                keywords.insert(match_str.to_string());
             }
         }
     }
@@ -210,7 +213,8 @@ pub fn compute_relevance(entry: &MemoryEntry, context_keywords: &[String]) -> f6
         .filter(|tag| {
             let tag_lower = tag.to_lowercase();
             expanded_keywords.iter().any(|kw| {
-                tag_lower.contains(&kw.to_lowercase()) || kw.to_lowercase().contains(&tag_lower)
+                let kw_lower = kw.to_lowercase();
+                tag_lower.contains(&kw_lower) || kw_lower.contains(&tag_lower)
             })
         })
         .count();
@@ -386,7 +390,12 @@ impl TfIdfSearch {
         }
 
         for (word, count) in word_doc_count {
-            let idf = (self.total_docs as f32 / count as f32).ln();
+            // Guard against division by zero (count >= 1 since word exists)
+            let idf = if count > 0 {
+                (self.total_docs as f32 / count as f32).ln()
+            } else {
+                0.0 // Fallback for edge case
+            };
             self.idf_cache.insert(word, idf);
         }
     }
@@ -501,11 +510,11 @@ pub async fn ai_select_memories(
 ) -> Vec<usize> {
     use crate::providers::{ChatRequest, Message, MessageContent, Role};
 
-    // Truncate query if too long
+    // Truncate query if too long (safe UTF-8 boundary)
     let truncated_query = if query.len() > 1000 {
-        &query[..1000]
+        query.chars().take(1000).collect::<String>()
     } else {
-        query
+        query.to_string()
     };
 
     let user_prompt = format!(

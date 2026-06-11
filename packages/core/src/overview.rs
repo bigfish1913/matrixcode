@@ -238,8 +238,10 @@ impl ProjectOverview {
 
         // Collect streaming response
         let mut content = String::new();
-        let mut input_tokens: u32;
-        let mut output_tokens: u32;
+        #[allow(unused_assignments)]
+        let mut input_tokens: u32 = 0;
+        #[allow(unused_assignments)]
+        let mut output_tokens: u32 = 0;
 
         while let Some(event) = rx.recv().await {
             match event {
@@ -370,11 +372,26 @@ const IGNORE_PATTERNS: &[&str] = &[
     "swagger.yaml",
 ];
 
+/// Pre-computed HashSet for O(1) exact match lookups
+static IGNORE_EXACT: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+
+fn get_ignore_exact_set() -> &'static std::collections::HashSet<&'static str> {
+    IGNORE_EXACT.get_or_init(|| {
+        IGNORE_PATTERNS
+            .iter()
+            .filter(|p| !p.starts_with('*'))
+            .copied()
+            .collect()
+    })
+}
+
 /// Check if a path component should be ignored.
 pub fn should_ignore(name: &str) -> bool {
-    if IGNORE_PATTERNS.contains(&name) {
+    // O(1) lookup for exact matches
+    if get_ignore_exact_set().contains(name) {
         return true;
     }
+    // Check wildcard patterns
     for pattern in IGNORE_PATTERNS {
         if pattern.starts_with("*.") {
             let suffix = &pattern[1..];

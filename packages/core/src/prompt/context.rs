@@ -175,9 +175,10 @@ impl ContextInjector {
         if let Some(ref mut ctx) = self.system_context_cache {
             ctx.lsp_servers = servers;
         } else {
-            let mut ctx = SystemContext::default();
-            ctx.lsp_servers = servers;
-            self.system_context_cache = Some(ctx);
+            self.system_context_cache = Some(SystemContext {
+                lsp_servers: servers,
+                ..Default::default()
+            });
         }
     }
 
@@ -205,23 +206,20 @@ impl ContextInjector {
 
         // Read CLAUDE.md
         let claude_md_path = self.working_dir.join("CLAUDE.md");
-        if claude_md_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&claude_md_path) {
+        if claude_md_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&claude_md_path) {
                 ctx.claude_md_content = Some(content);
             }
-        }
 
         // Also check parent directories
-        if ctx.claude_md_content.is_none() {
-            if let Some(parent) = self.working_dir.parent() {
+        if ctx.claude_md_content.is_none()
+            && let Some(parent) = self.working_dir.parent() {
                 let parent_claude_md = parent.join("CLAUDE.md");
-                if parent_claude_md.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&parent_claude_md) {
+                if parent_claude_md.exists()
+                    && let Ok(content) = std::fs::read_to_string(&parent_claude_md) {
                         ctx.claude_md_content = Some(content);
                     }
-                }
             }
-        }
 
         ctx
     }
@@ -235,18 +233,15 @@ impl ContextInjector {
             .args(["branch", "--show-current"])
             .current_dir(&self.working_dir)
             .output()
-        {
-            if output.status.success() {
+            && output.status.success() {
                 ctx.git_branch = Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
             }
-        }
 
         if let Ok(output) = std::process::Command::new("git")
             .args(["status", "--porcelain"])
             .current_dir(&self.working_dir)
             .output()
-        {
-            if output.status.success() {
+            && output.status.success() {
                 let status = String::from_utf8_lossy(&output.stdout);
                 ctx.git_status = if status.trim().is_empty() {
                     Some("clean".to_string())
@@ -254,7 +249,6 @@ impl ContextInjector {
                     Some(format!("dirty ({} changes)", status.lines().count()))
                 };
             }
-        }
 
         // Working directory
         ctx.working_directory = self.working_dir.to_str().map(|s| s.to_string());
@@ -379,7 +373,6 @@ impl ContextInjector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_user_context_default() {

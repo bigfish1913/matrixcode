@@ -9,7 +9,7 @@
 //! - Callback Port (9528): Accepts callback requests from external services
 
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -267,7 +267,8 @@ impl TcpListener {
 
     /// Create a new TCP listener with custom configuration
     pub async fn bind_with_config(port: u16, config: TransportConfig) -> io::Result<Self> {
-        let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+        // Use SocketAddr::new for safer construction (no string parsing)
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
         let listener = TokioTcpListener::bind(addr).await?;
         let local_addr = listener.local_addr()?;
 

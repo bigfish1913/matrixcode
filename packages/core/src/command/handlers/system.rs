@@ -372,8 +372,8 @@ impl System {
         }
 
         // MCP Servers
-        if let Some(ref mcp_servers) = ctx.config.mcp_servers {
-            if !mcp_servers.is_empty() {
+        if let Some(ref mcp_servers) = ctx.config.mcp_servers
+            && !mcp_servers.is_empty() {
                 output.push_str(&format!("\n  • MCP Servers: {} 个\n", mcp_servers.len()));
                 for (name, _config) in mcp_servers.iter().take(5) {
                     output.push_str(&format!("    - {}\n", name));
@@ -382,7 +382,6 @@ impl System {
                     output.push_str(&format!("    ... 还有 {} 个\n", mcp_servers.len() - 5));
                 }
             }
-        }
 
         // Config 路径
         output.push_str("\n📁 **配置文件路径**\n");
@@ -468,9 +467,10 @@ impl System {
         }
 
         if let Ok(path) = std::env::var("PATH") {
-            // 截断过长的 PATH
+            // 截断过长的 PATH (safe UTF-8 boundary)
             if path.len() > 100 {
-                output.push_str(&format!("  • PATH: {}... (已截断)\n", &path[..100]));
+                let truncated: String = path.chars().take(100).collect();
+                output.push_str(&format!("  • PATH: {}... (已截断)\n", truncated));
             } else {
                 output.push_str(&format!("  • PATH: {}\n", path));
             }

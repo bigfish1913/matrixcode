@@ -113,12 +113,11 @@ impl FocusTracker {
 
         // Find current question/task from last few user messages
         for msg in recent_messages.iter().rev() {
-            if matches!(msg.role, Role::User) {
-                if let Some(question) = self.extract_current_question(msg) {
+            if matches!(msg.role, Role::User)
+                && let Some(question) = self.extract_current_question(msg) {
                     focus.current_question = Some(question);
                     break;
                 }
-            }
         }
 
         // Detect topic transitions in full conversation
@@ -139,20 +138,17 @@ impl FocusTracker {
     fn extract_key_point(&self, message: &Message) -> Option<String> {
         match &message.content {
             MessageContent::Text(text) => {
-                // Extract first sentence or key phrase
-                let sentences: Vec<&str> = text.split(|c| c == '.' || c == '。' || c == '\n')
-                    .filter(|s| s.trim().len() > self.config.min_substantial_text_length)
-                    .collect();
-
-                sentences.first().map(|s| s.trim().to_string())
+                // Use iterator directly to avoid collecting entire Vec
+                text.split(['.', '。', '\n'])
+                    .find(|s| s.trim().len() > self.config.min_substantial_text_length)
+                    .map(|s| s.trim().to_string())
             }
             MessageContent::Blocks(blocks) => {
                 for block in blocks {
-                    if let ContentBlock::Text { text } = block {
-                        if text.len() > self.config.min_substantial_text_length {
+                    if let ContentBlock::Text { text } = block
+                        && text.len() > self.config.min_substantial_text_length {
                             return Some(text.split('\n').next()?.trim().to_string());
                         }
-                    }
                 }
                 None
             }
@@ -193,13 +189,12 @@ impl FocusTracker {
             }
             MessageContent::Blocks(blocks) => {
                 for block in blocks {
-                    if let ContentBlock::Text { text } = block {
-                        if text.len() > self.config.min_substantial_text_length {
+                    if let ContentBlock::Text { text } = block
+                        && text.len() > self.config.min_substantial_text_length {
                             return Some(text.chars()
                                 .take(self.config.max_question_extract_length)
                                 .collect::<String>());
                         }
-                    }
                 }
                 None
             }
@@ -353,11 +348,10 @@ impl FocusTracker {
         }
 
         // Check if message is in recent context
-        if let Some(key_point) = self.extract_key_point(message) {
-            if focus.recent_context.contains(&key_point) {
+        if let Some(key_point) = self.extract_key_point(message)
+            && focus.recent_context.contains(&key_point) {
                 score += 0.5;
             }
-        }
 
         // Apply configured boost and cap
         score = (score * self.config.focus_score_boost).min(self.config.max_focus_score);

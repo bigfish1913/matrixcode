@@ -1,5 +1,4 @@
 use matrixcode_core::mcp::{McpConfig, McpServerConfig, McpToolManager};
-use matrixcode_core::tools::Tool;
 use serde_json::json;
 use std::time::Instant;
 

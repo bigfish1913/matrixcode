@@ -82,7 +82,7 @@ impl SessionMetadata {
     }
 
     pub fn short_id(&self) -> String {
-        self.id[..8].to_string()
+        self.id.chars().take(8).collect()
     }
 
     pub fn format_line(&self, is_current: bool) -> String {

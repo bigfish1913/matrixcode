@@ -161,10 +161,11 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
         FeedbackAction::Correct => {
             if let Some(ref content) = feedback.new_content {
                 for entry in &mut memory.entries {
+                    let entry_lower = entry.content.to_lowercase();
                     if feedback
                         .search_keywords
                         .iter()
-                        .any(|k| entry.content.to_lowercase().contains(&k.to_lowercase()))
+                        .any(|k| entry_lower.contains(&k.to_lowercase()))
                     {
                         entry.content = content.clone();
                         entry.importance = entry.importance.max(80.0);
@@ -183,10 +184,11 @@ pub fn apply_feedback_to_memory(memory: &mut AutoMemory, feedback: &FeedbackResu
                 .entries
                 .iter()
                 .filter(|e| {
+                    let e_lower = e.content.to_lowercase();
                     feedback
                         .search_keywords
                         .iter()
-                        .any(|k| e.content.to_lowercase().contains(&k.to_lowercase()))
+                        .any(|k| e_lower.contains(&k.to_lowercase()))
                 })
                 .take(3)
                 .map(|e| e.id.clone())

@@ -347,26 +347,24 @@ pub fn load_mcp_config(start_dir: &Path) -> McpConfig {
         let matrixcode_dir = home.join(".matrixcode");
         for filename in MCP_CONFIG_FILENAMES {
             let path = matrixcode_dir.join(filename);
-            if path.exists() {
-                if let Ok(user_config) = McpConfig::from_file(&path) {
+            if path.exists()
+                && let Ok(user_config) = McpConfig::from_file(&path) {
                     tracing::info!("Loaded user-level MCP config from {:?}", path);
                     config = config.merge(user_config);
                     break;
                 }
-            }
         }
 
         // ~/.mcp.toml（备选）
         if config.servers.is_empty() {
             for filename in MCP_CONFIG_FILENAMES {
                 let path = home.join(filename);
-                if path.exists() {
-                    if let Ok(user_config) = McpConfig::from_file(&path) {
+                if path.exists()
+                    && let Ok(user_config) = McpConfig::from_file(&path) {
                         tracing::info!("Loaded user MCP config from {:?}", path);
                         config = config.merge(user_config);
                         break;
                     }
-                }
             }
         }
     }
@@ -374,13 +372,12 @@ pub fn load_mcp_config(start_dir: &Path) -> McpConfig {
     // 2. 加载项目级配置（覆盖）
     for filename in MCP_CONFIG_FILENAMES {
         let path = start_dir.join(filename);
-        if path.exists() {
-            if let Ok(project_config) = McpConfig::from_file(&path) {
+        if path.exists()
+            && let Ok(project_config) = McpConfig::from_file(&path) {
                 tracing::info!("Loaded project-level MCP config from {:?}", path);
                 config = config.merge(project_config);
                 break;
             }
-        }
     }
 
     config

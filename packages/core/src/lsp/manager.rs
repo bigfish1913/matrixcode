@@ -83,9 +83,7 @@ impl LspManager {
                 .collect()
         } else {
             // 返回默认状态
-            self.configs
-                .iter()
-                .map(|(_name, config)| LspServerInfo {
+            self.configs.values().map(|config| LspServerInfo {
                     name: config.command.clone(),
                     language: config.language.clone(),
                     status: LspServerStatus::NotStarted,

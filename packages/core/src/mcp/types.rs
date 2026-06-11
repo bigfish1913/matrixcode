@@ -343,6 +343,12 @@ impl Default for Implementation {
     }
 }
 
+impl Default for RequestId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RequestId {
     pub fn new() -> Self {
         Self::Number(rand_id())

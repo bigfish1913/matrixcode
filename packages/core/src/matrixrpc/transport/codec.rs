@@ -156,8 +156,8 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
 fn parse_content_length(headers: &str) -> io::Result<usize> {
     for line in headers.lines() {
         let line = line.trim();
-        if let Some((key, value)) = line.split_once(':') {
-            if key.trim().eq_ignore_ascii_case("Content-Length") {
+        if let Some((key, value)) = line.split_once(':')
+            && key.trim().eq_ignore_ascii_case("Content-Length") {
                 let length: usize = value.trim().parse().map_err(|e| {
                     io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -166,7 +166,6 @@ fn parse_content_length(headers: &str) -> io::Result<usize> {
                 })?;
                 return Ok(length);
             }
-        }
     }
     Err(io::Error::new(
         io::ErrorKind::InvalidData,
@@ -185,7 +184,6 @@ pub fn encode_message(message: &JsonRpcMessage) -> io::Result<Vec<u8>> {
 /// Decode a single message from bytes (convenience function)
 ///
 /// Expects the buffer to contain exactly one framed message (with headers)
-#[allow(dead_code)]
 pub fn decode_message_from_buffer(buffer: &[u8]) -> io::Result<(Vec<u8>, JsonRpcMessage)> {
     let codec = FrameCodec::new();
     let (remaining, message) = codec.decode_from_buffer(buffer)?;

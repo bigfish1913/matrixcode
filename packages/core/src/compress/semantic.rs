@@ -39,18 +39,12 @@ pub struct Issue {
 }
 
 /// Semantic compressor that uses AI to summarize messages.
+#[derive(Default)]
 pub struct SemanticCompressor {
     /// Hardcode configuration
     hardcode_config: HardcodeConfig,
 }
 
-impl Default for SemanticCompressor {
-    fn default() -> Self {
-        Self {
-            hardcode_config: HardcodeConfig::default(),
-        }
-    }
-}
 
 impl SemanticCompressor {
     pub fn new() -> Self {
@@ -208,20 +202,17 @@ pub struct KeyInfo {
 
 /// Strategy for semantic compression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum SemanticStrategy {
     /// Don't use semantic compression (truncate only)
     None,
     /// Use semantic compression for old messages
+    #[default]
     OldOnly,
     /// Use semantic compression for all compressible messages
     Aggressive,
 }
 
-impl Default for SemanticStrategy {
-    fn default() -> Self {
-        Self::OldOnly
-    }
-}
 
 #[cfg(test)]
 mod tests {

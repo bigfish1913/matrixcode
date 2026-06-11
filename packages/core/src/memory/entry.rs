@@ -32,8 +32,8 @@ pub(crate) fn truncate(s: &str, max_len: usize) -> String {
 /// Parse `[[name]]` link syntax from content.
 /// Returns a set of linked memory names/IDs.
 pub fn parse_memory_links(content: &str) -> HashSet<String> {
-    // Match [[name]] pattern
-    let re = regex::Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"\[\[([^\]]+)\]\]").unwrap());
     re.captures_iter(content)
         .map(|c| c[1].trim().to_string())
         .collect()

@@ -242,11 +242,10 @@ impl Agent {
                                 }
                                 current_thinking.push_str(&delta);
                                 // Buffer the delta and emit if threshold reached
-                                if buffer.add_thinking(&delta) {
-                                    if let Some(t) = buffer.flush_thinking() {
+                                if buffer.add_thinking(&delta)
+                                    && let Some(t) = buffer.flush_thinking() {
                                         self.emit(AgentEvent::thinking_delta(&t, None))?;
                                     }
-                                }
                             }
                             Some(StreamEvent::TextDelta(delta)) => {
                                 // Check cancellation before emitting
@@ -259,11 +258,10 @@ impl Agent {
                                 }
                                 current_text.push_str(&delta);
                                 // Buffer the delta and emit if threshold reached
-                                if buffer.add_text(&delta) {
-                                    if let Some(t) = buffer.flush_text() {
+                                if buffer.add_text(&delta)
+                                    && let Some(t) = buffer.flush_text() {
                                         self.emit(AgentEvent::text_delta(&t))?;
                                     }
-                                }
                             }
                             Some(StreamEvent::ToolUseStart { id, name }) => {
                                 // Flush any pending buffers before tool use

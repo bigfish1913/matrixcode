@@ -226,11 +226,10 @@ pub fn generate_tools_prompt_with_path_and_lsp(
     let mut tools = base_tools(Arc::new(Vec::new()));
 
     // Add CodeGraph tools only if initialized (CLI installed + .codegraph exists)
-    if ctx.codegraph_available {
-        if let Some(path) = project_path {
+    if ctx.codegraph_available
+        && let Some(path) = project_path {
             tools.extend(codegraph::codegraph_tools_with_auto_detect(path));
         }
-    }
 
     // Add LSP tools if registry is provided
     if let Some(registry) = lsp_registry {

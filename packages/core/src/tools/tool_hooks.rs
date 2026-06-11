@@ -58,7 +58,7 @@ pub trait ToolHook: Send + Sync {
     /// Check if hook applies to a specific tool
     fn applies_to_tool(&self, tool_name: &str) -> bool {
         let applies_to = self.applies_to();
-        applies_to.is_empty() || applies_to.iter().any(|t| *t == tool_name)
+        applies_to.is_empty() || applies_to.contains(&tool_name)
     }
 
     /// Pre-execute hook (before tool execution)

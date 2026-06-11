@@ -261,7 +261,10 @@ impl Provider for OpenAIProvider {
             anyhow::bail!("API error ({}): {}", status, err_msg);
         }
 
-        let choice = &response_body["choices"][0];
+        let choices = response_body["choices"].as_array()
+            .filter(|a| !a.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("No choices in OpenAI response"))?;
+        let choice = &choices[0];
         let message = &choice["message"];
         let finish_reason = choice["finish_reason"].as_str().unwrap_or("stop");
 

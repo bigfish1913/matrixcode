@@ -330,7 +330,7 @@ impl LifecycleManager {
         let _ = self.event_tx.send(LifecycleEvent::Reconnecting {
             id: id.clone(),
             attempt: backoff + 1,
-            max_attempts: max_attempts,
+            max_attempts,
         });
 
         self.registry
@@ -423,15 +423,14 @@ impl LifecycleManager {
                     _ = check_interval.tick() => {
                         // Check if service is healthy
                         if let Some(service) = registry.get(&id).await {
-                            if !service.is_healthy(timeout_secs) {
-                                if service.status == ServiceStatus::Running {
+                            if !service.is_healthy(timeout_secs)
+                                && service.status == ServiceStatus::Running {
                                     // Emit heartbeat timeout event
                                     let _ = event_tx.send(LifecycleEvent::HeartbeatTimeout(id.clone()));
 
                                     // Update status to reconnecting
                                     let _ = registry.update_status(&id, ServiceStatus::Reconnecting).await;
                                 }
-                            }
                         } else {
                             // Service no longer exists
                             break;
@@ -562,7 +561,7 @@ mod tests {
         let mut event_rx = manager.subscribe();
 
         let service = ExtensionService::new("test", "1.0.0");
-        let id = manager.start_service(service).await.unwrap();
+        let _id = manager.start_service(service).await.unwrap();
 
         // Should receive Started and StatusChanged events
         let event1 = event_rx.try_recv();

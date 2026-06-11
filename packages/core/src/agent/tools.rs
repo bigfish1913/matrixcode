@@ -179,12 +179,11 @@ impl Agent {
 
         // === Pre-write verification ===
         // Verify code before writing (for "pre" strategy)
-        if matches!(name, "edit" | "multi_edit" | "write") {
-            if let Err(e) = self.pre_verify_write(name, &input).await {
+        if matches!(name, "edit" | "multi_edit" | "write")
+            && let Err(e) = self.pre_verify_write(name, &input).await {
                 log::warn!("Pre-write verification blocked {}: {}", name, e);
                 return Err(e);
             }
-        }
 
         // Find tool and extract info needed for approval check
         let tool = self.tools.iter().find(|t| t.definition().name == name);
@@ -224,12 +223,11 @@ impl Agent {
 
             // === Read history post-action ===
             // For read tool, mark the file as read on success
-            if name == "read" && result.is_ok() {
-                if let Some(file_path) = input["path"].as_str() {
+            if name == "read" && result.is_ok()
+                && let Some(file_path) = input["path"].as_str() {
                     self.state.read_history_mut().mark_read(file_path);
                     log::info!("File '{}' marked as read in session history", file_path);
                 }
-            }
 
             // === Error history tracking ===
             // Track errors to detect repeated mistakes
@@ -254,7 +252,7 @@ impl Agent {
 
             // === Post-write verification and impact hints ===
             // For write/edit/multi_edit, run verification after successful write
-            let result = if matches!(name, "edit" | "multi_edit" | "write") {
+            if matches!(name, "edit" | "multi_edit" | "write") {
                 match result {
                     Ok(raw_result) => {
                         let enhanced = self.post_verify_write(name, &input, &raw_result).await;
@@ -264,9 +262,7 @@ impl Agent {
                 }
             } else {
                 result
-            };
-
-            result
+            }
         } else {
             Err(anyhow::anyhow!("Tool '{}' not found", name))
         }
@@ -821,14 +817,13 @@ impl Agent {
         let mut enhanced = result.to_string();
 
         // 1. Code verification (for Post and PreQuick strategies)
-        if strategy == VerificationStrategy::Post || strategy == VerificationStrategy::PreQuick {
-            if is_code_file(file_path) {
+        if (strategy == VerificationStrategy::Post || strategy == VerificationStrategy::PreQuick)
+            && is_code_file(file_path) {
                 match self.verify_code_after_write(file_path).await {
                     Ok(msg) => enhanced.push_str(&format!("\n📝 代码验证: {}", msg)),
                     Err(e) => enhanced.push_str(&format!("\n⚠️ 代码验证: {}", e)),
                 }
             }
-        }
 
         // 2. Impact analysis - suggest related tests and verification commands
         let project_root = self.verify_project_path()

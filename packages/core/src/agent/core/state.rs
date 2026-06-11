@@ -178,15 +178,14 @@ impl AgentState {
         // Collect all tool_use_ids from ToolResult blocks
         let mut tool_result_ids: HashSet<String> = HashSet::new();
         for msg in &messages {
-            if msg.role == Role::Tool {
-                if let MessageContent::Blocks(blocks) = &msg.content {
+            if msg.role == Role::Tool
+                && let MessageContent::Blocks(blocks) = &msg.content {
                     for block in blocks {
                         if let ContentBlock::ToolResult { tool_use_id, .. } = block {
                             tool_result_ids.insert(tool_use_id.clone());
                         }
                     }
                 }
-            }
         }
 
         // Find orphaned ids (no matching pair)
@@ -218,8 +217,8 @@ impl AgentState {
         let mut cleaned = Vec::with_capacity(messages.len());
         for msg in messages {
             // Skip entire Tool messages that are orphaned tool results
-            if msg.role == Role::Tool {
-                if let MessageContent::Blocks(blocks) = &msg.content {
+            if msg.role == Role::Tool
+                && let MessageContent::Blocks(blocks) = &msg.content {
                     let has_orphaned_result = blocks.iter().any(|b| {
                         if let ContentBlock::ToolResult { tool_use_id, .. } = b {
                             orphaned_tool_result_ids.contains(tool_use_id.as_str())
@@ -232,19 +231,17 @@ impl AgentState {
                         continue;
                     }
                 }
-            }
 
             // For assistant messages, filter out orphaned tool_use blocks
             if let MessageContent::Blocks(blocks) = msg.content {
                 let filtered_blocks: Vec<ContentBlock> = blocks
                     .into_iter()
                     .filter(|b| {
-                        if let ContentBlock::ToolUse { id, .. } = b {
-                            if orphaned_tool_use_ids.contains(id.as_str()) {
+                        if let ContentBlock::ToolUse { id, .. } = b
+                            && orphaned_tool_use_ids.contains(id.as_str()) {
                                 log::info!("Removing orphaned tool_use block: {}", id);
                                 return false;
                             }
-                        }
                         true
                     })
                     .collect();

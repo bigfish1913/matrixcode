@@ -38,14 +38,13 @@ impl Command for Overview {
             let mut info = "📂 项目概览：\n\n".to_string();
 
             // 读取 README
-            if readme_path.exists() {
-                if let Ok(content) = tokio::fs::read_to_string(&readme_path).await {
+            if readme_path.exists()
+                && let Ok(content) = tokio::fs::read_to_string(&readme_path).await {
                     let lines: Vec<&str> = content.lines().take(20).collect();
                     info.push_str("README:\n");
                     info.push_str(&lines.join("\n"));
                     info.push_str("\n\n");
                 }
-            }
 
             // 列出目录结构
             info.push_str("目录结构：\n");

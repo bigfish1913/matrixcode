@@ -107,16 +107,17 @@ impl PriorityScorer {
 
     /// Extract priority factors from a message.
     pub fn extract_factors(message: &Message, position: usize, total: usize) -> PriorityFactors {
-        let mut factors = PriorityFactors::default();
-
-        // Check role
-        factors.is_user_message = matches!(message.role, Role::User);
-
         // Position weight (0 = oldest, 1 = newest)
-        factors.position_weight = if total > 1 {
+        let position_weight = if total > 1 {
             position as f32 / (total - 1) as f32
         } else {
             1.0
+        };
+
+        let mut factors = PriorityFactors {
+            is_user_message: matches!(message.role, Role::User),
+            position_weight,
+            ..Default::default()
         };
 
         // Analyze content
@@ -397,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_position_weight() {
-        let scorer = PriorityScorer::default();
+        let _scorer = PriorityScorer::default();
         
         // Old message (position 0)
         let msg = Message {

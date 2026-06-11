@@ -226,22 +226,23 @@ impl FocusExtractor {
         // 尝试找到 JSON 块
         let start = response.find('{')
             .ok_or("No JSON found in response")?;
-        
-        let mut end = start;
+
         let mut depth = 0;
-        
-        for (idx, ch) in response[start..].chars().enumerate() {
+        let mut end = response.len(); // fallback to end of string
+
+        // Use char_indices to get byte positions correctly
+        for (byte_idx, ch) in response[start..].char_indices() {
             if ch == '{' {
                 depth += 1;
             } else if ch == '}' {
                 depth -= 1;
                 if depth == 0 {
-                    end = start + idx + 1;
+                    end = start + byte_idx + 1;
                     break;
                 }
             }
         }
-        
+
         Ok(response[start..end].to_string())
     }
 }

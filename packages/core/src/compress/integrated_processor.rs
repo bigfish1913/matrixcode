@@ -249,7 +249,7 @@ impl IntegratedLongContextProcessor {
     ) -> Result<ProcessedResult> {
         if messages.is_empty() {
             return Ok(ProcessedResult {
-                messages: messages,
+                messages,
                 extraction: UnifiedExtractionResult::default(),
                 focus: ConversationFocus {
                     current_topic: None,
@@ -456,7 +456,7 @@ impl IntegratedLongContextProcessor {
     ) -> Result<ProcessedResult> {
         if messages.is_empty() {
             return Ok(ProcessedResult {
-                messages: messages,
+                messages,
                 extraction: UnifiedExtractionResult::default(),
                 focus: ConversationFocus {
                     current_topic: None,
@@ -681,7 +681,7 @@ impl IntegratedLongContextProcessor {
 
         // Extract first sentence
         let sentence = text
-            .split(|c| c == '.' || c == '。' || c == '\n')
+            .split(['.', '。', '\n'])
             .next()
             .map(|s| s.trim().to_string())?;
 
@@ -770,7 +770,7 @@ impl IntegratedLongContextProcessor {
     pub fn quick_process(&mut self, messages: Vec<Message>) -> Result<ProcessedResult> {
         if messages.is_empty() {
             return Ok(ProcessedResult {
-                messages: messages,
+                messages,
                 extraction: UnifiedExtractionResult::default(),
                 focus: ConversationFocus {
                     current_topic: None,

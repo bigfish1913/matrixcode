@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 /// Supported project types for verification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ProjectType {
     /// Rust project (Cargo.toml)
     Rust,
@@ -20,14 +21,10 @@ pub enum ProjectType {
     /// Java/Kotlin project (pom.xml or build.gradle)
     Java,
     /// Unknown or unsupported project type
+    #[default]
     Unknown,
 }
 
-impl Default for ProjectType {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
 
 impl ProjectType {
     /// Returns the test command for this project type
@@ -178,11 +175,10 @@ impl VerifyTool {
                     if self.project_root.join(&integration_test).exists() {
                         related_tests.push(integration_test);
                     }
-                    if let Some(test) = module_test {
-                        if self.project_root.join(&test).exists() {
+                    if let Some(test) = module_test
+                        && self.project_root.join(&test).exists() {
                             related_tests.push(test);
                         }
-                    }
 
                     // Also check for module tests directory
                     let module_test_dir = format!("src/{}/tests.rs", stem);
@@ -233,15 +229,14 @@ impl VerifyTool {
             }
             ProjectType::Go => {
                 // Go: xxx.go -> xxx_test.go
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if ext == "go" {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str())
+                    && ext == "go" {
                         let test_file = format!("{}_test.go",
                             path.with_extension("").to_string_lossy());
                         if self.project_root.join(&test_file).exists() {
                             related_tests.push(test_file);
                         }
                     }
-                }
             }
             ProjectType::Java => {
                 // Java: Xxx.java -> src/test/java/XxxTest.java

@@ -282,8 +282,8 @@ impl NodeRouter {
             for cap in &service.capabilities {
                 if cap.name == "nodes" {
                     // Parse nodes from capability config
-                    if let Some(nodes_json) = cap.config.get("nodes") {
-                        if let Ok(nodes) = serde_json::from_value::<Vec<JsonValue>>(nodes_json.clone()) {
+                    if let Some(nodes_json) = cap.config.get("nodes")
+                        && let Ok(nodes) = serde_json::from_value::<Vec<JsonValue>>(nodes_json.clone()) {
                             for node in nodes {
                                 if let Some(id) = node.get("id").and_then(|n| n.as_str()) {
                                     let node_type = node
@@ -316,7 +316,6 @@ impl NodeRouter {
                                 }
                             }
                         }
-                    }
                 }
             }
         }

@@ -150,9 +150,9 @@ impl CodeGraphWatcher {
 
         // Method 2: Check daemon.log for recent activity
         let daemon_log_path = project_path.join(".codegraph").join("daemon.log");
-        if daemon_log_path.exists() {
-            if let Ok(metadata) = std::fs::metadata(&daemon_log_path) {
-                if let Ok(modified) = metadata.modified() {
+        if daemon_log_path.exists()
+            && let Ok(metadata) = std::fs::metadata(&daemon_log_path)
+                && let Ok(modified) = metadata.modified() {
                     let now = std::time::SystemTime::now();
                     let elapsed = now
                         .duration_since(modified)
@@ -162,8 +162,6 @@ impl CodeGraphWatcher {
                         return true;
                     }
                 }
-            }
-        }
 
         false
     }
@@ -330,10 +328,10 @@ impl CodeGraphWatcher {
 
         // Create notify file watcher
         let watcher_result = Self::create_file_watcher(&project_path, change_tx.clone());
-        if watcher_result.is_err() {
+        if let Err(e) = watcher_result {
             debug_log().log("codegraph", &format!(
                 "notify watcher failed to start: {}",
-                watcher_result.err().unwrap()
+                e
             ));
             release_watcher_lock(&project_path);
             return;
@@ -509,13 +507,12 @@ impl CodeGraphWatcher {
         let tx = change_tx.clone();
 
         let handler = move |event: Result<Event, notify::Error>| {
-            if let Ok(event) = event {
-                if !event.kind.is_access() && !event.kind.is_other() {
+            if let Ok(event) = event
+                && !event.kind.is_access() && !event.kind.is_other() {
                     for path in event.paths {
                         let _ = tx.try_send(path);
                     }
                 }
-            }
         };
 
         let config = Config::default()

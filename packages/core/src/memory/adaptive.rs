@@ -185,6 +185,10 @@ impl AdaptiveLearner {
         };
 
         self.compression_feedback.push(feedback);
+        // Auto-prune to prevent unbounded growth
+        if self.compression_feedback.len() > 100 {
+            self.prune_old_feedback();
+        }
         self.update_compression_preferences();
     }
 
@@ -207,6 +211,10 @@ impl AdaptiveLearner {
         };
 
         self.focus_feedback.push(feedback);
+        // Auto-prune to prevent unbounded growth
+        if self.focus_feedback.len() > 100 {
+            self.prune_old_feedback();
+        }
         self.update_focus_preferences();
     }
 
@@ -238,6 +246,10 @@ impl AdaptiveLearner {
         };
 
         self.retrieval_feedback.push(feedback);
+        // Auto-prune to prevent unbounded growth
+        if self.retrieval_feedback.len() > 100 {
+            self.prune_old_feedback();
+        }
         self.update_retrieval_preferences();
     }
 
@@ -268,7 +280,7 @@ impl AdaptiveLearner {
         // Find best performing stage
         let best_stage = stage_acceptance
             .iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(s, _)| s.clone())
             .unwrap_or_else(|| "RemoveLowPriority".to_string());
 
@@ -411,13 +423,16 @@ impl AdaptiveLearner {
     /// Clear old feedback (keep last 100).
     pub fn prune_old_feedback(&mut self) {
         if self.compression_feedback.len() > 100 {
-            self.compression_feedback = self.compression_feedback.iter().rev().take(100).rev().cloned().collect();
+            let start = self.compression_feedback.len() - 100;
+            self.compression_feedback.drain(..start);
         }
         if self.focus_feedback.len() > 100 {
-            self.focus_feedback = self.focus_feedback.iter().rev().take(100).rev().cloned().collect();
+            let start = self.focus_feedback.len() - 100;
+            self.focus_feedback.drain(..start);
         }
         if self.retrieval_feedback.len() > 100 {
-            self.retrieval_feedback = self.retrieval_feedback.iter().rev().take(100).rev().cloned().collect();
+            let start = self.retrieval_feedback.len() - 100;
+            self.retrieval_feedback.drain(..start);
         }
     }
 

@@ -659,7 +659,7 @@ fn get_git_status_changes(project_path: &Path) -> GitStatusChanges {
     if let Ok(o) = output
         && o.status.success() {
         for line in String::from_utf8_lossy(&o.stdout).lines() {
-            if line.len() < 2 {
+            if line.len() < 4 {
                 continue;
             }
             let status = &line[..2];
@@ -899,7 +899,9 @@ pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
 
     // Ensure directory exists
     if let Some(parent) = lock_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            log::warn!("CodeGraph: Failed to create .codegraph directory: {}", e);
+        }
     }
 
     // Check existing lock
@@ -927,7 +929,10 @@ pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
 
     // Acquire lock
     let lock = WatcherLock::new();
-    let _ = std::fs::write(&lock_path, lock.encode());
+    if let Err(e) = std::fs::write(&lock_path, lock.encode()) {
+        log::warn!("CodeGraph: Failed to write watcher lock: {}", e);
+        return false;
+    }
     log::info!("CodeGraph: acquired watcher lock (instance {})", lock.instance_id);
     true
 }
@@ -936,8 +941,11 @@ pub fn try_acquire_watcher_lock(project_path: &Path) -> bool {
 pub fn release_watcher_lock(project_path: &Path) {
     let lock_path = project_path.join(".codegraph").join(WATCHER_LOCK_FILE);
     if lock_path.exists() {
-        let _ = std::fs::remove_file(&lock_path);
-        log::info!("CodeGraph: released watcher lock");
+        if let Err(e) = std::fs::remove_file(&lock_path) {
+            log::warn!("CodeGraph: Failed to release watcher lock: {}", e);
+        } else {
+            log::info!("CodeGraph: released watcher lock");
+        }
     }
 }
 
@@ -946,7 +954,9 @@ fn update_watcher_heartbeat(project_path: &Path) {
     let lock_path = project_path.join(".codegraph").join(WATCHER_LOCK_FILE);
     if lock_path.exists() {
         let lock = WatcherLock::new();
-        let _ = std::fs::write(&lock_path, lock.encode());
+        if let Err(e) = std::fs::write(&lock_path, lock.encode()) {
+            log::warn!("CodeGraph: Failed to update heartbeat: {}", e);
+        }
     }
 }
 
@@ -969,7 +979,10 @@ fn try_acquire_sync_lock(project_path: &Path) -> bool {
 
     // Acquire sync lock
     let timestamp = chrono::Utc::now().timestamp().to_string();
-    let _ = std::fs::write(&lock_path, timestamp);
+    if let Err(e) = std::fs::write(&lock_path, &timestamp) {
+        log::warn!("CodeGraph: Failed to acquire sync lock: {}", e);
+        return false;
+    }
     true
 }
 
@@ -977,7 +990,9 @@ fn try_acquire_sync_lock(project_path: &Path) -> bool {
 fn release_sync_lock(project_path: &Path) {
     let lock_path = project_path.join(".codegraph").join(SYNC_LOCK_FILE);
     if lock_path.exists() {
-        let _ = std::fs::remove_file(&lock_path);
+        if let Err(e) = std::fs::remove_file(&lock_path) {
+            log::warn!("CodeGraph: Failed to release sync lock: {}", e);
+        }
     }
 }
 
@@ -988,9 +1003,13 @@ const VERSION_FILE: &str = "version.txt";
 fn save_version_sha(project_path: &Path, sha: &str) {
     let version_path = project_path.join(".codegraph").join(VERSION_FILE);
     if let Some(parent) = version_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            log::warn!("CodeGraph: Failed to create .codegraph directory: {}", e);
+        }
     }
-    let _ = std::fs::write(&version_path, sha);
+    if let Err(e) = std::fs::write(&version_path, sha) {
+        log::warn!("CodeGraph: Failed to write version file: {}", e);
+    }
 }
 
 /// Load stored Git HEAD SHA from version file.
@@ -1258,8 +1277,8 @@ impl CodeGraphWatcher {
 
         // Create notify file watcher (always running as fallback)
         let watcher_result = Self::create_file_watcher(&project_path, change_tx.clone());
-        if watcher_result.is_err() {
-            log::warn!("CodeGraph notify watcher failed to start: {}", watcher_result.err().unwrap());
+        if let Err(e) = watcher_result {
+            log::warn!("CodeGraph notify watcher failed to start: {}", e);
             release_watcher_lock(&project_path);
             return;
         }

@@ -183,9 +183,10 @@ impl PromptDumper {
 
         // Limit output for readability
         if entry.prompt.len() > 2000 {
+            let truncated: String = entry.prompt.chars().take(2000).collect();
             println!(
                 "{}... (truncated, {} chars total)",
-                &entry.prompt[..2000],
+                truncated,
                 entry.prompt.len()
             );
         } else {
@@ -204,14 +205,12 @@ impl PromptDumper {
         let path = self.dump_path.as_ref().unwrap();
 
         // Create parent directories if needed
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                if let Err(e) = std::fs::create_dir_all(parent) {
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+                && let Err(e) = std::fs::create_dir_all(parent) {
                     log::warn!("Failed to create dump directory: {}", e);
                     return;
                 }
-            }
-        }
 
         // Open file for append
         match std::fs::OpenOptions::new()
@@ -346,8 +345,10 @@ pub fn read_dump_file<P: AsRef<Path>>(path: P) -> Vec<DumpEntry> {
 pub fn analyze_dump_file<P: AsRef<Path>>(path: P) -> DumpFileAnalysis {
     let entries = read_dump_file(path);
 
-    let mut analysis = DumpFileAnalysis::default();
-    analysis.total_entries = entries.len();
+    let mut analysis = DumpFileAnalysis {
+        total_entries: entries.len(),
+        ..Default::default()
+    };
 
     for entry in &entries {
         analysis.total_tokens += entry.total_tokens;

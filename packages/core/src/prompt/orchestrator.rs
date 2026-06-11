@@ -18,8 +18,10 @@ pub const CACHE_BOUNDARY: &str = "\n<!-- CACHE_BOUNDARY -->\n";
 
 /// Prompt profile type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum PromptProfile {
     /// Default profile (full capabilities)
+    #[default]
     Default,
     /// Safe profile (restricted operations)
     Safe,
@@ -55,11 +57,6 @@ impl std::fmt::Display for PromptProfile {
     }
 }
 
-impl Default for PromptProfile {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 /// Prompt orchestrator - manages prompt assembly
 pub struct PromptOrchestrator {
