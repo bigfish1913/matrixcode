@@ -73,7 +73,10 @@ impl CachedPriorityScore {
     
     pub fn is_valid(&self) -> bool {
         let now = Utc::now();
-        now - self.calculated_at < chrono::Duration::from_std(self.valid_for).unwrap()
+        // Safe conversion: valid_for is typically seconds/minutes, well within chrono::Duration range
+        let duration = chrono::Duration::from_std(self.valid_for)
+            .unwrap_or_else(|_| chrono::Duration::zero());
+        now - self.calculated_at < duration
     }
 }
 

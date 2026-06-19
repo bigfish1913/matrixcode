@@ -1,0 +1,228 @@
+import React, { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+
+interface CodeGraphStatus {
+  initialized: boolean;
+  indexing: boolean;
+  files_indexed: number;
+  symbols_indexed: number;
+  edges_indexed: number;
+  pending_files: string[];
+  last_sync: string;
+  error?: string;
+}
+
+export function CodeGraphStatusPanel({ onClose }: { onClose: () => void }) {
+  const [status, setStatus] = useState<CodeGraphStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadCodeGraphStatus();
+  }, []);
+
+  const loadCodeGraphStatus = async () => {
+    try {
+      const codegraphStatus = await invoke<CodeGraphStatus>('get_codegraph_status');
+      setStatus(codegraphStatus);
+    } catch (e) {
+      console.error('Failed to load CodeGraph status:', e);
+      setStatus(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const initializeCodeGraph = async () => {
+    try {
+      await invoke('initialize_codegraph');
+      setLoading(true);
+      await loadCodeGraphStatus();
+    } catch (e) {
+      console.error('Failed to initialize CodeGraph:', e);
+    }
+  };
+
+  const reindexCodeGraph = async () => {
+    try {
+      await invoke('reindex_codegraph');
+      setLoading(true);
+      await loadCodeGraphStatus();
+    } catch (e) {
+      console.error('Failed to reindex CodeGraph:', e);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={(e) => {
+      // Close on background click
+      if (e.target === e.currentTarget) {
+        onClose();
+      }
+    }}>
+      <div className="bg-card border shadow-lg rounded-lg max-w-2xl w-full">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">CodeGraph Status</h2>
+            {status?.initialized && !status?.error && (
+              <span className="text-green-500">●</span>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-4">
+          {loading ? (
+            <div className="text-center py-8 text-muted-foreground">
+              Loading CodeGraph status...
+            </div>
+          ) : !status ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="mb-2">CodeGraph not available</p>
+              <p className="text-sm">
+                Initialize CodeGraph to enable symbol search and navigation
+              </p>
+              <button
+                onClick={initializeCodeGraph}
+                className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Initialize CodeGraph
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Status Overview */}
+              <div className="border rounded-lg p-4 bg-background">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-sm text-muted-foreground">Status</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      {status.error ? (
+                        <span className="text-red-500 font-medium">Error</span>
+                      ) : status.indexing ? (
+                        <span className="text-yellow-500 font-medium">Indexing...</span>
+                      ) : status.initialized ? (
+                        <span className="text-green-500 font-medium">Ready</span>
+                      ) : (
+                        <span className="text-muted-foreground font-medium">Not Initialized</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-sm text-muted-foreground">Last Sync</span>
+                    <div className="mt-1 font-medium">
+                      {status.last_sync || 'Never'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Index Statistics */}
+              {status.initialized && (
+                <div className="border rounded-lg p-4 bg-background">
+                  <h3 className="font-medium mb-3">Index Statistics</h3>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <span className="text-sm text-muted-foreground">Files</span>
+                      <div className="mt-1 font-medium text-lg">
+                        {status.files_indexed.toLocaleString()}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-sm text-muted-foreground">Symbols</span>
+                      <div className="mt-1 font-medium text-lg">
+                        {status.symbols_indexed.toLocaleString()}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-sm text-muted-foreground">Edges</span>
+                      <div className="mt-1 font-medium text-lg">
+                        {status.edges_indexed.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Pending Files */}
+              {status.pending_files.length > 0 && (
+                <div className="border rounded-lg p-4 bg-background">
+                  <h3 className="font-medium mb-3 flex items-center gap-2">
+                    Pending Sync
+                    <span className="text-sm text-yellow-500 px-2 py-0.5 bg-yellow-500/10 rounded">
+                      {status.pending_files.length} files
+                    </span>
+                  </h3>
+                  <div className="space-y-1 text-sm text-muted-foreground max-h-40 overflow-y-auto">
+                    {status.pending_files.slice(0, 10).map((file, idx) => (
+                      <div key={idx} className="truncate">
+                        {file}
+                      </div>
+                    ))}
+                    {status.pending_files.length > 10 && (
+                      <div className="text-xs text-muted-foreground italic">
+                        ... and {status.pending_files.length - 10} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Error Display */}
+              {status.error && (
+                <div className="border border-red-500 rounded-lg p-4 bg-red-500/5">
+                  <h3 className="font-medium text-red-500 mb-2">Error</h3>
+                  <div className="text-sm text-red-500">
+                    {status.error}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-2">
+                {!status.initialized && (
+                  <button
+                    onClick={initializeCodeGraph}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                  >
+                    Initialize
+                  </button>
+                )}
+                {status.initialized && !status.indexing && (
+                  <button
+                    onClick={reindexCodeGraph}
+                    className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/90 transition-colors"
+                  >
+                    Reindex
+                  </button>
+                )}
+                <button
+                  onClick={loadCodeGraphStatus}
+                  className="px-4 py-2 hover:bg-accent rounded-lg transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t p-4 flex justify-between items-center">
+          <div className="text-xs text-muted-foreground">
+            CodeGraph enables fast symbol search and dependency tracking
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Press <kbd className="px-1 bg-accent rounded">Alt+G</kbd> to toggle
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

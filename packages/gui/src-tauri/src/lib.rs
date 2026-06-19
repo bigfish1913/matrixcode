@@ -57,6 +57,8 @@ struct MessageInfo {
     role: String,
     content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<String>,  // Thinking content from assistant messages
+    #[serde(skip_serializing_if = "Option::is_none")]
     timestamp: Option<u64>,  // Message timestamp in milliseconds
 }
 
@@ -254,22 +256,40 @@ async fn get_messages(
             msgs.iter()
                 .map(|m| {
                     let role = format!("{:?}", m.role).to_lowercase();
-                    let content = match &m.content {
-                        MessageContent::Text(t) => t.clone(),
-                        MessageContent::Blocks(blocks) => blocks
-                            .iter()
-                            .filter_map(|b| match b {
-                                matrixcode_core::providers::ContentBlock::Text { text } => {
-                                    Some(text.clone())
+
+                    // Extract content and thinking from blocks
+                    let mut content_parts = Vec::new();
+                    let mut thinking_content = None;
+
+                    match &m.content {
+                        MessageContent::Text(t) => content_parts.push(t.clone()),
+                        MessageContent::Blocks(blocks) => {
+                            for block in blocks {
+                                match block {
+                                    matrixcode_core::providers::ContentBlock::Text { text } => {
+                                        content_parts.push(text.clone());
+                                    }
+                                    matrixcode_core::providers::ContentBlock::Thinking { thinking, .. } => {
+                                        // Extract thinking content from assistant messages
+                                        if role == "assistant" {
+                                            thinking_content = Some(thinking.clone());
+                                        }
+                                    }
+                                    // Skip other block types (ToolUse, ToolResult, etc.)
+                                    _ => {}
                                 }
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    };
-                    // Note: core Message struct doesn't have timestamp yet
-                    // Frontend will generate approximate timestamps
-                    MessageInfo { role, content, timestamp: None }
+                            }
+                        }
+                    }
+
+                    let content = content_parts.join("\n");
+
+                    MessageInfo {
+                        role,
+                        content,
+                        thinking: thinking_content,
+                        timestamp: None,
+                    }
                 })
                 .collect()
         })
@@ -331,12 +351,14 @@ async fn send_message(
     // Create event channel
     let (agent_event_tx, mut agent_event_rx) = mpsc::channel::<AgentEvent>(256);
 
-    // Build agent
+    // Build agent with tools
+    let tools = matrixcode_core::tools::all_tools();
     let mut builder = AgentBuilder::new(provider)
         .model_name(&model)
         .event_tx(agent_event_tx)
         .think(think)
-        .max_tokens(max_tokens);
+        .max_tokens(max_tokens)
+        .tools(tools);  // ← Add all builtin tools
 
     if let Some(path) = project_path {
         builder = builder.project_path(path);
@@ -524,6 +546,71 @@ async fn greet(name: &str) -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Infrastructure Status Commands (LSP, CodeGraph)
+// ---------------------------------------------------------------------------
+
+/// LSP server info for frontend display
+#[derive(serde::Serialize)]
+struct LspServerInfo {
+    name: String,
+    status: String,  // "running", "stopped", "error"
+    language: Option<String>,
+    command: Option<String>,
+    error: Option<String>,
+}
+
+/// Get LSP server status
+#[tauri::command]
+async fn get_lsp_status() -> Result<Vec<LspServerInfo>, String> {
+    // TODO: Integrate with actual LSP manager from matrixcode-core
+    // For now, return placeholder data
+    Ok(vec![])
+}
+
+/// CodeGraph index status for frontend display
+#[derive(serde::Serialize)]
+struct CodeGraphStatus {
+    initialized: bool,
+    indexing: bool,
+    files_indexed: usize,
+    symbols_indexed: usize,
+    edges_indexed: usize,
+    pending_files: Vec<String>,
+    last_sync: String,
+    error: Option<String>,
+}
+
+/// Get CodeGraph index status
+#[tauri::command]
+async fn get_codegraph_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<CodeGraphStatus>, String> {
+    // TODO: Integrate with actual CodeGraph from matrixcode-core tools::codegraph
+    // For now, return placeholder data
+    Ok(None)
+}
+
+/// Initialize CodeGraph index
+#[tauri::command]
+async fn initialize_codegraph(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    // TODO: Call matrixcode_core::tools::codegraph::init
+    // For now, return placeholder response
+    Ok(())
+}
+
+/// Reindex CodeGraph
+#[tauri::command]
+async fn reindex_codegraph(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    // TODO: Call matrixcode_core::tools::codegraph::reindex
+    // For now, return placeholder response
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Application entry point
 // ---------------------------------------------------------------------------
 
@@ -556,6 +643,11 @@ pub fn run() {
             cancel_task,
             pause_task,
             resume_task,
+            // Infrastructure status commands
+            get_lsp_status,
+            get_codegraph_status,
+            initialize_codegraph,
+            reindex_codegraph,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

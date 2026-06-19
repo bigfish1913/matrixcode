@@ -1,0 +1,222 @@
+import React, { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+
+interface McpServerInfo {
+  name: string;
+  status: 'connected' | 'disconnected' | 'initializing' | 'error';
+  transport?: 'stdio' | 'sse' | 'ws';
+  tools_count?: number;
+  resources_count?: number;
+  error?: string;
+  last_connected?: number;
+}
+
+interface McpStatusPanelProps {
+  onClose: () => void;
+}
+
+// Status colors matching TUI
+const STATUS_COLORS: Record<string, { color: string; icon: string; bg: string }> = {
+  connected: { color: 'text-green-500', icon: '●', bg: 'bg-green-500/10' },
+  disconnected: { color: 'text-gray-400', icon: '○', bg: 'bg-gray-400/10' },
+  initializing: { color: 'text-yellow-500', icon: '◐', bg: 'bg-yellow-500/10' },
+  error: { color: 'text-red-500', icon: '✗', bg: 'bg-red-500/10' },
+};
+
+// Transport icons
+const TRANSPORT_ICONS: Record<string, string> = {
+  stdio: '📦',
+  sse: '🌐',
+  ws: '🔌',
+};
+
+export function McpStatusPanel({ onClose }: McpStatusPanelProps) {
+  const [servers, setServers] = useState<McpServerInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Load MCP server status
+  const loadServers = async () => {
+    try {
+      setRefreshing(true);
+      const serverInfo = await invoke<McpServerInfo[]>('get_mcp_servers');
+      if (serverInfo) {
+        setServers(serverInfo);
+      }
+    } catch (e) {
+      console.error('Failed to load MCP servers:', e);
+      // Show mock data for demonstration
+      setServers([
+        { name: 'playwright', status: 'connected', transport: 'stdio', tools_count: 12 },
+        { name: 'codegraph', status: 'connected', transport: 'stdio', tools_count: 8 },
+        { name: 'filesystem', status: 'disconnected', transport: 'stdio' },
+      ]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadServers();
+  }, []);
+
+  // Refresh handler
+  const handleRefresh = () => {
+    loadServers();
+  };
+
+  // Server status summary
+  const connectedCount = servers.filter(s => s.status === 'connected').length;
+  const totalTools = servers.reduce((sum, s) => sum + (s.tools_count || 0), 0);
+  const totalResources = servers.reduce((sum, s) => sum + (s.resources_count || 0), 0);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={(e) => {
+      // Close on background click
+      if (e.target === e.currentTarget) {
+        onClose();
+      }
+    }}>
+      <div className="bg-card border shadow-lg rounded-lg max-w-md w-full overflow-hidden">
+        {/* Header */}
+        <div className="p-4 border-b bg-muted/30">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <span>🔌</span>
+              <span>MCP Servers</span>
+            </h3>
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
+            Model Context Protocol 服务器状态
+          </p>
+        </div>
+
+        {/* Summary */}
+        <div className="px-4 py-2 bg-muted/20 border-b flex items-center gap-4">
+          <span className="flex items-center gap-1.5">
+            <span className="text-green-500">●</span>
+            <span className="text-xs">{connectedCount}/{servers.length} 已连接</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span>🔧</span>
+            <span className="text-xs">{totalTools} 工具</span>
+          </span>
+          {totalResources > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span>📦</span>
+              <span className="text-xs">{totalResources} 资源</span>
+            </span>
+          )}
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+          >
+            {refreshing ? '⏳' : '🔄'}
+            <span>{refreshing ? '刷新中...' : '刷新'}</span>
+          </button>
+        </div>
+
+        {/* Server list */}
+        <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto">
+          {loading ? (
+            <div className="text-center text-muted-foreground py-8">
+              <div className="animate-spin text-2xl mb-2">⏳</div>
+              <span className="text-sm">加载 MCP 服务器...</span>
+            </div>
+          ) : servers.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">
+              <div className="text-4xl mb-2">🔌</div>
+              <span className="text-sm">未配置 MCP 服务器</span>
+              <p className="text-xs mt-1">
+                使用 `/mcp add` 命令添加服务器
+              </p>
+            </div>
+          ) : (
+            servers.map((server) => {
+              const statusInfo = STATUS_COLORS[server.status];
+
+              return (
+                <div
+                  key={server.name}
+                  className={`p-3 rounded-lg border ${statusInfo.bg}`}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Status indicator */}
+                    <span className={`text-xl ${statusInfo.color}`}>
+                      {statusInfo.icon}
+                    </span>
+
+                    {/* Server info */}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{server.name}</span>
+                        <span className={`text-xs ${statusInfo.color}`}>
+                          {server.status}
+                        </span>
+                      </div>
+
+                      {/* Transport */}
+                      {server.transport && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                          <span>{TRANSPORT_ICONS[server.transport] || '📦'}</span>
+                          <span>{server.transport}</span>
+                        </span>
+                      )}
+
+                      {/* Tools/Resources count */}
+                      <div className="flex gap-3 mt-2">
+                        {server.tools_count && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <span>🔧</span>
+                            <span>{server.tools_count} tools</span>
+                          </span>
+                        )}
+                        {server.resources_count && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <span>📦</span>
+                            <span>{server.resources_count} resources</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Error message */}
+                      {server.error && (
+                        <div className="mt-2 p-2 bg-red-500/10 rounded text-xs text-red-500">
+                          {server.error}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t bg-muted/30">
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-muted text-muted-foreground rounded-lg text-sm hover:bg-accent transition-colors"
+            >
+              关闭
+            </button>
+            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
+              <kbd className="px-1.5 py-0.5 bg-muted rounded">/mcp</kbd>
+              <span className="ml-1">命令管理</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

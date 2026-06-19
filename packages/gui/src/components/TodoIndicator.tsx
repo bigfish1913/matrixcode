@@ -1,0 +1,99 @@
+import React from 'react';
+import { useChatStore, TodoItem } from '../stores/chatStore';
+
+// Todo progress indicator matching TUI todo_items display
+export function TodoIndicator() {
+  const todos = useChatStore((s) => s.todos);
+  const activity = useChatStore((s) => s.activity);
+
+  // Only show when there are todos and agent is working
+  if (todos.length === 0 || activity.type === 'idle') {
+    return null;
+  }
+
+  // Calculate progress
+  const completed = todos.filter(t => t.status === 'completed').length;
+  const total = todos.length;
+  const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  // Determine color based on progress
+  const progressColor = completed === total
+    ? 'text-green-500'
+    : completed > 0
+      ? 'text-yellow-500'
+      : 'text-muted-foreground';
+
+  return (
+    <div className="px-2 py-1 bg-muted/30 rounded text-xs animate-fade-in">
+      <div className="flex items-center gap-2">
+        {/* Progress icon */}
+        <span className={progressColor}>
+          {completed === total ? '✅' : completed > 0 ? '⏳' : '📋'}
+        </span>
+
+        {/* Progress text */}
+        <span className={progressColor}>
+          <span className="font-mono">{completed}/{total}</span>
+          <span className="ml-1">({progressPercent}%)</span>
+        </span>
+
+        {/* Current todo (if running) */}
+        {todos.find(t => t.status === 'in_progress') && (
+          <div className="flex items-center gap-1 ml-2 px-2 bg-accent rounded">
+            <span className="animate-pulse">▶</span>
+            <span className="text-foreground truncate max-w-[200px]">
+              {todos.find(t => t.status === 'in_progress')?.content}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Detailed todo list for debug/panel view
+export function TodoList() {
+  const todos = useChatStore((s) => s.todos);
+
+  if (todos.length === 0) {
+    return (
+      <div className="text-xs text-muted-foreground p-2">
+        No todos
+      </div>
+    );
+  }
+
+  const statusIcons = {
+    pending: '○',
+    in_progress: '◐',
+    completed: '●',
+  };
+
+  const statusColors = {
+    pending: 'text-muted-foreground',
+    in_progress: 'text-yellow-500 animate-pulse',
+    completed: 'text-green-500',
+  };
+
+  return (
+    <div className="space-y-1">
+      {todos.map((todo, idx) => (
+        <div
+          key={idx}
+          className={`flex items-start gap-2 text-xs p-1.5 rounded ${
+            todo.status === 'in_progress' ? 'bg-accent' : ''
+          }`}
+        >
+          <span className={`${statusColors[todo.status]} mt-0.5`}>
+            {statusIcons[todo.status]}
+          </span>
+          <div className="flex-1">
+            <div className="text-foreground truncate">
+              {todo.content}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

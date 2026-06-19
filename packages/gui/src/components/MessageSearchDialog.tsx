@@ -1,0 +1,350 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useChatStore, type ChatMessage } from '../stores/chatStore';
+
+interface MessageSearchDialogProps {
+  onClose: () => void;
+  onSelectMessage?: (messageId: string) => void;
+}
+
+// Search filters
+interface SearchFilters {
+  query: string;
+  role: 'all' | 'user' | 'assistant' | 'tool' | 'error';
+  dateRange: 'all' | 'today' | 'week' | 'month';
+  hasCode: boolean;
+  hasThinking: boolean;
+}
+
+export function MessageSearchDialog({ onClose, onSelectMessage }: MessageSearchDialogProps) {
+  const messages = useChatStore((s) => s.messages);
+  const [filters, setFilters] = useState<SearchFilters>({
+    query: '',
+    role: 'all',
+    dateRange: 'all',
+    hasCode: false,
+    hasThinking: false,
+  });
+  const [results, setResults] = useState<ChatMessage[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Perform search
+  useEffect(() => {
+    let filtered = [...messages];
+
+    // Query filter
+    if (filters.query) {
+      const queryLower = filters.query.toLowerCase();
+      filtered = filtered.filter(m => {
+        // Search in content
+        if (m.content.toLowerCase().includes(queryLower)) return true;
+        // Search in thinking
+        if (m.thinking?.toLowerCase().includes(queryLower)) return true;
+        // Search in tool name
+        if (m.toolName?.toLowerCase().includes(queryLower)) return true;
+        return false;
+      });
+    }
+
+    // Role filter
+    if (filters.role !== 'all') {
+      filtered = filtered.filter(m => m.role === filters.role);
+    }
+
+    // Date range filter
+    if (filters.dateRange !== 'all') {
+      const now = Date.now();
+      const ranges: Record<string, number> = {
+        today: 24 * 60 * 60 * 1000,
+        week: 7 * 24 * 60 * 60 * 1000,
+        month: 30 * 24 * 60 * 60 * 1000,
+      };
+      const rangeMs = ranges[filters.dateRange];
+      filtered = filtered.filter(m => {
+        if (!m.timestamp) return false;
+        return now - m.timestamp < rangeMs;
+      });
+    }
+
+    // Has code filter
+    if (filters.hasCode) {
+      filtered = filtered.filter(m => {
+        return m.content.includes('```') ||
+               m.content.includes('`') &&
+               m.content.length > 50;
+      });
+    }
+
+    // Has thinking filter
+    if (filters.hasThinking) {
+      filtered = filtered.filter(m => m.thinking && m.thinking.length > 0);
+    }
+
+    setResults(filtered);
+    setSelectedIndex(0);
+  }, [messages, filters]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(i => Math.min(i + 1, results.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(i => Math.max(i - 1, 0));
+      } else if (e.key === 'Enter' && results[selectedIndex]) {
+        e.preventDefault();
+        onSelectMessage?.(results[selectedIndex].id);
+        onClose();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [results, selectedIndex, onSelectMessage, onClose]);
+
+  // Highlight search query in text
+  const highlightQuery = (text: string): React.ReactNode => {
+    if (!filters.query) return text;
+
+    const parts = text.split(new RegExp(`(${filters.query})`, 'gi'));
+    return parts.map((part, idx) => {
+      if (part.toLowerCase() === filters.query.toLowerCase()) {
+        return (
+          <span key={idx} className="bg-yellow-500/30 text-yellow-600 px-0.5 rounded">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
+  // Format timestamp
+  const formatTime = (timestamp?: number): string => {
+    if (!timestamp) return '';
+    return new Date(timestamp).toLocaleString();
+  };
+
+  // Truncate content
+  const truncateContent = (content: string, maxLength: number = 150): string => {
+    if (content.length <= maxLength) return content;
+    return content.slice(0, maxLength) + '...';
+  };
+
+  // Role icons and colors
+  const ROLE_CONFIG: Record<string, { icon: string; color: string }> = {
+    user: { icon: '👤', color: 'text-blue-500' },
+    assistant: { icon: '🤖', color: 'text-green-500' },
+    tool: { icon: '🔧', color: 'text-amber-500' },
+    error: { icon: '❌', color: 'text-red-500' },
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-card border shadow-lg rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="p-4 border-b bg-muted/30">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <span>🔍</span>
+              <span>Search Messages</span>
+            </h3>
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Search input and filters */}
+        <div className="p-4 border-b space-y-3">
+          {/* Query input */}
+          <input
+            ref={inputRef}
+            type="text"
+            value={filters.query}
+            onChange={(e) => setFilters({ ...filters, query: e.target.value })}
+            placeholder="搜索消息内容、思考内容、工具名称..."
+            className="w-full bg-muted rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+          />
+
+          {/* Filter buttons */}
+          <div className="flex flex-wrap gap-2">
+            {/* Role filter */}
+            <select
+              value={filters.role}
+              onChange={(e) => setFilters({ ...filters, role: e.target.value as any })}
+              className="px-3 py-1.5 bg-muted rounded text-xs outline-none"
+            >
+              <option value="all">全部角色</option>
+              <option value="user">👤 用户</option>
+              <option value="assistant">🤖 助手</option>
+              <option value="tool">🔧 工具</option>
+              <option value="error">❌ 错误</option>
+            </select>
+
+            {/* Date range filter */}
+            <select
+              value={filters.dateRange}
+              onChange={(e) => setFilters({ ...filters, dateRange: e.target.value as any })}
+              className="px-3 py-1.5 bg-muted rounded text-xs outline-none"
+            >
+              <option value="all">全部时间</option>
+              <option value="today">今天</option>
+              <option value="week">本周</option>
+              <option value="month">本月</option>
+            </select>
+
+            {/* Has code filter */}
+            <button
+              onClick={() => setFilters({ ...filters, hasCode: !filters.hasCode })}
+              className={`px-3 py-1.5 rounded text-xs transition-colors ${
+                filters.hasCode ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'
+              }`}
+            >
+              💻 有代码
+            </button>
+
+            {/* Has thinking filter */}
+            <button
+              onClick={() => setFilters({ ...filters, hasThinking: !filters.hasThinking })}
+              className={`px-3 py-1.5 rounded text-xs transition-colors ${
+                filters.hasThinking ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'
+              }`}
+            >
+              💭 有思考
+            </button>
+
+            {/* Clear filters */}
+            {(filters.role !== 'all' || filters.dateRange !== 'all' || filters.hasCode || filters.hasThinking) && (
+              <button
+                onClick={() => setFilters({
+                  query: filters.query,
+                  role: 'all',
+                  dateRange: 'all',
+                  hasCode: false,
+                  hasThinking: false,
+                })}
+                className="px-3 py-1.5 bg-muted rounded text-xs hover:bg-accent transition-colors"
+              >
+                清除筛选
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Results */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Results count */}
+          <div className="px-4 py-2 text-xs text-muted-foreground bg-muted/20">
+            找到 {results.length} 条消息
+            {filters.query && ` (搜索: "${filters.query}")`}
+          </div>
+
+          {results.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">
+              <div className="text-4xl mb-2">🔍</div>
+              <span className="text-sm">没有找到匹配的消息</span>
+              <p className="text-xs mt-1">
+                尝试修改搜索条件
+              </p>
+            </div>
+          ) : (
+            results.map((message, idx) => {
+              const roleConfig = ROLE_CONFIG[message.role] || ROLE_CONFIG.assistant;
+
+              return (
+                <div
+                  key={message.id}
+                  onClick={() => {
+                    onSelectMessage?.(message.id);
+                    onClose();
+                  }}
+                  className={`px-4 py-3 cursor-pointer border-b transition-colors ${
+                    idx === selectedIndex ? 'bg-primary/10' : 'hover:bg-accent/30'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Role icon */}
+                    <span className={`text-lg ${roleConfig.color}`}>
+                      {roleConfig.icon}
+                    </span>
+
+                    {/* Content preview */}
+                    <div className="flex-1">
+                      {/* Highlighted content */}
+                      <div className="text-sm">
+                        {highlightQuery(truncateContent(message.content))}
+                      </div>
+
+                      {/* Thinking preview */}
+                      {message.thinking && (
+                        <div className="text-xs text-purple-500 mt-1 flex items-center gap-1">
+                          <span>💭</span>
+                          {highlightQuery(truncateContent(message.thinking, 50))}
+                        </div>
+                      )}
+
+                      {/* Tool name */}
+                      {message.toolName && (
+                        <div className="text-xs text-amber-500 mt-1 flex items-center gap-1">
+                          <span>🔧</span>
+                          {highlightQuery(message.toolName)}
+                        </div>
+                      )}
+
+                      {/* Metadata */}
+                      <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                        {message.timestamp && (
+                          <span>{formatTime(message.timestamp)}</span>
+                        )}
+                        <span>{message.content.length} chars</span>
+                        {message.role === 'tool' && (
+                          <span className="text-amber-500">
+                            {message.isToolResult ? 'Result' : 'Call'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Selected indicator */}
+                    {idx === selectedIndex && (
+                      <span className="text-primary text-xs">●</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t bg-muted/30">
+          <div className="flex gap-2 text-xs text-muted-foreground">
+            <span><kbd className="px-1.5 py-0.5 bg-muted rounded">↑↓</kbd> 导航</span>
+            <span><kbd className="px-1.5 py-0.5 bg-muted rounded">Enter</kbd> 选择</span>
+            <span><kbd className="px-1.5 py-0.5 bg-muted rounded">Esc</kbd> 关闭</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full mt-2 px-4 py-2 bg-muted text-muted-foreground rounded-lg text-sm hover:bg-accent transition-colors"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

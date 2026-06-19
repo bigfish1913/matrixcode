@@ -1,0 +1,160 @@
+import React, { useState } from 'react';
+import type { ChatMessage } from '../stores/chatStore';
+
+interface ExportButtonProps {
+  messages: ChatMessage[];
+  sessionId?: string;
+}
+
+export function ExportButton({ messages, sessionId }: ExportButtonProps) {
+  const [showMenu, setShowMenu] = useState(false);
+
+  const exportAsMarkdown = () => {
+    const lines: string[] = [];
+    lines.push(`# MatrixCode Conversation Export`);
+    lines.push(`Session: ${sessionId || 'Unknown'}`);
+    lines.push(`Date: ${new Date().toLocaleString()}`);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+
+    messages.forEach((msg) => {
+      const role = msg.role.toUpperCase();
+      const timestamp = msg.timestamp
+        ? new Date(msg.timestamp).toLocaleTimeString()
+        : '';
+
+      lines.push(`## ${role} ${timestamp}`);
+
+      if (msg.thinking) {
+        lines.push('');
+        lines.push('### Thinking');
+        lines.push('```');
+        lines.push(msg.thinking);
+        lines.push('```');
+      }
+
+      lines.push('');
+      lines.push(msg.content);
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+    });
+
+    const content = lines.join('\n');
+    downloadFile(content, `matrixcode-export-${Date.now()}.md`, 'text/markdown');
+    setShowMenu(false);
+  };
+
+  const exportAsJSON = () => {
+    const exportData = {
+      sessionId,
+      exportedAt: new Date().toISOString(),
+      messages: messages.map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        thinking: m.thinking,
+        timestamp: m.timestamp,
+        toolName: m.toolName,
+        isError: m.isError,
+      })),
+    };
+
+    const content = JSON.stringify(exportData, null, 2);
+    downloadFile(content, `matrixcode-export-${Date.now()}.json`, 'application/json');
+    setShowMenu(false);
+  };
+
+  const exportAsPlainText = () => {
+    const lines: string[] = [];
+
+    messages.forEach((msg) => {
+      const role = msg.role.toUpperCase();
+      const timestamp = msg.timestamp
+        ? `[${new Date(msg.timestamp).toLocaleTimeString()}]`
+        : '';
+
+      lines.push(`${role} ${timestamp}:`);
+
+      if (msg.thinking) {
+        lines.push(`  [Thinking: ${msg.thinking.slice(0, 100)}...]`);
+      }
+
+      lines.push(`  ${msg.content}`);
+      lines.push('');
+    });
+
+    const content = lines.join('\n');
+    downloadFile(content, `matrixcode-export-${Date.now()}.txt`, 'text/plain');
+    setShowMenu(false);
+  };
+
+  const downloadFile = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowMenu(!showMenu)}
+        className="px-3 py-1.5 text-xs bg-muted hover:bg-muted/80 rounded-lg transition-colors flex items-center gap-1.5"
+        title="Export conversation"
+      >
+        <span>📥</span>
+        <span>Export</span>
+      </button>
+
+      {showMenu && (
+        <div className="absolute right-0 mt-2 w-48 bg-card border rounded-lg shadow-lg z-50">
+          <div className="p-2 space-y-1">
+            <button
+              onClick={exportAsMarkdown}
+              className="w-full px-3 py-2 text-xs text-left hover:bg-muted rounded transition-colors flex items-center gap-2"
+            >
+              <span>📝</span>
+              <span>Markdown (.md)</span>
+            </button>
+
+            <button
+              onClick={exportAsJSON}
+              className="w-full px-3 py-2 text-xs text-left hover:bg-muted rounded transition-colors flex items-center gap-2"
+            >
+              <span>{`{ }`}</span>
+              <span>JSON (.json)</span>
+            </button>
+
+            <button
+              onClick={exportAsPlainText}
+              className="w-full px-3 py-2 text-xs text-left hover:bg-muted rounded transition-colors flex items-center gap-2"
+            >
+              <span>📄</span>
+              <span>Plain Text (.txt)</span>
+            </button>
+          </div>
+
+          <div className="border-t p-2">
+            <button
+              onClick={() => setShowMenu(false)}
+              className="w-full px-3 py-1 text-xs text-center text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

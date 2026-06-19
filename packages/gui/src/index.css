@@ -74,3 +74,251 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Animation definitions (matching TUI frame animations) */
+@layer utilities {
+  /* Fade animations */
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  /* Slide animations */
+  @keyframes slide-in-up {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  @keyframes slide-in-down {
+    from { transform: translateY(-20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  @keyframes slide-in-left {
+    from { transform: translateX(20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  @keyframes slide-in-right {
+    from { transform: translateX(-20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  /* Scale animations */
+  @keyframes scale-in {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes scale-out {
+    from { transform: scale(1); opacity: 1; }
+    to { transform: scale(0.95); opacity: 0; }
+  }
+
+  /* Spin animation for loading */
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  /* Bounce animation */
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+
+  /* Pulse animation */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* Shimmer animation for loading placeholders */
+  @keyframes shimmer {
+    0% { background-position: -1000px 0; }
+    100% { background-position: 1000px 0; }
+  }
+
+  /* Animation utility classes */
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out;
+  }
+
+  .animate-fade-out {
+    animation: fade-out 0.3s ease-out;
+  }
+
+  .animate-slide-in-up {
+    animation: slide-in-up 0.3s ease-out;
+  }
+
+  .animate-slide-in-down {
+    animation: slide-in-down 0.3s ease-out;
+  }
+
+  .animate-slide-in-left {
+    animation: slide-in-left 0.3s ease-out;
+  }
+
+  .animate-slide-in-right {
+    animation: slide-in-right 0.3s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scale-in 0.2s ease-out;
+  }
+
+  .animate-scale-out {
+    animation: scale-out 0.2s ease-out;
+  }
+
+  .animate-spin {
+    animation: spin 1s linear infinite;
+  }
+
+  .animate-bounce {
+    animation: bounce 1s ease-in-out infinite;
+  }
+
+  .animate-pulse {
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .animate-shimmer {
+    animation: shimmer 2s linear infinite;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+    background-size: 1000px 100%;
+  }
+
+  /* Transition utilities */
+  .transition-smooth {
+    transition: all 0.3s ease-out;
+  }
+
+  .transition-fast {
+    transition: all 0.15s ease-out;
+  }
+
+  .transition-slow {
+    transition: all 0.5s ease-out;
+  }
+
+  /* Collapsible transitions */
+  .collapse-enter {
+    animation: slide-in-up 0.2s ease-out;
+  }
+
+  .collapse-exit {
+    animation: fade-out 0.15s ease-out;
+  }
+
+  /* Message bubble animations */
+  .message-enter {
+    animation: slide-in-up 0.3s ease-out;
+  }
+
+  /* Tool result expand animation */
+  .tool-expand {
+    animation: scale-in 0.15s ease-out;
+  }
+}
+
+/* Scrollbar styling (matching TUI scroll behavior) */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--muted);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Focus and hover states */
+@layer utilities {
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/50;
+  }
+
+  .hover-lift {
+    @apply hover:transform hover:-translate-y-0.5 hover:shadow-lg;
+  }
+
+  .hover-glow {
+    @apply hover:shadow-md hover:shadow-primary/20;
+  }
+}
+
+/* Typography enhancements */
+@layer base {
+  /* Better code block styling */
+  pre {
+    @apply overflow-x-auto;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  code {
+    @apply px-1 py-0.5 bg-muted rounded text-sm;
+  }
+
+  /* Inline code without background */
+  code:not(pre code) {
+    @apply bg-muted/50;
+  }
+
+  /* Better markdown rendering */
+  .prose {
+    @apply max-w-none;
+  }
+
+  .prose pre {
+    @apply bg-muted border rounded-lg p-3;
+  }
+
+  .prose code {
+    @apply bg-transparent;
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+  }
+}

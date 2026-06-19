@@ -1,0 +1,268 @@
+import React, { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+
+interface ToolInfo {
+  name: string;
+  description: string;
+  input_schema?: Record<string, unknown>;
+  category?: 'file' | 'search' | 'web' | 'system' | 'agent' | 'other';
+}
+
+interface SkillInfo {
+  name: string;
+  description: string;
+  path?: string;
+  enabled?: boolean;
+}
+
+interface ToolsSkillsPanelProps {
+  onClose: () => void;
+  initialView?: 'tools' | 'skills';
+}
+
+// Tool category icons matching TUI
+const CATEGORY_ICONS: Record<string, string> = {
+  file: '📁',
+  search: '🔍',
+  web: '🌐',
+  system: '⚙️',
+  agent: '🤖',
+  other: '🔧',
+};
+
+// Popular tools (fallback)
+const POPULAR_TOOLS: ToolInfo[] = [
+  { name: 'Read', description: '读取文件内容', category: 'file' },
+  { name: 'Write', description: '写入文件', category: 'file' },
+  { name: 'Edit', description: '编辑文件', category: 'file' },
+  { name: 'Grep', description: '搜索文件内容', category: 'search' },
+  { name: 'Glob', description: '文件模式匹配', category: 'search' },
+  { name: 'Bash', description: '执行 Shell 命令', category: 'system' },
+  { name: 'WebSearch', description: 'Web 搜索', category: 'web' },
+  { name: 'WebFetch', description: '获取网页内容', category: 'web' },
+  { name: 'Agent', description: '启动子代理', category: 'agent' },
+  { name: 'Ask', description: '询问用户', category: 'other' },
+  { name: 'TodoWrite', description: '写入 Todo 列表', category: 'other' },
+  { name: 'NotebookEdit', description: '编辑 Jupyter Notebook', category: 'file' },
+];
+
+// Popular skills (fallback)
+const POPULAR_SKILLS: SkillInfo[] = [
+  { name: 'init', description: '初始化项目', enabled: true },
+  { name: 'run', description: '运行应用程序', enabled: true },
+  { name: 'verify', description: '验证代码更改', enabled: true },
+  { name: 'code-review', description: '代码审查', enabled: true },
+  { name: 'simplify', description: '简化代码', enabled: true },
+  { name: 'deep-research', description: '深度研究', enabled: true },
+  { name: 'loop', description: '循环执行任务', enabled: true },
+  { name: 'claude-api', description: 'Claude API 参考', enabled: true },
+];
+
+export function ToolsSkillsPanel({ onClose, initialView = 'tools' }: ToolsSkillsPanelProps) {
+  const [view, setView] = useState<'tools' | 'skills'>(initialView);
+  const [tools, setTools] = useState<ToolInfo[]>(POPULAR_TOOLS);
+  const [skills, setSkills] = useState<SkillInfo[]>(POPULAR_SKILLS);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<string>('all');
+
+  // Load tools and skills from backend
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+
+        // Try to load from backend
+        try {
+          const backendTools = await invoke<ToolInfo[]>('get_available_tools');
+          if (backendTools && backendTools.length > 0) {
+            setTools(backendTools);
+          }
+        } catch (e) {
+          console.log('Using fallback tools list');
+        }
+
+        try {
+          const backendSkills = await invoke<SkillInfo[]>('get_loaded_skills');
+          if (backendSkills && backendSkills.length > 0) {
+            setSkills(backendSkills);
+          }
+        } catch (e) {
+          console.log('Using fallback skills list');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Filter tools by category
+  const filteredTools = tools.filter(t => {
+    if (filter === 'all') return true;
+    return t.category === filter;
+  });
+
+  // Group tools by category
+  const groupedTools = filteredTools.reduce((acc, tool) => {
+    const cat = tool.category || 'other';
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(tool);
+    return acc;
+  }, {} as Record<string, ToolInfo[]>);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-card border shadow-lg rounded-lg max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="p-4 border-b bg-muted/30">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <span>{view === 'tools' ? '🔧' : '⚡'}</span>
+              <span>{view === 'tools' ? 'Available Tools' : 'Loaded Skills'}</span>
+            </h3>
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* View tabs */}
+        <div className="px-4 py-2 border-b flex gap-2">
+          <button
+            onClick={() => setView('tools')}
+            className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 ${
+              view === 'tools' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'
+            }`}
+          >
+            <span>🔧</span>
+            <span>Tools</span>
+            <span className="text-xs opacity-70">({tools.length})</span>
+          </button>
+          <button
+            onClick={() => setView('skills')}
+            className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 ${
+              view === 'skills' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'
+            }`}
+          >
+            <span>⚡</span>
+            <span>Skills</span>
+            <span className="text-xs opacity-70">({skills.length})</span>
+          </button>
+        </div>
+
+        {/* Filter (tools view) */}
+        {view === 'tools' && (
+          <div className="px-4 py-2 border-b flex gap-2 text-xs">
+            <button
+              onClick={() => setFilter('all')}
+              className={`px-2 py-1 rounded ${filter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'}`}
+            >
+              全部
+            </button>
+            <button
+              onClick={() => setFilter('file')}
+              className={`px-2 py-1 rounded ${filter === 'file' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'}`}
+            >
+              📁 文件
+            </button>
+            <button
+              onClick={() => setFilter('search')}
+              className={`px-2 py-1 rounded ${filter === 'search' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'}`}
+            >
+              🔍 搜索
+            </button>
+            <button
+              onClick={() => setFilter('web')}
+              className={`px-2 py-1 rounded ${filter === 'web' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'}`}
+            >
+              🌐 Web
+            </button>
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="text-center text-muted-foreground py-8">
+              <div className="animate-spin text-2xl mb-2">⏳</div>
+              <span className="text-sm">加载中...</span>
+            </div>
+          ) : view === 'tools' ? (
+            // Tools view - grouped by category
+            Object.entries(groupedTools).map(([category, categoryTools]) => (
+              <div key={category} className="mb-4">
+                <div className="flex items-center gap-2 mb-2 text-sm font-medium text-muted-foreground">
+                  <span>{CATEGORY_ICONS[category] || '🔧'}</span>
+                  <span className="capitalize">{category}</span>
+                  <span className="text-xs">({categoryTools.length})</span>
+                </div>
+                <div className="space-y-1.5">
+                  {categoryTools.map((tool) => (
+                    <div
+                      key={tool.name}
+                      className="p-2 rounded border hover:bg-accent/30 transition-colors"
+                    >
+                      <div className="font-medium text-sm">{tool.name}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {tool.description}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : (
+            // Skills view
+            <div className="space-y-2">
+              {skills.map((skill) => (
+                <div
+                  key={skill.name}
+                  className={`p-3 rounded-lg border ${
+                    skill.enabled ? 'bg-accent/10 border-primary/30' : 'bg-muted/30'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">⚡</span>
+                    <span className="font-medium">{skill.name}</span>
+                    {skill.enabled && (
+                      <span className="px-1.5 py-0.5 bg-green-500/10 text-green-500 text-xs rounded">
+                        已加载
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {skill.description}
+                  </div>
+                  {skill.path && (
+                    <div className="text-xs text-muted-foreground font-mono mt-1 truncate">
+                      {skill.path}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t bg-muted/30">
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-muted text-muted-foreground rounded-lg text-sm hover:bg-accent transition-colors"
+            >
+              关闭
+            </button>
+            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground gap-2">
+              <kbd className="px-1.5 py-0.5 bg-muted rounded">/tools</kbd>
+              <kbd className="px-1.5 py-0.5 bg-muted rounded">/skills</kbd>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

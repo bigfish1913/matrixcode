@@ -1,0 +1,242 @@
+import React, { useState, useEffect } from 'react';
+import { useChatStore, type ChatMessage } from '../stores/chatStore';
+
+interface BatchOperationsDialogProps {
+  onClose: () => void;
+}
+
+export function BatchOperationsDialog({ onClose }: BatchOperationsDialogProps) {
+  const messages = useChatStore((s) => s.messages);
+  const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<'all' | 'user' | 'assistant' | 'code' | 'thinking'>('all');
+  const [operation, setOperation] = useState<'copy' | 'export' | 'delete'>('copy');
+
+  // Filter messages
+  const filteredMessages = messages.filter(m => {
+    if (filter === 'all') return true;
+    if (filter === 'user') return m.role === 'user';
+    if (filter === 'assistant') return m.role === 'assistant';
+    if (filter === 'code') return m.content.includes('```');
+    if (filter === 'thinking') return m.thinking && m.thinking.length > 0;
+    return true;
+  });
+
+  // Toggle selection
+  const toggleSelection = (id: string) => {
+    const newSelection = new Set(selectedMessages);
+    if (newSelection.has(id)) {
+      newSelection.delete(id);
+    } else {
+      newSelection.add(id);
+    }
+    setSelectedMessages(newSelection);
+  };
+
+  // Select all filtered
+  const selectAllFiltered = () => {
+    const allIds = new Set(filteredMessages.map(m => m.id));
+    setSelectedMessages(allIds);
+  };
+
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedMessages(new Set());
+  };
+
+  // Execute operation
+  const executeOperation = async () => {
+    const selected = messages.filter(m => selectedMessages.has(m.id));
+
+    if (operation === 'copy') {
+      // Copy all selected content
+      const content = selected.map(m => {
+        let text = `[${m.role.toUpperCase()}]\n${m.content}`;
+        if (m.thinking) {
+          text += `\n[THINKING]\n${m.thinking}`;
+        }
+        if (m.toolName) {
+          text += `\n[TOOL: ${m.toolName}]`;
+        }
+        return text;
+      }).join('\n\n---\n\n');
+
+      await navigator.clipboard.writeText(content);
+      onClose();
+    } else if (operation === 'export') {
+      // Export as JSON
+      const exportData = selected.map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        thinking: m.thinking,
+        toolName: m.toolName,
+        timestamp: m.timestamp,
+      }));
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `matrixcode-messages-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onClose();
+    } else if (operation === 'delete') {
+      // TODO: Implement delete (need backend support)
+      console.log('Delete selected:', selected.map(m => m.id));
+      onClose();
+    }
+  };
+
+  // Role icons
+  const ROLE_ICONS: Record<string, string> = {
+    user: '👤',
+    assistant: '🤖',
+    tool: '🔧',
+    error: '❌',
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-card border shadow-lg rounded-lg max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="p-4 border-b bg-muted/30">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <span>📦</span>
+              <span>Batch Operations</span>
+            </h3>
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
+            批量选择和操作多条消息
+          </p>
+        </div>
+
+        {/* Filters and operations */}
+        <div className="px-4 py-2 border-b flex gap-2 flex-wrap">
+          {/* Filter buttons */}
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as any)}
+            className="px-3 py-1.5 bg-muted rounded text-xs outline-none"
+          >
+            <option value="all">全部消息</option>
+            <option value="user">👤 用户</option>
+            <option value="assistant">🤖 助手</option>
+            <option value="code">💻 含代码</option>
+            <option value="thinking">💭 含思考</option>
+          </select>
+
+          {/* Operation buttons */}
+          <select
+            value={operation}
+            onChange={(e) => setOperation(e.target.value as any)}
+            className="px-3 py-1.5 bg-muted rounded text-xs outline-none"
+          >
+            <option value="copy">📋 复制</option>
+            <option value="export">📤 导出</option>
+            <option value="delete">🗑️ 删除</option>
+          </select>
+
+          {/* Selection actions */}
+          <button
+            onClick={selectAllFiltered}
+            className="px-3 py-1.5 bg-primary/10 text-primary rounded text-xs hover:bg-primary/20 transition-colors"
+          >
+            选择全部 ({filteredMessages.length})
+          </button>
+          <button
+            onClick={clearSelection}
+            className="px-3 py-1.5 bg-muted rounded text-xs hover:bg-accent transition-colors"
+          >
+            清除选择
+          </button>
+        </div>
+
+        {/* Selection count */}
+        {selectedMessages.size > 0 && (
+          <div className="px-4 py-2 bg-primary/10 border-b text-xs text-primary">
+            已选择 {selectedMessages.size} 条消息
+          </div>
+        )}
+
+        {/* Message list */}
+        <div className="flex-1 overflow-y-auto">
+          {filteredMessages.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">
+              <div className="text-4xl mb-2">📭</div>
+              <span className="text-sm">没有符合条件的消息</span>
+            </div>
+          ) : (
+            filteredMessages.map((message) => (
+              <div
+                key={message.id}
+                onClick={() => toggleSelection(message.id)}
+                className={`px-4 py-2 cursor-pointer border-b transition-colors ${
+                  selectedMessages.has(message.id) ? 'bg-primary/10' : 'hover:bg-accent/30'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  {/* Checkbox */}
+                  <input
+                    type="checkbox"
+                    checked={selectedMessages.has(message.id)}
+                    onChange={() => toggleSelection(message.id)}
+                    className="mt-0.5"
+                  />
+
+                  {/* Role icon */}
+                  <span className="text-lg">
+                    {ROLE_ICONS[message.role] || '💬'}
+                  </span>
+
+                  {/* Content preview */}
+                  <div className="flex-1">
+                    <div className="text-sm truncate">
+                      {message.content.slice(0, 80)}
+                      {message.content.length > 80 && '...'}
+                    </div>
+
+                    {/* Tags */}
+                    <div className="flex gap-1 mt-1">
+                      {message.content.includes('```') && (
+                        <span className="text-xs bg-blue-500/20 text-blue-500 px-1 rounded">代码</span>
+                      )}
+                      {message.thinking && (
+                        <span className="text-xs bg-purple-500/20 text-purple-500 px-1 rounded">思考</span>
+                      )}
+                      {message.toolName && (
+                        <span className="text-xs bg-amber-500/20 text-amber-500 px-1 rounded">
+                          {message.toolName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Execute button */}
+        <div className="p-4 border-t bg-muted/30">
+          <button
+            onClick={executeOperation}
+            disabled={selectedMessages.size === 0}
+            className="w-full px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {operation === 'copy' ? '📋 复制选中内容' :
+             operation === 'export' ? '📤 导出为 JSON' :
+             '🗑️ 删除选中消息'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

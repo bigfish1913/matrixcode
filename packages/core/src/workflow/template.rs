@@ -75,13 +75,15 @@ impl TemplateRenderer {
         let var_pattern = get_var_pattern();
 
         for cap in var_pattern.captures_iter(template) {
-            let full_match = cap.get(0).unwrap().as_str();
-            let var_name = cap.get(1).unwrap().as_str();
+            // Regex pattern guarantees capture groups exist, but handle edge cases gracefully
+            let full_match = cap.get(0).map(|m| m.as_str()).unwrap_or_default();
+            let var_name = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
 
-            if let Some(value) = variables.get(var_name) {
-                let replacement = self.value_to_string(value)?;
-                result = result.replace(full_match, &replacement);
-            }
+            if !full_match.is_empty() && !var_name.is_empty()
+                && let Some(value) = variables.get(var_name) {
+                    let replacement = self.value_to_string(value)?;
+                    result = result.replace(full_match, &replacement);
+                }
         }
 
         Ok(result)
@@ -97,13 +99,14 @@ impl TemplateRenderer {
         let nested_pattern = get_nested_pattern();
 
         for cap in nested_pattern.captures_iter(template) {
-            let full_match = cap.get(0).unwrap().as_str();
-            let path = cap.get(1).unwrap().as_str();
+            let full_match = cap.get(0).map(|m| m.as_str()).unwrap_or_default();
+            let path = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
 
-            if let Some(value) = self.resolve_path(path, variables)? {
-                let replacement = self.value_to_string(&value)?;
-                result = result.replace(full_match, &replacement);
-            }
+            if !full_match.is_empty() && !path.is_empty()
+                && let Some(value) = self.resolve_path(path, variables)? {
+                    let replacement = self.value_to_string(&value)?;
+                    result = result.replace(full_match, &replacement);
+                }
         }
 
         Ok(result)
@@ -119,15 +122,17 @@ impl TemplateRenderer {
         let default_pattern = get_default_pattern();
 
         for cap in default_pattern.captures_iter(template) {
-            let full_match = cap.get(0).unwrap().as_str();
-            let var_name = cap.get(1).unwrap().as_str();
-            let default_value = cap.get(2).unwrap().as_str();
+            let full_match = cap.get(0).map(|m| m.as_str()).unwrap_or_default();
+            let var_name = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+            let default_value = cap.get(2).map(|m| m.as_str()).unwrap_or_default();
 
-            let replacement = match variables.get(var_name) {
-                Some(value) => self.value_to_string(value)?,
-                None => default_value.to_string(),
-            };
-            result = result.replace(full_match, &replacement);
+            if !full_match.is_empty() && !var_name.is_empty() {
+                let replacement = match variables.get(var_name) {
+                    Some(value) => self.value_to_string(value)?,
+                    None => default_value.to_string(),
+                };
+                result = result.replace(full_match, &replacement);
+            }
         }
 
         Ok(result)
