@@ -25,25 +25,8 @@ impl Tool for BashTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "bash".to_string(),
-            description: "在当前工作目录执行 shell 命令，返回合并的 stdout + stderr。
-
-IMPORTANT: 当有相关专用工具时，不要用此工具运行命令。使用专用工具更好：
-
-| 命令 | 替代工具 |
-|-----|---------|
-| cat/head/tail | read |
-| sed/awk | edit |
-| echo > file | write |
-| find/ls | glob |
-| grep/rg | search |
-
-将此工具保留用于：
-- 构建、测试、git、包管理器操作
-- 系统命令和终端操作
-- 需要 shell 执行的命令
-
-工作目录在命令间持久，但 shell 状态不持久。
-命令通过 `sh -c` 执行，有超时限制（默认 120s，最大 600s）。"
+            description: "在当前工作目录执行 shell 命令，返回合并的 stdout + stderr。\
+                 用于构建、测试、git、包管理器等操作。命令通过 `sh -c` 执行并有超时限制。"
                 .to_string(),
             parameters: json!({
                 "type": "object",
@@ -97,8 +80,7 @@ IMPORTANT: 当有相关专用工具时，不要用此工具运行命令。使用
             stdout.push_str(&stderr);
         }
 
-        // Filter out ANSI escape sequences that may have leaked from TUI
-        let stdout = filter_ansi_sequences(&truncate_output(stdout));
+        let stdout = truncate_output(stdout);
 
         let code = output.status.code().unwrap_or(-1);
         if !output.status.success() {
@@ -123,29 +105,4 @@ fn truncate_output(mut s: String) -> String {
         MAX_OUTPUT
     ));
     s
-}
-
-/// Filter ANSI escape sequences from output
-/// These can leak from TUI when bash captures output during rendering
-fn filter_ansi_sequences(s: &str) -> String {
-    // Regex to match ANSI escape sequences: ESC [ ... letter
-    // Also matches cursor movement, color codes, clearing, etc.
-    static ANSI_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = ANSI_RE.get_or_init(|| {
-        regex::Regex::new(r"\x1B\[[0-9;]*[A-Za-z]|\x1B\][^\x07]*\x07|\x1B[()][AB012]").unwrap()
-    });
-    
-    // Also filter common control characters that may appear
-    let mut result = String::with_capacity(s.len());
-    for line in s.lines() {
-        let cleaned = re.replace_all(line, "");
-        let cleaned = cleaned.trim();
-        if !cleaned.is_empty() {
-            if !result.is_empty() {
-                result.push('\n');
-            }
-            result.push_str(cleaned);
-        }
-    }
-    result
 }

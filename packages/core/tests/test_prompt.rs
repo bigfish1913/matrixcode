@@ -1,17 +1,32 @@
 use matrixcode_core::prompt::{
-    PromptProfile, PromptSection, SectionBuilder, PromptBuilder, PromptOrchestrator,
-    CACHE_BOUNDARY, build_system_prompt,
+    PromptContext, PromptProfile, PromptSection, SECTION_AVAILABLE_SKILLS, SystemPromptBuilder,
+    build_static_system_prompt,
 };
-use matrixcode_core::skills::Skill;
 
 #[test]
-fn prompt_profile_from_str_works() {
-    assert_eq!(PromptProfile::from_str("default"), PromptProfile::Default);
-    assert_eq!(PromptProfile::from_str("safe"), PromptProfile::Safe);
-    assert_eq!(PromptProfile::from_str("fast"), PromptProfile::Fast);
-    assert_eq!(PromptProfile::from_str("review"), PromptProfile::Review);
-    // Unknown values default to Default
-    assert_eq!(PromptProfile::from_str("unknown"), PromptProfile::Default);
+fn prompt_profile_parses_known_values() {
+    assert_eq!(
+        "default".parse::<PromptProfile>().unwrap(),
+        PromptProfile::Default
+    );
+    assert_eq!(
+        "safe".parse::<PromptProfile>().unwrap(),
+        PromptProfile::Safe
+    );
+    assert_eq!(
+        "fast".parse::<PromptProfile>().unwrap(),
+        PromptProfile::Fast
+    );
+    assert_eq!(
+        "review".parse::<PromptProfile>().unwrap(),
+        PromptProfile::Review
+    );
+}
+
+#[test]
+fn prompt_profile_rejects_unknown_value() {
+    let err = "unknown".parse::<PromptProfile>().unwrap_err();
+    assert!(err.contains("unknown prompt profile"));
 }
 
 #[test]
@@ -20,101 +35,84 @@ fn prompt_profile_default_name_is_stable() {
 }
 
 #[test]
-fn prompt_profile_as_str_works() {
-    assert_eq!(PromptProfile::Default.as_str(), "default");
-    assert_eq!(PromptProfile::Safe.as_str(), "safe");
-    assert_eq!(PromptProfile::Fast.as_str(), "fast");
-    assert_eq!(PromptProfile::Review.as_str(), "review");
+fn safe_profile_omits_execution_policy() {
+    let prompt = build_static_system_prompt(PromptProfile::Safe);
+    assert!(!prompt.contains("执行策略："));
+    assert!(prompt.contains("行为约束："));
+    assert!(prompt.contains("编辑规则："));
 }
 
 #[test]
-fn prompt_section_static_renders_with_named_header() {
-    let section = PromptSection::static_section("TASK CONTEXT", "- current task: review");
+fn fast_profile_omits_behavior_and_editing_rules() {
+    let prompt = build_static_system_prompt(PromptProfile::Fast);
+    assert!(prompt.contains("执行策略："));
+    assert!(!prompt.contains("行为约束："));
+    assert!(!prompt.contains("编辑规则："));
+}
+
+#[test]
+fn review_profile_omits_editing_and_execution_rules() {
+    let prompt = build_static_system_prompt(PromptProfile::Review);
+    assert!(prompt.contains("行为约束："));
+    assert!(!prompt.contains("编辑规则："));
+    assert!(!prompt.contains("执行策略："));
+}
+
+#[test]
+fn prompt_section_renders_with_named_header() {
+    let section = PromptSection::new("TASK CONTEXT", "- current task: review").unwrap();
     assert_eq!(section.render(), "[TASK CONTEXT]\n- current task: review");
 }
 
 #[test]
-fn prompt_section_handles_empty_content() {
-    let section = PromptSection::static_section("EMPTY", "");
-    assert!(section.render().is_empty());
+fn prompt_section_skips_blank_title_or_body() {
+    assert!(PromptSection::new("", "body").is_none());
+    assert!(PromptSection::new("TITLE", "   ").is_none());
 }
 
 #[test]
-fn prompt_section_dynamic_computes_content() {
-    let section = PromptSection::dynamic_section("TIME", || {
-        "current time".to_string()
-    });
-    assert_eq!(section.compute_content(), "current time");
+fn prompt_context_renders_multiple_sections_in_order() {
+    let context = PromptContext::new()
+        .with_section("PROJECT CONTEXT", "- language: Rust")
+        .with_section("TASK CONTEXT", "- mode: explain");
+    assert_eq!(
+        context.render_sections(),
+        vec![
+            "[PROJECT CONTEXT]\n- language: Rust".to_string(),
+            "[TASK CONTEXT]\n- mode: explain".to_string()
+        ]
+    );
 }
 
 #[test]
-fn section_builder_orders_sections() {
-    let sections = SectionBuilder::new()
-        .add_section(PromptSection::static_section("last", "c").with_order(10))
-        .add_section(PromptSection::static_section("first", "a").with_order(1))
-        .add_section(PromptSection::static_section("middle", "b").with_order(5))
+fn builder_appends_named_sections_after_static_prompt() {
+    let prompt = SystemPromptBuilder::new(PromptProfile::Default)
+        .with_section("DYNAMIC", "- foo")
         .build();
-
-    assert_eq!(sections[0].name, "first");
-    assert_eq!(sections[1].name, "middle");
-    assert_eq!(sections[2].name, "last");
+    assert!(prompt.contains("完成要求："));
+    assert!(prompt.ends_with("[DYNAMIC]\n- foo"));
 }
 
 #[test]
-fn prompt_orchestrator_assembles_sections() {
-    let mut orchestrator = PromptOrchestrator::new(std::env::current_dir().unwrap())
-        .with_context_injection(false);
-    orchestrator.add_section(PromptSection::static_section("identity", "You are an AI assistant."));
-
-    let assembled = orchestrator.assemble();
-    assert!(!assembled.prompt.is_empty());
-    assert!(assembled.prompt.contains("identity"));
-    assert!(assembled.cached_sections >= 1);
-}
-
-#[test]
-fn prompt_builder_creates_orchestrator() {
-    let mut orchestrator = PromptBuilder::new(std::env::current_dir().unwrap())
-        .profile(PromptProfile::Default)
-        .add_static("identity", "You are an AI assistant.")
-        .no_context()
+fn builder_accepts_structured_context() {
+    let context = PromptContext::new().with_available_skills("- demo: does stuff");
+    let prompt = SystemPromptBuilder::new(PromptProfile::Default)
+        .with_context(context)
         .build();
-
-    let assembled = orchestrator.assemble();
-    assert!(assembled.prompt.contains("identity"));
+    assert!(prompt.contains(&format!(
+        "[{}]\n- demo: does stuff",
+        SECTION_AVAILABLE_SKILLS
+    )));
 }
 
 #[test]
-fn cache_boundary_separates_cached_and_dynamic() {
-    let mut orchestrator = PromptOrchestrator::new(std::env::current_dir().unwrap())
-        .with_boundary(true)
-        .with_context_injection(false);
-
-    orchestrator.add_section(PromptSection::static_section("cached", "cached content"));
-    orchestrator.add_section(PromptSection::dynamic_section("dynamic", || {
-        "dynamic content".to_string()
-    }));
-
-    let assembled = orchestrator.assemble();
-    assert!(assembled.prompt.contains(CACHE_BOUNDARY));
-
-    let (cached, dynamic) = assembled.split_at_boundary();
-    assert!(cached.is_some());
-    assert!(dynamic.is_some());
-}
-
-#[test]
-fn build_system_prompt_creates_valid_prompt() {
-    let skills: Vec<Skill> = vec![];
-    let prompt = build_system_prompt(&PromptProfile::Default, &skills, None, None);
-
-    // Should contain some expected sections
-    assert!(!prompt.is_empty());
-}
-
-#[test]
-fn prompt_section_estimates_tokens() {
-    let section = PromptSection::static_section("test", "Hello world this is a test");
-    let tokens = section.estimated_tokens();
-    assert!(tokens > 0);
+fn builder_renders_named_skills_section_after_static_prompt() {
+    let prompt = SystemPromptBuilder::new(PromptProfile::Default)
+        .with_available_skills(
+            "Use the `skill` tool with the skill's name to load its full instructions:\n- demo: does stuff",
+        )
+        .build();
+    assert!(prompt.contains("完成要求："));
+    assert!(prompt.contains(&format!("[{}]", SECTION_AVAILABLE_SKILLS)));
+    assert!(prompt.contains("- demo: does stuff"));
 }

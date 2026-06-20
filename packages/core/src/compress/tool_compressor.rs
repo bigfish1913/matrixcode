@@ -5,9 +5,9 @@
 
 use anyhow::Result;
 
+use crate::providers::{ContentBlock, Message, MessageContent};
 use super::summarizer::Summarizer;
 use super::types::{AiCompressionMode, CompressionThresholds};
-use crate::providers::{ContentBlock, Message, MessageContent};
 
 /// Compressor for tool results.
 pub struct ToolCompressor {

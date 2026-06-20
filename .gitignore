@@ -57,5 +57,3 @@ target/
 # Other
 Cargo.lock
 .matrix/
-.codegraph/
-bin/*

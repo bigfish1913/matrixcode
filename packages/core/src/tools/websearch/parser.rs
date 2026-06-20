@@ -22,17 +22,14 @@ pub fn clean_url(url: &str) -> String {
         && let Some(query) = url.split("uddg=").nth(1)
         && let Some(encoded) = query.split('&').next()
     {
-        return urlencoding::decode(encoded)
-            .unwrap_or_default()
-            .into_owned();
+        return urlencoding::decode(encoded).unwrap_or_default().into_owned();
     }
     url.to_string()
 }
 
 /// Strip HTML tags and decode entities
 pub fn strip_html_tags(s: &str) -> String {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| regex::Regex::new(r"<[^>]*>").unwrap());
+    let re = regex::Regex::new(r"<[^>]*>").unwrap();
     let without_tags = re.replace_all(s, "");
 
     without_tags

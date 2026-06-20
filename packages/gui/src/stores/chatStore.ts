@@ -1,6 +1,16 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import {
+  extractToolUseData,
+  extractToolResultData,
+  isErrorData,
+  isUsageData,
+  isProgressData,
+  isTextData,
+  isThinkingData,
+  isToolUseInputData,
+} from '../utils/typeGuards';
 
 // Agent event types matching Rust EventType (snake_case serialized)
 interface AgentEvent {
@@ -10,19 +20,20 @@ interface AgentEvent {
 }
 
 // Event data structures (snake_case keys matching Rust serde)
-interface TextData { delta: string }
-interface ThinkingData { delta: string; signature: string | null }
-interface ToolUseData { id: string; name: string; input?: unknown }
-interface ToolUseInputData { id: string; delta: string }
-interface ToolResultData { tool_use_id: string; name: string; detail?: string; content: string; is_error: boolean }
-interface ErrorData { message: string; code: string | null; source: string | null }
-interface UsageData {
+// Exported for use in type guards and other modules
+export interface TextData { delta: string }
+export interface ThinkingData { delta: string; signature: string | null }
+export interface ToolUseData { id: string; name: string; input?: unknown }
+export interface ToolUseInputData { id: string; delta: string }
+export interface ToolResultData { tool_use_id: string; name: string; detail?: string; content: string; is_error: boolean }
+export interface ErrorData { message: string; code: string | null; source: string | null }
+export interface UsageData {
   input_tokens: number;
   output_tokens: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
 }
-interface ProgressData { message: string; percentage: number | null }
+export interface ProgressData { message: string; percentage: number | null }
 
 export interface ChatMessage {
   id: string;
@@ -36,6 +47,7 @@ export interface ChatMessage {
   thinking?: string;  // Extended thinking content
   isThinkingStreaming?: boolean;  // Thinking is being streamed
   timestamp?: number;  // Message timestamp
+  executionTime?: number;  // Tool execution time in milliseconds (Phase 6 enhancement)
 }
 
 // Ask question dialog state
@@ -408,17 +420,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
             break;
           }
           case 'text_delta': {
-            if (data) {
-              const textData = (data as { text: TextData }).text;
+            if (data && isTextData(data)) {
               const streamingId = get()._streamingMessageId;
+              const deltaText = data.text?.delta || '';
               set((s) => {
                 const msgs = [...s.messages];
-                // Find the streaming message by ID, not just the last one
                 const idx = streamingId ? msgs.findIndex(m => m.id === streamingId) : msgs.length - 1;
                 if (idx >= 0 && msgs[idx]?.isStreaming) {
                   msgs[idx] = {
                     ...msgs[idx],
-                    content: msgs[idx].content + (textData?.delta || ''),
+                    content: msgs[idx].content + deltaText,
                   };
                 }
                 return { messages: msgs };
@@ -483,16 +494,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
             break;
           }
           case 'thinking_delta': {
-            if (data) {
-              const thinkingData = (data as { thinking: ThinkingData }).thinking;
+            if (data && isThinkingData(data)) {
               const streamingId = get()._streamingMessageId;
+              const deltaThinking = data.thinking?.delta || '';
               set((s) => {
                 const msgs = [...s.messages];
                 const idx = streamingId ? msgs.findIndex(m => m.id === streamingId) : msgs.length - 1;
                 if (idx >= 0 && msgs[idx]?.isThinkingStreaming) {
                   msgs[idx] = {
                     ...msgs[idx],
-                    thinking: (msgs[idx].thinking || '') + (thinkingData?.delta || ''),
+                    thinking: (msgs[idx].thinking || '') + deltaThinking,
                   };
                 }
                 return { messages: msgs };
@@ -527,14 +538,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }));
 
             if (data) {
-              // Try to extract tool_use from data, handle both nested and flat formats
-              let toolData: ToolUseData | null = null;
-              if ('tool_use' in data) {
-                toolData = (data as { tool_use: ToolUseData }).tool_use;
-              } else if ('id' in data && 'name' in data) {
-                // Handle flat format (direct fields)
-                toolData = data as unknown as ToolUseData;
-              }
+              const toolData = extractToolUseData(data);
 
               if (toolData) {
                 const msg: ChatMessage = {
@@ -543,6 +547,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   content: '',
                   toolName: toolData.name,
                   toolInput: toolData.input ?? {},
+                  timestamp: Date.now(),
                 };
                 set((s) => ({ messages: [...s.messages, msg] }));
               } else {
@@ -553,15 +558,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           case 'tool_use_input_delta': {
             // Streaming tool input - append to existing tool message
-            if (data) {
-              const inputDelta = (data as { tool_use_input: ToolUseInputData }).tool_use_input;
+            if (data && isToolUseInputData(data)) {
               set((s) => {
                 const msgs = [...s.messages];
-                const toolMsg = msgs.find(m => m.id === inputDelta.id);
+                const toolMsg = msgs.find(m => m.id === data.tool_use_input.id);
                 if (toolMsg && toolMsg.role === 'tool') {
                   // Append delta to tool input JSON string
                   const currentInput = toolMsg.toolInput ? JSON.stringify(toolMsg.toolInput, null, 2) : '';
-                  toolMsg.toolInput = currentInput + inputDelta.delta;
+                  toolMsg.toolInput = currentInput + data.tool_use_input.delta;
                 }
                 return { messages: msgs };
               });
@@ -576,16 +580,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
             set({ activity: { type: 'idle' } });
 
             if (data) {
-              // Try to extract tool_result from data, handle both nested and flat formats
-              let resultData: ToolResultData | null = null;
-              if ('tool_result' in data) {
-                resultData = (data as { tool_result: ToolResultData }).tool_result;
-              } else if ('tool_use_id' in data && 'content' in data) {
-                // Handle flat format
-                resultData = data as unknown as ToolResultData;
-              }
+              const resultData = extractToolResultData(data);
 
               if (resultData) {
+                // Calculate execution time
+                const toolStartMsg = get().messages.find(m => m.id === resultData.tool_use_id);
+                const executionTime = toolStartMsg?.timestamp
+                  ? Date.now() - toolStartMsg.timestamp
+                  : undefined;
+
                 const msg: ChatMessage = {
                   id: nextId(),
                   role: resultData.is_error ? 'error' : 'tool',
@@ -593,6 +596,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   toolName: resultData.name,
                   isToolResult: true,
                   isError: resultData.is_error,
+                  timestamp: Date.now(),
+                  executionTime,
                 };
                 set((s) => ({ messages: [...s.messages, msg] }));
               } else {
@@ -602,12 +607,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
             break;
           }
           case 'error': {
-            if (data) {
-              const errData = (data as { error: ErrorData }).error;
+            if (data && isErrorData(data)) {
               const msg: ChatMessage = {
                 id: nextId(),
                 role: 'error',
-                content: errData.message,
+                content: data.error.message,
                 isError: true,
               };
               set((s) => ({
@@ -620,24 +624,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           case 'usage': {
             // Increment API call counter when usage reported
-            if (data) {
-              const usageData = (data as { usage: UsageData }).usage;
+            if (data && isUsageData(data)) {
               set((s) => ({
-                inputTokens: usageData.input_tokens,
-                outputTokens: usageData.output_tokens,
-                cacheReadTokens: usageData.cache_read_input_tokens ?? 0,
-                cacheCreationTokens: usageData.cache_creation_input_tokens ?? 0,
+                inputTokens: data.usage.input_tokens,
+                outputTokens: data.usage.output_tokens,
+                cacheReadTokens: data.usage.cache_read_input_tokens ?? 0,
+                cacheCreationTokens: data.usage.cache_creation_input_tokens ?? 0,
                 apiCalls: s.apiCalls + 1,
-                progressMessage: null,  // Clear progress when usage is reported
+                progressMessage: null,
               }));
             }
             break;
           }
           case 'progress': {
-            if (data) {
-              const progressData = (data as { progress: ProgressData }).progress;
-              set({ progressMessage: progressData.message });
-              console.log(`Progress: ${progressData.message} (${progressData.percentage}%)`);
+            if (data && isProgressData(data)) {
+              set({ progressMessage: data.progress.message });
+              console.log(`Progress: ${data.progress.message} (${data.progress.percentage}%)`);
             }
             break;
           }
@@ -711,6 +713,179 @@ export const useChatStore = create<ChatState>((set, get) => ({
           case 'lsp_server_status':
             // Infrastructure status events
             break;
+          case 'loop_task_started': {
+            // Loop task started - update state
+            if (data) {
+              const loopData = (data as { loop_task: LoopTask }).loop_task;
+              set({ loopTask: loopData });
+            }
+            break;
+          }
+          case 'loop_task_progress': {
+            // Loop task progress update
+            if (data) {
+              const progressData = (data as { loop_task: { count: number } }).loop_task;
+              set((s) => ({
+                loopTask: s.loopTask ? { ...s.loopTask, count: progressData.count } : null,
+              }));
+            }
+            break;
+          }
+          case 'loop_task_completed': {
+            // Loop task completed or stopped
+            set({ loopTask: null });
+            break;
+          }
+          case 'cron_task_started': {
+            // Cron task started
+            if (data) {
+              const cronData = (data as { cron_task: CronTask }).cron_task;
+              set((s) => ({
+                cronTasks: [...s.cronTasks, cronData],
+              }));
+            }
+            break;
+          }
+          case 'cron_task_list': {
+            // List of active cron tasks
+            if (data) {
+              const listData = (data as { cron_tasks: CronTask[] }).cron_tasks;
+              set({ cronTasks: listData });
+            }
+            break;
+          }
+          case 'cron_task_stopped': {
+            // Cron task stopped
+            if (data) {
+              const stopData = (data as { cron_task_id: number }).cron_task_id;
+              set((s) => ({
+                cronTasks: s.cronTasks.filter(t => t.id !== stopData),
+              }));
+            }
+            break;
+          }
+          case 'workflow_started': {
+            // Workflow execution started
+            if (data) {
+              const workflowData = (data as { workflow: WorkflowState['workflowDef'] }).workflow;
+              set((s) => ({
+                workflowState: {
+                  ...s.workflowState,
+                  visible: true,
+                  workflowDef: workflowData,
+                },
+              }));
+            }
+            break;
+          }
+          case 'workflow_progress': {
+            // Workflow node progress update
+            if (data) {
+              const progressData = (data as { workflow: { nodes: WorkflowNode[]; progress?: number } }).workflow;
+              set((s) => {
+                const workflowDef = s.workflowState.workflowDef;
+                if (workflowDef) {
+                  return {
+                    workflowState: {
+                      ...s.workflowState,
+                      workflowDef: {
+                        ...workflowDef,
+                        nodes: progressData.nodes,
+                      },
+                      progress: progressData.progress,
+                    },
+                  };
+                }
+                return s;
+              });
+            }
+            break;
+          }
+          case 'workflow_completed': {
+            // Workflow execution completed
+            if (data) {
+              const resultData = (data as { workflow: { success: boolean; summary?: string } }).workflow;
+              set((s) => ({
+                workflowState: {
+                  ...s.workflowState,
+                  visible: false,
+                  progress: 100,
+                },
+              }));
+              console.log(`Workflow completed: ${resultData.success ? 'success' : 'failed'}`);
+            }
+            break;
+          }
+          case 'workflow_node_started': {
+            // Individual workflow node started
+            if (data) {
+              const nodeData = (data as { node: { id: string; name: string; type: string; startTime: number } }).node;
+              set((s) => {
+                const workflowDef = s.workflowState.workflowDef;
+                if (workflowDef) {
+                  const nodes = workflowDef.nodes.map(n =>
+                    n.id === nodeData.id
+                      ? { ...n, status: 'running' as WorkflowNodeStatus, startTime: nodeData.startTime }
+                      : n
+                  );
+                  return {
+                    workflowState: {
+                      ...s.workflowState,
+                      workflowDef: { ...workflowDef, nodes },
+                    },
+                  };
+                }
+                return s;
+              });
+            }
+            break;
+          }
+          case 'workflow_node_completed': {
+            // Individual workflow node completed
+            if (data) {
+              const nodeData = (data as { node: { id: string; endTime: number; error?: string } }).node;
+              set((s) => {
+                const workflowDef = s.workflowState.workflowDef;
+                if (workflowDef) {
+                  const nodes = workflowDef.nodes.map(n =>
+                    n.id === nodeData.id
+                      ? {
+                          ...n,
+                          status: nodeData.error ? 'failed' as WorkflowNodeStatus : 'completed' as WorkflowNodeStatus,
+                          endTime: nodeData.endTime,
+                          error: nodeData.error,
+                        }
+                      : n
+                  );
+                  return {
+                    workflowState: {
+                      ...s.workflowState,
+                      workflowDef: { ...workflowDef, nodes },
+                    },
+                  };
+                }
+                return s;
+              });
+            }
+            break;
+          }
+          case 'todo_updated': {
+            // Todo list updated (from TodoWrite tool)
+            if (data) {
+              const todoData = (data as { todos: TodoItem[] }).todos;
+              set({ todos: todoData });
+            }
+            break;
+          }
+          case 'memory_saved': {
+            // Memory saved to disk
+            set((s) => ({ memorySaves: s.memorySaves + 1 }));
+            if (data) {
+              const memoryData = (data as { memory: { key: string; value: string } }).memory;
+              console.log(`Memory saved: ${memoryData.key}`);
+            }
+            break;
+          }
           default:
             // Log unhandled events for debugging instead of silently dropping
             console.debug(`Unhandled event type: ${event_type}`, data);

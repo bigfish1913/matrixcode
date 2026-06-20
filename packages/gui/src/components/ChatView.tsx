@@ -3,6 +3,17 @@ import { useChatStore } from '../stores/chatStore';
 import { MessageBubble } from './MessageBubble';
 import { VirtualScroll } from './VirtualScroll';
 import { useToastContext } from '../contexts/ToastContext';
+import { StatusBar } from './StatusBar';
+import { TodoList } from './TodoList';
+import { AskQuestionDialog } from './AskQuestionDialog';
+import { WorkflowPanel } from './WorkflowPanel';
+import { QuickActionPanel } from './QuickActionPanel';
+import { ModelSwitcherDialog } from './ModelSwitcherDialog';
+// Note: LSP/MCP/CodeGraph panels are imported but managed centrally in App.tsx
+import { MessageContextMenu } from './MessageContextMenu';
+import { formatTokenCount } from '../utils/formatters';
+import { InputShortcuts } from './shared';
+import { useChatInput, useScrollManager } from '../hooks';
 
 // Loading spinner component for thinking state
 function ThinkingIndicator({ message }: { message?: string | null }) {
@@ -116,7 +127,7 @@ function PerformanceIndicator({
   messageCount: number;
   visibleCount: number;
 }) {
-  if (messageCount < 100) return null;
+  if (messageCount < 50) return null; // Lower threshold for better UX
 
   const savedPercentage = Math.round((1 - visibleCount / messageCount) * 100);
 
@@ -141,14 +152,58 @@ export function ChatView() {
   const cacheReadTokens = useChatStore((s) => s.cacheReadTokens);
   const cacheCreationTokens = useChatStore((s) => s.cacheCreationTokens);
   const progressMessage = useChatStore((s) => s.progressMessage);
+  const inputHistory = useChatStore((s) => s.inputHistory);
+  const todos = useChatStore((s) => s.todos);
+  const askQuestion = useChatStore((s) => s.askQuestion);
+  const answerQuestion = useChatStore((s) => s.answerQuestion);
+  const dismissQuestion = useChatStore((s) => s.dismissQuestion);
+  const workflowState = useChatStore((s) => s.workflowState);
+  const toggleWorkflowPanel = useChatStore((s) => s.toggleWorkflowPanel);
 
   const toast = useToastContext();
 
-  const [input, setInput] = useState('');
-  const [useVirtualScroll, setUseVirtualScroll] = useState(false);
+  // Panel visibility states (for StatusBar interactions - managed in App.tsx for actual panels)
+  const [showModelSwitcher, setShowModelSwitcher] = useState(false);
+
+  // Context menu state (matching VSCode extension editor/context menu)
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    selectedText: string;
+    position: { x: number; y: number };
+  }>({
+    visible: false,
+    selectedText: '',
+    position: { x: 0, y: 0 },
+  });
+
+  // Refs must be defined before using them in hooks
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+
+  // Use custom hooks for input and scroll management
+  const {
+    input,
+    setInput,
+    historyIndex,
+    navigateHistoryUp,
+    navigateHistoryDown,
+    resetHistory,
+    addToHistory,
+  } = useChatInput();
+
+  const {
+    autoScroll,
+    scrollOffset,
+    fineScrollUp,
+    fineScrollDown,
+    scrollToBottom,
+    handleScrollEvent,
+  } = useScrollManager(messagesRef);
+
+  const [useVirtualScroll, setUseVirtualScroll] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(true);
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(false);
   const [visibleMessageCount, setVisibleMessageCount] = useState(0);
 
   const stopListening = useChatStore((s) => s.stopListening);
@@ -168,21 +223,18 @@ export function ChatView() {
 
   // Auto-scroll to bottom when new messages arrive or status changes
   useEffect(() => {
-    if (bottomRef.current) {
+    if (autoScroll && bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, status, progressMessage]);
+  }, [messages, status, progressMessage, autoScroll]);
 
   const handleSend = () => {
     const text = input.trim();
     if (!text || status === 'running') return;
     setInput('');
+    addToHistory(text);
+    resetHistory();
     sendMessage(text);
-  };
-
-  const formatTokenCount = (count: number): string => {
-    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-    return String(count);
   };
 
   // Estimate message height for virtual scroll
@@ -215,9 +267,10 @@ export function ChatView() {
         message={message}
         isLast={index === messages.length - 1}
         onRetry={message.isError ? retryLastMessage : undefined}
+        thinkingCollapsed={thinkingCollapsed}
       />
     );
-  }, [retryLastMessage, messages.length]);
+  }, [retryLastMessage, messages.length, thinkingCollapsed]);
 
   // Track visible messages count for performance indicator
   const handleVirtualScroll = useCallback((scrollTop: number) => {
@@ -230,8 +283,46 @@ export function ChatView() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Status bar at top - callbacks trigger panels managed in App.tsx */}
+      <StatusBar
+        onOpenModelSwitcher={() => setShowModelSwitcher(true)}
+        onOpenSettings={() => {
+          // Open settings view (matching VSCode matrixcode.openSettings)
+          // This will switch to settings tab in Sidebar
+          // For now, show model switcher as fallback
+          setShowModelSwitcher(true);
+        }}
+        // Note: MCP/LSP/CodeGraph panels are managed by App.tsx via global shortcuts
+        // These callbacks are optional and will be handled by parent if provided
+      />
+
       {/* Messages area */}
-      <div ref={messagesRef} className="flex-1 overflow-y-auto scrollbar-thin">
+      <div ref={messagesRef} className="flex-1 overflow-y-auto scrollbar-thin"
+        onContextMenu={(e) => {
+          // Handle right-click on messages area (matching VSCode extension editor/context)
+          e.preventDefault();
+
+          // Get selected text from window selection
+          const selection = window.getSelection();
+          const selectedText = selection?.toString() || '';
+
+          if (selectedText.trim()) {
+            setContextMenu({
+              visible: true,
+              selectedText: selectedText.trim(),
+              position: { x: e.clientX, y: e.clientY },
+            });
+          } else {
+            // No text selected - show basic menu or close
+            setContextMenu({
+              visible: false,
+              selectedText: '',
+              position: { x: 0, y: 0 },
+            });
+          }
+        }}
+        onScroll={handleScrollEvent}
+      >
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center animate-fade-in">
@@ -258,6 +349,11 @@ export function ChatView() {
             </div>
 
             <div className="max-w-4xl mx-auto px-4 py-4 pt-16">
+              {/* Todo list (if active during agent run) */}
+              {todos.length > 0 && status === 'running' && (
+                <TodoList todos={todos} maxVisible={5} />
+              )}
+
               {useVirtualScroll ? (
                 /* Virtual scroll for large message lists (performance optimization) */
                 <VirtualScroll
@@ -301,6 +397,22 @@ export function ChatView() {
         </div>
       )}
 
+      {/* Quick action toolbar (aligns with VSCode extension commands) */}
+      {showQuickActions && (
+        <QuickActionPanel
+          onSendMessage={sendMessage}
+          collapsed={false}
+          onToggleCollapse={() => setShowQuickActions(false)}
+        />
+      )}
+      {!showQuickActions && (
+        <QuickActionPanel
+          onSendMessage={sendMessage}
+          collapsed={true}
+          onToggleCollapse={() => setShowQuickActions(true)}
+        />
+      )}
+
       {/* Input area */}
       <div className="border-t p-4">
         <div className="max-w-4xl mx-auto">
@@ -309,13 +421,57 @@ export function ChatView() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              // Enter: send message
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // Arrow Up: navigate input history backwards
+              if (e.key === 'ArrowUp' && !e.shiftKey && textareaRef.current === document.activeElement) {
                 e.preventDefault();
+                navigateHistoryUp();
+              }
+              // Arrow Down: navigate input history forwards
+              else if (e.key === 'ArrowDown' && !e.shiftKey && textareaRef.current === document.activeElement) {
+                e.preventDefault();
+                navigateHistoryDown();
+              }
+              // Enter: send message
+              else if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                resetHistory();
                 handleSend();
               }
+              // Alt+T: Toggle thinking collapse (matching TUI)
+              else if (e.key === 't' && e.altKey) {
+                e.preventDefault();
+                setThinkingCollapsed(prev => !prev);
+              }
+              // Alt+Up/Down: Fine scroll control (matching TUI)
+              else if (e.key === 'ArrowUp' && e.altKey) {
+                e.preventDefault();
+                fineScrollUp();
+              }
+              else if (e.key === 'ArrowDown' && e.altKey) {
+                e.preventDefault();
+                fineScrollDown();
+              }
+              // Ctrl+C: Copy selected text or interrupt agent (matching TUI)
+              else if (e.key === 'c' && e.ctrlKey && !e.altKey && !e.shiftKey) {
+                e.preventDefault();
+                const selection = window.getSelection();
+                const selectedText = selection?.toString() || '';
+                if (selectedText.trim()) {
+                  // Copy selected text to clipboard
+                  try {
+                    navigator.clipboard.writeText(selectedText.trim());
+                    toast.addToast({ type: 'success', message: `📋 已复制 ${selectedText.length} 字符到剪贴板` });
+                  } catch (err) {
+                    toast.addToast({ type: 'error', message: '复制失败' });
+                  }
+                } else if (status === 'running') {
+                  // No text selected and agent is running - interrupt
+                  stopAgent();
+                  toast.addToast({ type: 'warning', message: '⚡ 已中断' });
+                }
+              }
               // Escape: interrupt agent or clear input
-              if (e.key === 'Escape' && !e.shiftKey) {
+              else if (e.key === 'Escape' && !e.shiftKey) {
                 e.preventDefault();
                 if (status === 'running') {
                   // Interrupt agent
@@ -324,10 +480,11 @@ export function ChatView() {
                 } else if (input.trim()) {
                   // Clear input when idle
                   setInput('');
+                  resetHistory();
                 }
               }
               // Shift+Escape: clear pending queue
-              if (e.key === 'Escape' && e.shiftKey) {
+              else if (e.key === 'Escape' && e.shiftKey) {
                 e.preventDefault();
                 const pendingMessages = useChatStore.getState().pendingMessages;
                 if (pendingMessages.length > 0) {
@@ -336,19 +493,23 @@ export function ChatView() {
                 }
               }
             }}
-            placeholder={status === 'running' ? 'Agent is thinking...' : 'Type a message...'}
+            placeholder={status === 'running' ? 'Agent is thinking... (Esc to stop)' : 'Type a message... (↑↓ for history)'}
             disabled={status === 'running'}
+            aria-label="Chat message input"
+            aria-placeholder={status === 'running' ? 'Agent is processing, press Escape to stop' : 'Type your message here'}
+            aria-required="true"
+            aria-busy={status === 'running'}
             className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
             rows={2}
           />
           <div className="flex justify-between items-center mt-2">
-            <span className="text-xs text-muted-foreground">
-              Press Enter to send, Shift+Enter for newline
-            </span>
+            <InputShortcuts />
             <div className="flex gap-2">
               {status === 'running' ? (
                 <button
                   onClick={stopAgent}
+                  aria-label="Stop agent execution"
+                  aria-busy="true"
                   className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg text-sm font-medium hover:bg-destructive/90 transition-colors flex items-center gap-1.5 animate-fade-in"
                 >
                   <StopIcon />
@@ -358,6 +519,8 @@ export function ChatView() {
                 <button
                   onClick={handleSend}
                   disabled={!input.trim()}
+                  aria-label="Send message"
+                  aria-disabled={!input.trim()}
                   className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Send
@@ -367,6 +530,36 @@ export function ChatView() {
           </div>
         </div>
       </div>
+
+      {/* Ask question dialog (when agent needs user input) */}
+      {askQuestion?.isVisible && (
+        <AskQuestionDialog
+          question={askQuestion.question}
+          options={askQuestion.options}
+          onAnswer={answerQuestion}
+          onCancel={dismissQuestion}
+        />
+      )}
+
+      {/* Workflow panel (when workflow is active) */}
+      {workflowState.visible && (
+        <WorkflowPanel
+          workflowState={workflowState}
+          onToggle={toggleWorkflowPanel}
+        />
+      )}
+
+      {/* Dialogs from StatusBar interactions - Note: These are also managed in App.tsx */}
+      {/* Status panels are managed centrally in App.tsx to avoid duplication */}
+
+      {/* Context menu (matching VSCode extension editor/context) */}
+      {contextMenu.visible && (
+        <MessageContextMenu
+          selectedText={contextMenu.selectedText}
+          position={contextMenu.position}
+          onClose={() => setContextMenu({ visible: false, selectedText: '', position: { x: 0, y: 0 } })}
+        />
+      )}
     </div>
   );
 }

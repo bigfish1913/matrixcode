@@ -1,11 +1,7 @@
 //! Memory entry types and categories.
-//!
-//! Supports memory linking with `[[name]]` syntax for cross-referencing
-//! related memories. Links are parsed and can be resolved during retrieval.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 use super::config::*;
 use crate::truncate::{find_boundary, truncate_with_suffix};
@@ -27,21 +23,6 @@ pub(crate) fn truncate(s: &str, max_len: usize) -> String {
         let end = find_boundary(s, max_len);
         s[..end].to_string()
     }
-}
-
-/// Parse `[[name]]` link syntax from content.
-/// Returns a set of linked memory names/IDs.
-pub fn parse_memory_links(content: &str) -> HashSet<String> {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| regex::Regex::new(r"\[\[([^\]]+)\]\]").unwrap());
-    re.captures_iter(content)
-        .map(|c| c[1].trim().to_string())
-        .collect()
-}
-
-/// Check if content contains memory links.
-pub fn has_memory_links(content: &str) -> bool {
-    content.contains("[[") && content.contains("]]")
 }
 
 // ============================================================================
@@ -133,9 +114,6 @@ impl MemoryCategory {
 pub struct MemoryEntry {
     /// Unique identifier.
     pub id: String,
-    /// Short name for linking (optional). Used in `[[name]]` references.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
     /// When the memory was created.
     pub created_at: DateTime<Utc>,
     /// When the memory was last accessed/referenced.
@@ -157,9 +135,6 @@ pub struct MemoryEntry {
     pub tags: Vec<String>,
     /// Whether this memory was manually added by user.
     pub is_manual: bool,
-    /// Related memory IDs/names (extracted from `[[name]]` syntax).
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub related_memories: HashSet<String>,
 }
 
 impl MemoryEntry {
@@ -171,11 +146,8 @@ impl MemoryEntry {
         project_path: Option<String>,
     ) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
-        // Parse links from content
-        let related_memories = parse_memory_links(&content);
         Self {
             id,
-            name: None,
             created_at: Utc::now(),
             last_referenced: Utc::now(),
             category,
@@ -186,21 +158,7 @@ impl MemoryEntry {
             importance: category.default_importance(),
             tags: Vec::new(),
             is_manual: false,
-            related_memories,
         }
-    }
-
-    /// Create a new memory entry with a name (for linking).
-    pub fn with_name(
-        category: MemoryCategory,
-        name: String,
-        content: String,
-        source_session: Option<String>,
-        project_path: Option<String>,
-    ) -> Self {
-        let mut entry = Self::new(category, content, source_session, project_path);
-        entry.name = Some(name);
-        entry
     }
 
     /// Create a manually added memory entry.
@@ -211,36 +169,9 @@ impl MemoryEntry {
         entry
     }
 
-    /// Create a manually added memory entry with name.
-    pub fn manual_with_name(
-        category: MemoryCategory,
-        name: String,
-        content: String,
-        project_path: Option<String>,
-    ) -> Self {
-        let mut entry = Self::manual(category, content, project_path);
-        entry.name = Some(name);
-        entry
-    }
-
     /// Create a manually added memory entry (global, no project path).
     pub fn manual_global(category: MemoryCategory, content: String) -> Self {
         Self::manual(category, content, None)
-    }
-
-    /// Get linked memory names from content.
-    pub fn get_links(&self) -> HashSet<String> {
-        parse_memory_links(&self.content)
-    }
-
-    /// Check if this memory has any links.
-    pub fn has_links(&self) -> bool {
-        has_memory_links(&self.content)
-    }
-
-    /// Update related_memories by re-parsing content.
-    pub fn refresh_links(&mut self) {
-        self.related_memories = parse_memory_links(&self.content);
     }
 
     /// Mark this memory as referenced (increases importance over time).
@@ -264,36 +195,19 @@ impl MemoryEntry {
             ""
         };
         let manual_marker = if self.is_manual { "📝" } else { "" };
-        let link_marker = if self.has_links() { "🔗" } else { "" };
-        let name_display = self.name.as_deref().map(|n| format!("[{}]", n)).unwrap_or_default();
         format!(
-            "{} {} {}{}{}{} {}",
+            "{} {} {}{}{} {}",
             self.category.icon(),
             time,
             importance_marker,
             manual_marker,
-            link_marker,
-            name_display,
+            self.category.display_name(),
             truncate_str(&self.content, MAX_DISPLAY_LENGTH)
         )
     }
 
     /// Format for inclusion in system prompt.
-    /// Note: This is used inside category groups, so we don't repeat the category name.
     pub fn format_for_prompt(&self) -> String {
-        if self.content.len() > MAX_MEMORY_CONTENT_LENGTH {
-            format!(
-                "{}...",
-                truncate(&self.content, MAX_MEMORY_CONTENT_LENGTH - 3)
-            )
-        } else {
-            self.content.clone()
-        }
-    }
-
-    /// Format for inclusion in system prompt with category name.
-    /// Use this when displaying entries outside of category groups.
-    pub fn format_for_prompt_with_category(&self) -> String {
         let category_name = self.category.display_name();
         if self.content.len() > MAX_MEMORY_CONTENT_LENGTH {
             format!(
@@ -304,113 +218,5 @@ impl MemoryEntry {
         } else {
             format!("{}: {}", category_name, self.content)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_memory_links_single() {
-        let content = "使用 [[redis-config]] 进行缓存配置";
-        let links = parse_memory_links(content);
-        assert_eq!(links.len(), 1);
-        assert!(links.contains("redis-config"));
-    }
-
-    #[test]
-    fn test_parse_memory_links_multiple() {
-        let content = "参考 [[api-design]] 和 [[database-schema]] 进行开发";
-        let links = parse_memory_links(content);
-        assert_eq!(links.len(), 2);
-        assert!(links.contains("api-design"));
-        assert!(links.contains("database-schema"));
-    }
-
-    #[test]
-    fn test_parse_memory_links_no_links() {
-        let content = "这是一条普通记忆，没有链接";
-        let links = parse_memory_links(content);
-        assert!(links.is_empty());
-    }
-
-    #[test]
-    fn test_parse_memory_links_with_spaces() {
-        let content = "参考 [[  spaced-name  ]] 进行开发";
-        let links = parse_memory_links(content);
-        assert!(links.contains("spaced-name")); // trimmed
-    }
-
-    #[test]
-    fn test_has_memory_links() {
-        assert!(has_memory_links("参考 [[config]] 设置"));
-        assert!(!has_memory_links("没有链接的记忆"));
-    }
-
-    #[test]
-    fn test_memory_entry_extract_links_on_creation() {
-        let entry = MemoryEntry::new(
-            MemoryCategory::Decision,
-            "使用 [[redis]] 作为缓存，参考 [[config-pattern]]".to_string(),
-            None,
-            None,
-        );
-        assert_eq!(entry.related_memories.len(), 2);
-        assert!(entry.related_memories.contains("redis"));
-        assert!(entry.related_memories.contains("config-pattern"));
-    }
-
-    #[test]
-    fn test_memory_entry_with_name() {
-        let entry = MemoryEntry::with_name(
-            MemoryCategory::Technical,
-            "api-endpoints".to_string(),
-            "API 端点定义".to_string(),
-            None,
-            None,
-        );
-        assert_eq!(entry.name, Some("api-endpoints".to_string()));
-    }
-
-    #[test]
-    fn test_memory_entry_refresh_links() {
-        let mut entry = MemoryEntry::new(
-            MemoryCategory::Decision,
-            "初始内容".to_string(),
-            None,
-            None,
-        );
-        assert!(entry.related_memories.is_empty());
-
-        // Update content with links
-        entry.content = "更新内容，参考 [[new-link]]".to_string();
-        entry.refresh_links();
-        assert!(entry.related_memories.contains("new-link"));
-    }
-
-    #[test]
-    fn test_format_line_with_links() {
-        let entry = MemoryEntry::new(
-            MemoryCategory::Technical,
-            "参考 [[config]] 设置".to_string(),
-            None,
-            None,
-        );
-        let line = entry.format_line();
-        assert!(line.contains("🔗")); // Link marker
-    }
-
-    #[test]
-    fn test_format_line_with_name() {
-        let entry = MemoryEntry::with_name(
-            MemoryCategory::Decision,
-            "cache-decision".to_string(),
-            "决定使用 Redis".to_string(),
-            None,
-            None,
-        );
-        let line = entry.format_line();
-        assert!(line.contains("[cache-decision]"));
     }
 }

@@ -2,15 +2,15 @@
 //!
 //! Renders workflow DAG using Unicode box-drawing characters
 
-use crate::workflow::types::{NodeVisualStatus, WorkflowViewState, node_type_icon};
-use matrixcode_core::workflow::NodeType;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::{Style, Color},
     text::Line,
     widgets::Widget,
 };
+use matrixcode_core::workflow::NodeType;
+use crate::workflow::types::{WorkflowViewState, node_type_icon, NodeVisualStatus};
 
 /// DAG rendering constants
 const NODE_WIDTH: u16 = 16;
@@ -88,23 +88,11 @@ impl<'a> DagWidget<'a> {
         let progress_text = format!("Progress: {}/{} nodes", completed, total);
         let progress_y = area.bottom().saturating_sub(1);
         if progress_y > area.y {
-            buf.set_string(
-                area.x,
-                progress_y,
-                progress_text,
-                Style::default().fg(Color::Gray),
-            );
+            buf.set_string(area.x, progress_y, progress_text, Style::default().fg(Color::Gray));
         }
     }
 
-    fn render_node(
-        &self,
-        id: &str,
-        name: &str,
-        node_type: &NodeType,
-        rect: Rect,
-        buf: &mut Buffer,
-    ) {
+    fn render_node(&self, id: &str, name: &str, node_type: &NodeType, rect: Rect, buf: &mut Buffer) {
         let status = self.state.get_node_status(id);
 
         // Determine colors based on status
@@ -127,21 +115,11 @@ impl<'a> DagWidget<'a> {
         let height = rect.height;
 
         // Top border
-        buf.set_string(
-            rect.x,
-            rect.y,
-            box_chars.0,
-            Style::default().fg(border_color),
-        );
+        buf.set_string(rect.x, rect.y, box_chars.0, Style::default().fg(border_color));
         for x in rect.x + 1..rect.x + width {
             buf.set_string(x, rect.y, box_chars.5, Style::default().fg(border_color));
         }
-        buf.set_string(
-            rect.x + width,
-            rect.y,
-            box_chars.1,
-            Style::default().fg(border_color),
-        );
+        buf.set_string(rect.x + width, rect.y, box_chars.1, Style::default().fg(border_color));
 
         // Content lines (support dynamic height)
         let icon = node_type_icon(node_type);
@@ -155,102 +133,42 @@ impl<'a> DagWidget<'a> {
         // Line 1: Icon + Status + Spinner
         let line1 = format!("{} {}{}", icon, status_icon, spinner);
         let display_line1 = truncate(&line1, width.saturating_sub(2) as usize);
-        buf.set_string(
-            rect.x + 1,
-            rect.y + 1,
-            &display_line1,
-            Style::default().fg(text_color),
-        );
-        buf.set_string(
-            rect.x,
-            rect.y + 1,
-            box_chars.4,
-            Style::default().fg(border_color),
-        );
-        buf.set_string(
-            rect.x + width,
-            rect.y + 1,
-            box_chars.4,
-            Style::default().fg(border_color),
-        );
+        buf.set_string(rect.x + 1, rect.y + 1, &display_line1, Style::default().fg(text_color));
+        buf.set_string(rect.x, rect.y + 1, box_chars.4, Style::default().fg(border_color));
+        buf.set_string(rect.x + width, rect.y + 1, box_chars.4, Style::default().fg(border_color));
 
         // Line 2: Node name
         let display_name = truncate(name, width.saturating_sub(2) as usize);
-        buf.set_string(
-            rect.x + 1,
-            rect.y + 2,
-            &display_name,
-            Style::default().fg(Color::White),
-        );
-        buf.set_string(
-            rect.x,
-            rect.y + 2,
-            box_chars.4,
-            Style::default().fg(border_color),
-        );
-        buf.set_string(
-            rect.x + width,
-            rect.y + 2,
-            box_chars.4,
-            Style::default().fg(border_color),
-        );
+        buf.set_string(rect.x + 1, rect.y + 2, &display_name, Style::default().fg(Color::White));
+        buf.set_string(rect.x, rect.y + 2, box_chars.4, Style::default().fg(border_color));
+        buf.set_string(rect.x + width, rect.y + 2, box_chars.4, Style::default().fg(border_color));
 
         // Additional lines for larger boxes (empty with borders)
         for line in 3..height.saturating_sub(1) {
-            buf.set_string(
-                rect.x,
-                rect.y + line,
-                box_chars.4,
-                Style::default().fg(border_color),
-            );
-            buf.set_string(
-                rect.x + width,
-                rect.y + line,
-                box_chars.4,
-                Style::default().fg(border_color),
-            );
+            buf.set_string(rect.x, rect.y + line, box_chars.4, Style::default().fg(border_color));
+            buf.set_string(rect.x + width, rect.y + line, box_chars.4, Style::default().fg(border_color));
         }
 
         // Bottom border
         let bottom_y = rect.y + height.saturating_sub(1);
-        buf.set_string(
-            rect.x,
-            bottom_y,
-            box_chars.2,
-            Style::default().fg(border_color),
-        );
+        buf.set_string(rect.x, bottom_y, box_chars.2, Style::default().fg(border_color));
         for x in rect.x + 1..rect.x + width {
             buf.set_string(x, bottom_y, box_chars.5, Style::default().fg(border_color));
         }
-        buf.set_string(
-            rect.x + width,
-            bottom_y,
-            box_chars.3,
-            Style::default().fg(border_color),
-        );
+        buf.set_string(rect.x + width, bottom_y, box_chars.3, Style::default().fg(border_color));
     }
 
-    fn render_edge(
-        &self,
-        from_id: &str,
-        to_id: &str,
-        area: Rect,
-        buf: &mut Buffer,
-        start_y: u16,
-        start_x: u16,
-    ) {
+    fn render_edge(&self, from_id: &str, to_id: &str, area: Rect, buf: &mut Buffer, start_y: u16, start_x: u16) {
         let from_pos = self.state.layout.node_positions.get(from_id);
         let to_pos = self.state.layout.node_positions.get(to_id);
 
         if let (Some((from_row, from_col)), Some((to_row, to_col))) = (from_pos, to_pos) {
             // From node bottom center
-            let from_x =
-                area.x + start_x + (*from_col as u16) * (NODE_WIDTH + SPACING_X) + NODE_WIDTH / 2;
+            let from_x = area.x + start_x + (*from_col as u16) * (NODE_WIDTH + SPACING_X) + NODE_WIDTH / 2;
             let from_y = start_y + (*from_row as u16) * (NODE_HEIGHT + SPACING_Y) + NODE_HEIGHT;
 
             // To node top center
-            let to_x =
-                area.x + start_x + (*to_col as u16) * (NODE_WIDTH + SPACING_X) + NODE_WIDTH / 2;
+            let to_x = area.x + start_x + (*to_col as u16) * (NODE_WIDTH + SPACING_X) + NODE_WIDTH / 2;
             let to_y = start_y + (*to_row as u16) * (NODE_HEIGHT + SPACING_Y);
 
             // Draw edge based on relative positions
@@ -320,10 +238,7 @@ fn truncate(s: &str, max_len: usize) -> String {
     if s.chars().count() <= max_len {
         s.to_string()
     } else {
-        s.chars()
-            .take(max_len.saturating_sub(1))
-            .collect::<String>()
-            + "…"
+        s.chars().take(max_len.saturating_sub(1)).collect::<String>() + "…"
     }
 }
 
@@ -352,14 +267,7 @@ pub fn render_progress(state: &WorkflowViewState, area: Rect, buf: &mut Buffer) 
 
     // Title line
     let title = format!("{} [{}]", workflow_name, status_text);
-    buf.set_string(
-        area.x,
-        area.y,
-        title,
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(ratatui::style::Modifier::BOLD),
-    );
+    buf.set_string(area.x, area.y, title, Style::default().fg(Color::White).add_modifier(ratatui::style::Modifier::BOLD));
 
     // Progress bar
     let bar_width = area.width.saturating_sub(22);
@@ -373,32 +281,11 @@ pub fn render_progress(state: &WorkflowViewState, area: Rect, buf: &mut Buffer) 
     buf.set_string(area.x, bar_y, "[", Style::default().fg(Color::Gray));
     for i in 0..bar_width as usize {
         let ch = if i < filled { "█" } else { "░" };
-        let color = if i < filled {
-            Color::Green
-        } else {
-            Color::Gray
-        };
+        let color = if i < filled { Color::Green } else { Color::Gray };
         buf.set_string(area.x + 1 + i as u16, bar_y, ch, Style::default().fg(color));
     }
-    buf.set_string(
-        area.x + 1 + bar_width,
-        bar_y,
-        "]",
-        Style::default().fg(Color::Gray),
-    );
-    buf.set_string(
-        area.x + 2 + bar_width,
-        bar_y,
-        format!(
-            " {}%",
-            if total > 0 {
-                completed * 100 / total
-            } else {
-                0
-            }
-        ),
-        Style::default().fg(Color::Gray),
-    );
+    buf.set_string(area.x + 1 + bar_width, bar_y, "]", Style::default().fg(Color::Gray));
+    buf.set_string(area.x + 2 + bar_width, bar_y, format!(" {}%", if total > 0 { completed * 100 / total } else { 0 }), Style::default().fg(Color::Gray));
 
     // Node status strip
     let strip_y = area.y + 2;
@@ -418,12 +305,7 @@ pub fn render_progress(state: &WorkflowViewState, area: Rect, buf: &mut Buffer) 
             "blue" => Color::Blue,
             _ => Color::Reset,
         };
-        buf.set_string(
-            x,
-            strip_y,
-            format!("{}{}", icon, status_icon),
-            Style::default().fg(color),
-        );
+        buf.set_string(x, strip_y, format!("{}{}", icon, status_icon), Style::default().fg(color));
         x += 4;
     }
 }

@@ -3,9 +3,6 @@
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::lsp::LspServerInfo;
-use crate::tools::codegraph::IndexStatus;
-
 /// Agent event
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentEvent {
@@ -32,7 +29,6 @@ pub enum EventType {
     SessionStarted,
     SessionEnded,
     SessionRestored, // Session loaded from file with token stats
-    HistoryLoaded,   // History messages loaded from session
     NewSession,
     CompressionTriggered,
     CompressionCompleted,
@@ -42,22 +38,11 @@ pub enum EventType {
     Error,
     Usage,
     Progress,
-    ContextSize,       // Update context window size from provider
-    AskQuestion,       // Ask tool: waiting for user input
-    ProxyToolRequest,  // Proxy tool: request external execution
+    ContextSize, // Update context window size from provider
+    AskQuestion, // Ask tool: waiting for user input
+    ProxyToolRequest, // Proxy tool: request external execution
     ProxyToolResponse, // Proxy tool: external execution result
-    DebugLog,          // Debug log entry for TUI debug panel
-    SkillsLoaded,      // Skills loaded notification
-    WorkflowsLoaded,   // Workflows loaded notification
-    McpServerAdded,    // MCP server added
-    QueueProcessed,    // Pending messages processed by Agent
-    McpServerRemoved,  // MCP server removed
-    McpServerStatus,   // MCP server status update
-    LspServerAdded,    // LSP server added
-    LspServerRemoved,  // LSP server removed
-    LspServerStatus,   // LSP server status update
-    SessionsList,      // Session list for interactive selector
-    CodeGraphStatus,   // CodeGraph index status update
+    DebugLog,    // Debug log entry for TUI debug panel
 }
 
 /// Event data
@@ -103,10 +88,6 @@ pub enum EventData {
         total_output_tokens: u64,
         message_count: usize,
     },
-    /// History messages loaded from session
-    HistoryMessages {
-        messages: Vec<HistoryMessage>,
-    },
     Progress {
         message: String,
         percentage: Option<u8>,
@@ -148,61 +129,6 @@ pub enum EventData {
         category: String,
         message: String,
     }, // Debug log entry
-    SkillsLoaded {
-        names: Vec<String>,
-    },
-    WorkflowsLoaded {
-        names: Vec<String>,
-    },
-    McpServerAdded {
-        name: String,
-        tool_count: usize,
-    },
-    QueueProcessed {
-        count: usize,
-        messages: Vec<String>, // Messages that were processed
-    }, // Pending messages processed by Agent
-    McpServerRemoved {
-        name: String,
-    },
-    McpServerStatus {
-        servers: Vec<McpServerInfo>,
-    },
-    LspServerAdded {
-        name: String,
-        language: String,
-    },
-    LspServerRemoved {
-        name: String,
-    },
-    LspServerStatus {
-        servers: Vec<LspServerInfo>,
-    },
-    /// Session list for interactive selector
-    SessionsList {
-        sessions: Vec<SessionListItem>,
-    },
-    /// CodeGraph index status update
-    CodeGraphStatus {
-        status: IndexStatus,
-    },
-}
-
-/// Session list item for display
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SessionListItem {
-    pub short_id: String,
-    pub title: String,      // Session display name
-    pub message_count: usize,
-    pub created_at: String, // Formatted datetime string
-}
-
-/// History message for loading session
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HistoryMessage {
-    pub role: String,       // "user", "assistant", "thinking"
-    pub content: String,
-    pub is_thinking: bool,  // Mark thinking blocks from assistant message
 }
 
 impl AgentEvent {
@@ -329,13 +255,6 @@ impl AgentEvent {
         )
     }
 
-    pub fn queue_processed(count: usize, messages: Vec<String>) -> Self {
-        Self::with_data(
-            EventType::QueueProcessed,
-            EventData::QueueProcessed { count, messages },
-        )
-    }
-
     pub fn usage(input_tokens: u64, output_tokens: u64) -> Self {
         Self::with_data(
             EventType::Usage,
@@ -382,80 +301,7 @@ impl AgentEvent {
             },
         )
     }
-
-    pub fn skills_loaded(names: Vec<String>) -> Self {
-        Self::with_data(EventType::SkillsLoaded, EventData::SkillsLoaded { names })
-    }
-
-    pub fn workflows_loaded(names: Vec<String>) -> Self {
-        Self::with_data(
-            EventType::WorkflowsLoaded,
-            EventData::WorkflowsLoaded { names },
-        )
-    }
-
-    /// MCP server added event
-    pub fn mcp_server_added(name: impl Into<String>, tool_count: usize) -> Self {
-        Self::with_data(
-            EventType::McpServerAdded,
-            EventData::McpServerAdded {
-                name: name.into(),
-                tool_count,
-            },
-        )
-    }
-
-    /// MCP server removed event
-    pub fn mcp_server_removed(name: impl Into<String>) -> Self {
-        Self::with_data(
-            EventType::McpServerRemoved,
-            EventData::McpServerRemoved { name: name.into() },
-        )
-    }
-
-    /// MCP server status update event
-    pub fn mcp_server_status(servers: Vec<McpServerInfo>) -> Self {
-        Self::with_data(
-            EventType::McpServerStatus,
-            EventData::McpServerStatus { servers },
-        )
-    }
-
-    /// LSP server added event
-    pub fn lsp_server_added(name: impl Into<String>, language: impl Into<String>) -> Self {
-        Self::with_data(
-            EventType::LspServerAdded,
-            EventData::LspServerAdded {
-                name: name.into(),
-                language: language.into(),
-            },
-        )
-    }
-
-    /// LSP server removed event
-    pub fn lsp_server_removed(name: impl Into<String>) -> Self {
-        Self::with_data(
-            EventType::LspServerRemoved,
-            EventData::LspServerRemoved { name: name.into() },
-        )
-    }
-
-    /// LSP server status update event
-    pub fn lsp_server_status(servers: Vec<LspServerInfo>) -> Self {
-        Self::with_data(
-            EventType::LspServerStatus,
-            EventData::LspServerStatus { servers },
-        )
-    }
-
-    /// CodeGraph status update event
-    pub fn codegraph_status(status: IndexStatus) -> Self {
-        Self::with_data(
-            EventType::CodeGraphStatus,
-            EventData::CodeGraphStatus { status },
-        )
-    }
-
+    
     /// 创建代理工具请求事件
     pub fn proxy_tool_request(
         request_id: impl Into<String>,
@@ -473,7 +319,7 @@ impl AgentEvent {
             },
         )
     }
-
+    
     /// 创建代理工具响应事件
     pub fn proxy_tool_response(
         request_id: impl Into<String>,
@@ -503,32 +349,6 @@ fn current_timestamp() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
-}
-
-/// MCP server information for status display
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct McpServerInfo {
-    pub name: String,
-    pub is_started: bool,
-    pub tool_count: usize,
-}
-
-impl McpServerInfo {
-    pub fn new(name: impl Into<String>, is_started: bool, tool_count: usize) -> Self {
-        Self {
-            name: name.into(),
-            is_started,
-            tool_count,
-        }
-    }
-
-    pub fn from_status(status: &crate::mcp::ServerStatus) -> Self {
-        Self {
-            name: status.name.clone(),
-            is_started: status.is_started,
-            tool_count: status.tool_count,
-        }
-    }
 }
 
 #[derive(Debug, Default)]

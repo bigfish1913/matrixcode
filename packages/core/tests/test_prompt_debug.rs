@@ -1,6 +1,6 @@
 //! Debug test for system prompt
 
-use matrixcode_core::prompt::{PromptProfile, build_system_prompt_with_workflows};
+use matrixcode_core::prompt::{build_system_prompt_with_workflows, PromptProfile};
 use std::path::PathBuf;
 
 fn get_project_path() -> PathBuf {
@@ -21,7 +21,6 @@ fn test_print_full_system_prompt() {
         None,
         None,
         Some(&project_path),
-        None, // LSP servers not available in test
     );
 
     // Print the full prompt to see its structure

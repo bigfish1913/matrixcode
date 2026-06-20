@@ -23,17 +23,17 @@ pub enum Activity {
 impl Activity {
     pub fn label(&self) -> String {
         match self {
-            Activity::Idle => "就绪".into(),
-            Activity::Thinking => "思考中".into(),
-            Activity::Reading => "读取".into(),
-            Activity::Writing => "写入".into(),
-            Activity::Editing => "编辑".into(),
-            Activity::Searching => "搜索".into(),
-            Activity::Running => "执行".into(),
-            Activity::WebSearch => "网络搜索".into(),
-            Activity::WebFetch => "网络获取".into(),
+            Activity::Idle => "Ready".into(),
+            Activity::Thinking => "Thinking".into(),
+            Activity::Reading => "read".into(),
+            Activity::Writing => "write".into(),
+            Activity::Editing => "edit".into(),
+            Activity::Searching => "search".into(),
+            Activity::Running => "bash".into(),
+            Activity::WebSearch => "websearch".into(),
+            Activity::WebFetch => "webfetch".into(),
             Activity::Tool(name) => name.clone(),
-            Activity::Asking => "等待响应".into(),
+            Activity::Asking => "AWAITING".into(),
         }
     }
 
@@ -79,16 +79,65 @@ pub enum Role {
         name: String,
         detail: Option<String>,
         is_error: bool,
-        is_pending: bool, // Tool is currently executing (not yet completed)
     },
     System,
     Ask, // Approval/question requests - needs prominent display
 }
 
-impl Role {}
+impl Role {
+    #[allow(dead_code)]
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Role::User => "👤",
+            Role::Assistant => "🤖",
+            Role::Thinking => "💭",
+            Role::Tool { is_error, .. } => {
+                if *is_error {
+                    "❌"
+                } else {
+                    "✅"
+                }
+            }
+            Role::System => "⚠️",
+            Role::Ask => "⚡",
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn label(&self) -> String {
+        match self {
+            Role::User => "You".into(),
+            Role::Assistant => "Assistant".into(),
+            Role::Thinking => "Thinking".into(),
+            Role::Tool { name, .. } => name.clone(),
+            Role::System => "System".into(),
+            Role::Ask => "AWAITING".into(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn color(&self) -> Color {
+        match self {
+            Role::User => Color::Green,
+            Role::Assistant => Color::Blue,
+            Role::Thinking => Color::Magenta,
+            Role::Tool { is_error, .. } => {
+                if *is_error {
+                    Color::Red
+                } else {
+                    Color::Cyan
+                }
+            }
+            Role::System => Color::Yellow,
+            Role::Ask => Color::Yellow,
+        }
+    }
+}
 
 /// Ask option for interactive selection
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+#[derive(Default)]
 pub struct AskOption {
     pub id: String,
     pub label: String,
@@ -111,7 +160,7 @@ impl AskOption {
     pub fn other_option() -> Self {
         Self {
             id: "other".to_string(),
-            label: "其他 (自定义)".to_string(),
+            label: "其他 (自定义输入)".to_string(),
             description: Some("输入自定义内容".to_string()),
             selected: false,
             is_submit: false,
@@ -162,5 +211,4 @@ pub struct AskQuestion {
 pub struct Message {
     pub role: Role,
     pub content: String,
-    pub is_pending: bool, // true = 对接中（等待发送），false = 已发送
 }

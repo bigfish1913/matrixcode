@@ -4,18 +4,13 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { ChatMessage } from '../stores/chatStore';
 import { getToolIcon, formatToolName } from '../utils/toolIcons';
+import { formatExecutionTime, formatTime } from '../utils/formatters';
 
 interface Props {
   message: ChatMessage;
   isLast?: boolean;
   onRetry?: () => void;
-}
-
-// Format timestamp to readable time
-function formatTime(timestamp?: number): string {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  thinkingCollapsed?: boolean;  // Global thinking collapse state (matching TUI Alt+T)
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -59,16 +54,20 @@ function MessageCopyButton({ content }: { content: string }) {
   );
 }
 
-export function MessageBubble({ message, isLast = false, onRetry }: Props) {
+export function MessageBubble({ message, isLast = false, onRetry, thinkingCollapsed }: Props) {
   const isUser = message.role === 'user';
   const isError = message.isError || message.role === 'error';
   const isTool = message.role === 'tool';
   const hasThinking = message.thinking && message.thinking.length > 0;
 
-  // Control details open state - default: thinking/tool_call expanded, tool_result collapsed
+  // Control details open state with clearer logic
   const [thinkingOpen, setThinkingOpen] = useState(() => {
-    // Default: open if streaming or new message (no timestamp)
-    return message.isThinkingStreaming || (hasThinking && !message.timestamp);
+    // If global collapse state is set, follow it (highest priority)
+    if (thinkingCollapsed !== undefined) {
+      return !thinkingCollapsed;
+    }
+    // Default: open only when streaming or very short thinking (< 100 chars)
+    return message.isThinkingStreaming || (hasThinking && message.thinking!.length < 100);
   });
   const [toolCallOpen, setToolCallOpen] = useState(true);  // Tool call default open
   const [toolResultOpen, setToolResultOpen] = useState(false);  // Tool result default closed (matching TUI)
@@ -79,6 +78,13 @@ export function MessageBubble({ message, isLast = false, onRetry }: Props) {
       setThinkingOpen(true);  // Auto-expand when streaming
     }
   }, [message.isStreaming, message.isThinkingStreaming, message.id]);
+
+  // Sync with global collapse state when it changes (but not when streaming)
+  useEffect(() => {
+    if (thinkingCollapsed !== undefined && !message.isThinkingStreaming) {
+      setThinkingOpen(!thinkingCollapsed);
+    }
+  }, [thinkingCollapsed, message.isThinkingStreaming]);
 
   let contentNode: ReactNode;
 

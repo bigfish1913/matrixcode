@@ -23,10 +23,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
-use crate::constants::{
-    ANTHROPIC_DEFAULT_BASE_URL, DEFAULT_MAX_TOKENS, MATRIX_DIR, OPENAI_DEFAULT_BASE_URL,
-};
-use crate::mcp::McpServerConfig;
+use crate::constants::{DEFAULT_MAX_TOKENS, ANTHROPIC_DEFAULT_BASE_URL, OPENAI_DEFAULT_BASE_URL, MATRIX_DIR};
 use crate::models::DEFAULT_MAIN_MODEL;
 
 /// Matrixcode configuration file structure.
@@ -89,30 +86,6 @@ pub struct MatrixConfig {
     /// Format: {"Header-Name": "header-value"}
     #[serde(default)]
     pub extra_headers: Option<HashMap<String, String>>,
-
-    /// MCP servers configuration
-    /// Format: {"server_name": McpServerConfig}
-    #[serde(default)]
-    pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
-
-    /// LSP servers configuration
-    /// Format: {"server_name": LspServerConfig}
-    #[serde(default)]
-    pub lsp_servers: Option<HashMap<String, crate::lsp::LspServerConfig>>,
-
-    /// Enable LSP tools globally
-    /// If false, LSP servers won't be loaded and LSP tools won't be available
-    #[serde(default = "default_true")]
-    pub enable_lsp: bool,
-
-    /// Code verification strategy for write operations
-    /// Options: "none" (no verification), "post" (verify after write, default),
-    ///          "pre" (verify before write, block if errors),
-    ///          "pre-quick" (quick syntax check before, full check after)
-    /// When "pre" is enabled, invalid code will be blocked and errors returned to AI
-    /// for automatic correction.
-    #[serde(default = "default_verify_strategy")]
-    pub verify_strategy: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -122,10 +95,7 @@ fn default_max_tokens() -> u32 {
     DEFAULT_MAX_TOKENS
 }
 fn default_approve_mode() -> Option<String> {
-    Some("auto".to_string())
-}
-fn default_verify_strategy() -> Option<String> {
-    Some("post".to_string())
+    Some("ask".to_string())
 }
 
 /// Type alias for compatibility
@@ -235,10 +205,6 @@ impl MatrixConfig {
             fast_model: None,
             approve_mode: Some("ask".to_string()),
             extra_headers: None,
-            mcp_servers: None,
-            lsp_servers: None,
-            enable_lsp: true,
-            verify_strategy: None,
         })
     }
 
@@ -247,43 +213,38 @@ impl MatrixConfig {
     /// Also supports legacy: ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, ANTHROPIC_MODEL
     fn load_from_env() -> Self {
         // Parse EXTRA_HEADERS from env if available (JSON format)
-        let extra_headers = env::var("EXTRA_HEADERS")
-            .ok()
+        let extra_headers = env::var("EXTRA_HEADERS").ok()
             .and_then(|json_str| serde_json::from_str::<HashMap<String, String>>(&json_str).ok());
 
         Self {
             provider: env::var("PROVIDER").ok(),
-            api_key: env::var("API_KEY")
-                .ok()
+            api_key: env::var("API_KEY").ok()
                 .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
                 .or_else(|| env::var("ANTHROPIC_API_KEY").ok()),
-            base_url: env::var("BASE_URL")
-                .ok()
+            base_url: env::var("BASE_URL").ok()
                 .or_else(|| env::var("ANTHROPIC_BASE_URL").ok()),
-            model: env::var("MODEL")
-                .ok()
+            model: env::var("MODEL").ok()
                 .or_else(|| env::var("ANTHROPIC_MODEL").ok())
                 .or_else(|| env::var("MODEL_NAME").ok()),
-            think: env::var("THINK").ok().map(|v| v != "false").unwrap_or(true),
-            markdown: env::var("MARKDOWN")
-                .ok()
+            think: env::var("THINK").ok()
                 .map(|v| v != "false")
                 .unwrap_or(true),
-            max_tokens: env::var("MAX_TOKENS")
-                .ok()
+            markdown: env::var("MARKDOWN").ok()
+                .map(|v| v != "false")
+                .unwrap_or(true),
+            max_tokens: env::var("MAX_TOKENS").ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_MAX_TOKENS),
-            context_size: env::var("CONTEXT_SIZE").ok().and_then(|v| v.parse().ok()),
-            multi_model: env::var("MULTI_MODEL").ok().map(|v| v == "true"),
+            context_size: env::var("CONTEXT_SIZE").ok()
+                .and_then(|v| v.parse().ok()),
+            multi_model: env::var("MULTI_MODEL").ok()
+                .map(|v| v == "true"),
             plan_model: env::var("ANTHROPIC_REASONING_MODEL").ok(),
             compress_model: env::var("ANTHROPIC_DEFAULT_HAIKU_MODEL").ok(),
             fast_model: None,
-            approve_mode: env::var("APPROVE_MODE").ok(), // 移除硬编码兜底，让配置文件优先
+            approve_mode: env::var("APPROVE_MODE").ok()
+                .or(Some("ask".to_string())),
             extra_headers,
-            mcp_servers: None,
-            lsp_servers: None,
-            enable_lsp: true,
-            verify_strategy: env::var("VERIFY_STRATEGY").ok(),
         }
     }
 
@@ -317,11 +278,7 @@ impl MatrixConfig {
             has_env.then_some("env"),
             has_matrix.then_some("~/.matrix/config.json"),
             has_claude.then_some("~/.claude/settings.json"),
-        ]
-        .iter()
-        .flatten()
-        .copied()
-        .collect();
+        ].iter().flatten().copied().collect();
         println!("[config: {}]", sources.join(" + "));
 
         // Merge with correct priority: env > matrix > claude > defaults
@@ -362,12 +319,6 @@ impl MatrixConfig {
             merged.fast_model = merged.fast_model.or(mx.fast_model);
             merged.approve_mode = merged.approve_mode.or(mx.approve_mode);
             merged.extra_headers = merged.extra_headers.or(mx.extra_headers);
-            // MCP servers from matrix config
-            merged.mcp_servers = mx.mcp_servers;
-            // LSP servers from matrix config
-            merged.lsp_servers = mx.lsp_servers;
-            // enable_lsp from matrix config
-            merged.enable_lsp = mx.enable_lsp;
         }
 
         // Env config (highest priority, overrides everything)
@@ -386,10 +337,8 @@ impl MatrixConfig {
         merged.approve_mode = env_config.approve_mode.or(merged.approve_mode);
         merged.extra_headers = env_config.extra_headers.or(merged.extra_headers);
 
-        // Final fallback: if approve_mode is truly unset everywhere (env, config files), use "ask"
-        if merged.approve_mode.is_none() {
-            merged.approve_mode = Some("ask".to_string());
-        }
+        // Ensure approve_mode has a default
+        merged.approve_mode = merged.approve_mode.or(Some("ask".to_string()));
 
         merged
     }
@@ -398,13 +347,11 @@ impl MatrixConfig {
     /// Universal env var: API_KEY (also supports ANTHROPIC_AUTH_TOKEN for compatibility)
     pub fn get_api_key(&self, provider: &str) -> Option<String> {
         // Try universal env var first
-        let env_key = env::var("API_KEY")
-            .ok()
+        let env_key = env::var("API_KEY").ok()
             // Then provider-specific env vars
             .or_else(|| match provider {
                 "openai" => env::var("OPENAI_API_KEY").ok(),
-                _ => env::var("ANTHROPIC_AUTH_TOKEN")
-                    .ok()
+                _ => env::var("ANTHROPIC_AUTH_TOKEN").ok()
                     .or_else(|| env::var("ANTHROPIC_API_KEY").ok()),
             });
         // Finally config file
@@ -414,8 +361,7 @@ impl MatrixConfig {
     /// Get model name, with fallback to environment variable.
     /// Universal env var: MODEL (also supports ANTHROPIC_MODEL for compatibility)
     pub fn get_model(&self, provider: &str) -> String {
-        env::var("MODEL")
-            .ok()
+        env::var("MODEL").ok()
             .or_else(|| env::var("ANTHROPIC_MODEL").ok())
             .or_else(|| env::var("MODEL_NAME").ok())
             .or(self.model.clone())
@@ -428,8 +374,7 @@ impl MatrixConfig {
     /// Get base URL, with fallback to environment variable.
     /// Universal env var: BASE_URL (also supports ANTHROPIC_BASE_URL for compatibility)
     pub fn get_base_url(&self, provider: &str) -> String {
-        env::var("BASE_URL")
-            .ok()
+        env::var("BASE_URL").ok()
             .or_else(|| env::var("ANTHROPIC_BASE_URL").ok())
             .or(self.base_url.clone())
             .unwrap_or_else(|| match provider {
@@ -465,27 +410,24 @@ impl MatrixConfig {
             || env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some()
     }
 
-    /// Get API key with fallback chain (public for subagent use)
-    pub fn resolve_api_key(&self) -> Option<String> {
-        self.api_key
-            .clone()
+    /// Get API key with fallback chain
+    fn resolve_api_key(&self) -> Option<String> {
+        self.api_key.clone()
             .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
             .or_else(|| env::var("API_KEY").ok())
     }
 
     /// Get model with fallback chain
     fn resolve_model(&self) -> String {
-        self.model
-            .clone()
+        self.model.clone()
             .or_else(|| env::var("MODEL").ok())
             .or_else(|| env::var("ANTHROPIC_MODEL").ok())
             .unwrap_or_else(|| DEFAULT_MAIN_MODEL.to_string())
     }
 
-    /// Get base URL with fallback chain (public for subagent use)
-    pub fn resolve_base_url(&self) -> Option<String> {
-        self.base_url
-            .clone()
+    /// Get base URL with fallback chain
+    fn resolve_base_url(&self) -> Option<String> {
+        self.base_url.clone()
             .or_else(|| env::var("BASE_URL").ok())
             .or_else(|| env::var("ANTHROPIC_BASE_URL").ok())
     }
@@ -499,12 +441,11 @@ impl MatrixConfig {
         }
     }
 
-    /// Resolve provider type from config or infer from model (public for subagent use)
-    pub fn resolve_provider_type(&self, model: &str) -> crate::providers::ProviderType {
+    /// Resolve provider type from config or infer from model
+    fn resolve_provider_type(&self, model: &str) -> crate::providers::ProviderType {
         use crate::providers::ProviderType;
 
-        self.provider
-            .clone()
+        self.provider.clone()
             .or_else(|| env::var("PROVIDER").ok())
             .map(|p| match p.to_lowercase().as_str() {
                 "openai" => ProviderType::OpenAI,
@@ -515,12 +456,10 @@ impl MatrixConfig {
 
     /// Create a Provider instance from configuration.
     /// Useful for tools that need AI capabilities but don't have an injected provider.
-    pub fn create_provider_from_env()
-    -> anyhow::Result<std::sync::Arc<dyn crate::providers::Provider>> {
+    pub fn create_provider_from_env() -> anyhow::Result<std::sync::Arc<dyn crate::providers::Provider>> {
         let config = Self::load();
 
-        let api_key = config
-            .resolve_api_key()
+        let api_key = config.resolve_api_key()
             .ok_or_else(|| anyhow::anyhow!("未配置 API key，无法执行 AI 任务"))?;
 
         let model = config.resolve_model();
@@ -532,9 +471,8 @@ impl MatrixConfig {
             api_key,
             model,
             base_url,
-            config.extra_headers.clone(),
-        )
-        .map(std::sync::Arc::from)
+            config.extra_headers.clone()
+        ).map(std::sync::Arc::from)
     }
 }
 
@@ -555,10 +493,6 @@ pub fn create_default_config() -> anyhow::Result<()> {
         fast_model: None,
         approve_mode: Some("ask".to_string()),
         extra_headers: None,
-        mcp_servers: None,
-        lsp_servers: None,
-        enable_lsp: true,
-        verify_strategy: Some("post".to_string()),
     };
 
     config.save()?;
@@ -612,15 +546,6 @@ pub fn create_example_config() -> anyhow::Result<()> {
   "approve_mode": "ask",
   "_approve_mode_comment": "Tool approval: 'ask'=prompt each, 'auto'=approve safe, 'strict'=reject dangerous",
 
-  "verify_strategy": "post",
-  "_verify_strategy_comment": "Code verification strategy for write operations",
-  "_verify_strategy_options": {
-    "none": "No verification",
-    "post": "Verify after write (default, current behavior)",
-    "pre": "Verify before write, block if errors - returns errors to AI for correction",
-    "pre-quick": "Quick syntax check before write, full check after"
-  },
-
   "multi_model": false,
   "_multi_model_comment": "Enable multi-model configuration",
 
@@ -635,10 +560,7 @@ pub fn create_example_config() -> anyhow::Result<()> {
 
   "extra_headers": {},
   "_extra_headers_comment": "Custom HTTP headers for API requests (useful for proxy services)",
-  "_extra_headers_example": {"X-DashScope-SSE": "enable"},
-
-  "enable_lsp": true,
-  "_enable_lsp_comment": "Enable LSP tools. Set false to disable LSP loading (faster startup, less memory)"
+  "_extra_headers_example": {"X-DashScope-SSE": "enable"}
 }"#;
 
     std::fs::write(&path, example)?;
@@ -666,17 +588,12 @@ mod tests {
             fast_model: None,
             approve_mode: None,
             extra_headers: None,
-            mcp_servers: None,
-            lsp_servers: None,
-            enable_lsp: true,
-            verify_strategy: None,
         };
         assert!(config.api_key.is_none());
         assert!(config.model.is_none());
         assert!(config.think);
         assert!(config.markdown);
         assert_eq!(config.max_tokens, 16384);
-        assert!(config.enable_lsp);
     }
 
     #[test]

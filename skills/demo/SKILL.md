@@ -1,7 +1,6 @@
 ---
 name: demo
 description: 演示技能，用于展示 MatrixCode 技能系统
-trigger: 用户说 "/demo" 或 "演示技能"
 ---
 
 # Skill: demo

@@ -46,29 +46,29 @@ export function LoopTaskIndicator({
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="text-primary animate-pulse">●</span>
-              <span className="font-medium text-sm">Loop Task</span>
+              <span className="font-medium text-sm">循环任务</span>
             </div>
             {onStopLoop && (
               <button
                 onClick={onStopLoop}
                 className="text-xs px-2 py-1 hover:bg-destructive hover:text-destructive-foreground rounded transition-colors"
               >
-                Stop
+                停止
               </button>
             )}
           </div>
           <div className="text-xs text-muted-foreground space-y-1">
             <div className="truncate">
-              <span className="font-medium">Message: </span>
+              <span className="font-medium">内容: </span>
               {loopTask.message}
             </div>
             <div className="flex gap-2">
               <span>
-                <span className="font-medium">Interval: </span>
+                <span className="font-medium">间隔: </span>
                 {formatInterval(loopTask.intervalSeconds)}
               </span>
               <span>
-                <span className="font-medium">Count: </span>
+                <span className="font-medium">次数: </span>
                 {loopTask.count}
                 {loopTask.maxCount && ` / ${loopTask.maxCount}`}
               </span>
@@ -93,7 +93,7 @@ export function LoopTaskIndicator({
             <div className="flex items-center gap-2">
               <span className="text-primary animate-pulse">●</span>
               <span className="font-medium text-sm">
-                Cron Tasks ({cronTasks.filter(t => t.isActive).length})
+                定时任务 ({cronTasks.filter(t => t.isActive).length})
               </span>
             </div>
           </div>
@@ -110,12 +110,12 @@ export function LoopTaskIndicator({
                       onClick={() => onStopCron(task.id)}
                       className="text-xs px-1.5 py-0.5 hover:bg-destructive hover:text-destructive-foreground rounded transition-colors ml-2"
                     >
-                      Stop
+                      停止
                     </button>
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  Every {task.minuteInterval}m
+                  每 {task.minuteInterval} 分钟
                 </div>
               </div>
             ))}

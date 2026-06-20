@@ -26,6 +26,7 @@ pub enum WorkflowStatus {
     Cancelled,
 }
 
+
 /// 节点状态
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,6 +44,7 @@ pub enum NodeStatus {
     /// 已跳过
     Skipped,
 }
+
 
 /// 节点执行记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,7 +107,9 @@ impl NodeExecution {
     /// 获取执行时长（毫秒）
     pub fn duration_ms(&self) -> Option<i64> {
         match (self.started_at, self.finished_at) {
-            (Some(start), Some(end)) => Some((end - start).num_milliseconds()),
+            (Some(start), Some(end)) => {
+                Some((end - start).num_milliseconds())
+            }
             _ => None,
         }
     }
@@ -255,10 +259,7 @@ impl WorkflowContext {
 
     /// 检查是否可以继续执行
     pub fn can_continue(&self) -> bool {
-        matches!(
-            self.status,
-            WorkflowStatus::Pending | WorkflowStatus::Running
-        )
+        matches!(self.status, WorkflowStatus::Pending | WorkflowStatus::Running)
     }
 }
 
@@ -268,14 +269,20 @@ mod tests {
 
     #[test]
     fn test_workflow_context_new() {
-        let ctx = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
+        let ctx = WorkflowContext::new(
+            "test-workflow".to_string(),
+            HashMap::new(),
+        );
         assert_eq!(ctx.status, WorkflowStatus::Pending);
         assert!(ctx.current_node_id.is_none());
     }
 
     #[test]
     fn test_workflow_context_lifecycle() {
-        let mut ctx = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
+        let mut ctx = WorkflowContext::new(
+            "test-workflow".to_string(),
+            HashMap::new(),
+        );
 
         ctx.start();
         assert_eq!(ctx.status, WorkflowStatus::Running);
@@ -303,7 +310,10 @@ mod tests {
 
     #[test]
     fn test_pause_resume() {
-        let mut ctx = WorkflowContext::new("test-workflow".to_string(), HashMap::new());
+        let mut ctx = WorkflowContext::new(
+            "test-workflow".to_string(),
+            HashMap::new(),
+        );
 
         ctx.start();
         assert_eq!(ctx.status, WorkflowStatus::Running);

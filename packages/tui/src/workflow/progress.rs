@@ -2,13 +2,12 @@
 //!
 //! Alternative compact display for workflow execution progress
 
-use crate::workflow::types::{WorkflowViewState, node_type_icon};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
-    prelude::Stylize,
+    style::{Style, Color},
 };
+use crate::workflow::types::{WorkflowViewState, node_type_icon};
 
 /// Render compact progress view
 pub fn render_progress_view(state: &WorkflowViewState, area: Rect, buf: &mut Buffer) {
@@ -34,21 +33,13 @@ pub fn render_progress_view(state: &WorkflowViewState, area: Rect, buf: &mut Buf
 
     let title = format!("{} [{}]", def.name, status_label);
     let title_len = title.chars().count() as u16;
-    buf.set_string(
-        area.x,
-        area.y,
-        &title,
-        Style::default().fg(Color::White).bold(),
-    );
+    buf.set_string(area.x, area.y, &title, Style::default().fg(Color::White).bold());
 
     // Progress bar (if we have width)
     if area.width > 30 {
         let (completed, total) = state.progress();
         let bar_start = area.x + title_len + 2;
-        let bar_width = area
-            .width
-            .saturating_sub(bar_start - area.x)
-            .saturating_sub(10);
+        let bar_width = area.width.saturating_sub(bar_start - area.x).saturating_sub(10);
 
         if bar_width > 0 {
             let filled = if total > 0 {
@@ -60,30 +51,11 @@ pub fn render_progress_view(state: &WorkflowViewState, area: Rect, buf: &mut Buf
             buf.set_string(bar_start, area.y, " [", Style::default().fg(Color::Gray));
             for i in 0..bar_width as usize {
                 let ch = if i < filled { "█" } else { "░" };
-                let color = if i < filled {
-                    Color::Green
-                } else {
-                    Color::Gray
-                };
-                buf.set_string(
-                    bar_start + 1 + i as u16,
-                    area.y,
-                    ch,
-                    Style::default().fg(color),
-                );
+                let color = if i < filled { Color::Green } else { Color::Gray };
+                buf.set_string(bar_start + 1 + i as u16, area.y, ch, Style::default().fg(color));
             }
-            buf.set_string(
-                bar_start + 1 + bar_width,
-                area.y,
-                "] ",
-                Style::default().fg(Color::Gray),
-            );
-            buf.set_string(
-                bar_start + 3 + bar_width,
-                area.y,
-                format!("{}/{}", completed, total),
-                Style::default().fg(Color::Gray),
-            );
+            buf.set_string(bar_start + 1 + bar_width, area.y, "] ", Style::default().fg(Color::Gray));
+            buf.set_string(bar_start + 3 + bar_width, area.y, format!("{}/{}", completed, total), Style::default().fg(Color::Gray));
         }
     }
 
@@ -112,12 +84,7 @@ pub fn render_progress_view(state: &WorkflowViewState, area: Rect, buf: &mut Buf
                 _ => Color::Reset,
             };
 
-            buf.set_string(
-                x,
-                node_y,
-                format!("{}{}", type_icon, status_icon),
-                Style::default().fg(color),
-            );
+            buf.set_string(x, node_y, format!("{}{}", type_icon, status_icon), Style::default().fg(color));
             x += 3;
         }
     }

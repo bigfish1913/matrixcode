@@ -4,17 +4,13 @@ mod commands;
 mod constants;
 mod display;
 mod helpers;
-mod terminal;
+mod terminal_mode;
 mod types;
-
-// Legacy module (deprecated - will be removed after migration complete)
-// mod terminal_mode;
 
 use anyhow::Result;
 use clap::Parser;
 use commands::{run_daemon_mode, run_service_mode};
-use terminal::setup::run_terminal_mode;
-use terminal::session::{interactive_resume, list_sessions};
+use terminal_mode::{run_terminal_mode, interactive_resume, list_sessions};
 use types::Cli;
 
 fn main() -> Result<()> {
@@ -36,10 +32,10 @@ fn main() -> Result<()> {
     for path in &env_paths {
         if path.exists()
             && dotenvy::from_path(path).is_ok() {
-            println!("[env: loaded from {}]", path.display());
-            loaded_env = true;
-            break;
-        }
+                println!("[env: loaded from {}]", path.display());
+                loaded_env = true;
+                break;
+            }
     }
 
     if !loaded_env {

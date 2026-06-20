@@ -7,6 +7,20 @@ interface ShortcutHelpProps {
 // Comprehensive shortcuts matching TUI (complete list)
 const SHORTCUT_GROUPS = [
   {
+    category: 'VSCode风格快捷操作',
+    shortcuts: [
+      { key: 'Ctrl/Cmd+Shift+E', description: '解释代码 (需要先在快捷操作面板输入代码)' },
+      { key: 'Ctrl/Cmd+Shift+F', description: '修复代码 (需要先在快捷操作面板输入代码)' },
+      { key: 'Ctrl/Cmd+Shift+T', description: '生成测试 (需要先在快捷操作面板输入代码)' },
+      { key: 'Ctrl/Cmd+Shift+R', description: '重构代码 (需要先在快捷操作面板输入代码)' },
+      { key: 'Alt+E', description: '解释代码 (备用快捷键)' },
+      { key: 'Alt+F', description: '修复代码 (备用快捷键)' },
+      { key: 'Alt+T', description: '生成测试 (备用快捷键)' },
+      { key: 'Alt+R', description: '重构代码 (备用快捷键)' },
+      { key: 'Alt+I', description: '改进代码 (备用快捷键)' },
+    ],
+  },
+  {
     category: '输入编辑',
     shortcuts: [
       { key: 'Enter', description: '发送消息' },
@@ -25,6 +39,7 @@ const SHORTCUT_GROUPS = [
     shortcuts: [
       { key: 'PageUp / PageDown', description: '滚动10行' },
       { key: '▲ / ▼ 按钮', description: '滚动到顶部/底部' },
+      { key: 'Alt+Up / Alt+Down', description: '精细滚动（单行）- TUI对齐' },
       { key: 'End', description: '返回自动滚动' },
       { key: '鼠标滚轮', description: '滚动消息' },
     ],
@@ -37,6 +52,7 @@ const SHORTCUT_GROUPS = [
       { key: 'Alt+W', description: '切换工作流面板' },
       { key: 'Alt+L', description: 'LSP 服务器状态' },
       { key: 'Alt+G', description: 'CodeGraph 状态' },
+      { key: 'Alt+T', description: '切换Thinking折叠状态' },
       { key: '/', description: '打开命令栏' },
       { key: 'Shift+?', description: '显示快捷键帮助' },
       { key: 'Ctrl/Cmd+N', description: '新建会话' },
@@ -51,7 +67,8 @@ const SHORTCUT_GROUPS = [
     shortcuts: [
       { key: 'Esc (运行中)', description: '中断当前操作' },
       { key: 'Shift+Esc', description: '清除待发队列首条' },
-      { key: 'Ctrl/Cmd+C', description: '强制中断' },
+      { key: 'Ctrl/Cmd+C', description: '复制选中文本 或 中断Agent（TUI对齐）' },
+      { key: 'Ctrl/Cmd+C (无选择)', description: '中断Agent' },
     ],
   },
   {
@@ -113,11 +130,12 @@ export function ShortcutHelp({ onClose }: ShortcutHelpProps) {
         <div className="flex items-center justify-between p-4 border-b">
           <h3 className="text-lg font-semibold flex items-center gap-2">
             <span>⌨️</span>
-            <span>Keyboard Shortcuts</span>
+            <span>快捷键列表</span>
           </h3>
           <button
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent transition-colors"
+            aria-label="关闭"
           >
             ✕
           </button>
@@ -160,7 +178,7 @@ export function ShortcutHelp({ onClose }: ShortcutHelpProps) {
             onClick={onClose}
             className="w-full mt-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 transition-colors"
           >
-            Close
+            关闭
           </button>
         </div>
       </div>

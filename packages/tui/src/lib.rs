@@ -2,12 +2,12 @@ mod app;
 mod commands;
 mod draw;
 mod events;
-pub mod image_search;
-pub mod image_utils;
 mod input;
 mod markdown;
 mod types;
 mod utils;
+pub mod image_utils;
+pub mod image_search;
 pub mod workflow;
 
 use anyhow::Result;
@@ -17,7 +17,7 @@ use ratatui::{
     crossterm::{
         cursor::Show,
         event, execute,
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+        terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
     },
 };
 use std::io::Stdout;
@@ -34,12 +34,10 @@ pub(crate) const BORDER_PADDING: usize = 4;
 
 pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
-    // 使用 alternate screen（干净的 TUI 界面）
-    // 启用鼠标捕获用于滚轮滚动 TUI 内部消息
-    // 用户可以用 Shift+鼠标选择文本复制，或 Shift+滚轮滚动终端缓冲区
+    // Clear screen at startup to remove previous terminal content
     execute!(
         std::io::stdout(),
-        EnterAlternateScreen,
+        Clear(ClearType::All),
         event::EnableMouseCapture,
         event::EnableBracketedPaste
     )?;
@@ -48,14 +46,14 @@ pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
 }
 
 pub fn restore_terminal() -> Result<()> {
-    // 先离开 alternate screen，回到主屏幕
+    disable_raw_mode()?;
+    // Clear screen at exit to remove app content
     execute!(
         std::io::stdout(),
-        LeaveAlternateScreen,
+        Clear(ClearType::All),
         event::DisableMouseCapture,
         event::DisableBracketedPaste,
         Show
     )?;
-    disable_raw_mode()?;
     Ok(())
 }

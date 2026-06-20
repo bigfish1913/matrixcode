@@ -6,12 +6,11 @@ use anyhow::Result;
 use matrixcode_core::{
     AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
     create_provider_with_headers, infer_provider_type, providers::Provider,
-    tools::all_tools_full, approval::ApproveMode, prompt::preprocess_with_skills, prompt::ProcessResult,
-    tools::code_quality_hook::VerificationStrategy,
+    tools::all_tools_full, approval::ApproveMode,
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::commands::{handle_init_command, InitCommandResult};
 use crate::constants::{
@@ -78,8 +77,6 @@ pub fn interactive_resume() -> Result<()> {
             skills_dir: None,
             think: Some(true),
             max_tokens: DEFAULT_MAX_TOKENS,
-            mcp: Vec::new(),
-            no_mcp: false,
             command: None,
         };
         return run_terminal_mode(cli);
@@ -102,8 +99,6 @@ pub fn interactive_resume() -> Result<()> {
                 skills_dir: None,
                 think: Some(true),
                 max_tokens: DEFAULT_MAX_TOKENS,
-                mcp: Vec::new(),
-                no_mcp: false,
                 command: None,
             };
             return run_terminal_mode(cli);
@@ -191,8 +186,6 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
     let (task_tx, task_rx) = tokio::sync::mpsc::channel::<String>(TASK_CHANNEL_BUFFER);
     let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(ASK_CHANNEL_BUFFER);
-    // Channel for real-time appended messages during processing
-    let (pending_input_tx, pending_input_rx) = tokio::sync::mpsc::channel::<String>(TASK_CHANNEL_BUFFER);
 
     // Set debug event sender for TUI debug panel
     matrixcode_core::set_debug_event_sender(event_tx.clone());
@@ -207,7 +200,6 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         let mut full = Vec::new();
         let mut api = Vec::new();
         let mut metadata = None;
-        // Start with current dir, then find project root
         let mut effective_path = current_dir.clone();
 
         if let Some(ref mut mgr) = mgr {
@@ -249,15 +241,6 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
                 let _ = mgr.start_new(current_dir.as_deref());
             }
         }
-
-        // Find the true project root (git root or project marker files)
-        if let Some(ref start_path) = effective_path {
-            use matrixcode_core::tools::codegraph::find_project_root;
-            let project_root = find_project_root(start_path);
-            log::info!("Project root detected: {} (from start path: {})", project_root.display(), start_path.display());
-            effective_path = Some(project_root);
-        }
-
         (full, api, mgr, metadata, effective_path)
     };
 
@@ -275,7 +258,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         .approve_mode
         .as_ref()
         .map(|m| ApproveMode::parse(m))
-        .unwrap_or(ApproveMode::Auto);
+        .unwrap_or(ApproveMode::Ask);
 
     let agent_provider = resolve_provider(&config, &agent_model);
 
@@ -292,136 +275,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_skills = skills.clone();
     let agent_shared_approve_mode = shared_approve_mode.clone();
 
-    // Prepare MCP servers configuration
-    let agent_mcp_servers = crate::helpers::prepare_mcp_tools(
-        &cli.mcp,
-        cli.no_mcp,
-        effective_project_path.as_ref(),
-    );
-
-    // Enter runtime context BEFORE spawning agent task
-    let _guard = rt.enter();
-
-    // Create shared watcher handle for dynamic watcher management
-    let watcher_handle_arc = Arc::new(Mutex::new(None::<tokio::task::JoinHandle<()>>));
-
-    // Start CodeGraph watcher for auto-sync (with hidden window on Windows)
-    if let Some(path) = &effective_project_path {
-        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
-
-        // Check if CodeGraph MCP daemon is already running
-        // Multiple detection methods: daemon.pid, daemon.log active, or named pipe
-        let daemon_running = {
-            let mut running = false;
-
-            // Method 1: Check daemon.pid file
-            let daemon_pid_path = path.join(".codegraph").join("daemon.pid");
-            if daemon_pid_path.exists() {
-                running = std::fs::read_to_string(&daemon_pid_path)
-                    .ok()
-                    .and_then(|pid| pid.trim().parse::<u32>().ok())
-                    .map(|pid| {
-                        #[cfg(target_os = "windows")]
-                        {
-                            use std::os::windows::process::CommandExt;
-                            const CREATE_NO_WINDOW: u32 = 0x08000000;
-                            std::process::Command::new("tasklist")
-                                .args(["/FI", &format!("PID eq {}", pid)])
-                                .creation_flags(CREATE_NO_WINDOW)
-                                .output()
-                                .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
-                                .unwrap_or(false)
-                        }
-                        #[cfg(not(target_os = "windows"))]
-                        std::path::Path::new("/proc").join(pid.to_string()).exists()
-                    })
-                    .unwrap_or(false);
-            }
-
-            // Method 2: Check daemon.log for recent activity (last 30 seconds)
-            if !running {
-                let daemon_log_path = path.join(".codegraph").join("daemon.log");
-                if daemon_log_path.exists() {
-                    // Check if log was modified recently (daemon is active)
-                    if let Ok(metadata) = std::fs::metadata(&daemon_log_path) {
-                        if let Ok(modified) = metadata.modified() {
-                            let now = std::time::SystemTime::now();
-                            let elapsed = now.duration_since(modified).unwrap_or(std::time::Duration::MAX);
-                            if elapsed < std::time::Duration::from_secs(60) {
-                                matrixcode_core::debug::debug_log().log("codegraph", "daemon.log recently modified, daemon likely active");
-                                running = true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            running
-        };
-
-        if daemon_running {
-            matrixcode_core::debug::debug_log().log("codegraph", "MCP daemon detected, skipping our watcher to avoid conflict");
-
-            // Send initial status to TUI immediately (pending = 0, daemon handles sync)
-            {
-                use matrixcode_core::tools::codegraph::CodeGraphManager;
-                use matrixcode_core::event::AgentEvent;
-                use matrixcode_core::tools::codegraph::types::PendingChanges;
-                let manager = CodeGraphManager::new(path);
-                if manager.is_initialized() {
-                    if let Ok(mut status) = manager.status() {
-                        // Daemon handles sync automatically, so pending is always 0
-                        status.pending_changes = PendingChanges { added: 0, modified: 0, removed: 0 };
-                        matrixcode_core::debug::debug_log().log("codegraph", &format!(
-                            "initial status: daemon running, nodes={}",
-                            status.node_count
-                        ));
-                        let _ = agent_event_tx.send(AgentEvent::codegraph_status(status)).await;
-                    }
-                }
-            }
-
-            // When daemon is running, start a background task to poll status for TUI
-            let status_event_tx = agent_event_tx.clone();
-            let status_project_path = path.clone();
-            let status_cancel = cancel_token.clone();
-            tokio::spawn(async move {
-                use matrixcode_core::tools::codegraph::CodeGraphManager;
-                use matrixcode_core::event::AgentEvent;
-                use matrixcode_core::tools::codegraph::types::PendingChanges;
-
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
-                loop {
-                    if status_cancel.is_cancelled() {
-                        break;
-                    }
-                    interval.tick().await;
-
-                    // Query status from CodeGraph index (pending = 0, daemon handles sync)
-                    let manager = CodeGraphManager::new(&status_project_path);
-                    if manager.is_initialized() {
-                        if let Ok(mut status) = manager.status() {
-                            status.pending_changes = PendingChanges { added: 0, modified: 0, removed: 0 };
-                            matrixcode_core::debug::debug_log().log("codegraph", &format!(
-                                "daemon status poll: nodes={}",
-                                status.node_count
-                            ));
-                            let _ = status_event_tx.send(AgentEvent::codegraph_status(status)).await;
-                        }
-                    }
-                }
-            });
-        } else {
-            let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
-            let handle = watcher.start_with_status_updates(cancel_token.clone(), agent_event_tx.clone());
-            matrixcode_core::debug::debug_log().log("codegraph", "watcher started with status updates (no MCP daemon detected)");
-            *watcher_handle_arc.lock().unwrap() = Some(handle);
-        }
-    }
-
-    let watcher_handle_for_agent = watcher_handle_arc.clone();
-
-    // Spawn Agent task (after entering runtime context and creating watcher)
+    // Spawn Agent task
     let agent_task = rt.spawn(async move {
         run_agent_task(
             agent_cancel,
@@ -443,23 +297,17 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
             session_mgr_state,
             task_rx,
             ask_rx,
-            watcher_handle_for_agent,
-            agent_mcp_servers,
         ).await;
     });
+
+    // Enter runtime context
+    let _guard = rt.enter();
 
     // Debug mode
     let debug_mode = std::env::var("MATRIXCODE_DEBUG")
         .map(|v| v == "1" || v == "true" || v == "verbose")
         .unwrap_or(cfg!(debug_assertions));
 
-    // Enable debug logging if debug mode is on
-    // Use session ID if available, otherwise generate one
-    if debug_mode {
-        let session_id = session_metadata.as_ref().map(|m| m.id.as_str());
-        matrixcode_core::debug::enable_debug_logging(session_id);
-        log::info!("Debug logging enabled for session: {:?}", session_id);
-    }
     // Setup terminal for TUI
     let mut terminal = setup_terminal()?;
 
@@ -467,14 +315,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token.clone())
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
-        .with_pending_input_tx(pending_input_tx)
-        .with_config(
-            &model,
-            cli.think.unwrap_or(config.think),
-            cli.max_tokens,
-            config.context_size.map(u64::from),
-            config.approve_mode.clone(),
-        )
+        .with_config(&model, cli.think.unwrap_or(config.think), cli.max_tokens, None)
         .with_debug_mode(debug_mode);
 
     // Load restored messages if any
@@ -508,16 +349,6 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         std::mem::drop(agent_task);
     }
 
-    // Cleanup: abort CodeGraph watcher if still running
-    {
-        let handle = watcher_handle_arc.lock().unwrap();
-        if let Some(ref h) = *handle
-            && !h.is_finished() {
-            log::info!("Aborting CodeGraph watcher...");
-            h.abort();
-        }
-    }
-
     result
 }
 
@@ -543,24 +374,8 @@ async fn run_agent_task(
     mut session_mgr: Option<SessionManager>,
     mut task_rx: tokio::sync::mpsc::Receiver<String>,
     ask_rx: tokio::sync::mpsc::Receiver<String>,
-    watcher_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    mcp_servers: Vec<(String, matrixcode_core::mcp::McpServerConfig)>,
 ) {
     log::info!("Agent task: starting");
-
-    // Send skills loaded event
-    let skill_names: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
-    if !skill_names.is_empty() {
-        let _ = event_tx.send(AgentEvent::skills_loaded(skill_names)).await;
-    }
-
-    // Send workflows loaded event
-    use matrixcode_core::workflow::WorkflowRegistry;
-    let registry = WorkflowRegistry::new(project_path.as_ref());
-    let workflow_names: Vec<String> = registry.list().iter().map(|w| w.name.clone()).collect();
-    if !workflow_names.is_empty() {
-        let _ = event_tx.send(AgentEvent::workflows_loaded(workflow_names)).await;
-    }
 
     // Create provider
     let provider = match create_provider_with_headers(
@@ -630,90 +445,26 @@ async fn run_agent_task(
         project_overview.as_ref().map(|o| o.content.as_str()),
         if initial_memory_summary.is_empty() { None } else { Some(&initial_memory_summary) },
         project_path.as_ref(),
-        None, // LSP servers will be injected dynamically when available
     );
-
-    // Create MCP Tool Registry for unified management
-    let mcp_registry = Arc::new(tokio::sync::RwLock::new(matrixcode_core::mcp::McpToolRegistry::new()));
-    
-    // Add MCP servers to registry
-    {
-        let mut registry = mcp_registry.write().await;
-        for (name, server_config) in mcp_servers {
-            registry.add_server(name.clone(), server_config);
-            log::info!("MCP server '{}' added to registry", name);
-        }
-    }
-    
-    // Start all MCP servers and collect tools
-    let mut mcp_tools: Vec<Box<dyn matrixcode_core::tools::Tool>> = Vec::new();
-    {
-        let registry = mcp_registry.read().await;
-        match registry.start_all().await {
-            Ok(server_tools) => {
-                for (name, tools) in server_tools {
-                    log::info!("Connected to '{}' with {} tools", name, tools.len());
-                    
-                    // Send MCP server added event
-                    let _ = event_tx.send(AgentEvent::mcp_server_added(
-                        name.clone(),
-                        tools.len(),
-                    )).await;
-                    
-                    // Convert Arc<McpToolWrapper> to Box<dyn Tool>
-                    for tool in tools {
-                        mcp_tools.push(Box::new((*tool).clone()));
-                    }
-                }
-                
-                // Send overall MCP status after all servers started
-                let statuses = registry.server_status().await;
-                let mcp_infos: Vec<matrixcode_core::event::McpServerInfo> = statuses
-                    .iter()
-                    .map(|(_, s)| matrixcode_core::event::McpServerInfo::from_status(s))
-                    .collect();
-                let _ = event_tx.send(AgentEvent::mcp_server_status(mcp_infos)).await;
-            }
-            Err(e) => {
-                log::error!("Failed to start MCP servers: {}", e);
-                let _ = event_tx.send(AgentEvent::error(
-                    format!("MCP 服务器启动失败: {}", e),
-                    Some("mcp_error".to_string()),
-                    None,
-                )).await;
-            }
-        }
-    }
 
     // Build agent with CodeGraph tools
     let project_path_for_tools = project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let mut base_tools = all_tools_full(
-        Arc::new(skills.clone()),
-        provider.clone_arc(),
-        project_path_for_tools.clone(),
-    );
-    // Add MCP tools
-    base_tools.extend(mcp_tools);
-
     let mut agent = AgentBuilder::new(provider.clone_box())
         .system_prompt(system_prompt)
         .model_name(model.clone())
         .max_tokens(max_tokens)
-        .context_size(config.context_size)
         .think(think)
-        .verify_strategy(VerificationStrategy::from_str(
-            config.verify_strategy.as_deref().unwrap_or("post")
+        .tools(all_tools_full(
+            Arc::new(skills.clone()),
+            provider.clone_arc(),
+            project_path_for_tools,
         ))
-        .tools(base_tools)
-        .project_path(project_path_for_tools)
         .event_tx(event_tx.clone())
         .approve_mode(approve_mode)
         .proxy_executor(
             matrixcode_tui::image_search::create_default_executor(),
             matrixcode_tui::image_search::get_default_proxy_tools()
         )
-        .mcp_registry(mcp_registry)
-        .pending_input_rx(pending_input_rx)
         .build();
 
     agent.set_approve_mode_shared(shared_approve_mode);
@@ -729,18 +480,15 @@ async fn run_agent_task(
     agent.set_cancel_token(cancel_token.clone());
     agent.set_ask_channel(ask_rx);
 
-    // Send CodeGraph status if initialized
+    // Start CodeGraph watcher for auto-sync
     if let Some(ref pp) = project_path {
-        use matrixcode_core::tools::codegraph::CodeGraphManager;
-        let manager = CodeGraphManager::with_auto_detect(pp.as_path());
-        if manager.is_initialized() {
-            if let Ok(status) = manager.status() {
-                let _ = event_tx.send(AgentEvent::codegraph_status(status)).await;
-            }
+        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
+        let watcher = CodeGraphWatcher::new(pp.as_path());
+        let watcher_cancel = cancel_token.clone();
+        if watcher.start(watcher_cancel).is_ok() {
+            log::info!("CodeGraph auto-sync watcher started for: {}", pp.display());
         }
     }
-
-    // CodeGraph watcher is started in main function, not here
 
     let mut turn_count: usize = 0;
 
@@ -779,27 +527,9 @@ async fn run_agent_task(
             continue;
         }
 
-        // Handle /init - check for both "/init" and Git Bash path conversion ("C:/Program Files/Git/init")
-        let is_init_cmd = msg.starts_with("/init")
-            || msg.contains("/init") && (msg.contains("Program Files/Git") || msg.contains("Git/init"));
-        if is_init_cmd {
-            // Normalize the command if it was converted by Git Bash
-            let normalized_msg = if msg.contains("Program Files/Git") || msg.contains("Git/init") {
-                "/init".to_string()
-            } else {
-                msg.clone()
-            };
-            let should_refresh = handle_init_in_task(
-                &event_tx,
-                &normalized_msg,
-                &project_path,
-                provider.as_ref(),
-                &watcher_handle,
-                &cancel_token,
-            ).await;
-            if should_refresh {
-                agent.refresh_codegraph_tools();
-            }
+        // Handle /init
+        if msg.starts_with("/init") {
+            handle_init_in_task(&event_tx, &msg, &project_path, provider.as_ref()).await;
             continue;
         }
 
@@ -829,8 +559,7 @@ async fn run_agent_task(
            && !msg.starts_with("/load") && !msg.starts_with("/mode")
            && !msg.starts_with("/model") && !msg.starts_with("/retry")
            && !msg.starts_with("/history") && !msg.starts_with("/cron")
-           && !msg.starts_with("/config") && !msg.starts_with("/tools")
-           && !msg.starts_with("/system")
+           && !msg.starts_with("/config")
            && msg != "/" {
             let skill_name = msg.trim_start_matches('/');
             if let Some(skill) = skills.iter().find(|s| s.name == skill_name) {
@@ -925,18 +654,6 @@ async fn run_agent_task(
             continue;
         }
 
-        // Handle /tools
-        if msg == "/tools" {
-            handle_tools_in_task(&event_tx, &agent).await;
-            continue;
-        }
-
-        // Handle /system
-        if msg == "/system" {
-            handle_system_in_task(&event_tx, &agent, &config, &model).await;
-            continue;
-        }
-
         // Dynamic memory retrieval
         if let Some(ref mem) = memory {
             let is_first_turn = turn_count == 0;
@@ -991,39 +708,10 @@ async fn run_agent_task(
             }
         }
 
-        // Pre-process: detect skill/workflow triggers with skills
-        let processed_msg = match preprocess_with_skills(&msg, &skills) {
-            ProcessResult::SkillTriggered { skill_id, confidence: _, skill_body } => {
-                log::info!("Skill triggered: {}", skill_id);
-                // If skill body is auto-loaded, inject it directly
-                if let Some(body) = skill_body {
-                    format!(
-                        "# Skill: {}\n\n{}\n\n---\n\n用户原始请求：{}",
-                        skill_id, body, msg
-                    )
-                } else {
-                    // Skill not auto-loaded, inject skill call prompt
-                    format!(
-                        "【系统检测到应使用技能: {}】\n\n请先调用 skill 工具加载此技能，然后立即执行其中的指令。\n\n用户原始请求：{}",
-                        skill_id, msg
-                    )
-                }
-            }
-            ProcessResult::WorkflowTriggered { workflow_id, inputs } => {
-                log::info!("Workflow triggered: {} (inputs: {:?})", workflow_id, inputs);
-                let inputs_json = serde_json::to_string(&inputs).unwrap_or_default();
-                format!(
-                    "【系统检测到应使用工作流: {}】\n\n请先调用 workflow_run 工具执行此工作流，参数如下：{}\n\n用户原始请求：{}",
-                    workflow_id, inputs_json, msg
-                )
-            }
-            ProcessResult::Continue => msg.clone(),
-        };
-
         // Run agent
         turn_count += 1;
 
-        match agent.run(processed_msg).await {
+        match agent.run(msg.clone()).await {
             Ok(_) => {
                 // Auto-save session
                 save_session_after_turn(&event_tx, &mut session_mgr, &mut agent).await;
@@ -1068,18 +756,12 @@ async fn run_agent_task(
 
 // Helper functions for the agent task
 
-/// Handle /init command. Returns true if overview was generated successfully
-/// (indicating CodeGraph may need refresh if it was initialized during the process).
-/// Also starts CodeGraph watcher if daemon is no longer running after init.
-#[allow(clippy::too_many_arguments)]
 async fn handle_init_in_task(
     event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
     msg: &str,
     project_path: &Option<PathBuf>,
     provider: &dyn matrixcode_core::providers::Provider,
-    watcher_handle: &Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    cancel_token: &CancellationToken,
-) -> bool {
+) {
     let result = handle_init_command(msg, project_path.as_deref());
     match result {
         InitCommandResult::Message(msg) => {
@@ -1090,7 +772,6 @@ async fn handle_init_in_task(
                     percentage: None,
                 },
             )).await;
-            false
         }
         InitCommandResult::GenerateOverview => {
             let _ = event_tx.send(AgentEvent::with_data(
@@ -1102,16 +783,13 @@ async fn handle_init_in_task(
             )).await;
 
             if let Some(path) = project_path {
-                // Step 1: Generate project overview
-                let overview_result = matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), provider).await;
-
-                match overview_result {
+                match matrixcode_core::overview::ProjectOverview::generate_with_ai(path.as_path(), provider).await {
                     Ok(overview) => {
                         let _ = event_tx.send(AgentEvent::with_data(
                             matrixcode_core::EventType::Progress,
                             matrixcode_core::EventData::Progress {
                                 message: format!("✓ Project overview generated: {}", overview.path.display()),
-                                percentage: Some(50),
+                                percentage: Some(100),
                             },
                         )).await;
                     }
@@ -1121,125 +799,7 @@ async fn handle_init_in_task(
                             Some("overview_error".into()),
                             None,
                         )).await;
-                        return false;
                     }
-                }
-
-                // Step 2: Initialize CodeGraph if CLI is installed and db doesn't exist
-                use matrixcode_core::tools::codegraph::{
-                    get_codegraph_path, should_inject_codegraph_tools, CodeGraphManager, CodeGraphWatcher
-                };
-
-                let cli_installed = get_codegraph_path().is_some();
-                let db_exists = should_inject_codegraph_tools(path);
-
-                if cli_installed && !db_exists {
-                    let _ = event_tx.send(AgentEvent::with_data(
-                        matrixcode_core::EventType::Progress,
-                        matrixcode_core::EventData::Progress {
-                            message: "🔄 Generating CodeGraph index...".into(),
-                            percentage: Some(60),
-                        },
-                    )).await;
-
-                    let manager = CodeGraphManager::new(path);
-                    match manager.init().await {
-                        Ok(_) => {
-                            // Sync after init
-                            if let Err(e) = manager.sync().await {
-                                log::warn!("CodeGraph sync failed: {}", e);
-                            }
-
-                            // Step 3: Check daemon status and start watcher if no conflict
-                            // Re-check after init - daemon might have stopped or we can start our watcher
-                            {
-                                let mut handle_guard = watcher_handle.lock().unwrap();
-                                let watcher_running = handle_guard.is_some() &&
-                                    handle_guard.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
-
-                                if !watcher_running {
-                                    // Check if daemon is running
-                                    let daemon_pid_path = path.join(".codegraph").join("daemon.pid");
-                                    let daemon_running = if daemon_pid_path.exists() {
-                                        std::fs::read_to_string(&daemon_pid_path)
-                                            .ok()
-                                            .and_then(|pid| pid.trim().parse::<u32>().ok())
-                                            .map(|pid| {
-                                                // On Windows, check if process exists
-                                                #[cfg(target_os = "windows")]
-                                                {
-                                                    use std::os::windows::process::CommandExt;
-                                                    const CREATE_NO_WINDOW: u32 = 0x08000000;
-                                                    std::process::Command::new("tasklist")
-                                                        .args(["/FI", &format!("PID eq {}", pid)])
-                                                        .creation_flags(CREATE_NO_WINDOW)
-                                                        .output()
-                                                        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
-                                                        .unwrap_or(false)
-                                                }
-                                                #[cfg(not(target_os = "windows"))]
-                                                {
-                                                    std::path::Path::new("/proc").join(pid.to_string()).exists()
-                                                }
-                                            })
-                                            .unwrap_or(false)
-                                    } else {
-                                        false
-                                    };
-
-                                    if !daemon_running {
-                                        // No daemon, start our watcher
-                                        let watcher = CodeGraphWatcher::with_auto_detect(path.as_path());
-                                        let handle = watcher.start_with_status_updates(cancel_token.clone(), event_tx.clone());
-                                        log::info!("CodeGraph watcher started after /init with status updates (no MCP daemon detected)");
-                                        *handle_guard = Some(handle);
-                                    } else {
-                                        log::info!("CodeGraph MCP daemon still running after /init, skipping watcher");
-                                    }
-                                }
-                            }
-
-                            let _ = event_tx.send(AgentEvent::with_data(
-                                matrixcode_core::EventType::Progress,
-                                matrixcode_core::EventData::Progress {
-                                    message: "✓ CodeGraph index generated (code analysis tools now available)".into(),
-                                    percentage: Some(100),
-                                },
-                            )).await;
-
-                            // Return true to refresh tools (state changed)
-                            true
-                        }
-                        Err(e) => {
-                            let _ = event_tx.send(AgentEvent::with_data(
-                                matrixcode_core::EventType::Progress,
-                                matrixcode_core::EventData::Progress {
-                                    message: format!("⚠️ CodeGraph generation skipped: {}", e),
-                                    percentage: Some(100),
-                                },
-                            )).await;
-                            false
-                        }
-                    }
-                } else if !cli_installed {
-                    let _ = event_tx.send(AgentEvent::with_data(
-                        matrixcode_core::EventType::Progress,
-                        matrixcode_core::EventData::Progress {
-                            message: "⚠️ CodeGraph CLI not installed. Run 'codegraph install' to enable code analysis tools.".into(),
-                            percentage: Some(100),
-                        },
-                    )).await;
-                    false
-                } else {
-                    // db already exists
-                    let _ = event_tx.send(AgentEvent::with_data(
-                        matrixcode_core::EventType::Progress,
-                        matrixcode_core::EventData::Progress {
-                            message: "✓ CodeGraph index already exists".into(),
-                            percentage: Some(100),
-                        },
-                    )).await;
-                    false
                 }
             } else {
                 let _ = event_tx.send(AgentEvent::error(
@@ -1247,7 +807,6 @@ async fn handle_init_in_task(
                     Some("no_project".into()),
                     None,
                 )).await;
-                false
             }
         }
     }
@@ -1579,207 +1138,6 @@ async fn handle_config_in_task(
     info.push_str(&format!("Think: {}\n", config.think));
     info.push_str(&format!("Max Tokens: {}\n", config.max_tokens));
     let _ = event_tx.send(AgentEvent::progress(info, None)).await;
-}
-
-async fn handle_tools_in_task(
-    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
-    agent: &matrixcode_core::agent::Agent,
-) {
-    let tools = agent.get_tools();
-    let mut info = format!("🔧 Available Tools: {}\n\n", tools.len());
-
-    // Group tools dynamically by category
-    // Use prefix matching for dynamic tools (MCP, proxy, etc.)
-    let mut core_tools: Vec<_> = Vec::new();
-    let mut file_tools: Vec<_> = Vec::new();
-    let mut search_tools: Vec<_> = Vec::new();
-    let mut web_tools: Vec<_> = Vec::new();
-    let mut code_tools: Vec<_> = Vec::new();
-    let mut mcp_tools: Vec<_> = Vec::new();
-    let mut workflow_tools: Vec<_> = Vec::new();
-    let mut other_tools: Vec<_> = Vec::new();
-
-    for tool in tools.iter() {
-        let def = tool.definition();
-        let name = def.name.as_str();
-        let desc = def.description.as_str();
-
-        // Dynamic classification by name prefix or content
-        if name.starts_with("mcp_") || name.starts_with("mcp__") {
-            mcp_tools.push(tool);
-        } else if name.starts_with("workflow_") || name.contains("workflow") {
-            workflow_tools.push(tool);
-        } else if name.starts_with("code_") || desc.contains("CodeGraph") {
-            code_tools.push(tool);
-        } else if name.starts_with("proxy_") || desc.contains("代理") {
-            other_tools.push(tool);  // Proxy tools are special
-        } else {
-            // Static classification for built-in tools
-            match name {
-                "read" | "write" | "edit" | "multi_edit" | "ls" => file_tools.push(tool),
-                "grep" | "glob" | "search" => search_tools.push(tool),
-                "websearch" | "webfetch" => web_tools.push(tool),
-                "bash" | "task" | "todo_write" | "notebook_edit"
-                | "task_create" | "task_get" | "task_list" | "task_stop" => core_tools.push(tool),
-                "ask" | "enter_plan_mode" | "exit_plan_mode" | "monitor" => core_tools.push(tool),
-                _ => other_tools.push(tool),
-            }
-        }
-    }
-
-    if !core_tools.is_empty() {
-        info.push_str("📁 Core:\n");
-        for tool in core_tools.iter().take(12) {
-            let def = tool.definition();
-            info.push_str(&format!("  {} - {}\n", def.name,
-                truncate_description(&def.description, 35)));
-        }
-    }
-
-    if !file_tools.is_empty() {
-        info.push_str("\n📄 File:\n");
-        for tool in file_tools.iter() {
-            let def = tool.definition();
-            info.push_str(&format!("  {} - {}\n", def.name,
-                truncate_description(&def.description, 35)));
-        }
-    }
-
-    if !search_tools.is_empty() {
-        info.push_str("\n🔍 Search:\n");
-        for tool in search_tools.iter() {
-            let def = tool.definition();
-            info.push_str(&format!("  {} - {}\n", def.name,
-                truncate_description(&def.description, 35)));
-        }
-    }
-
-    if !code_tools.is_empty() {
-        info.push_str("\n📊 CodeGraph:\n");
-        for tool in code_tools.iter() {
-            let def = tool.definition();
-            info.push_str(&format!("  {} - {}\n", def.name,
-                truncate_description(&def.description, 35)));
-        }
-    }
-
-    if !web_tools.is_empty() {
-        info.push_str("\n🌐 Web:\n");
-        for tool in web_tools.iter() {
-            let def = tool.definition();
-            info.push_str(&format!("  {} - {}\n", def.name,
-                truncate_description(&def.description, 35)));
-        }
-    }
-
-    if !workflow_tools.is_empty() {
-        info.push_str("\n🔄 Workflow:\n");
-        for tool in workflow_tools.iter().take(10) {
-            let def = tool.definition();
-            info.push_str(&format!("  {} - {}\n", def.name,
-                truncate_description(&def.description, 35)));
-        }
-    }
-
-    if !mcp_tools.is_empty() {
-        info.push_str("\n🔌 MCP:\n");
-        for tool in mcp_tools.iter().take(15) {
-            let def = tool.definition();
-            info.push_str(&format!("  {} - {}\n", def.name,
-                truncate_description(&def.description, 35)));
-        }
-        if mcp_tools.len() > 15 {
-            info.push_str(&format!("  (+ {} more)\n", mcp_tools.len() - 15));
-        }
-    }
-
-    if !other_tools.is_empty() {
-        info.push_str("\n🔧 Other:\n");
-        for tool in other_tools.iter().take(10) {
-            let def = tool.definition();
-            info.push_str(&format!("  {} - {}\n", def.name,
-                truncate_description(&def.description, 35)));
-        }
-        if other_tools.len() > 10 {
-            info.push_str(&format!("  (+ {} more)\n", other_tools.len() - 10));
-        }
-    }
-
-    let _ = event_tx.send(AgentEvent::progress(info, None)).await;
-}
-
-async fn handle_system_in_task(
-    event_tx: &tokio::sync::mpsc::Sender<AgentEvent>,
-    agent: &matrixcode_core::agent::Agent,
-    config: &Config,
-    model: &str,
-) {
-    let mut info = "📋 System Information:\n\n".to_string();
-
-    // Configuration
-    info.push_str("⚙️ Configuration:\n");
-    info.push_str(&format!("  Provider: {}\n", config.provider.as_deref().unwrap_or("auto")));
-    info.push_str(&format!("  Model: {}\n", model));
-    info.push_str(&format!("  Think: {}\n", config.think));
-    info.push_str(&format!("  Max Tokens: {}\n", config.max_tokens));
-    info.push_str(&format!("  Context Size: {}\n", config.context_size.unwrap_or(0)));
-    info.push_str(&format!("  Approve Mode: {}\n", config.approve_mode.as_deref().unwrap_or("ask")));
-
-    // System prompt summary (clean up markdown tables)
-    let system_prompt = agent.get_system_prompt();
-    let clean_prompt = clean_markdown_tables(system_prompt);
-    let prompt_preview = if clean_prompt.len() > 500 {
-        format!("{}... ({} chars total)",
-            &clean_prompt[..500], clean_prompt.len())
-    } else {
-        clean_prompt
-    };
-    info.push_str(&format!("\n📝 System Prompt Preview:\n{}\n", prompt_preview));
-
-    // Tools count
-    let tools = agent.get_tools();
-    info.push_str(&format!("\n🔧 Tools: {} available\n", tools.len()));
-
-    // Message count
-    let messages = agent.get_messages();
-    info.push_str(&format!("💬 Messages: {} in history\n", messages.len()));
-
-    // Token stats
-    let (input_tokens, output_tokens) = agent.get_token_counts();
-    info.push_str(&format!("📊 Tokens: {} in, {} out\n", input_tokens, output_tokens));
-
-    let _ = event_tx.send(AgentEvent::progress(info, None)).await;
-}
-
-fn truncate_description(desc: &str, max_len: usize) -> String {
-    // Take only the first line as short description (avoid markdown tables etc.)
-    let first_line = desc.lines().next().unwrap_or(desc);
-
-    // Truncate by characters (not bytes) to avoid UTF-8 boundary issues
-    let chars: Vec<char> = first_line.chars().collect();
-    if chars.len() > max_len {
-        chars[..max_len.saturating_sub(3)].iter().collect::<String>() + "..."
-    } else {
-        first_line.to_string()
-    }
-}
-
-fn clean_markdown_tables(text: &str) -> String {
-    // Remove markdown table formatting to prevent display issues in TUI
-    text.lines()
-        .filter(|line| {
-            // Skip table header separator lines (|---|)
-            !line.trim().starts_with("|---")
-            // Skip lines that are mostly table separators
-            && line.trim().chars().filter(|c| *c == '|').count() <= 3
-        })
-        .map(|line| {
-            // Remove table column separators but keep content
-            line.replace("|", " ").trim().to_string()
-        })
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 // Post-run handling functions

@@ -53,7 +53,7 @@ export function AskQuestionDialog({ question, options, onAnswer, onCancel }: Ask
         {/* Header */}
         <div className="flex items-center gap-2 pb-3 border-b">
           <span className="text-2xl">❓</span>
-          <h3 className="text-lg font-semibold">Agent Question</h3>
+          <h3 className="text-lg font-semibold">Agent 提问</h3>
         </div>
 
         {/* Question */}
@@ -65,7 +65,7 @@ export function AskQuestionDialog({ question, options, onAnswer, onCancel }: Ask
         {hasOptions ? (
           <div className="space-y-2">
             <label className="text-sm font-medium text-muted-foreground">
-              Choose an option:
+              选择一个选项：
             </label>
             <div className="space-y-1.5">
               {parsedOptions.map(({ key, label }) => (
@@ -87,12 +87,12 @@ export function AskQuestionDialog({ question, options, onAnswer, onCancel }: Ask
         ) : (
           <div className="space-y-2">
             <label className="text-sm font-medium text-muted-foreground">
-              Your answer:
+              您的回答：
             </label>
             <textarea
               value={customAnswer}
               onChange={(e) => setCustomAnswer(e.target.value)}
-              placeholder="Type your answer here..."
+              placeholder="在此输入您的回答..."
               className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[80px] resize-none"
               autoFocus
             />
@@ -106,7 +106,7 @@ export function AskQuestionDialog({ question, options, onAnswer, onCancel }: Ask
               onClick={onCancel}
               className="px-4 py-2 text-sm rounded-lg border bg-background hover:bg-muted transition-colors"
             >
-              Cancel
+              取消
             </button>
           )}
           <button
@@ -114,7 +114,7 @@ export function AskQuestionDialog({ question, options, onAnswer, onCancel }: Ask
             disabled={!canSubmit}
             className="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Submit Answer
+            提交回答
           </button>
         </div>
       </div>

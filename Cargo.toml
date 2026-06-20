@@ -1,9 +1,9 @@
 [workspace]
-members = ["packages/core", "packages/tui", "packages/cli", "packages/website/demos/test-calculator-demo"]
+members = ["packages/core", "packages/tui", "packages/cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.48"
+version = "0.4.17"
 edition = "2024"
 authors = ["bigfish1913"]
 license = "MIT"
@@ -48,11 +48,10 @@ regex = "1"
 urlencoding = "2"
 once_cell = "1"
 parking_lot = "0.12"
-shell-words = "1"
 
 # TUI dependencies
-ratatui = "0.29"
-crossterm = { version = "0.28", features = ["event-stream"] }
+ratatui = "0.30"
+crossterm = { version = "0.29", features = ["event-stream"] }
 pulldown-cmark = "0.13"
 syntect = "5.3"
 unicode-width = "0.2"
@@ -64,8 +63,6 @@ mockito = "1"
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }
 notify = "8.0"
-# Token counting
-tiktoken-rs = "0.5"
 
 # Internal crates
 matrixcode-core = { path = "packages/core", version = "0.4.3" }

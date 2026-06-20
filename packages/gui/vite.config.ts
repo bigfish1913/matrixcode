@@ -1,35 +1,99 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
+
+  // Performance optimization: Enhanced code splitting (Phase 6 - TUI/VSCode alignment optimization)
+  build: {
+    rollupOptions: {
+      output: {
+        // Enhanced manual chunks for better caching and performance
+        manualChunks: (id) => {
+          // React core - most stable, rarely changes
+          if (id.includes('react') && id.includes('react-dom')) {
+            return 'vendor-react';
+          }
+
+          // Tauri API - stable backend integration
+          if (id.includes('@tauri-apps/api')) {
+            return 'vendor-tauri';
+          }
+
+          // Zustand - lightweight state management
+          if (id.includes('zustand')) {
+            return 'vendor-ui';
+          }
+
+          // React Markdown - split from syntax highlighter to reduce bundle size
+          if (id.includes('react-markdown') && !id.includes('react-syntax-highlighter')) {
+            return 'vendor-markdown-core';
+          }
+
+          // Syntax Highlighter - heavy dependency, further split
+          if (id.includes('react-syntax-highlighter')) {
+            // Styles - can be loaded separately
+            if (id.includes('/styles/prism')) {
+              return 'vendor-syntax-styles';
+            }
+            // Languages - can be lazy loaded
+            if (id.includes('/languages/prism/')) {
+              return 'vendor-syntax-langs';
+            }
+            // Core
+            return 'vendor-syntax-core';
+          }
+
+          // Large UI components - lazy loaded via dynamic imports in App.tsx
+          if (id.includes('SettingsPanel') || id.includes('TaskView') || id.includes('LspStatusPanel')) {
+            return 'components-lazy';
+          }
+        },
+      },
+    },
+
+    // Increase chunk size limit for markdown bundle (expected large)
+    chunkSizeWarningLimit: 800,
+
+    // Target modern browsers for better performance
+    target: 'esnext',
+
+    // Minification options
+    minify: 'esbuild',
+    esbuild: {
+      // Remove console logs in production for better performance
+      drop: ['console', 'debugger'],
     },
   },
-  
-  // Tauri expects a fixed port, fail if that port is not available
+
+  // Enhanced dependency pre-bundling optimization
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      '@tauri-apps/api/core',
+      '@tauri-apps/api/event',
+      'zustand',
+      'react-markdown',
+    ],
+    exclude: [
+      // Large dependencies that should be lazy loaded
+      'react-syntax-highlighter',
+    ],
+  },
+
+  // Development optimizations
   server: {
-    port: 1420,
-    strictPort: true,
+    // Faster HMR
+    hmr: {
+      overlay: true,
+    },
   },
-  
-  // Env variables starting with TAURI_ are exposed to the client
-  envPrefix: ['VITE_', 'TAURI_'],
-  
-  build: {
-    // Tauri uses Chromium on Windows and WebKit on macOS and Linux
-    target: process.env.TAURI_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
-    // Don't minify for debug builds
-    minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
-    // Produce sourcemaps for debug builds
-    sourcemap: !!process.env.TAURI_DEBUG,
+
+  // CSS optimization
+  css: {
+    // Minify CSS
+    devSourcemap: false,
   },
-  
-  // To make Tauri work with Vite
-  clearScreen: false,
-})
+});

@@ -18,6 +18,7 @@ export interface MatrixConfig {
   approve_mode: string | null;
   enable_lsp: boolean;
   verify_strategy: string | null;
+  cli_path: string | null;  // CLI binary path (matching VSCode extension matrixcode.cliPath)
 }
 
 interface ConfigState {

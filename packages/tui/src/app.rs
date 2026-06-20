@@ -9,8 +9,8 @@ use ratatui::{
     crossterm::event::{self, Event, MouseEvent, MouseEventKind},
 };
 
-use matrixcode_core::tools::ProxyToolResponse;
 use matrixcode_core::{AgentEvent, cancel::CancellationToken};
+use matrixcode_core::tools::ProxyToolResponse;
 
 use crate::ANIM_MS;
 use crate::types::{Activity, ApproveMode, AskQuestion, Message, Role, SubmitMode};
@@ -33,18 +33,13 @@ pub struct TuiApp {
     pub(crate) cache_read: u64,
     pub(crate) cache_created: u64,
     pub(crate) context_size: u64,
-    // Cached context token count (avoid recalculating every frame)
-    pub(crate) cached_actual_tokens: u64,
     // Debug stats
     pub(crate) api_calls: u64,
     pub(crate) compressions: u64,
     pub(crate) memory_saves: u64,
     pub(crate) tool_calls: u64,
     // Timing
-    #[allow(dead_code)]
-    pub(crate) session_start: Instant,      // When session started (for future use)
-    pub(crate) request_start: Option<Instant>,  // When current response started (total time)
-    pub(crate) thinking_start: Option<Instant>, // When current API thinking started (per-request time)
+    pub(crate) request_start: Option<Instant>,
     pub(crate) tool_start: Option<Instant>, // When current tool execution started
     // UI state
     pub(crate) frame: usize,
@@ -64,13 +59,6 @@ pub struct TuiApp {
     pub(crate) new_message_while_scrolled: std::cell::Cell<bool>, // Flag for notification when scrolled up
     // Thinking display state
     pub(crate) thinking_collapsed: bool,
-    // Input multiline collapse state
-    pub(crate) input_collapsed: bool,
-    // Paste deduplication state (avoid double paste from Ctrl+V + Event::Paste)
-    pub(crate) last_paste_content: String,
-    pub(crate) last_paste_time: Instant,
-    // Paste Enter filtering - prevent auto-triggered Enter from pasted newlines
-    pub(crate) last_paste_complete_time: Instant, // When paste finished (to filter Enter events)
     // Dirty flag for rendering optimization - only redraw when something changed
     pub(crate) dirty: std::cell::Cell<bool>,
     // Approval mode
@@ -98,8 +86,6 @@ pub struct TuiApp {
     pub(crate) proxy_response_tx: Option<tokio::sync::mpsc::Sender<ProxyToolResponse>>,
     // Message queue for pending inputs while AI is processing
     pub(crate) pending_messages: Vec<String>,
-    // Real-time pending input sender (pushes to Agent during processing)
-    pub(crate) pending_input_tx: Option<tokio::sync::mpsc::Sender<String>>,
     // Loop task state
     pub(crate) loop_task: Option<LoopTask>,
     // Cron tasks state
@@ -116,30 +102,11 @@ pub struct TuiApp {
     pub(crate) workflow_state: crate::workflow::WorkflowViewState,
     // Workflow refresh timing
     pub(crate) last_workflow_refresh: Instant,
-    // MCP server status
-    pub(crate) mcp_servers: Vec<matrixcode_core::event::McpServerInfo>,
-    // LSP server status
-    pub(crate) lsp_servers: Vec<matrixcode_core::LspServerInfo>,
-    // CodeGraph status
-    pub(crate) codegraph_status: Option<matrixcode_core::tools::codegraph::IndexStatus>,
-    // Session selection state
-    pub(crate) session_list: Vec<SessionInfo>,
-    pub(crate) session_selected_index: usize,
-    pub(crate) waiting_for_session: bool, // Whether session selector is active
-}
-
-/// Session info for display
-#[derive(Clone, Debug)]
-pub struct SessionInfo {
-    pub short_id: String,
-    pub title: String,      // Session display name
-    pub message_count: usize,
-    pub created_at: String,
 }
 
 /// Todo item for progress tracking
 #[derive(Clone)]
-#[allow(dead_code)] // Fields used in serialization, not directly read
+#[allow(dead_code)]  // Fields used in serialization, not directly read
 pub struct TodoItem {
     pub content: String,
     pub status: String, // "pending", "in_progress", "completed"
@@ -188,14 +155,11 @@ impl TuiApp {
             cache_read: 0,
             cache_created: 0,
             context_size: 200_000,
-            cached_actual_tokens: 0,
             api_calls: 0,
             compressions: 0,
             memory_saves: 0,
             tool_calls: 0,
-            session_start: Instant::now(),
             request_start: None,
-            thinking_start: None,
             tool_start: None,
             frame: 0,
             last_anim: Instant::now(),
@@ -210,12 +174,8 @@ impl TuiApp {
             max_scroll: std::cell::Cell::new(0),
             new_message_while_scrolled: std::cell::Cell::new(false),
             thinking_collapsed: false, // Default: expanded to show thinking content
-            input_collapsed: true, // Default: collapsed when > 3 lines
-            last_paste_content: String::new(),
-            last_paste_time: Instant::now(),
-            last_paste_complete_time: Instant::now(),
             dirty: std::cell::Cell::new(true), // Initial render needed
-            approve_mode: ApproveMode::Auto,
+            approve_mode: ApproveMode::Ask,
             shared_approve_mode: None,
             ask_tx: None,
             waiting_for_ask: false,
@@ -232,7 +192,6 @@ impl TuiApp {
             cancel,
             proxy_response_tx: None,
             pending_messages: Vec::new(),
-            pending_input_tx: None,
             loop_task: None,
             cron_tasks: Vec::new(),
             debug_mode: false,
@@ -242,23 +201,11 @@ impl TuiApp {
             multiline_confirm_send: false,
             workflow_state: crate::workflow::WorkflowViewState::default(),
             last_workflow_refresh: Instant::now(),
-            mcp_servers: Vec::new(),
-            lsp_servers: Vec::new(),
-            codegraph_status: None,
-            session_list: Vec::new(),
-            session_selected_index: 0,
-            waiting_for_session: false,
         }
     }
 
     pub fn with_ask_channel(mut self, ask_tx: tokio::sync::mpsc::Sender<String>) -> Self {
         self.ask_tx = Some(ask_tx);
-        self
-    }
-
-    /// Set pending input sender for real-time message appending during processing.
-    pub fn with_pending_input_tx(mut self, tx: tokio::sync::mpsc::Sender<String>) -> Self {
-        self.pending_input_tx = Some(tx);
         self
     }
 
@@ -272,10 +219,7 @@ impl TuiApp {
     }
 
     /// Set proxy tool response channel
-    pub fn with_proxy_response_tx(
-        mut self,
-        tx: tokio::sync::mpsc::Sender<ProxyToolResponse>,
-    ) -> Self {
+    pub fn with_proxy_response_tx(mut self, tx: tokio::sync::mpsc::Sender<ProxyToolResponse>) -> Self {
         self.proxy_response_tx = Some(tx);
         self
     }
@@ -286,7 +230,6 @@ impl TuiApp {
         _think: bool,
         _max_tokens: u32,
         context_size: Option<u64>,
-        approve_mode: Option<String>,
     ) -> Self {
         self.model = model.to_string();
         self.context_size = context_size.unwrap_or_else(|| {
@@ -302,10 +245,6 @@ impl TuiApp {
                 128_000
             }
         });
-        // Update approve_mode from config
-        if let Some(mode) = approve_mode {
-            self.approve_mode = crate::types::ApproveMode::parse(&mode);
-        }
         self
     }
 
@@ -371,7 +310,6 @@ impl TuiApp {
                             name: "tool".into(),
                             detail: None,
                             is_error: false,
-                            is_pending: false,
                         },
                     };
                     // Restore input history from user messages
@@ -384,7 +322,6 @@ impl TuiApp {
                     self.messages.push(Message {
                         role,
                         content: t.clone(),
-                        is_pending: false,
                     });
                 }
                 matrixcode_core::MessageContent::Blocks(blocks) => {
@@ -403,7 +340,6 @@ impl TuiApp {
                                         name: "tool".into(),
                                         detail: None,
                                         is_error: false,
-                                        is_pending: false,
                                     },
                                 };
                                 // Restore input history from user messages
@@ -416,7 +352,6 @@ impl TuiApp {
                                 self.messages.push(Message {
                                     role,
                                     content: text.clone(),
-                                    is_pending: false,
                                 });
                             }
                             matrixcode_core::ContentBlock::Thinking { thinking, .. } => {
@@ -427,7 +362,6 @@ impl TuiApp {
                                 self.messages.push(Message {
                                     role: Role::Thinking,
                                     content: thinking.clone(),
-                                    is_pending: false,
                                 });
                             }
                             matrixcode_core::ContentBlock::ToolUse { name: _, .. } => {
@@ -466,10 +400,8 @@ impl TuiApp {
                                         name,
                                         detail: None,
                                         is_error,
-                                        is_pending: false,
                                     },
                                     content: content.clone(),
-                                    is_pending: false,
                                 });
                             }
                             _ => {}
@@ -481,26 +413,20 @@ impl TuiApp {
         if !self.messages.is_empty() {
             self.show_welcome = false;
         }
-        // Recalculate cached token count after loading all messages
-        self.recalculate_cached_tokens();
     }
 
     /// Set token stats from restored session metadata.
-    pub fn set_token_stats(
-        &mut self,
-        input_tokens: u64,
-        total_output_tokens: u64,
-        _message_count: usize,
-    ) {
+    pub fn set_token_stats(&mut self, input_tokens: u64, total_output_tokens: u64, _message_count: usize) {
         self.tokens_in = input_tokens;
         self.session_total_out = total_output_tokens;
     }
 
     pub fn run(&mut self, term: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         loop {
-            // Animation frame - only animate when NOT idle (avoid CPU waste when idle)
+            // Animation frame - cycle through 10 frames for spinner
+            // Always render when animation frame updates (for spinner)
             let anim_update = self.last_anim.elapsed().as_millis() >= ANIM_MS as u128;
-            if anim_update && self.activity != Activity::Idle {
+            if anim_update {
                 self.frame = (self.frame + 1) % 10;
                 self.last_anim = Instant::now();
                 self.dirty.set(true);
@@ -530,47 +456,7 @@ impl TuiApp {
                         self.dirty.set(true);
                     }
                     Event::Paste(text) => {
-                        // Batch paste events - some terminals split long pastes into multiple events
-                        // Use a longer window (200ms) to collect all paste fragments
-                        // This ensures long pastes (e.g., code blocks) are fully merged before processing
-                        let mut pasted = text.clone();
-                        let paste_start = Instant::now();
-                        
-                        // Collect paste events for up to 200ms
-                        while paste_start.elapsed().as_millis() < 200 {
-                            if event::poll(Duration::from_millis(20)).unwrap_or(false) {
-                                if let Ok(Event::Paste(next)) = event::read() {
-                                    pasted.push_str(&next);
-                                    log::debug!("Merged paste fragment: +{} chars (total: {})", next.len(), pasted.len());
-                                } else {
-                                    // Non-paste event encountered - stop batching
-                                    // The event is still in queue, will be handled in next loop iteration
-                                    break;
-                                }
-                            } else {
-                                // No more events in queue
-                                break;
-                            }
-                        }
-                        
-                        log::info!("📥 Final merged paste: {} chars, {} lines", pasted.len(), pasted.lines().count());
-                        
-                        // Deduplication: check if this paste duplicates a recent keyboard paste
-                        // (Ctrl+V also triggers on_paste, some terminals send both)
-                        const PASTE_DEDUP_MS: u64 = 100;
-                        if self.last_paste_time.elapsed().as_millis() < PASTE_DEDUP_MS as u128
-                            && self.last_paste_content == pasted {
-                            // Duplicate paste from keyboard Ctrl+V event, skip it
-                            log::debug!("Skipping duplicate paste event ({} chars)", pasted.len());
-                        } else {
-                            // Record this paste for deduplication
-                            self.last_paste_content = pasted.clone();
-                            self.last_paste_time = Instant::now();
-                            self.on_paste(&pasted);
-                            // Record when paste finished - to filter auto-triggered Enter events
-                            self.last_paste_complete_time = Instant::now();
-                            log::info!("📥 Paste complete timestamp recorded");
-                        }
+                        self.on_paste(&text);
                         self.dirty.set(true);
                     }
                     _ => {}
@@ -601,7 +487,6 @@ impl TuiApp {
         }
         Ok(())
     }
-
     fn on_mouse(&mut self, m: MouseEvent) {
         // If Shift is held, let terminal handle mouse for text selection
         if m.modifiers.contains(event::KeyModifiers::SHIFT) {
@@ -642,32 +527,28 @@ impl TuiApp {
         // Reload workflow context from persistence
         if self.workflow_state.context.is_some() {
             // Reload existing workflow instance
-            let instances =
-                crate::workflow::WorkflowViewState::load_recent_instances(project_dir.as_ref());
+            let instances = crate::workflow::WorkflowViewState::load_recent_instances(project_dir.as_ref());
             if let Some(ctx) = instances.first() {
                 // Only update if status changed or execution_path grew
                 let old_ctx = self.workflow_state.context.as_ref();
-                let should_update = old_ctx
-                    .map(|old| {
-                        old.status != ctx.status
-                            || old.execution_path.len() != ctx.execution_path.len()
-                            || old.updated_at != ctx.updated_at
-                    })
-                    .unwrap_or(true);
+                let should_update = old_ctx.map(|old| {
+                    old.status != ctx.status ||
+                    old.execution_path.len() != ctx.execution_path.len() ||
+                    old.updated_at != ctx.updated_at
+                }).unwrap_or(true);
 
                 if should_update {
                     self.workflow_state.update_context(ctx.clone());
                     // Also reload workflow def if workflow_id changed
-                    if (self.workflow_state.workflow_def.is_none()
-                        || self.workflow_state.workflow_def.as_ref().map(|d| &d.id)
-                            != Some(&ctx.workflow_id))
+                    if (self.workflow_state.workflow_def.is_none() ||
+                       self.workflow_state.workflow_def.as_ref().map(|d| &d.id) !=
+                       Some(&ctx.workflow_id))
                         && let Some(def) = crate::workflow::WorkflowViewState::load_workflow_def(
                             project_dir.as_ref(),
-                            &ctx.workflow_id,
-                        )
-                    {
-                        self.workflow_state.set_workflow(def);
-                    }
+                            &ctx.workflow_id
+                        ) {
+                            self.workflow_state.set_workflow(def);
+                        }
                 }
             }
         } else if self.workflow_state.workflow_def.is_none() {

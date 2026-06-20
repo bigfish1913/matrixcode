@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useChatStore } from '../stores/chatStore';
 import { useConfigStore } from '../stores/configStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { useToastContext } from '../contexts/ToastContext';
+import { useConfirmDialog, ConfirmDialog } from '../components/shared';
 
 // Command definition matching TUI CommandRegistry
 interface Command {
@@ -24,11 +26,13 @@ const COMMANDS: Command[] = [
   { name: '/search', aliases: ['/find'], description: '搜索消息', category: 'general' },
   { name: '/theme', description: '切换主题', category: 'general' },
   { name: '/batch', description: '批量操作', category: 'general' },
+  { name: '/history', aliases: ['/stats'], description: '会话统计信息', category: 'general' },
 
   // Session commands
   { name: '/new', description: '新建会话', category: 'session' },
   { name: '/save', description: '保存会话', category: 'session' },
-  { name: '/sessions', aliases: ['/history'], description: '显示会话历史', category: 'session' },
+  { name: '/sessions', aliases: ['/resume'], description: '显示会话历史', category: 'session' },
+  { name: '/load', description: '加载会话 <id>', category: 'session', requiresArg: true },
   { name: '/retry', description: '重试最后消息', category: 'session' },
 
   // Config commands
@@ -39,22 +43,30 @@ const COMMANDS: Command[] = [
   // Tools commands
   { name: '/tools', description: '列出可用工具', category: 'tools' },
   { name: '/skills', description: '列出已加载技能', category: 'tools' },
-  { name: '/compact', description: '压缩上下文', category: 'tools' },
+  { name: '/compact', aliases: ['/compress'], description: '压缩上下文', category: 'tools' },
   { name: '/memory', description: '查看/管理记忆', category: 'tools' },
+  { name: '/init', description: '初始化项目配置', category: 'tools' },
+  { name: '/overview', description: '查看项目概览', category: 'tools' },
 
   // Debug commands
   { name: '/debug', description: '切换调试模式', category: 'debug' },
   { name: '/workflow', aliases: ['/wf'], description: '工作流管理', category: 'debug' },
   { name: '/mcp', description: 'MCP服务器状态', category: 'debug' },
   { name: '/stats', aliases: ['/token'], description: 'Token统计', category: 'debug' },
+  { name: '/lsp', description: 'LSP服务器状态', category: 'debug' },
+  { name: '/codegraph', aliases: ['/cg'], description: 'CodeGraph状态', category: 'debug' },
+  { name: '/loop', description: '创建循环任务', category: 'debug' },
+  { name: '/cron', description: '管理定时任务', category: 'debug' },
 ];
 
 interface CommandBarProps {
   onSubmitCommand: (command: string) => void;
   onClose: () => void;
+  onShowLoopDialog?: () => void;  // Optional callback for loop dialog
+  onShowCronDialog?: () => void;  // Optional callback for cron dialog
 }
 
-export function CommandBar({ onSubmitCommand, onClose }: CommandBarProps) {
+export function CommandBar({ onSubmitCommand, onClose, onShowLoopDialog, onShowCronDialog }: CommandBarProps) {
   const [input, setInput] = useState('/');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [filteredCommands, setFilteredCommands] = useState<Command[]>(COMMANDS);
@@ -66,6 +78,8 @@ export function CommandBar({ onSubmitCommand, onClose }: CommandBarProps) {
   const retryLastMessage = useChatStore((s) => s.retryLastMessage);
   const config = useConfigStore((s) => s.config);
   const toast = useToastContext();
+
+  const { visible: showConfirm, config: confirmConfig, showConfirm: openConfirm, handleConfirm, handleCancel } = useConfirmDialog();
 
   // Focus input on mount
   useEffect(() => {
@@ -129,8 +143,15 @@ export function CommandBar({ onSubmitCommand, onClose }: CommandBarProps) {
     // Execute command action
     switch (cmd.name) {
       case '/clear':
-        clearMessages();
-        toast.addToast({ type: 'success', message: '已清空消息' });
+        openConfirm(
+          'Clear Messages',
+          'Are you sure you want to clear all messages? This action cannot be undone.',
+          () => {
+            clearMessages();
+            toast.addToast({ type: 'success', message: 'Messages cleared' });
+          },
+          'warning'
+        );
         break;
       case '/debug':
         toggleDebugPanel();
@@ -146,6 +167,21 @@ export function CommandBar({ onSubmitCommand, onClose }: CommandBarProps) {
         createSession();
         clearMessages();
         toast.addToast({ type: 'success', message: '已创建新会话' });
+        break;
+      case '/history':
+      case '/stats':
+        // Show session statistics (matching TUI /history)
+        const messages = useChatStore.getState().messages;
+        const userCount = messages.filter(m => m.role === 'user').length;
+        const assistantCount = messages.filter(m => m.role === 'assistant').length;
+        const toolCount = messages.filter(m => m.role === 'tool').length;
+        const pendingCount = useChatStore.getState().pendingMessages.length;
+        const sessionTotalOut = useChatStore.getState().outputTokens;
+        toast.addToast({
+          type: 'info',
+          message: `📊 Session: ${userCount} user, ${assistantCount} assistant, ${toolCount} tools, ${pendingCount} queued, ${sessionTotalOut} output tokens`
+        });
+        console.log(`Session stats: ${userCount} user, ${assistantCount} assistant, ${toolCount} tools, ${pendingCount} queued`);
         break;
       case '/mode':
         // Cycle through modes: auto -> ask -> strict -> auto
@@ -167,20 +203,113 @@ export function CommandBar({ onSubmitCommand, onClose }: CommandBarProps) {
         // Show help dialog (already handled by parent)
         break;
       case '/sessions':
-      case '/history':
         // Show session switcher dialog
         toast.addToast({ type: 'info', message: '会话历史 (TODO)' });
         console.log('Session history');
         break;
       case '/save':
         // Save current session
-        toast.addToast({ type: 'info', message: '保存会话 (TODO)' });
-        console.log('Save session');
+        try {
+          await invoke('save_session');
+          toast.addToast({ type: 'success', message: '✓ 会话已保存' });
+        } catch (e) {
+          toast.addToast({ type: 'error', message: '保存会话失败' });
+        }
+        break;
+      case '/init':
+        // Initialize project configuration
+        try {
+          await invoke('init_project');
+          toast.addToast({ type: 'info', message: '🔄 正在生成项目概览...' });
+        } catch (e) {
+          toast.addToast({ type: 'error', message: '项目初始化失败' });
+        }
+        break;
+      case '/overview':
+        // Show project overview
+        try {
+          await invoke('show_overview');
+          toast.addToast({ type: 'info', message: '正在加载项目概览...' });
+        } catch (e) {
+          toast.addToast({ type: 'error', message: '加载概览失败' });
+        }
+        break;
+      case '/load':
+        // Load session by ID (requires argument)
+        toast.addToast({ type: 'info', message: '加载会话功能需要后端支持' });
+        console.log('Load session - requires argument');
+        break;
+      case '/loop':
+        // Show loop task dialog
+        if (onShowLoopDialog) {
+          onShowLoopDialog();
+        } else {
+          toast.addToast({ type: 'info', message: '创建循环任务对话框' });
+        }
+        break;
+      case '/cron':
+        // Show cron task management dialog
+        if (onShowCronDialog) {
+          onShowCronDialog();
+        } else {
+          toast.addToast({ type: 'info', message: '定时任务管理对话框' });
+        }
+        break;
+      case '/lsp':
+        // Show LSP panel (handled by parent)
+        break;
+      case '/codegraph':
+      case '/cg':
+        // Show CodeGraph panel (handled by parent)
+        break;
+      case '/mcp':
+        // Show MCP panel (handled by parent)
+        break;
+      case '/tools':
+        // Show tools/skills list
+        toast.addToast({ type: 'info', message: '工具和技能列表 (TODO)' });
+        console.log('Show tools list');
+        break;
+      case '/skills':
+        // Show skills list
+        try {
+          const skills = await invoke('list_skills');
+          if (Array.isArray(skills) && skills.length > 0) {
+            toast.addToast({ type: 'info', message: `已加载技能: ${skills.join(', ')}` });
+          } else {
+            toast.addToast({ type: 'info', message: '无已加载技能' });
+          }
+        } catch (e) {
+          toast.addToast({ type: 'info', message: '技能列表 (TODO)' });
+        }
+        console.log('Show skills list');
+        break;
+      case '/compact':
+      case '/compress':
+        // Trigger context compression
+        try {
+          await invoke('compress_context');
+          toast.addToast({ type: 'success', message: '上下文压缩已触发' });
+        } catch (e) {
+          toast.addToast({ type: 'error', message: '压缩失败' });
+        }
+        break;
+      case '/memory':
+        // Show memory panel (handled by parent)
+        toast.addToast({ type: 'info', message: '记忆管理面板 (TODO)' });
+        console.log('Show memory panel');
         break;
       case '/exit':
       case '/quit':
-        toast.addToast({ type: 'warning', message: '退出程序 (TODO)' });
-        console.log('Exit program');
+        openConfirm(
+          'Exit Program',
+          'Are you sure you want to exit MatrixCode?',
+          () => {
+            toast.addToast({ type: 'warning', message: 'Exit program (requires backend support)' });
+            console.log('Exit program confirmed');
+          },
+          'danger'
+        );
         break;
       default:
         // Commands that need backend support
@@ -201,66 +330,85 @@ export function CommandBar({ onSubmitCommand, onClose }: CommandBarProps) {
     debug: 'text-red-500',
   };
 
+  // Render confirm dialog
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 pt-[20%]" onClick={(e) => {
-      // Close on background click
-      if (e.target === e.currentTarget) {
-        onClose();
-      }
-    }}>
-      <div className="bg-card border shadow-lg rounded-lg max-w-lg w-full overflow-hidden">
-        {/* Input */}
-        <div className="p-3 border-b">
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="输入命令..."
-            className="w-full bg-transparent outline-none text-sm"
-          />
-        </div>
+    <>
+      <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 pt-[20%]" onClick={(e) => {
+        // Close on background click
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}>
+        <div className="bg-card border shadow-lg rounded-lg max-w-lg w-full overflow-hidden" role="dialog" aria-modal="true" aria-label="Command bar">
+          {/* Input */}
+          <div className="p-3 border-b">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="输入命令..."
+              aria-label="Command input"
+              className="w-full bg-transparent outline-none text-sm"
+            />
+          </div>
 
-        {/* Command list */}
-        <div className="max-h-[300px] overflow-y-auto">
-          {filteredCommands.length === 0 ? (
-            <div className="p-4 text-center text-muted-foreground text-sm">
-              未找到匹配的命令
-            </div>
-          ) : (
-            filteredCommands.map((cmd, idx) => (
-              <div
-                key={cmd.name}
-                onClick={() => executeCommand(cmd)}
-                className={`px-4 py-2 cursor-pointer flex items-center gap-3 ${
-                  idx === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50'
-                }`}
-              >
-                <span className={`font-mono text-sm ${categoryColors[cmd.category]}`}>
-                  {cmd.name}
-                </span>
-                {cmd.aliases && (
-                  <span className="text-xs text-muted-foreground">
-                    ({cmd.aliases.join(', ')})
-                  </span>
-                )}
-                <span className="text-sm text-muted-foreground flex-1">
-                  {cmd.description}
-                </span>
+          {/* Command list */}
+          <div className="max-h-[300px] overflow-y-auto">
+            {filteredCommands.length === 0 ? (
+              <div className="p-4 text-center text-muted-foreground text-sm">
+                未找到匹配的命令
               </div>
-            ))
-          )}
-        </div>
+            ) : (
+              filteredCommands.map((cmd, idx) => (
+                <div
+                  key={cmd.name}
+                  onClick={() => executeCommand(cmd)}
+                  className={`px-4 py-2 cursor-pointer flex items-center gap-3 ${
+                    idx === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50'
+                  }`}
+                  role="button"
+                  aria-label={`${cmd.name}: ${cmd.description}`}
+                >
+                  <span className={`font-mono text-sm ${categoryColors[cmd.category]}`}>
+                    {cmd.name}
+                  </span>
+                  {cmd.aliases && (
+                    <span className="text-xs text-muted-foreground">
+                      ({cmd.aliases.join(', ')})
+                    </span>
+                  )}
+                  <span className="text-sm text-muted-foreground flex-1">
+                    {cmd.description}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
 
-        {/* Footer hint */}
-        <div className="px-4 py-2 bg-muted/30 text-xs text-muted-foreground flex gap-4">
-          <span><kbd className="px-1 bg-muted rounded">↑↓</kbd> 导航</span>
-          <span><kbd className="px-1 bg-muted rounded">Enter</kbd> 执行</span>
-          <span><kbd className="px-1 bg-muted rounded">Tab</kbd> 补全</span>
-          <span><kbd className="px-1 bg-muted rounded">Esc</kbd> 关闭</span>
+          {/* Footer hint */}
+          <div className="px-4 py-2 bg-muted/30 text-xs text-muted-foreground flex gap-4">
+            <span><kbd className="px-1 bg-muted rounded">↑↓</kbd> 导航</span>
+            <span><kbd className="px-1 bg-muted rounded">Enter</kbd> 执行</span>
+            <span><kbd className="px-1 bg-muted rounded">Tab</kbd> 补全</span>
+            <span><kbd className="px-1 bg-muted rounded">Esc</kbd> 关闭</span>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Confirmation dialog */}
+      {showConfirm && confirmConfig && (
+        <ConfirmDialog
+          title={confirmConfig.title}
+          message={confirmConfig.message}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+          confirmText="Confirm"
+          cancelText="Cancel"
+          variant={confirmConfig.variant || 'warning'}
+        />
+      )}
+    </>
   );
 }

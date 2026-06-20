@@ -173,6 +173,21 @@ export function SettingsPanel() {
           <section className="space-y-3">
             <h3 className="text-sm font-semibold border-b pb-2">Agent</h3>
 
+            {/* CLI Path - matching VSCode extension matrixcode.cliPath */}
+            <div>
+              <label className="text-sm font-medium">CLI Path</label>
+              <input
+                type="text"
+                value={config?.cli_path ?? 'matrixcode'}
+                onChange={(e) => handleSaveConfig({ cli_path: e.target.value })}
+                placeholder="matrixcode"
+                className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Path to MatrixCode CLI binary (use 'matrixcode' if in PATH, or provide full path)
+              </p>
+            </div>
+
             <div className="flex items-center justify-between">
               <div>
                 <label className="text-sm font-medium">Extended Thinking</label>

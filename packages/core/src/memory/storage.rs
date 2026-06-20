@@ -5,10 +5,10 @@ use chrono::Utc;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::constants::MATRIX_DIR;
 use super::config::MemoryConfig;
 use super::entry::MemoryEntry;
 use super::manager::AutoMemory;
-use crate::constants::MATRIX_DIR;
 
 // ============================================================================
 // File Lock
@@ -61,10 +61,7 @@ impl MemoryFileLock {
         }
 
         // Timeout - return error instead of Ok(false)
-        anyhow::bail!(
-            "Failed to acquire memory lock after {}ms timeout",
-            timeout_ms
-        )
+        anyhow::bail!("Failed to acquire memory lock after {}ms timeout", timeout_ms)
     }
 
     /// Check if the existing lock is stale (either old or process is dead).
@@ -279,7 +276,7 @@ impl MemoryStorage {
         if let Some(project) = self.load_project()? {
             for entry in project.entries {
                 let mut tagged_entry = entry;
-                if !tagged_entry.tags.iter().any(|t| t == "project") {
+                if !tagged_entry.tags.contains(&"project".to_string()) {
                     tagged_entry.tags.push("project".to_string());
                 }
                 combined.entries.push(tagged_entry);

@@ -5,28 +5,17 @@
 use anyhow::{Context, Result};
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::OnceLock;
-
-// Pre-compiled static regex patterns
-static VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
-static NESTED_PATTERN: OnceLock<Regex> = OnceLock::new();
-static DEFAULT_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-fn get_var_pattern() -> &'static Regex {
-    VAR_PATTERN.get_or_init(|| Regex::new(r"\{\{(\w+)\}\}").unwrap())
-}
-
-fn get_nested_pattern() -> &'static Regex {
-    NESTED_PATTERN.get_or_init(|| Regex::new(r"\{\{(\w+(?:\.\w+)+)\}\}").unwrap())
-}
-
-fn get_default_pattern() -> &'static Regex {
-    DEFAULT_PATTERN.get_or_init(|| Regex::new(r"\{\{(\w+)\|([^}]+)\}\}").unwrap())
-}
 
 /// 模板渲染器
 #[derive(Debug)]
-pub struct TemplateRenderer;
+pub struct TemplateRenderer {
+    /// 变量模式：{{var}}
+    var_pattern: Regex,
+    /// 嵌套访问模式：{{var.field}}
+    nested_pattern: Regex,
+    /// 默认值模式：{{var|default}}
+    default_pattern: Regex,
+}
 
 impl Default for TemplateRenderer {
     fn default() -> Self {
@@ -37,7 +26,11 @@ impl Default for TemplateRenderer {
 impl TemplateRenderer {
     /// 创建新的模板渲染器
     pub fn new() -> Self {
-        Self
+        Self {
+            var_pattern: Regex::new(r"\{\{(\w+)\}\}").unwrap(),
+            nested_pattern: Regex::new(r"\{\{(\w+(?:\.\w+)+)\}\}").unwrap(),
+            default_pattern: Regex::new(r"\{\{(\w+)\|([^}]+)\}\}").unwrap(),
+        }
     }
 
     /// 渲染模板字符串
@@ -46,11 +39,7 @@ impl TemplateRenderer {
     /// - `{{var}}` - 简单变量替换
     /// - `{{var.field}}` - 嵌套访问
     /// - `{{var|default}}` - 带默认值
-    pub fn render(
-        &self,
-        template: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<String> {
+    pub fn render(&self, template: &str, variables: &HashMap<String, serde_json::Value>) -> Result<String> {
         let mut result = template.to_string();
 
         // 先处理嵌套访问（更具体的模式）
@@ -66,71 +55,15 @@ impl TemplateRenderer {
     }
 
     /// 渲染简单变量 {{var}}
-    fn render_simple(
-        &self,
-        template: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<String> {
+    fn render_simple(&self, template: &str, variables: &HashMap<String, serde_json::Value>) -> Result<String> {
         let mut result = template.to_string();
-        let var_pattern = get_var_pattern();
 
-        for cap in var_pattern.captures_iter(template) {
-            // Regex pattern guarantees capture groups exist, but handle edge cases gracefully
-            let full_match = cap.get(0).map(|m| m.as_str()).unwrap_or_default();
-            let var_name = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+        for cap in self.var_pattern.captures_iter(template) {
+            let full_match = cap.get(0).unwrap().as_str();
+            let var_name = cap.get(1).unwrap().as_str();
 
-            if !full_match.is_empty() && !var_name.is_empty()
-                && let Some(value) = variables.get(var_name) {
-                    let replacement = self.value_to_string(value)?;
-                    result = result.replace(full_match, &replacement);
-                }
-        }
-
-        Ok(result)
-    }
-
-    /// 渲染嵌套访问 {{var.field}}
-    fn render_nested(
-        &self,
-        template: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<String> {
-        let mut result = template.to_string();
-        let nested_pattern = get_nested_pattern();
-
-        for cap in nested_pattern.captures_iter(template) {
-            let full_match = cap.get(0).map(|m| m.as_str()).unwrap_or_default();
-            let path = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
-
-            if !full_match.is_empty() && !path.is_empty()
-                && let Some(value) = self.resolve_path(path, variables)? {
-                    let replacement = self.value_to_string(&value)?;
-                    result = result.replace(full_match, &replacement);
-                }
-        }
-
-        Ok(result)
-    }
-
-    /// 渲染带默认值 {{var|default}}
-    fn render_with_default(
-        &self,
-        template: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<String> {
-        let mut result = template.to_string();
-        let default_pattern = get_default_pattern();
-
-        for cap in default_pattern.captures_iter(template) {
-            let full_match = cap.get(0).map(|m| m.as_str()).unwrap_or_default();
-            let var_name = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
-            let default_value = cap.get(2).map(|m| m.as_str()).unwrap_or_default();
-
-            if !full_match.is_empty() && !var_name.is_empty() {
-                let replacement = match variables.get(var_name) {
-                    Some(value) => self.value_to_string(value)?,
-                    None => default_value.to_string(),
-                };
+            if let Some(value) = variables.get(var_name) {
+                let replacement = self.value_to_string(value)?;
                 result = result.replace(full_match, &replacement);
             }
         }
@@ -138,12 +71,44 @@ impl TemplateRenderer {
         Ok(result)
     }
 
+    /// 渲染嵌套访问 {{var.field}}
+    fn render_nested(&self, template: &str, variables: &HashMap<String, serde_json::Value>) -> Result<String> {
+        let mut result = template.to_string();
+
+        for cap in self.nested_pattern.captures_iter(template) {
+            let full_match = cap.get(0).unwrap().as_str();
+            let path = cap.get(1).unwrap().as_str();
+
+            if let Some(value) = self.resolve_path(path, variables)? {
+                let replacement = self.value_to_string(&value)?;
+                result = result.replace(full_match, &replacement);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// 渲染带默认值 {{var|default}}
+    fn render_with_default(&self, template: &str, variables: &HashMap<String, serde_json::Value>) -> Result<String> {
+        let mut result = template.to_string();
+
+        for cap in self.default_pattern.captures_iter(template) {
+            let full_match = cap.get(0).unwrap().as_str();
+            let var_name = cap.get(1).unwrap().as_str();
+            let default_value = cap.get(2).unwrap().as_str();
+
+            let replacement = match variables.get(var_name) {
+                Some(value) => self.value_to_string(value)?,
+                None => default_value.to_string(),
+            };
+            result = result.replace(full_match, &replacement);
+        }
+
+        Ok(result)
+    }
+
     /// 解析路径（如 var.field.subfield）
-    fn resolve_path(
-        &self,
-        path: &str,
-        variables: &HashMap<String, serde_json::Value>,
-    ) -> Result<Option<serde_json::Value>> {
+    fn resolve_path(&self, path: &str, variables: &HashMap<String, serde_json::Value>) -> Result<Option<serde_json::Value>> {
         let parts: Vec<&str> = path.split('.').collect();
         if parts.is_empty() {
             return Ok(None);
@@ -183,22 +148,19 @@ impl TemplateRenderer {
     /// 从模板中提取所有变量名
     pub fn extract_variables(&self, template: &str) -> Vec<String> {
         let mut vars = Vec::new();
-        let var_pattern = get_var_pattern();
-        let nested_pattern = get_nested_pattern();
-        let default_pattern = get_default_pattern();
 
-        for cap in var_pattern.captures_iter(template) {
+        for cap in self.var_pattern.captures_iter(template) {
             vars.push(cap.get(1).unwrap().as_str().to_string());
         }
 
-        for cap in nested_pattern.captures_iter(template) {
+        for cap in self.nested_pattern.captures_iter(template) {
             let path = cap.get(1).unwrap().as_str();
             if let Some(first) = path.split('.').next() {
                 vars.push(first.to_string());
             }
         }
 
-        for cap in default_pattern.captures_iter(template) {
+        for cap in self.default_pattern.captures_iter(template) {
             vars.push(cap.get(1).unwrap().as_str().to_string());
         }
 
@@ -209,9 +171,9 @@ impl TemplateRenderer {
 
     /// 检查模板是否包含未解析的变量
     pub fn has_unresolved(&self, rendered: &str) -> bool {
-        get_var_pattern().is_match(rendered)
-            || get_nested_pattern().is_match(rendered)
-            || get_default_pattern().is_match(rendered)
+        self.var_pattern.is_match(rendered)
+            || self.nested_pattern.is_match(rendered)
+            || self.default_pattern.is_match(rendered)
     }
 
     /// 渲染参数 HashMap
@@ -272,17 +234,12 @@ mod tests {
     fn test_nested_access() {
         let renderer = TemplateRenderer::new();
         let mut vars = HashMap::new();
-        vars.insert(
-            "user".to_string(),
-            json!({
-                "name": "Bob",
-                "age": 30
-            }),
-        );
+        vars.insert("user".to_string(), json!({
+            "name": "Bob",
+            "age": 30
+        }));
 
-        let result = renderer
-            .render("Name: {{user.name}}, Age: {{user.age}}", &vars)
-            .unwrap();
+        let result = renderer.render("Name: {{user.name}}, Age: {{user.age}}", &vars).unwrap();
         assert_eq!(result, "Name: Bob, Age: 30");
     }
 

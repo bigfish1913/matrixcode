@@ -2,14 +2,14 @@
 //!
 //! Provides DAG visualization for workflow execution in TUI
 
-mod dag;
-mod layout;
-mod mermaid;
-mod progress;
 mod types;
+mod layout;
+mod dag;
+mod progress;
+mod mermaid;
 
-pub use dag::*;
-pub use layout::*;
-pub use mermaid::*;
-pub use progress::*;
 pub use types::*;
+pub use layout::*;
+pub use dag::*;
+pub use progress::*;
+pub use mermaid::*;

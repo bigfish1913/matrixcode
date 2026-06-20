@@ -1,14 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useChatStore } from '../stores/chatStore';
 import { useConfigStore } from '../stores/configStore';
+import { useApprovalStore } from '../stores/approvalStore';
 import { useMcpStatus, useLspStatus, useCodeGraphStatus } from '../contexts/ServerStatusContext';
 import { TodoIndicator } from './TodoIndicator';
-
-// Token format helper
-function formatTokenCount(count: number): string {
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-  return String(count);
-}
+import { formatTokenCount, formatElapsed } from '../utils/formatters';
 
 // Server status indicator (matching TUI mcp/lsp/codegraph status)
 interface ServerStatusProps {
@@ -111,7 +107,15 @@ function TokenUsageBar({
   );
 }
 
-export function StatusBar() {
+interface StatusBarProps {
+  onOpenModelSwitcher?: () => void;
+  onOpenSettings?: () => void;  // Open settings panel (matching VSCode matrixcode.openSettings)
+  onOpenMcpPanel?: () => void;
+  onOpenLspPanel?: () => void;
+  onOpenCodeGraphPanel?: () => void;
+}
+
+export function StatusBar({ onOpenModelSwitcher, onOpenSettings, onOpenMcpPanel, onOpenLspPanel, onOpenCodeGraphPanel }: StatusBarProps) {
   const status = useChatStore((s) => s.status);
   const activity = useChatStore((s) => s.activity);
   const inputTokens = useChatStore((s) => s.inputTokens);
@@ -122,6 +126,9 @@ export function StatusBar() {
 
   const config = useConfigStore((s) => s.config);
   const approveMode = config?.approve_mode || 'auto';
+
+  // Get approval queue status
+  const pendingApprovals = useApprovalStore((s) => s.pendingApprovals);
 
   // Get server status from context
   const mcpStatus = useMcpStatus();
@@ -143,11 +150,8 @@ export function StatusBar() {
   }, [activity.startTime, activity.type]);
 
   // Format elapsed time
-  const formatElapsed = (seconds: number): string => {
-    if (seconds < 60) return `${Math.floor(seconds)}s`;
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const formatElapsedTime = (seconds: number): string => {
+    return formatElapsed(seconds);
   };
 
   // Activity icon and label (matching TUI Activity::label())
@@ -168,23 +172,23 @@ export function StatusBar() {
   const activityInfo = activityConfig[activity.type] || activityConfig.idle;
 
   return (
-    <div className="border-b bg-card px-4 py-2 flex items-center justify-between text-xs">
+    <div className="border-b bg-card px-4 py-2 flex items-center justify-between text-xs" role="status" aria-live="polite">
       {/* Left section: Status and Activity */}
       <div className="flex items-center gap-3">
         {/* Status indicator */}
         <div className="flex items-center gap-1.5">
-          <span className={`${status === 'running' ? 'text-blue-500 animate-pulse' : 'text-green-500'}`}>
+          <span className={`${status === 'running' ? 'text-blue-500 animate-pulse' : 'text-green-500'}`} aria-hidden="true">
             {status === 'running' ? '●' : '●'}
           </span>
-          <span className="text-muted-foreground">
+          <span className="text-muted-foreground" aria-label={status === 'running' ? 'Agent is processing' : 'Agent is ready'}>
             {status === 'running' ? 'Processing' : 'Ready'}
           </span>
         </div>
 
         {/* Activity indicator */}
         {activity.type !== 'idle' && (
-          <div className="flex items-center gap-1.5 animate-fade-in">
-            <span className={activityInfo.color}>{activityInfo.icon}</span>
+          <div className="flex items-center gap-1.5 animate-fade-in" aria-label={`Agent activity: ${activityInfo.label}`}>
+            <span className={activityInfo.color} aria-hidden="true">{activityInfo.icon}</span>
             <span className={`font-medium ${activityInfo.color}`}>
               {activityInfo.label}
             </span>
@@ -195,7 +199,7 @@ export function StatusBar() {
             )}
             {elapsedSeconds > 0 && (
               <span className="text-muted-foreground font-mono ml-1">
-                {formatElapsed(elapsedSeconds)}
+                {formatElapsedTime(elapsedSeconds)}
               </span>
             )}
           </div>
@@ -206,8 +210,8 @@ export function StatusBar() {
 
         {/* Pending messages indicator */}
         {pendingMessages.length > 0 && (
-          <div className="flex items-center gap-1 px-1.5 py-0.5 bg-yellow-500/10 rounded text-yellow-600">
-            <span>⏳</span>
+          <div className="flex items-center gap-1 px-1.5 py-0.5 bg-yellow-500/10 rounded text-yellow-600" aria-label={`${pendingMessages.length} messages pending`}>
+            <span aria-hidden="true">⏳</span>
             <span>{pendingMessages.length} pending</span>
           </div>
         )}
@@ -225,34 +229,70 @@ export function StatusBar() {
 
       {/* Right section: Mode and Model */}
       <div className="flex items-center gap-3">
-        {/* Approve mode */}
-        <ApproveModeIndicator mode={approveMode} />
+        {/* Approve mode with pending queue indicator */}
+        <div className="flex items-center gap-1">
+          <ApproveModeIndicator mode={approveMode} />
+          {pendingApprovals.length > 0 && (
+            <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-600 rounded text-xs font-mono animate-pulse">
+              {pendingApprovals.length}
+            </span>
+          )}
+        </div>
 
-        {/* Model name */}
-        <div className="flex items-center gap-1 text-muted-foreground">
-          <span>🤖</span>
+        {/* Model name (clickable - opens settings to change model, matching VSCode) */}
+        <button
+          onClick={onOpenSettings || onOpenModelSwitcher}
+          className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          title="点击打开设置（可切换模型）"
+          aria-label={`Current model: ${config?.model || 'claude'}. Click to change model.`}
+        >
+          <span aria-hidden="true">🤖</span>
           <span className="font-mono">
             {config?.model?.split('-').slice(0, 2).join('-') || 'claude'}
           </span>
-        </div>
+        </button>
 
-        {/* MCP/LSP/CodeGraph status (from ServerStatusContext) */}
+        {/* MCP/LSP/CodeGraph status (from ServerStatusContext) - clickable */}
         <div className="flex items-center gap-2">
-          <ServerStatus
-            name="MCP"
-            status={mcpStatus.connected ? 'connected' : 'disconnected'}
-            icon="🔌"
-          />
-          <ServerStatus
-            name="LSP"
-            status={lspStatus.connected ? 'connected' : 'disconnected'}
-            icon="📝"
-          />
-          <ServerStatus
-            name="CG"
-            status={codegraphStatus.initialized ? 'connected' : codegraphStatus.indexing ? 'initializing' : 'disconnected'}
-            icon="📊"
-          />
+          <button
+            onClick={() => onOpenMcpPanel?.()}
+            className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!onOpenMcpPanel}
+            title={onOpenMcpPanel ? "点击查看 MCP 详情" : "MCP 详情不可用"}
+            aria-label={`MCP server status: ${mcpStatus.connected ? 'connected' : 'disconnected'}. ${onOpenMcpPanel ? 'Click to view details.' : 'Details not available.'}`}
+          >
+            <ServerStatus
+              name="MCP"
+              status={mcpStatus.connected ? 'connected' : 'disconnected'}
+              icon="🔌"
+            />
+          </button>
+          <button
+            onClick={() => onOpenLspPanel?.()}
+            className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!onOpenLspPanel}
+            title={onOpenLspPanel ? "点击查看 LSP 详情" : "LSP 详情不可用"}
+            aria-label={`LSP server status: ${lspStatus.connected ? 'connected' : 'disconnected'}. ${onOpenLspPanel ? 'Click to view details.' : 'Details not available.'}`}
+          >
+            <ServerStatus
+              name="LSP"
+              status={lspStatus.connected ? 'connected' : 'disconnected'}
+              icon="📝"
+            />
+          </button>
+          <button
+            onClick={() => onOpenCodeGraphPanel?.()}
+            className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!onOpenCodeGraphPanel}
+            title={onOpenCodeGraphPanel ? "点击查看 CodeGraph 详情" : "CodeGraph 详情不可用"}
+            aria-label={`CodeGraph status: ${codegraphStatus.initialized ? 'initialized' : codegraphStatus.indexing ? 'indexing' : 'not initialized'}. ${onOpenCodeGraphPanel ? 'Click to view details.' : 'Details not available.'}`}
+          >
+            <ServerStatus
+              name="CG"
+              status={codegraphStatus.initialized ? 'connected' : codegraphStatus.indexing ? 'initializing' : 'disconnected'}
+              icon="📊"
+            />
+          </button>
         </div>
       </div>
     </div>

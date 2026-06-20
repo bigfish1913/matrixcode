@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{Tool, ToolContext, ToolDefinition};
+use super::{Tool, ToolDefinition};
 
 /// Grep search options bundled into a single struct.
 struct GrepOptions {
@@ -54,38 +54,10 @@ pub struct GrepTool;
 
 #[async_trait]
 impl Tool for GrepTool {
-    fn definition_with_context(&self, ctx: &ToolContext) -> ToolDefinition {
-        // Dynamic description based on CodeGraph availability
-        let not_applicable = if ctx.codegraph_available {
-            "不适用场景：
-- ❌ 找函数定义 → code_search（快10-100倍）
-- ❌ 找类定义、变量声明 → code_search
-- ❌ 查谁调用了某方法 → code_callers"
-        } else {
-            "不适用场景：
-- ❌ 找函数定义 → 用 grep 搜索 'fn func_name' 或 'class ClassName'
-- ❌ 找类定义、变量声明 → 用 grep 搜索 class/struct 名
-- ❌ 查调用关系 → 用 grep 搜索函数名（不精确）"
-        };
-
-        let description = format!(
-            "搜索文本内容（错误消息、注释、字符串等）。
-
-适用场景：
-- 搜错误信息（如 'failed to connect'、'panic'）
-- 找注释内容（如 'TODO'、'FIXME'）
-- 搜字符串常量、日志文本
-- 搜索任意文本模式（正则表达式）
-
-{}
-
-优先级：[中] 文本搜索首选工具",
-            not_applicable
-        );
-
+    fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "grep".to_string(),
-            description,
+            description: "高性能内容搜索工具，适用于任意规模代码库。支持正则表达式、文件类型过滤和多种输出模式。".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -95,16 +67,16 @@ impl Tool for GrepTool {
                     },
                     "path": {
                         "type": "string",
-                        "description": "搜索的文件或目录（默认当前目录）。⚠️ 尽量指定路径避免全目录搜索，如 'src/api' 而非 '.'"
+                        "description": "搜索的文件或目录（默认当前目录）"
                     },
                     "glob": {
                         "type": "string",
-                        "description": "Glob 文件过滤模式（如 '*.ts'、'**/*.rs'）。推荐使用以缩小搜索范围"
+                        "description": "Glob 文件过滤模式（如 '*.ts'、'**/*.rs'）"
                     },
                     "type": {
                         "type": "string",
                         "enum": ["js", "ts", "py", "rs", "go", "java", "c", "cpp", "md", "json", "yaml", "html", "css"],
-                        "description": "按文件类型搜索（映射到常用扩展名）。推荐使用以提升搜索速度"
+                        "description": "按文件类型搜索（映射到常用扩展名）"
                     },
                     "output_mode": {
                         "type": "string",
@@ -137,10 +109,6 @@ impl Tool for GrepTool {
             }),
             ..Default::default()
         }
-    }
-
-    fn definition(&self) -> ToolDefinition {
-        self.definition_with_context(&ToolContext::default())
     }
 
     async fn execute(&self, params: Value) -> Result<String> {

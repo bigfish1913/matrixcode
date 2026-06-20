@@ -6,11 +6,11 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use super::node_executor::NodeExecutor;
-use crate::tools::toolproxy::{ProxyToolDef, ProxyToolExecutor};
+use crate::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
 use crate::workflow::context::WorkflowContext;
 use crate::workflow::def::NodeDef;
 use crate::workflow::template::TemplateRenderer;
+use super::node_executor::NodeExecutor;
 
 /// 代理工具执行器
 ///
@@ -57,9 +57,7 @@ impl NodeExecutor for ProxyExecutor {
         context: &mut WorkflowContext,
     ) -> Result<serde_json::Value> {
         // 获取工具名称
-        let tool_name = node
-            .task
-            .as_ref()
+        let tool_name = node.task.as_ref()
             .ok_or_else(|| anyhow::anyhow!("Proxy executor requires a task name"))?;
 
         // 检查工具是否存在
@@ -68,15 +66,10 @@ impl NodeExecutor for ProxyExecutor {
         }
 
         // 渲染参数
-        let params = self
-            .template_renderer
-            .render_params(&node.params, &context.variables)?;
+        let params = self.template_renderer.render_params(&node.params, &context.variables)?;
 
         // 执行代理工具
-        let result = self
-            .executor
-            .exec(tool_name, params.clone())
-            .await
+        let result = self.executor.exec(tool_name, params.clone()).await
             .with_context(|| format!("Proxy tool '{}' execution failed", tool_name))?;
 
         // 解析结果

@@ -107,7 +107,7 @@ export function TodoList({ todos, maxVisible = 10 }: TodoListProps) {
       {/* Header */}
       <div className="flex items-center gap-2 mb-2">
         <span className="text-lg">📋</span>
-        <span className="font-semibold text-sm">Todo List</span>
+        <span className="font-semibold text-sm">任务列表</span>
         <div className="flex-1 flex justify-end gap-2 text-xs text-muted-foreground">
           {inProgressCount > 0 && (
             <span className="text-yellow-500">{inProgressCount} 进行中</span>

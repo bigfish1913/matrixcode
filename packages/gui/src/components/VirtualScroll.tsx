@@ -74,6 +74,7 @@ export function VirtualScroll<T>({
 
   // Get visible range
   const visibleRange = findVisibleRange(scrollTop);
+  const visibleCount = visibleRange.endIndex - visibleRange.startIndex + 1;
 
   // Handle scroll event
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -82,7 +83,7 @@ export function VirtualScroll<T>({
     onScroll?.(newScrollTop);
   }, [onScroll]);
 
-  // Render visible items
+  // Render visible items with performance indicator
   return (
     <div
       ref={containerRef}
@@ -94,6 +95,17 @@ export function VirtualScroll<T>({
       }}
       className="scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
     >
+      {/* Performance indicator (show rendered count) */}
+      {items.length > 50 && (
+        <div className="sticky top-0 right-0 float-right p-2 z-10 bg-background/80 backdrop-blur-sm rounded-bl-lg">
+          <div className="text-xs text-green-500 px-2 py-1 bg-green-500/10 rounded">
+            <span>⚡</span>
+            <span className="ml-1 font-mono">{visibleCount}/{items.length}</span>
+            <span className="ml-1">渲染</span>
+          </div>
+        </div>
+      )}
+
       <div style={{ height: totalHeight, position: 'relative' }}>
         {items.slice(visibleRange.startIndex, visibleRange.endIndex + 1).map((item, idx) => {
           const actualIndex = visibleRange.startIndex + idx;

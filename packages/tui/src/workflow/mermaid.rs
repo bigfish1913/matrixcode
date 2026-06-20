@@ -2,7 +2,7 @@
 //!
 //! Export workflow DAG to Mermaid diagram syntax
 
-use matrixcode_core::workflow::{NodeType, WorkflowContext, WorkflowDef};
+use matrixcode_core::workflow::{WorkflowDef, WorkflowContext, NodeType};
 
 /// Export workflow to Mermaid flowchart syntax
 pub fn export_mermaid(def: &WorkflowDef, ctx: Option<&WorkflowContext>) -> String {
@@ -52,10 +52,7 @@ pub fn export_mermaid(def: &WorkflowDef, ctx: Option<&WorkflowContext>) -> Strin
         let to_safe = sanitize_id(&edge.to);
 
         if let Some(ref condition) = edge.condition {
-            output.push_str(&format!(
-                "    {} -- {} --> {}\n",
-                from_safe, condition, to_safe
-            ));
+            output.push_str(&format!("    {} -- {} --> {}\n", from_safe, condition, to_safe));
         } else {
             output.push_str(&format!("    {} --> {}\n", from_safe, to_safe));
         }
@@ -93,10 +90,7 @@ pub fn export_mermaid_with_summary(def: &WorkflowDef, ctx: &WorkflowContext) -> 
 
     output.push_str(&format!("**Status**: {}\n\n", status));
     output.push_str(&format!("**Instance ID**: {}\n\n", ctx.instance_id));
-    output.push_str(&format!(
-        "**Nodes executed**: {}\n\n",
-        ctx.execution_path.len()
-    ));
+    output.push_str(&format!("**Nodes executed**: {}\n\n", ctx.execution_path.len()));
 
     if let Some(ref error) = ctx.error {
         output.push_str(&format!("**Error**: {}\n\n", error));
@@ -128,10 +122,7 @@ pub fn export_mermaid_with_summary(def: &WorkflowDef, ctx: &WorkflowContext) -> 
             ("○", "-".to_string())
         };
 
-        output.push_str(&format!(
-            "| {} | {} {} | {} |\n",
-            node.name, status_icon, node.id, duration
-        ));
+        output.push_str(&format!("| {} | {} {} | {} |\n", node.name, status_icon, node.id, duration));
     }
 
     output
@@ -148,7 +139,6 @@ fn node_type_icon_mermaid(node_type: &NodeType) -> &'static str {
         NodeType::Approval => "?",
         NodeType::Wait => "⏳",
         NodeType::SubWorkflow => "↳",
-        NodeType::Pipeline => "╠",
     }
 }
 
@@ -156,19 +146,10 @@ fn node_type_icon_mermaid(node_type: &NodeType) -> &'static str {
 /// Mermaid has reserved keywords like 'end', 'start', 'subgraph' that cannot be used as node IDs
 fn sanitize_id(id: &str) -> String {
     // Mermaid reserved keywords that cause parse errors
-    const RESERVED: &[&str] = &[
-        "end",
-        "start",
-        "subgraph",
-        "direction",
-        "style",
-        "class",
-        "linkstyle",
-    ];
+    const RESERVED: &[&str] = &["end", "start", "subgraph", "direction", "style", "class", "linkstyle"];
 
     // First sanitize characters
-    let sanitized: String = id
-        .chars()
+    let sanitized: String = id.chars()
         .map(|c| {
             if c.is_alphanumeric() || c == '_' {
                 c

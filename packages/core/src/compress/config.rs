@@ -345,12 +345,10 @@ impl CircuitBreakerState {
     /// Record a failure. Returns true if circuit breaker should trip.
     pub fn record_failure(&mut self) -> bool {
         self.consecutive_failures += 1;
-        self.last_failure_time = Some(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        );
+        self.last_failure_time = Some(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs());
 
         if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
             self.is_tripped = true;
@@ -413,7 +411,7 @@ mod tests {
         // 边界情况：context_window 为 0，意味着没有可用空间
         // 所有阈值都会变成 0，因此任何 token_usage > 0 都触发 Blocking
         let (level, percent) = CompressionConfig::calculate_threshold_level(1000, 0);
-        assert_eq!(level, ThresholdLevel::Blocking); // 0 空间时应该阻止
+        assert_eq!(level, ThresholdLevel::Blocking);  // 0 空间时应该阻止
         assert_eq!(percent, 0);
     }
 

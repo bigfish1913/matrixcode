@@ -1,33 +1,18 @@
-use matrixcode_core::event::McpServerInfo;
 use matrixcode_core::{AgentEvent, EventData, EventType};
 use serde_json::Value;
 
-use crate::app::{TodoItem, TuiApp};
+use crate::app::{TuiApp, TodoItem};
 use crate::types::{Activity, Message, Role, SubmitMode};
 use crate::utils::{extract_tool_detail, fmt_tokens};
 
-use crate::draw::helpers::estimate_message_tokens;
-
 impl TuiApp {
     /// Push a message and set notification flag if user is scrolled up.
-    /// Also updates the cached token count.
     pub(crate) fn push_message(&mut self, msg: Message) {
         // If user has scrolled up, mark that new message arrived
         if !self.auto_scroll {
             self.new_message_while_scrolled.set(true);
         }
-        // Update cached token count incrementally
-        self.cached_actual_tokens += estimate_message_tokens(&msg.content) as u64;
         self.messages.push(msg);
-    }
-
-    /// Recalculate cached token count from all messages (used when loading session)
-    pub(crate) fn recalculate_cached_tokens(&mut self) {
-        self.cached_actual_tokens = self
-            .messages
-            .iter()
-            .map(|m| estimate_message_tokens(&m.content) as u64)
-            .sum();
     }
 
     /// Update todo items from todo_write tool input
@@ -36,13 +21,11 @@ impl TuiApp {
             self.todo_items = todos
                 .iter()
                 .map(|todo| TodoItem {
-                    content: todo
-                        .get("content")
+                    content: todo.get("content")
                         .and_then(|c| c.as_str())
                         .unwrap_or("")
                         .to_string(),
-                    status: todo
-                        .get("status")
+                    status: todo.get("status")
                         .and_then(|s| s.as_str())
                         .unwrap_or("pending")
                         .to_string(),
@@ -54,9 +37,7 @@ impl TuiApp {
     /// Get todo progress summary (completed/total)
     pub(crate) fn todo_progress(&self) -> (usize, usize) {
         let total = self.todo_items.len();
-        let completed = self
-            .todo_items
-            .iter()
+        let completed = self.todo_items.iter()
             .filter(|t| t.status == "completed")
             .count();
         (completed, total)
@@ -68,7 +49,6 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::Thinking,
                 content: self.thinking.clone(),
-                is_pending: false,
             });
             self.thinking.clear();
         }
@@ -76,41 +56,20 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::Assistant,
                 content: self.streaming.clone(),
-                is_pending: false,
             });
             self.streaming.clear();
         }
     }
 
     /// Process pending message queue, returning true if a message was sent.
-    /// Merges all pending messages into one request for better context continuity.
-    /// Note: These are messages that failed to send via pending_input_tx channel,
-    /// so they need to be sent after the current session ends.
     fn process_pending_queue(&mut self) -> bool {
         if !self.pending_messages.is_empty() {
-            let msg_count = self.pending_messages.len();
-
-            // Merge all pending messages with separator
-            let merged_msg = self.pending_messages.join("\n\n---\n\n");
-            self.pending_messages.clear();
-
-            // Send merged message (messages were already displayed when user typed them)
-            // Just show a brief notification
+            let next_msg = self.pending_messages.remove(0);
             self.push_message(Message {
-                role: Role::System,
-                content: format!("📝 重试发送 {} 条消息...", msg_count),
-                is_pending: false,
+                role: Role::User,
+                content: next_msg.clone(),
             });
-
-            // Send merged message, retry on failure
-            if self.tx.try_send(merged_msg.clone()).is_err() {
-                // Channel full, restore messages and retry later
-                log::warn!("Task channel full, re-queueing merged message");
-                self.pending_messages.push(merged_msg);
-                self.activity = Activity::Idle;
-                return false;
-            }
-
+            self.tx.try_send(next_msg).ok();
             self.activity = Activity::Thinking;
             self.auto_scroll = true;
             true
@@ -125,12 +84,7 @@ impl TuiApp {
             EventType::ThinkingStart => {
                 self.activity = Activity::Thinking;
                 self.thinking.clear();
-                // Set thinking_start for per-API-call time display
-                self.thinking_start = Some(std::time::Instant::now());
-                // Set request_start if not already set (first API call in response)
-                if self.request_start.is_none() {
-                    self.request_start = Some(std::time::Instant::now());
-                }
+                self.request_start = Some(std::time::Instant::now());
             }
             EventType::ThinkingDelta => {
                 if let Some(EventData::Thinking { delta, .. }) = e.data {
@@ -143,18 +97,14 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::Thinking,
                         content: self.thinking.clone(),
-                        is_pending: false,
                     });
                     self.thinking.clear();
                 }
-                // Clear thinking_start when thinking ends
-                self.thinking_start = None;
             }
             EventType::TextStart => {
                 self.streaming.clear();
                 self.activity = Activity::Thinking;
-                // Clear thinking_start when model starts outputting text
-                self.thinking_start = None;
+                self.request_start = Some(std::time::Instant::now());
             }
             EventType::TextDelta => {
                 if let Some(EventData::Text { delta }) = e.data {
@@ -167,7 +117,6 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::Assistant,
                         content: self.streaming.clone(),
-                        is_pending: false,
                     });
                     self.streaming.clear();
                 }
@@ -179,50 +128,14 @@ impl TuiApp {
                     self.activity_input = input.clone(); // Save full input for display
                     // Reset tool_start for each new tool execution
                     self.tool_start = Some(std::time::Instant::now());
-                    // Don't set request_start here - it's set when user sends message
-                    // and cleared at ResponseEnd
+                    if self.request_start.is_none() {
+                        self.request_start = Some(std::time::Instant::now());
+                    }
 
                     // Track todo_write for progress display
-                    if name == "todo_write"
-                        && let Some(ref input) = input
-                    {
+                    if name == "todo_write" && let Some(ref input) = input {
                         self.update_todo_items(input);
                     }
-
-                    // Check if there's already a pending message for this tool (from streaming phase)
-                    // If input is available now, update it; otherwise create new pending message
-                    let pending_idx = self.messages.iter().rposition(|m| {
-                        matches!(&m.role, Role::Tool { name: n, is_pending: true, .. } if n == &name)
-                    });
-
-                    if let Some(idx) = pending_idx {
-                        // Update existing pending message with full input if available
-                        if let Some(ref input_val) = input {
-                            let detail = extract_tool_detail(&name, Some(input_val));
-                            self.messages[idx].role = Role::Tool {
-                                name,
-                                detail: Some(detail),
-                                is_error: false,
-                                is_pending: true,
-                            };
-                            self.messages[idx].content = input_val.to_string();
-                        }
-                    } else {
-                        // No existing pending message, create new one
-                        let detail = extract_tool_detail(&name, input.as_ref());
-                        let content = input.as_ref().map(|v| v.to_string()).unwrap_or_default();
-                        self.push_message(Message {
-                            role: Role::Tool {
-                                name,
-                                detail: Some(detail),
-                                is_error: false,
-                                is_pending: true,
-                            },
-                            content,
-                            is_pending: false,
-                        });
-                    }
-                    self.auto_scroll = true; // Ensure new message is visible
                 }
             }
             EventType::ToolResult => {
@@ -234,34 +147,14 @@ impl TuiApp {
                     ..
                 }) = e.data
                 {
-                    // Search for the most recent pending tool message with matching name
-                    // (search from end to handle interleaved thinking/other messages)
-                    let pending_idx = self.messages.iter().rposition(|m| {
-                        matches!(&m.role, Role::Tool { name: n, is_pending: true, .. } if n == &name)
-                    });
-
-                    if let Some(idx) = pending_idx {
-                        // Replace the pending message with completed result
-                        self.messages[idx].role = Role::Tool {
+                    self.push_message(Message {
+                        role: Role::Tool {
                             name,
                             detail,
                             is_error,
-                            is_pending: false,
-                        };
-                        self.messages[idx].content = content;
-                    } else {
-                        // No pending message to replace, add new message
-                        self.push_message(Message {
-                            role: Role::Tool {
-                                name,
-                                detail,
-                                is_error,
-                                is_pending: false,
-                            },
-                            content, // Keep full content, draw.rs will summarize
-                            is_pending: false,
-                        });
-                    }
+                        },
+                        content, // Keep full content, draw.rs will summarize
+                    });
                     self.tool_calls += 1;
                     self.activity = Activity::Thinking;
                     self.activity_detail.clear();
@@ -277,9 +170,7 @@ impl TuiApp {
 
                 // Process queue or go idle
                 if !self.process_pending_queue() {
-                    self.activity = Activity::Idle;
-                    // Don't clear request_start - keep the elapsed time displayed
-                    // It will be reset when user sends new message
+                    self.request_start = None;
                 }
                 self.activity_detail.clear();
                 self.activity_input = None;
@@ -296,32 +187,6 @@ impl TuiApp {
                     self.session_total_out = total_output_tokens;
                 }
             }
-            EventType::HistoryLoaded => {
-                if let Some(EventData::HistoryMessages { messages }) = e.data {
-                    // Clear existing messages and load history
-                    self.messages.clear();
-                    self.streaming.clear();
-                    self.thinking.clear();
-
-                    // Add all history messages to display
-                    for msg in messages {
-                        let role = if msg.is_thinking {
-                            Role::Thinking
-                        } else {
-                            match msg.role.as_str() {
-                                "user" => Role::User,
-                                "assistant" => Role::Assistant,
-                                _ => continue, // Skip unknown roles
-                            }
-                        };
-                        self.push_message(Message {
-                            role,
-                            content: msg.content,
-                            is_pending: false,
-                        });
-                    }
-                }
-            }
             EventType::Error => {
                 if let Some(EventData::Error { message, .. }) = e.data {
                     // Check if this is a cancellation error
@@ -333,13 +198,11 @@ impl TuiApp {
                         self.push_message(Message {
                             role: Role::System,
                             content: "\u{26a1} Interrupted".into(),
-                            is_pending: false,
                         });
                     } else {
                         self.push_message(Message {
                             role: Role::System,
                             content: format!("\u{274c} Error: {}", message),
-                            is_pending: false,
                         });
                         self.streaming.clear();
                         self.thinking.clear();
@@ -401,7 +264,6 @@ impl TuiApp {
                             fmt_tokens(compressed_tokens),
                             (1.0 - ratio) * 100.0
                         ),
-                        is_pending: false,
                     });
                     self.auto_scroll = true;
                 }
@@ -416,42 +278,8 @@ impl TuiApp {
                     self.push_message(Message {
                         role: Role::System,
                         content: message,
-                        is_pending: false,
                     });
                     self.auto_scroll = true;
-                }
-            }
-            EventType::QueueProcessed => {
-                // Agent confirmed processing of pending messages
-                if let Some(EventData::QueueProcessed { count, messages }) = e.data {
-                    log::info!("TUI: Agent processed {} pending messages", count);
-
-                    // Remove confirmed messages from waiting queue
-                    // Use prefix matching since messages might be slightly different
-                    for confirmed_msg in &messages {
-                        let confirmed_prefix: String = confirmed_msg.chars().take(100).collect();
-                        self.pending_messages.retain(|pending_msg| {
-                            let pending_prefix: String = pending_msg.chars().take(100).collect();
-                            pending_prefix != confirmed_prefix
-                        });
-
-                        // Update existing pending message to non-pending state
-                        // Find matching message and change is_pending from true to false
-                        for msg in &mut self.messages {
-                            if msg.is_pending {
-                                let msg_prefix: String = msg.content.chars().take(100).collect();
-                                if msg_prefix == confirmed_prefix {
-                                    msg.is_pending = false;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    log::info!(
-                        "TUI: Remaining {} messages in waiting queue",
-                        self.pending_messages.len()
-                    );
                 }
             }
             EventType::MemoryLoaded => {
@@ -466,7 +294,8 @@ impl TuiApp {
             EventType::MemoryDetected => {
                 // Only update counter, don't show in message area
                 // Debug info is already shown in debug panel via DebugLog events
-                if let Some(EventData::Memory { .. }) = e.data {
+                if let Some(EventData::Memory { .. }) = e.data
+                {
                     self.memory_saves += 1;
                 }
             }
@@ -518,39 +347,23 @@ impl TuiApp {
                     let secs = (timestamp / 1000) % 60;
                     let mins = (timestamp / 60000) % 60;
                     let hours = (timestamp / 3600000) % 24;
-                    let log = format!(
-                        "[{:02}:{:02}:{:02}] {}: {}",
-                        hours, mins, secs, category, message
-                    );
+                    let log = format!("[{:02}:{:02}:{:02}] {}: {}", hours, mins, secs, category, message);
                     self.add_debug_log(log);
                 }
             }
             EventType::ProxyToolRequest => {
                 // Handle proxy tool request - execute externally and send response
-                if let Some(EventData::ProxyToolRequest {
-                    request_id,
-                    tool_name,
-                    tool_input,
-                    metadata: _,
-                }) = e.data
-                {
+                if let Some(EventData::ProxyToolRequest { request_id, tool_name, tool_input, metadata: _ }) = e.data {
                     log::info!(
                         "TUI received proxy tool request: id={}, tool={}",
-                        request_id,
-                        tool_name
+                        request_id, tool_name
                     );
 
                     // For image_search, we need async execution
                     if tool_name == "image_search" {
                         // Extract query and max_results
-                        let query = tool_input
-                            .get("query")
-                            .and_then(|q| q.as_str())
-                            .unwrap_or("");
-                        let max_results = tool_input
-                            .get("max_results")
-                            .and_then(|m| m.as_u64())
-                            .unwrap_or(5) as u32;
+                        let query = tool_input.get("query").and_then(|q| q.as_str()).unwrap_or("");
+                        let max_results = tool_input.get("max_results").and_then(|m| m.as_u64()).unwrap_or(5) as u32;
 
                         if query.is_empty() {
                             // Send error response immediately
@@ -585,10 +398,7 @@ impl TuiApp {
                                             "total": images.len(),
                                             "images": images
                                         });
-                                        log::info!(
-                                            "Image search completed: {} results",
-                                            images.len()
-                                        );
+                                        log::info!("Image search completed: {} results", images.len());
                                         matrixcode_core::tools::ProxyToolResponse {
                                             request_id,
                                             result: json.to_string(),
@@ -602,8 +412,7 @@ impl TuiApp {
                                             result: serde_json::json!({
                                                 "success": false,
                                                 "error": e.to_string()
-                                            })
-                                            .to_string(),
+                                            }).to_string(),
                                             is_error: true,
                                         }
                                     }
@@ -623,10 +432,7 @@ impl TuiApp {
                         if let Some(tx) = &self.proxy_response_tx {
                             let response = matrixcode_core::tools::ProxyToolResponse {
                                 request_id,
-                                result: format!(
-                                    "{{\"error\": \"Unknown proxy tool: {}\"}}",
-                                    tool_name
-                                ),
+                                result: format!("{{\"error\": \"Unknown proxy tool: {}\"}}", tool_name),
                                 is_error: true,
                             };
                             if let Err(e) = tx.try_send(response) {
@@ -634,111 +440,6 @@ impl TuiApp {
                             }
                         }
                     }
-                }
-            }
-            EventType::SkillsLoaded => {
-                // Show loaded skills in message area (like tool calls)
-                if let Some(EventData::SkillsLoaded { names }) = e.data {
-                    if !names.is_empty() {
-                        let names_str = names.join(", ");
-                        self.push_message(Message {
-                            role: Role::System,
-                            content: format!("📚 skills[{}]", names_str),
-                            is_pending: false,
-                        });
-                        self.auto_scroll = true;
-                    }
-                }
-            }
-            EventType::WorkflowsLoaded => {
-                // Show loaded workflows in message area (like tool calls)
-                if let Some(EventData::WorkflowsLoaded { names }) = e.data {
-                    if !names.is_empty() {
-                        let names_str = names.join(", ");
-                        self.push_message(Message {
-                            role: Role::System,
-                            content: format!("🔄 workflows[{}]", names_str),
-                            is_pending: false,
-                        });
-                        self.auto_scroll = true;
-                    }
-                }
-            }
-            EventType::McpServerAdded => {
-                if let Some(EventData::McpServerAdded { name, tool_count }) = e.data {
-                    self.push_message(Message {
-                        role: Role::System,
-                        content: format!("🔗 MCP '{}' 已连接 ({} 工具)", name, tool_count),
-                        is_pending: false,
-                    });
-                    self.mcp_servers
-                        .push(McpServerInfo::new(name, true, tool_count));
-                    self.auto_scroll = true;
-                }
-            }
-            EventType::McpServerRemoved => {
-                if let Some(EventData::McpServerRemoved { name }) = e.data {
-                    self.mcp_servers.retain(|s| s.name != name);
-                    self.push_message(Message {
-                        role: Role::System,
-                        content: format!("🔌 MCP '{}' 已移除", name),
-                        is_pending: false,
-                    });
-                    self.auto_scroll = true;
-                }
-            }
-            EventType::McpServerStatus => {
-                if let Some(EventData::McpServerStatus { servers }) = e.data {
-                    self.mcp_servers = servers;
-                }
-            }
-            EventType::LspServerAdded => {
-                if let Some(EventData::LspServerAdded { name, language }) = e.data {
-                    self.push_message(Message {
-                        role: Role::System,
-                        content: format!("🔤 LSP '{}' ({}) 已添加", name, language),
-                        is_pending: false,
-                    });
-                    self.lsp_servers
-                        .push(matrixcode_core::LspServerInfo::new(name, language));
-                    self.auto_scroll = true;
-                }
-            }
-            EventType::LspServerRemoved => {
-                if let Some(EventData::LspServerRemoved { name }) = e.data {
-                    self.lsp_servers.retain(|s| s.name != name);
-                    self.push_message(Message {
-                        role: Role::System,
-                        content: format!("🔤 LSP '{}' 已移除", name),
-                        is_pending: false,
-                    });
-                    self.auto_scroll = true;
-                }
-            }
-            EventType::LspServerStatus => {
-                if let Some(EventData::LspServerStatus { servers }) = e.data {
-                    self.lsp_servers = servers;
-                }
-            }
-            EventType::SessionsList => {
-                if let Some(EventData::SessionsList { sessions }) = e.data {
-                    log::debug!("TUI: Received SessionsList with {} sessions", sessions.len());
-                    self.session_list = sessions.into_iter().map(|s| crate::app::SessionInfo {
-                        short_id: s.short_id,
-                        title: s.title,
-                        message_count: s.message_count,
-                        created_at: s.created_at,
-                    }).collect();
-                    self.session_selected_index = 0;
-                    log::debug!("TUI: Session list populated, first: {:?}", self.session_list.first());
-                }
-            }
-            EventType::CodeGraphStatus => {
-                if let Some(EventData::CodeGraphStatus { status }) = e.data {
-                    log::info!("TUI: received CodeGraph status (pending: {}, nodes: {})",
-                        status.pending_changes.added + status.pending_changes.modified + status.pending_changes.removed,
-                        status.node_count);
-                    self.codegraph_status = Some(status);
                 }
             }
             _ => {}
@@ -911,7 +612,6 @@ impl TuiApp {
         self.push_message(Message {
             role: Role::Ask,
             content,
-            is_pending: false,
         });
         self.waiting_for_ask = true;
         self.activity = Activity::Asking;
@@ -1040,16 +740,8 @@ impl TuiApp {
                     } else {
                         format!("[{}]", (b'A' + i as u8) as char)
                     };
-                    // For non-multi-select mode, show current selection indicator
-                    let selected_indicator =
-                        if !self.ask_multi_select && i == self.ask_selected_index {
-                            "● "
-                        } else {
-                            "  "
-                        };
                     content.push_str(&format!(
-                        "{}{} {}{}\n",
-                        selected_indicator,
+                        "  {} {}{}\n",
                         marker,
                         opt.label,
                         opt.format_description()
@@ -1063,7 +755,6 @@ impl TuiApp {
             self.push_message(Message {
                 role: Role::Ask,
                 content,
-                is_pending: false,
             });
             self.waiting_for_ask = true;
             self.activity = Activity::Asking;

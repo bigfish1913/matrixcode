@@ -94,10 +94,11 @@ export function SessionSwitcherDialog({ onClose, onSelectSession }: SessionSwitc
       <div className="bg-card border shadow-lg rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">Session Switcher</h2>
+          <h2 className="text-lg font-semibold">切换会话</h2>
           <button
             onClick={onClose}
             className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="关闭"
           >
             ✕
           </button>
@@ -113,7 +114,7 @@ export function SessionSwitcherDialog({ onClose, onSelectSession }: SessionSwitc
               setFilter(e.target.value);
               setSelectedIndex(0);  // Reset selection when filter changes
             }}
-            placeholder="Search sessions... (↑/↓ or j/k to navigate, Enter to select)"
+            placeholder="搜索会话... (↑/↓ 或 j/k 导航，Enter 选择)"
             className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
           />
         </div>
@@ -122,22 +123,22 @@ export function SessionSwitcherDialog({ onClose, onSelectSession }: SessionSwitc
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
             <div className="text-center py-8 text-muted-foreground">
-              Loading sessions...
+              正在加载会话...
             </div>
           ) : error ? (
             <div className="text-center py-8 text-red-500">
-              <p className="mb-2">Failed to load sessions</p>
+              <p className="mb-2">加载会话失败</p>
               <p className="text-sm">{error}</p>
               <button
                 onClick={loadSessions}
                 className="mt-4 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
               >
-                Retry
+                重试
               </button>
             </div>
           ) : filteredSessions.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {filter ? 'No sessions match filter' : 'No saved sessions'}
+              {filter ? '没有匹配的会话' : '没有保存的会话'}
             </div>
           ) : (
             <div className="space-y-2">
@@ -153,10 +154,10 @@ export function SessionSwitcherDialog({ onClose, onSelectSession }: SessionSwitc
                 >
                   <div className="flex items-center justify-between mb-1">
                     <div className="font-medium">
-                      {session.name || 'Unnamed Session'}
+                      {session.name || '未命名会话'}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {session.message_count} messages
+                      {session.message_count} 条消息
                     </div>
                   </div>
                   <div className="text-sm text-muted-foreground flex items-center gap-2">
@@ -166,7 +167,7 @@ export function SessionSwitcherDialog({ onClose, onSelectSession }: SessionSwitc
                   </div>
                   {idx === selectedIndex && (
                     <div className="mt-2 text-xs text-primary">
-                      Press Enter to select
+                      按 Enter 选择
                     </div>
                   )}
                 </div>
@@ -178,18 +179,18 @@ export function SessionSwitcherDialog({ onClose, onSelectSession }: SessionSwitc
         {/* Footer */}
         <div className="border-t p-4 flex justify-between items-center">
           <div className="text-xs text-muted-foreground">
-            {filteredSessions.length} session(s)
+            {filteredSessions.length} 个会话
           </div>
           <div className="text-xs text-muted-foreground flex items-center gap-2">
             <span>
-              <kbd className="px-1 bg-accent rounded">↑↓</kbd> or
-              <kbd className="px-1 bg-accent rounded">j/k</kbd> navigate
+              <kbd className="px-1 bg-accent rounded">↑↓</kbd> 或
+              <kbd className="px-1 bg-accent rounded">j/k</kbd> 导航
             </span>
             <span>
-              <kbd className="px-1 bg-accent rounded">Enter</kbd> select
+              <kbd className="px-1 bg-accent rounded">Enter</kbd> 选择
             </span>
             <span>
-              <kbd className="px-1 bg-accent rounded">Esc</kbd> cancel
+              <kbd className="px-1 bg-accent rounded">Esc</kbd> 取消
             </span>
           </div>
         </div>

@@ -8,7 +8,7 @@ use super::config::*;
 use super::entry::{MemoryCategory, MemoryEntry};
 use super::retrieval::{
     TfIdfSearch, compute_relevance, expand_semantic_keywords, extract_context_keywords,
-    has_contradiction_signal,
+    extract_keywords_hybrid, has_contradiction_signal,
 };
 use crate::providers::Message;
 use crate::truncate::truncate_with_suffix;
@@ -33,14 +33,10 @@ fn compare_scored_entries(
         return std::cmp::Ordering::Greater;
     }
 
-    let score_a =
-        a.1 * relevance_weight + (a.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
-    let score_b =
-        b.1 * relevance_weight + (b.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
+    let score_a = a.1 * relevance_weight + (a.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
+    let score_b = b.1 * relevance_weight + (b.0.importance / MAX_IMPORTANCE_CEILING) * importance_weight;
 
-    score_b
-        .partial_cmp(&score_a)
-        .unwrap_or(std::cmp::Ordering::Equal)
+    score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
 }
 
 // ============================================================================
@@ -316,7 +312,7 @@ impl AutoMemory {
         None
     }
 
-    /// Check if similar content already exists (using enhanced similarity).
+    /// Check if similar content already exists.
     pub fn has_similar(&self, content: &str) -> bool {
         let content_lower = content.to_lowercase();
 
@@ -336,8 +332,7 @@ impl AutoMemory {
                 continue;
             }
 
-            // Use enhanced similarity (Jaccard + semantic patterns)
-            let similarity = Self::calculate_similarity_enhanced(&entry_lower, &content_lower);
+            let similarity = Self::calculate_similarity(&entry_lower, &content_lower);
             if similarity >= SIMILARITY_THRESHOLD {
                 log::debug!(
                     "Similar memory found (similarity={:.2}): '{}' vs '{}'",
@@ -345,15 +340,11 @@ impl AutoMemory {
                     e.content,
                     content
                 );
-                crate::debug::debug_log().log(
-                    "MEMORY_DUPLICATE",
-                    &format!(
-                        "similarity={:.2}, existing='{}', new='{}'",
+                crate::debug::debug_log().log("MEMORY_DUPLICATE",
+                    &format!("similarity={:.2}, existing='{}', new='{}'",
                         similarity,
                         truncate_with_suffix(&e.content, 50),
-                        truncate_with_suffix(content, 50)
-                    ),
-                );
+                        truncate_with_suffix(content, 50)));
                 return true;
             }
         }
@@ -361,7 +352,7 @@ impl AutoMemory {
         false
     }
 
-    /// Calculate word-based similarity between two strings (Jaccard similarity).
+    /// Calculate word-based similarity between two strings.
     pub fn calculate_similarity(a: &str, b: &str) -> f64 {
         let a_words: HashSet<&str> = a.split_whitespace().collect();
         let b_words: HashSet<&str> = b.split_whitespace().collect();
@@ -378,86 +369,6 @@ impl AutoMemory {
         } else {
             intersection as f64 / union as f64
         }
-    }
-
-    /// Calculate enhanced similarity with semantic pattern detection.
-    /// This helps detect duplicates like "项目技术栈: Node.js" vs "项目技术栈: Rust".
-    pub fn calculate_similarity_enhanced(a: &str, b: &str) -> f64 {
-        // Calculate Jaccard similarity (word overlap)
-        let jaccard = Self::calculate_similarity(a, b);
-        
-        // Calculate semantic similarity (pattern matching)
-        let semantic = Self::calculate_semantic_similarity(a, b);
-        
-        // Return maximum to catch both word overlap and pattern matches
-        jaccard.max(semantic)
-    }
-
-    /// Calculate semantic similarity based on common patterns.
-    /// Detects if two strings follow the same pattern (e.g., both are tech stack declarations).
-    fn calculate_semantic_similarity(a: &str, b: &str) -> f64 {
-        // Common patterns that indicate same type of memory
-        let patterns = [
-            ("项目技术栈:", "技术栈"),      // Tech stack declarations
-            ("入口文件:", "入口"),          // Entry point declarations
-            ("模块位于", "位于"),           // Module location
-            ("位于 packages/", "packages/"), // Package path
-            ("核心功能:", "功能"),          // Core features
-            ("配置文件:", "配置"),          // Config files
-        ];
-        
-        for (pattern, _) in patterns {
-            if a.contains(pattern) && b.contains(pattern) {
-                // Both match same pattern → high semantic similarity
-                return 0.85;
-            }
-        }
-        
-        // Check category-specific patterns
-        let category_patterns = Self::extract_category_patterns(a);
-        let b_patterns = Self::extract_category_patterns(b);
-        
-        if !category_patterns.is_empty() && !b_patterns.is_empty() {
-            // Count matching patterns
-            let matches = category_patterns.intersection(&b_patterns).count();
-            if matches > 0 {
-                return 0.7 + (matches as f64 * 0.05).min(0.15); // 0.70-0.85
-            }
-        }
-        
-        0.0
-    }
-
-    /// Extract category-specific patterns from content.
-    fn extract_category_patterns(content: &str) -> HashSet<&'static str> {
-        let mut patterns = HashSet::new();
-        
-        // Decision patterns
-        if content.contains("决定") || content.contains("选择") || content.contains("采用") {
-            patterns.insert("decision");
-        }
-        
-        // Preference patterns
-        if content.contains("偏好") || content.contains("习惯") || content.contains("喜欢") {
-            patterns.insert("preference");
-        }
-        
-        // Solution patterns
-        if content.contains("解决") || content.contains("修复") || content.contains("通过") {
-            patterns.insert("solution");
-        }
-        
-        // Structure patterns
-        if content.contains("位于") || content.contains("入口") || content.contains("模块") {
-            patterns.insert("structure");
-        }
-        
-        // Technical patterns
-        if content.contains("技术栈") || content.contains("框架") || content.contains("库") {
-            patterns.insert("technical");
-        }
-        
-        patterns
     }
 
     /// Remove low-importance entries when exceeding max_entries.
@@ -711,8 +622,7 @@ impl AutoMemory {
             .entries
             .iter()
             .filter(|e| {
-                let e_lower = e.content.to_lowercase();
-                e_lower.contains(&query_lower)
+                e.content.to_lowercase().contains(&query_lower)
                     || e.tags
                         .iter()
                         .any(|t| t.to_lowercase().contains(&query_lower))
@@ -866,10 +776,7 @@ impl AutoMemory {
 
     /// Get entries by indices (from AI selection result).
     pub fn get_entries_by_indices(&self, indices: &[usize]) -> Vec<&MemoryEntry> {
-        indices
-            .iter()
-            .filter_map(|i| self.entries.get(*i))
-            .collect()
+        indices.iter().filter_map(|i| self.entries.get(*i)).collect()
     }
 
     /// Generate summary for system prompt.
@@ -942,9 +849,7 @@ impl AutoMemory {
             })
             .collect();
 
-        scored.sort_by(|a, b| {
-            compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT)
-        });
+        scored.sort_by(|a, b| compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT));
 
         let selected: Vec<&MemoryEntry> = scored
             .iter()
@@ -1014,19 +919,22 @@ impl AutoMemory {
             .collect()
     }
 
-    /// Generate context-aware summary async.
-    /// Note: AI keyword extraction has been removed, uses rule-based extraction now.
+    /// Generate context-aware summary async with AI keyword extraction.
     pub async fn generate_contextual_summary_async(
         &self,
         context: &str,
         max_entries: usize,
-        _fast_provider: Option<&dyn crate::providers::Provider>,
+        fast_provider: Option<&dyn crate::providers::Provider>,
     ) -> String {
         if self.entries.is_empty() {
             return String::new();
         }
 
-        let context_keywords = extract_context_keywords(context);
+        let context_keywords = if let Some(provider) = fast_provider {
+            extract_keywords_hybrid(context, Some(provider)).await
+        } else {
+            extract_context_keywords(context)
+        };
 
         let mut scored: Vec<(&MemoryEntry, f64)> = self
             .entries
@@ -1037,9 +945,7 @@ impl AutoMemory {
             })
             .collect();
 
-        scored.sort_by(|a, b| {
-            compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT)
-        });
+        scored.sort_by(|a, b| compare_scored_entries(*a, *b, CONTEXT_RELEVANCE_WEIGHT, CONTEXT_IMPORTANCE_WEIGHT));
 
         let selected: Vec<&MemoryEntry> = scored
             .iter()
@@ -1110,22 +1016,10 @@ impl AutoMemory {
             0.0
         };
 
-        let oldest = self
-            .entries
-            .iter()
-            .min_by_key(|e| e.created_at)
-            .map(|e| e.created_at);
-        let newest = self
-            .entries
-            .iter()
-            .max_by_key(|e| e.created_at)
-            .map(|e| e.created_at);
+        let oldest = self.entries.iter().min_by_key(|e| e.created_at).map(|e| e.created_at);
+        let newest = self.entries.iter().max_by_key(|e| e.created_at).map(|e| e.created_at);
 
-        let highly_referenced = self
-            .entries
-            .iter()
-            .filter(|e| e.reference_count >= 3)
-            .count();
+        let highly_referenced = self.entries.iter().filter(|e| e.reference_count >= 3).count();
 
         MemoryStatistics {
             total,
@@ -1232,10 +1126,7 @@ impl MemoryStatistics {
 
         output.push_str("质量指标：\n");
         output.push_str(&format!("  平均重要性: {:.1} 分\n", self.avg_importance));
-        output.push_str(&format!(
-            "  高频引用: {} 条 (≥3次)\n",
-            self.highly_referenced
-        ));
+        output.push_str(&format!("  高频引用: {} 条 (≥3次)\n", self.highly_referenced));
 
         if let Some(oldest) = self.oldest {
             let days = (Utc::now() - oldest).num_days();

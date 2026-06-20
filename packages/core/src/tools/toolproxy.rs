@@ -56,21 +56,13 @@ impl ProxyToolDef {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use async_trait::async_trait;
-/// use serde_json::json;
-/// use std::sync::Arc;
-/// use matrixcode_core::tools::toolproxy::{ProxyToolExecutor, ProxyToolDef};
-/// use anyhow::Result;
-/// use serde_json::Value;
-///
+/// ```rust
 /// struct ImageSearchExecutor;
 ///
 /// #[async_trait]
 /// impl ProxyToolExecutor for ImageSearchExecutor {
 ///     async fn exec(&self, tool_name: &str, input: Value) -> Result<String> {
 ///         // 执行逻辑...
-///         Ok("result".to_string())
 ///     }
 ///
 ///     fn tool_definitions() -> Vec<ProxyToolDef> {
@@ -84,7 +76,7 @@ impl ProxyToolDef {
 /// // 使用
 /// let executor = Arc::new(ImageSearchExecutor);
 /// let tool_defs = ImageSearchExecutor::tool_definitions();
-/// // builder.proxy_executor(executor, tool_defs)
+/// builder.proxy_executor(executor, tool_defs)
 /// ```
 #[async_trait]
 pub trait ProxyToolExecutor: Send + Sync {
@@ -92,9 +84,7 @@ pub trait ProxyToolExecutor: Send + Sync {
     async fn exec(&self, tool_name: &str, input: Value) -> Result<String>;
 
     /// 返回工具定义列表（必需 - LLM 看到的）
-    fn tool_definitions() -> Vec<ProxyToolDef>
-    where
-        Self: Sized;
+    fn tool_definitions() -> Vec<ProxyToolDef> where Self: Sized;
 }
 
 // ============================================================================
@@ -132,10 +122,7 @@ pub struct ProxyTool {
 
 impl ProxyTool {
     pub fn new(definition: ToolDefinition, metadata: ProxyMetadata) -> Self {
-        Self {
-            definition,
-            metadata,
-        }
+        Self { definition, metadata }
     }
 
     pub fn metadata(&self) -> &ProxyMetadata {
