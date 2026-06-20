@@ -117,7 +117,7 @@ export function ModelSwitcherDialog({ onClose }: ModelSwitcherDialogProps) {
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <span>🤖</span>
-              <span>Model Switcher</span>
+              <span>模型切换</span>
             </h3>
             <button
               onClick={onClose}
