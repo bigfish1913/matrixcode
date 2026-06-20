@@ -49,6 +49,12 @@ struct SessionInfo {
     name: String,
     message_count: usize,
     created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    short_id: Option<String>,
 }
 
 /// Message info returned to the frontend.
@@ -155,6 +161,7 @@ async fn list_sessions(
 ) -> Result<Vec<SessionInfo>, String> {
     let mgr = state.session_manager.lock().await;
     let sessions = mgr.list_sessions();
+    let current_id = mgr.current_id();
     let result = sessions
         .iter()
         .map(|m| SessionInfo {
@@ -162,6 +169,9 @@ async fn list_sessions(
             name: m.name.clone().unwrap_or_default(),
             message_count: m.message_count,
             created_at: m.created_at.format("%Y-%m-%d %H:%M").to_string(),
+            project_path: m.project_path.clone(),
+            updated_at: Some(m.updated_at.format("%Y-%m-%d %H:%M").to_string()),
+            short_id: Some(m.id[..8].to_string()),
         })
         .collect();
     Ok(result)
@@ -187,6 +197,9 @@ async fn current_session_meta(
         name: m.name.clone().unwrap_or_default(),
         message_count: m.message_count,
         created_at: m.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        project_path: m.project_path.clone(),
+        updated_at: Some(m.updated_at.format("%Y-%m-%d %H:%M").to_string()),
+        short_id: Some(m.id[..8].to_string()),
     }))
 }
 
@@ -242,6 +255,16 @@ async fn clear_session(
 ) -> Result<(), String> {
     let mut mgr = state.session_manager.lock().await;
     mgr.clear_current().map_err(|e| e.to_string())
+}
+
+/// Delete a specific session by ID.
+#[tauri::command]
+async fn delete_session(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut mgr = state.session_manager.lock().await;
+    mgr.delete_session(&id).map_err(|e| e.to_string())
 }
 
 /// Get messages for the current session.
@@ -631,6 +654,7 @@ pub fn run() {
             resume_session,
             rename_session,
             clear_session,
+            delete_session,
             get_messages,
             // Message / Agent commands
             send_message,

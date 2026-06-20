@@ -51,10 +51,10 @@ export interface ApprovalStats {
 /** Get icon for risk level */
 export function getRiskLevelIcon(level: RiskLevel): string {
   switch (level) {
-    case 'safe': return 'information_source';
-    case 'mutating': return 'pencil';
-    case 'dangerous': return 'warning';
-    default: return 'circle';
+    case 'safe': return 'ℹ️';
+    case 'mutating': return '✏️';
+    case 'dangerous': return '⚠️';
+    default: return '●';
   }
 }
 
@@ -71,10 +71,10 @@ export function getRiskLevelColor(level: RiskLevel): string {
 /** Get label for approval mode */
 export function getApprovalModeLabel(mode: ApprovalMode): string {
   switch (mode) {
-    case 'ask': return 'Ask';
-    case 'auto': return 'Auto';
-    case 'strict': return 'Strict';
-    default: return 'Unknown';
+    case 'ask': return '询问';
+    case 'auto': return '自动';
+    case 'strict': return '严格';
+    default: return '未知';
   }
 }
 
@@ -91,10 +91,10 @@ export function getApprovalModeDescription(mode: ApprovalMode): string {
 /** Get icon for approval mode */
 export function getApprovalModeIcon(mode: ApprovalMode): string {
   switch (mode) {
-    case 'ask': return 'question';
-    case 'auto': return 'zap';
-    case 'strict': return 'lock';
-    default: return 'circle';
+    case 'ask': return '❓';
+    case 'auto': return '⚡';
+    case 'strict': return '🔒';
+    default: return '●';
   }
 }
 

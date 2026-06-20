@@ -75,8 +75,8 @@ export function WorkflowPanel({ workflowState, onToggle, onSelectNode, onChangeV
     if (!workflow) {
       return (
         <div className="p-4 text-center text-muted-foreground">
-          <p className="text-sm">No workflow loaded</p>
-          <p className="text-xs mt-2">Use /workflow commands to start</p>
+          <p className="text-sm">未加载工作流</p>
+          <p className="text-xs mt-2">使用 /workflow 命令启动</p>
         </div>
       );
     }
@@ -117,7 +117,7 @@ export function WorkflowPanel({ workflowState, onToggle, onSelectNode, onChangeV
             {/* Error message */}
             {node.status === 'failed' && node.error && (
               <div className="mt-1 text-xs text-red-600 truncate">
-                Error: {node.error.slice(0, 50)}...
+                错误: {node.error.slice(0, 50)}...
               </div>
             )}
           </button>
@@ -144,7 +144,7 @@ export function WorkflowPanel({ workflowState, onToggle, onSelectNode, onChangeV
     if (!workflow) {
       return (
         <div className="p-4 text-center text-muted-foreground">
-          <p className="text-sm">No workflow in progress</p>
+          <p className="text-sm">没有进行中的工作流</p>
         </div>
       );
     }

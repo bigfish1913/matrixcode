@@ -44,7 +44,7 @@ export function MemoryPanel({ onClose }: MemoryPanelProps) {
   // Add new memory
   const handleAddMemory = async () => {
     if (!newKey.trim() || !newValue.trim()) {
-      toast.addToast({ type: 'error', message: 'Key和Value都不能为空' });
+      toast.addToast({ type: 'error', message: '键和值都不能为空' });
       return;
     }
 
@@ -99,7 +99,7 @@ export function MemoryPanel({ onClose }: MemoryPanelProps) {
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <span>🧠</span>
-              <span>Memory Management</span>
+              <span>记忆管理</span>
             </h3>
             <button
               onClick={onClose}

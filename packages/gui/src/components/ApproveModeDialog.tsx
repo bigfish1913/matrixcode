@@ -9,17 +9,17 @@ interface ApproveModeDialogProps {
 const APPROVE_MODES: Array<{ id: ApprovalMode; icon: string; color: string }> = [
   {
     id: 'ask',
-    icon: 'question',
+    icon: '❓',
     color: 'text-gray-500',
   },
   {
     id: 'auto',
-    icon: 'zap',
+    icon: '⚡',
     color: 'text-green-600',
   },
   {
     id: 'strict',
-    icon: 'lock',
+    icon: '🔒',
     color: 'text-red-600',
   },
 ];
@@ -83,24 +83,8 @@ export function ApproveModeDialog({ onClose }: ApproveModeDialogProps) {
   // Get icon element based on icon name
   const getIconElement = (iconName: string, className?: string): React.ReactNode => {
     const iconClass = className || 'w-5 h-5';
-    switch (iconName) {
-      case 'question':
-        return <span className={iconClass}>?</span>;
-      case 'zap':
-        return <span className={iconClass}>⚡</span>;
-      case 'lock':
-        return <span className={iconClass}>🔒</span>;
-      case 'information_source':
-        return <span className={iconClass}>ℹ️</span>;
-      case 'pencil':
-        return <span className={iconClass}>📝</span>;
-      case 'warning':
-        return <span className={iconClass}>⚠️</span>;
-      case 'circle':
-        return <span className={iconClass}>⚪</span>;
-      default:
-        return <span className={iconClass}>•</span>;
-    }
+    // iconName is now emoji, just return it directly
+    return <span className={iconClass}>{iconName}</span>;
   };
 
   return (
@@ -111,7 +95,7 @@ export function ApproveModeDialog({ onClose }: ApproveModeDialogProps) {
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <span>⚡</span>
-              <span>Approve Mode</span>
+              <span>批准模式</span>
             </h3>
             <button
               onClick={onClose}

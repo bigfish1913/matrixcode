@@ -6,12 +6,16 @@ export interface SessionInfo {
   name: string;
   message_count: number;
   created_at: string;
+  project_path?: string;
+  updated_at?: string;
+  short_id?: string;
 }
 
 interface SessionState {
   sessions: SessionInfo[];
   currentSessionId: string | null;
   loading: boolean;
+  searchQuery: string;
 
   loadSessions: () => Promise<void>;
   createSession: (name?: string) => Promise<string>;
@@ -20,6 +24,8 @@ interface SessionState {
   resumeSession: (query: string) => Promise<string | null>;
   renameSession: (newName: string) => Promise<void>;
   clearSession: () => Promise<void>;
+  deleteSession: (id: string) => Promise<void>;
+  searchSessions: (query: string) => void;
   setCurrentSession: (id: string | null) => void;
 }
 
@@ -27,6 +33,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   currentSessionId: null,
   loading: false,
+  searchQuery: '',
 
   loadSessions: async () => {
     set({ loading: true });
@@ -80,6 +87,26 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   clearSession: async () => {
     await invoke('clear_session');
+  },
+
+  deleteSession: async (id: string) => {
+    try {
+      await invoke('delete_session', { id });
+      // If deleted session was current, clear currentSessionId
+      const currentId = get().currentSessionId;
+      if (currentId === id) {
+        set({ currentSessionId: null });
+      }
+      await get().loadSessions();
+    } catch (e) {
+      console.error('Failed to delete session:', e);
+      throw e;
+    }
+  },
+
+  searchSessions: (query: string) => {
+    set({ searchQuery: query });
+    // Filter is done in the component, not here
   },
 
   setCurrentSession: (id: string | null) => {

@@ -59,6 +59,7 @@ function App() {
   const createSession = useSessionStore((s) => s.createSession);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const switchSession = useSessionStore((s) => s.switchSession);
+  const currentSessionId = useSessionStore((s) => s.currentSessionId);
 
   // Panel visibility states
   const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
@@ -361,6 +362,7 @@ function App() {
                   <SessionSwitcherDialog
                     onClose={() => setShowSessionSwitcher(false)}
                     onSelectSession={handleSessionSwitch}
+                    currentSessionId={currentSessionId}
                   />
                 </Suspense>
               </DialogErrorBoundary>
