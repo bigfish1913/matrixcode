@@ -1,10 +1,22 @@
 /// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+
+  // Fix ESM compatibility for react-syntax-highlighter
+  resolve: {
+    alias: {
+      // Redirect deprecated import path to correct ESM path
+      '@babel/runtime/regenerator': path.resolve(
+        __dirname,
+        'node_modules/@babel/runtime/helpers/regeneratorRuntime.js'
+      ),
+    },
+  },
 
   // Vitest configuration
   test: {
@@ -96,6 +108,9 @@ export default defineConfig({
       '@tauri-apps/api/event',
       'zustand',
       'react-markdown',
+      // Force pre-bundling of CommonJS dependencies used by react-syntax-highlighter
+      'lowlight',
+      'highlight.js',
     ],
     exclude: [
       // Large dependencies that should be lazy loaded

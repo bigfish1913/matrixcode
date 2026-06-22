@@ -2,10 +2,26 @@ import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useChatStore } from '../stores/chatStore';
 import { useConfigStore } from '../stores/configStore';
-import { useSessionStore } from '../stores/sessionStore';
+import { useSessionStore, SessionInfo } from '../stores/sessionStore';
 import { useToastContext } from '../contexts/ToastContext';
 import { useConfirmDialog, ConfirmDialog } from '../components/shared';
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap';
+
+// Type definitions for backend responses
+interface ToolInfo {
+  name: string;
+  description?: string;
+}
+
+interface SkillInfo {
+  name: string;
+  description?: string;
+}
+
+interface MemoryEntry {
+  name: string;
+  type?: string;
+}
 
 // Command definition matching TUI CommandRegistry
 interface Command {
@@ -90,6 +106,7 @@ export function CommandBar({
   const toggleWorkflowPanel = useChatStore((s) => s.toggleWorkflowPanel);
   const retryLastMessage = useChatStore((s) => s.retryLastMessage);
   const config = useConfigStore((s) => s.config);
+  const updateConfig = useConfigStore((s) => s.updateConfig);
   const toast = useToastContext();
 
   const { visible: showConfirm, config: confirmConfig, showConfirm: openConfirm, handleConfirm, handleCancel } = useConfirmDialog();
@@ -184,7 +201,7 @@ export function CommandBar({
         toast.addToast({ type: 'success', message: '已创建新会话' });
         break;
       case '/history':
-      case '/stats':
+      case '/stats': {
         // Show session statistics (matching TUI /history)
         const messages = useChatStore.getState().messages;
         const userCount = messages.filter(m => m.role === 'user').length;
@@ -198,17 +215,16 @@ export function CommandBar({
         });
         console.log(`Session stats: ${userCount} user, ${assistantCount} assistant, ${toolCount} tools, ${pendingCount} queued`);
         break;
-      case '/mode':
+      }
+      case '/mode': {
         // Cycle through modes: auto -> ask -> strict -> auto
         const modes = ['auto', 'ask', 'strict'];
         const currentMode = config?.approve_mode || 'ask';
         const currentIdx = modes.indexOf(currentMode);
         const nextMode = modes[(currentIdx + 1) % modes.length];
         try {
-          // Call backend to update config
-          await invoke('update_config', { key: 'approve_mode', value: nextMode });
-          // Update local config state
-          updateConfig({ approve_mode: nextMode });
+          // Update config (this will call backend and refresh local state)
+          await updateConfig({ approve_mode: nextMode });
           toast.addToast({
             type: 'success',
             message: `批准模式已切换: ${currentMode} → ${nextMode}`
@@ -221,6 +237,7 @@ export function CommandBar({
           });
         }
         break;
+      }
       case '/model':
         // Show model info
         toast.addToast({ type: 'info', message: `当前模型: ${config?.model || 'claude'}` });
@@ -237,7 +254,7 @@ export function CommandBar({
         } else {
           // Fallback: show session list info
           try {
-            const sessions = await invoke('list_sessions');
+            const sessions = await invoke<SessionInfo[]>('list_sessions');
             const count = sessions?.length || 0;
             toast.addToast({
               type: 'info',
@@ -313,8 +330,8 @@ export function CommandBar({
           onShowToolsSkillsPanel();
         } else {
           try {
-            const tools = await invoke('list_tools');
-            const skills = await invoke('list_skills');
+            const tools = await invoke<ToolInfo[]>('list_tools');
+            const skills = await invoke<SkillInfo[]>('list_skills');
             const toolCount = tools?.length || 0;
             const skillCount = skills?.length || 0;
             toast.addToast({
@@ -330,7 +347,7 @@ export function CommandBar({
       case '/skills':
         // Show skills list
         try {
-          const skills = await invoke('list_skills');
+          const skills = await invoke<SkillInfo[]>('list_skills');
           if (Array.isArray(skills) && skills.length > 0) {
             const skillNames = skills.map(s => s.name || s).join(', ');
             toast.addToast({
@@ -364,7 +381,7 @@ export function CommandBar({
           onShowMemoryPanel();
         } else {
           try {
-            const memories = await invoke('list_memories');
+            const memories = await invoke<MemoryEntry[]>('list_memories');
             const count = memories?.length || 0;
             toast.addToast({
               type: 'info',

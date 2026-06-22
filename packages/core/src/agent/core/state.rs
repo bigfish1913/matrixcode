@@ -163,6 +163,27 @@ impl AgentState {
             return messages;
         }
 
+        // Validate first message must be User (API requirement)
+        let first_msg = &messages[0];
+        if first_msg.role != Role::User {
+            log::warn!(
+                "First message is not User (role={:?}), removing non-User prefix messages",
+                first_msg.role
+            );
+            // Find first User message and start from there
+            let first_user_idx = messages.iter().position(|m| m.role == Role::User);
+            if let Some(idx) = first_user_idx {
+                if idx > 0 {
+                    log::info!("Starting from first User message at index {}", idx);
+                    let cleaned = Self::clean_orphaned_messages(messages[idx..].to_vec());
+                    return cleaned;
+                }
+            } else {
+                log::warn!("No User message found, returning empty");
+                return Vec::new();
+            }
+        }
+
         // Collect all tool_use_ids from ToolUse blocks
         let mut tool_use_ids: HashSet<String> = HashSet::new();
         for msg in &messages {
