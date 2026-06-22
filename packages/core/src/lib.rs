@@ -11,6 +11,7 @@ pub mod config;
 pub mod constants;
 pub mod debug;
 pub mod event;
+pub mod lsp;
 pub mod matrixrpc;
 pub mod memory;
 pub mod models;

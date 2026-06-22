@@ -43,6 +43,7 @@ pub enum EventType {
     ProxyToolRequest, // Proxy tool: request external execution
     ProxyToolResponse, // Proxy tool: external execution result
     DebugLog,    // Debug log entry for TUI debug panel
+    CodeGraphStatus, // CodeGraph index status update
 }
 
 /// Event data
@@ -129,6 +130,13 @@ pub enum EventData {
         category: String,
         message: String,
     }, // Debug log entry
+    CodeGraphStatus {
+        initialized: bool,
+        node_count: u64,
+        edge_count: u64,
+        file_count: u64,
+        pending_changes: Option<serde_json::Value>,
+    }, // CodeGraph status update
 }
 
 impl AgentEvent {
@@ -175,6 +183,20 @@ impl AgentEvent {
     pub fn session_ended() -> Self {
         Self::new(EventType::SessionEnded)
     }
+
+    pub fn codegraph_status(status: crate::tools::codegraph::IndexStatus) -> Self {
+        Self::with_data(
+            EventType::CodeGraphStatus,
+            EventData::CodeGraphStatus {
+                initialized: status.initialized,
+                node_count: status.node_count as u64,
+                edge_count: status.edge_count as u64,
+                file_count: status.file_count as u64,
+                pending_changes: Some(serde_json::to_value(status.pending_changes).unwrap_or_default()),
+            },
+        )
+    }
+
     pub fn session_restored(
         input_tokens: u64,
         total_output_tokens: u64,

@@ -1,0 +1,28 @@
+{
+  "name": "matrixcode-monorepo",
+  "version": "0.4.44",
+  "private": true,
+  "description": "MatrixCode - AI-powered code agent toolkit",
+  "workspaces": [
+    "packages/gui",
+    "packages/vscode"
+  ],
+  "scripts": {
+    "tauri:dev": "npm run tauri:dev -w packages/gui",
+    "tauri:build": "npm run tauri:build -w packages/gui",
+    "dev:gui": "npm run dev -w packages/gui",
+    "build:gui": "npm run build -w packages/gui",
+    "build:vscode": "npm run compile -w packages/vscode",
+    "test:gui": "npm run test -w packages/gui",
+    "lint:gui": "npm run lint -w packages/gui"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "BigFish <bigfish1913@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigfish1913/matrixcode"
+  }
+}

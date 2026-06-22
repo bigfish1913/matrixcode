@@ -142,6 +142,14 @@ pub fn generate_tools_prompt() -> String {
 
 /// Generate tools description with optional CodeGraph support
 pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String {
+    generate_tools_prompt_with_path_and_lsp(project_path, None)
+}
+
+/// Generate tools description with optional CodeGraph and LSP support
+pub fn generate_tools_prompt_with_path_and_lsp(
+    project_path: Option<&PathBuf>,
+    _lsp_registry: Option<std::sync::Arc<crate::lsp::LspClientRegistry>>,
+) -> String {
     let mut tools = base_tools(Arc::new(Vec::new()));
 
     // Add CodeGraph tools if project path provided
@@ -151,6 +159,9 @@ pub fn generate_tools_prompt_with_path(project_path: Option<&PathBuf>) -> String
 
     // Add workflow tools
     tools.extend(workflow::workflow_tools());
+
+    // Note: LSP registry support can be added here in the future
+    // For now, we just acknowledge the parameter to satisfy the signature
 
     let mut lines = vec!["可用工具：".to_string()];
 

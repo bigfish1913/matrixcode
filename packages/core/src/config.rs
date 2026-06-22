@@ -86,6 +86,14 @@ pub struct MatrixConfig {
     /// Format: {"Header-Name": "header-value"}
     #[serde(default)]
     pub extra_headers: Option<HashMap<String, String>>,
+
+    /// Enable LSP integration
+    #[serde(default)]
+    pub enable_lsp: bool,
+
+    /// Verification strategy for code changes
+    #[serde(default)]
+    pub verify_strategy: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -205,6 +213,8 @@ impl MatrixConfig {
             fast_model: None,
             approve_mode: Some("ask".to_string()),
             extra_headers: None,
+            enable_lsp: false,
+            verify_strategy: None,
         })
     }
 
@@ -245,6 +255,10 @@ impl MatrixConfig {
             approve_mode: env::var("APPROVE_MODE").ok()
                 .or(Some("ask".to_string())),
             extra_headers,
+            enable_lsp: env::var("ENABLE_LSP").ok()
+                .map(|v| v == "true")
+                .unwrap_or(false),
+            verify_strategy: env::var("VERIFY_STRATEGY").ok(),
         }
     }
 
@@ -411,14 +425,14 @@ impl MatrixConfig {
     }
 
     /// Get API key with fallback chain
-    fn resolve_api_key(&self) -> Option<String> {
+    pub fn resolve_api_key(&self) -> Option<String> {
         self.api_key.clone()
             .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok())
             .or_else(|| env::var("API_KEY").ok())
     }
 
     /// Get model with fallback chain
-    fn resolve_model(&self) -> String {
+    pub fn resolve_model(&self) -> String {
         self.model.clone()
             .or_else(|| env::var("MODEL").ok())
             .or_else(|| env::var("ANTHROPIC_MODEL").ok())
@@ -426,7 +440,7 @@ impl MatrixConfig {
     }
 
     /// Get base URL with fallback chain
-    fn resolve_base_url(&self) -> Option<String> {
+    pub fn resolve_base_url(&self) -> Option<String> {
         self.base_url.clone()
             .or_else(|| env::var("BASE_URL").ok())
             .or_else(|| env::var("ANTHROPIC_BASE_URL").ok())
@@ -442,7 +456,7 @@ impl MatrixConfig {
     }
 
     /// Resolve provider type from config or infer from model
-    fn resolve_provider_type(&self, model: &str) -> crate::providers::ProviderType {
+    pub fn resolve_provider_type(&self, model: &str) -> crate::providers::ProviderType {
         use crate::providers::ProviderType;
 
         self.provider.clone()
@@ -493,6 +507,8 @@ pub fn create_default_config() -> anyhow::Result<()> {
         fast_model: None,
         approve_mode: Some("ask".to_string()),
         extra_headers: None,
+        enable_lsp: false,
+        verify_strategy: None,
     };
 
     config.save()?;

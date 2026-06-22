@@ -41,6 +41,9 @@ pub struct Skill {
     pub name: String,
     /// Short one-line description shown in the system prompt.
     pub description: String,
+    /// Optional trigger patterns for automatic skill activation.
+    /// Comma-separated patterns: "/review, 审查代码, review"
+    pub trigger: Option<String>,
     /// Absolute path to the skill directory.
     pub dir: PathBuf,
     /// Full markdown body (without frontmatter).
@@ -211,9 +214,12 @@ pub fn load_skill_from_file(md_path: &Path, dir: &Path) -> Result<Skill> {
         .cloned()
         .unwrap_or_else(|| "(no description)".to_string());
 
+    let trigger = front.get("trigger").cloned();
+
     Ok(Skill {
         name,
         description,
+        trigger,
         dir: dir.to_path_buf(),
         body: body.to_string(),
         source_file: md_path.to_path_buf(),

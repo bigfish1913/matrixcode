@@ -132,6 +132,29 @@ impl SessionManager {
         }
     }
 
+    /// Delete a session by ID
+    pub fn delete_session(&mut self, id: &str) -> Result<()> {
+        // Don't delete if it's the current session
+        if self.current_session.as_ref().map(|s| s.metadata.id.as_str()) == Some(id) {
+            anyhow::bail!("Cannot delete current active session");
+        }
+
+        // Remove from index
+        self.index.remove(id);
+
+        // Delete the file
+        let path = self.session_path(id);
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("deleting session file {}", path.display()))?;
+        }
+
+        // Save updated index
+        self.save_index()?;
+
+        Ok(())
+    }
+
     fn load_session(&mut self, id: &str) -> Result<()> {
         let path = self.session_path(id);
         if !path.exists() {

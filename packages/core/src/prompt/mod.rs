@@ -25,6 +25,9 @@ pub mod orchestrator;
 pub mod preprocess;
 pub mod section;
 
+/// Message to remind model about pending todos
+pub const MSG_PENDING_TODOS: &str = "你还有未完成的任务。请检查待办事项列表，并继续完成它们。";
+
 // Re-export main types
 pub use cache::{
     CacheKey, CacheStats, CachedEntry, SectionCache, clear_global_cache, estimate_tokens,

@@ -9,14 +9,21 @@ use lsp_types::{
     Hover, HoverContents, HoverParams, InitializeParams,
     InitializedParams, Location, MarkupKind, Position, ReferenceContext,
     ReferenceParams, TextDocumentClientCapabilities, TextDocumentIdentifier,
-    TextDocumentItem, TextDocumentPositionParams, Url, WorkspaceClientCapabilities,
-    WorkspaceFolder,
+    TextDocumentItem, TextDocumentPositionParams, WorkspaceClientCapabilities,
+    WorkspaceFolder, Uri,
 };
+use url::Url;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
+
+/// Convert Url to Uri for lsp_types compatibility
+fn url_to_uri(url: &Url) -> Uri {
+    Uri::from_str(url.as_str()).unwrap_or_else(|_| Uri::from_str("file:///invalid").unwrap())
+}
 
 use super::constants::{PROCESS_STARTUP_TIMEOUT, SERVER_INIT_TIMEOUT};
 use super::progress::LspProgressCallback;
@@ -243,6 +250,7 @@ impl LspClient {
 
         let root_uri = Url::from_file_path(&self.project_root)
             .map_err(|_| anyhow!("Invalid project root path: {:?}", self.project_root))?;
+        let root_uri = url_to_uri(&root_uri);
 
         let params = InitializeParams {
             process_id: Some(std::process::id()),
@@ -334,7 +342,7 @@ impl LspClient {
         let version = 1;
 
         let text_document = TextDocumentItem {
-            uri: uri.clone(),
+            uri: url_to_uri(uri),
             language_id,
             version,
             text: content.to_string(),
@@ -358,7 +366,7 @@ impl LspClient {
         let transport = self.transport.lock().await;
         let transport = transport.as_ref().ok_or_else(|| anyhow!("Transport not initialized"))?;
 
-        let text_document = TextDocumentIdentifier { uri: uri.clone() };
+        let text_document = TextDocumentIdentifier { uri: url_to_uri(uri) };
         let params = HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document,
@@ -429,7 +437,7 @@ impl LspClient {
         let transport = self.transport.lock().await;
         let transport = transport.as_ref().ok_or_else(|| anyhow!("Transport not initialized"))?;
 
-        let text_document = TextDocumentIdentifier { uri: uri.clone() };
+        let text_document = TextDocumentIdentifier { uri: url_to_uri(uri) };
         let params = GotoDefinitionParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document,
@@ -490,7 +498,7 @@ impl LspClient {
         let transport = self.transport.lock().await;
         let transport = transport.as_ref().ok_or_else(|| anyhow!("Transport not initialized"))?;
 
-        let text_document = TextDocumentIdentifier { uri: uri.clone() };
+        let text_document = TextDocumentIdentifier { uri: url_to_uri(uri) };
         let params = ReferenceParams {
             text_document_position: TextDocumentPositionParams {
                 text_document,
@@ -591,10 +599,18 @@ impl LspClient {
 
 /// Format a location for human-readable output
 pub fn format_location(location: &Location) -> String {
-    let path = location.uri.to_file_path();
-    let path_str = path
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| location.uri.to_string());
+    // Convert Uri to Url if possible
+    let url_str = location.uri.to_string();
+    let path_str = if url_str.starts_with("file://") {
+        // Try to parse as Url and convert to file path
+        Url::parse(&url_str)
+            .ok()
+            .and_then(|url| url.to_file_path().ok())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or(url_str)
+    } else {
+        url_str
+    };
 
     let range = &location.range;
     let start = &range.start;
@@ -604,6 +620,15 @@ pub fn format_location(location: &Location) -> String {
         start.line + 1,  // LSP uses 0-based line numbers
         start.character + 1
     )
+}
+
+/// Convert Url to file path
+fn url_to_file_path(url: &Url) -> Result<PathBuf, ()> {
+    if url.scheme() == "file" {
+        url.to_file_path().map_err(|_| ())
+    } else {
+        Err(())
+    }
 }
 
 /// Format a diagnostic for human-readable output
@@ -617,7 +642,7 @@ pub fn format_diagnostic(diagnostic: &Diagnostic) -> String {
     let location = diagnostic.related_information
         .as_ref()
         .and_then(|info| info.first())
-        .map(|info| format!(" at {}:{}", info.location.uri, info.location.range.start.line + 1))
+        .map(|info| format!(" at {}:{}", info.location.uri.as_str(), info.location.range.start.line + 1))
         .unwrap_or_default();
 
     let code = diagnostic.code
