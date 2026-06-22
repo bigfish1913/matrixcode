@@ -108,9 +108,7 @@ export default defineConfig({
       '@tauri-apps/api/event',
       'zustand',
       'react-markdown',
-      // Force pre-bundling of CommonJS dependencies used by react-syntax-highlighter
       'lowlight',
-      'highlight.js',
     ],
     exclude: [
       // Large dependencies that should be lazy loaded
