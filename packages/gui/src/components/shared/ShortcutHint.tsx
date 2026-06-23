@@ -80,16 +80,14 @@ export function ShortcutHintIndicator({
 /**
  * Input area shortcut hints
  * Shows shortcuts relevant to input field (matching TUI hint bar)
+ * Simplified to show only essential shortcuts to prevent layout issues
  */
 export function InputShortcuts() {
   return (
     <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
       <ShortcutHint shortcut="Enter" description="发送" />
-      <ShortcutHint shortcut="Shift+Enter" description="换行" />
       <ShortcutHint shortcut="↑↓" description="历史" />
-      <ShortcutHint shortcut="Esc" description="停止/清空" />
-      <ShortcutHint shortcut="Alt+T" description="折叠思考" />
-      <ShortcutHint shortcut="Home/End" description="滚动到顶/底" />
+      <ShortcutHint shortcut="Esc" description="停止" />
     </div>
   );
 }

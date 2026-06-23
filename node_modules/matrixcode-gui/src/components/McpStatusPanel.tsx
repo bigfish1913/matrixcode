@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useToastContext } from '../contexts/ToastContext';
 
 interface McpServerInfo {
   name: string;
@@ -34,23 +35,22 @@ export function McpStatusPanel({ onClose }: McpStatusPanelProps) {
   const [servers, setServers] = useState<McpServerInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [operating, setOperating] = useState<string | null>(null);
+  const toast = useToastContext();
 
   // Load MCP server status
   const loadServers = async () => {
     try {
       setRefreshing(true);
       const serverInfo = await invoke<McpServerInfo[]>('get_mcp_servers');
-      if (serverInfo) {
-        setServers(serverInfo);
-      }
+      setServers(serverInfo || []);
     } catch (e) {
       console.error('Failed to load MCP servers:', e);
-      // Show mock data for demonstration
-      setServers([
-        { name: 'playwright', status: 'connected', transport: 'stdio', tools_count: 12 },
-        { name: 'codegraph', status: 'connected', transport: 'stdio', tools_count: 8 },
-        { name: 'filesystem', status: 'disconnected', transport: 'stdio' },
-      ]);
+      toast.addToast({
+        type: 'error',
+        message: `加载 MCP 状态失败: ${e instanceof Error ? e.message : '未知错误'}`
+      });
+      setServers([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -64,6 +64,39 @@ export function McpStatusPanel({ onClose }: McpStatusPanelProps) {
   // Refresh handler
   const handleRefresh = () => {
     loadServers();
+  };
+
+  // MCP lifecycle management
+  const handleStartServer = async (serverName: string) => {
+    try {
+      setOperating(serverName);
+      await invoke('start_mcp_server', { serverName });
+      toast.addToast({ type: 'success', message: `MCP 服务器 ${serverName} 已启动` });
+      await loadServers();
+    } catch (e) {
+      toast.addToast({
+        type: 'error',
+        message: `启动失败: ${e instanceof Error ? e.message : '未知错误'}`
+      });
+    } finally {
+      setOperating(null);
+    }
+  };
+
+  const handleStopServer = async (serverName: string) => {
+    try {
+      setOperating(serverName);
+      await invoke('stop_mcp_server', { serverName });
+      toast.addToast({ type: 'success', message: `MCP 服务器 ${serverName} 已停止` });
+      await loadServers();
+    } catch (e) {
+      toast.addToast({
+        type: 'error',
+        message: `停止失败: ${e instanceof Error ? e.message : '未知错误'}`
+      });
+    } finally {
+      setOperating(null);
+    }
   };
 
   // Server status summary
@@ -199,6 +232,37 @@ export function McpStatusPanel({ onClose }: McpStatusPanelProps) {
                           {server.error}
                         </div>
                       )}
+
+                      {/* Lifecycle controls */}
+                      <div className="mt-3 flex gap-2">
+                        {server.status === 'disconnected' && (
+                          <button
+                            onClick={() => handleStartServer(server.name)}
+                            disabled={operating === server.name}
+                            className="px-3 py-1.5 text-xs bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded transition-colors disabled:opacity-50"
+                          >
+                            {operating === server.name ? '启动中...' : '启动'}
+                          </button>
+                        )}
+                        {server.status === 'connected' && (
+                          <button
+                            onClick={() => handleStopServer(server.name)}
+                            disabled={operating === server.name}
+                            className="px-3 py-1.5 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded transition-colors disabled:opacity-50"
+                          >
+                            {operating === server.name ? '停止中...' : '停止'}
+                          </button>
+                        )}
+                        {server.status === 'error' && (
+                          <button
+                            onClick={() => handleStartServer(server.name)}
+                            disabled={operating === server.name}
+                            className="px-3 py-1.5 text-xs bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded transition-colors disabled:opacity-50"
+                          >
+                            {operating === server.name ? '重启中...' : '重启'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

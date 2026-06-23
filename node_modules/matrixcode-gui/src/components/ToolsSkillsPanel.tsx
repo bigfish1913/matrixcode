@@ -4,14 +4,17 @@ import { invoke } from '@tauri-apps/api/core';
 interface ToolInfo {
   name: string;
   description: string;
-  input_schema?: Record<string, unknown>;
+  parameters?: Record<string, unknown>;  // Backend returns 'parameters'
+  is_priority?: boolean;
   category?: 'file' | 'search' | 'web' | 'system' | 'agent' | 'other';
 }
 
 interface SkillInfo {
   name: string;
   description: string;
-  path?: string;
+  trigger?: string;  // Backend optional field
+  source_file?: string;  // Backend returns 'source_file'
+  path?: string;  // Frontend convenience field
   enabled?: boolean;
 }
 
@@ -71,23 +74,33 @@ export function ToolsSkillsPanel({ onClose, initialView = 'tools' }: ToolsSkills
       try {
         setLoading(true);
 
-        // Try to load from backend
+        // Load tools from backend
         try {
-          const backendTools = await invoke<ToolInfo[]>('get_available_tools');
+          const backendTools = await invoke<ToolInfo[]>('list_tools');
           if (backendTools && backendTools.length > 0) {
-            setTools(backendTools);
+            // Add category based on tool name
+            const categorizedTools = backendTools.map(tool => ({
+              ...tool,
+              category: inferToolCategory(tool.name)
+            }));
+            setTools(categorizedTools);
           }
         } catch (e) {
-          console.log('Using fallback tools list');
+          console.log('Using fallback tools list:', e);
         }
 
+        // Load skills from backend
         try {
-          const backendSkills = await invoke<SkillInfo[]>('get_loaded_skills');
+          const backendSkills = await invoke<SkillInfo[]>('list_skills');
           if (backendSkills && backendSkills.length > 0) {
-            setSkills(backendSkills);
+            setSkills(backendSkills.map(skill => ({
+              ...skill,
+              enabled: true,
+              path: skill.source_file
+            })));
           }
         } catch (e) {
-          console.log('Using fallback skills list');
+          console.log('Using fallback skills list:', e);
         }
       } finally {
         setLoading(false);
@@ -95,6 +108,16 @@ export function ToolsSkillsPanel({ onClose, initialView = 'tools' }: ToolsSkills
     };
     loadData();
   }, []);
+
+  // Infer tool category from name
+  const inferToolCategory = (name: string): ToolInfo['category'] => {
+    if (['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) return 'file';
+    if (['Grep', 'Glob', 'Search', 'CodegraphSearch'].includes(name)) return 'search';
+    if (['WebSearch', 'WebFetch'].includes(name)) return 'web';
+    if (['Bash', 'LSP', 'Task'].includes(name)) return 'system';
+    if (['Agent', 'Workflow'].includes(name)) return 'agent';
+    return 'other';
+  };
 
   // Filter tools by category
   const filteredTools = tools.filter(t => {

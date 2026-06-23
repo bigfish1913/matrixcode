@@ -102,6 +102,30 @@ pub struct TuiApp {
     pub(crate) workflow_state: crate::workflow::WorkflowViewState,
     // Workflow refresh timing
     pub(crate) last_workflow_refresh: Instant,
+    // MCP server status (for /mcp command)
+    pub(crate) mcp_servers: Vec<McpServerInfo>,
+    // Session selector state (for /session command)
+    pub(crate) waiting_for_session: bool,
+    pub(crate) session_selected_index: usize,
+    pub(crate) session_list: Vec<SessionInfo>,
+}
+
+/// MCP server info for status display
+#[derive(Clone)]
+pub struct McpServerInfo {
+    pub name: String,
+    pub is_started: bool,
+    pub tool_count: usize,
+}
+
+/// Session info for interactive selector
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct SessionInfo {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub message_count: usize,
 }
 
 /// Todo item for progress tracking
@@ -201,6 +225,10 @@ impl TuiApp {
             multiline_confirm_send: false,
             workflow_state: crate::workflow::WorkflowViewState::default(),
             last_workflow_refresh: Instant::now(),
+            mcp_servers: Vec::new(),
+            waiting_for_session: false,
+            session_selected_index: 0,
+            session_list: Vec::new(),
         }
     }
 

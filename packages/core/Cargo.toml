@@ -37,6 +37,8 @@ rusqlite = { workspace = true }
 notify = { workspace = true }
 lsp-types = { workspace = true }
 tokio-stream = { workspace = true }
+tracing = "0.1"  # ← Add tracing dependency (required by MCP module)
+shell-words = "1.1"  # ← Add shell-words dependency (required by MCP module for command parsing)
 
 [dev-dependencies]
 mockito = { workspace = true }

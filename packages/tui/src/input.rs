@@ -597,7 +597,7 @@ impl TuiApp {
             self.auto_scroll = true;
         } else if input.starts_with('/') {
             // Command
-            self.handle_command(&input);
+            crate::commands::handle_command(self, &input);
         } else if self.activity == Activity::Idle {
             // Send immediately
             log::info!("TUI send_input: sending message '{}' (len={})", input.chars().take(50).collect::<String>(), input.len());

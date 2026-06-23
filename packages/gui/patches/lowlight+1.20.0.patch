@@ -1,0 +1,11 @@
+diff --git a/node_modules/lowlight/lib/core.js b/node_modules/lowlight/lib/core.js
+index 73c543b..81b96d1 100644
+--- a/node_modules/lowlight/lib/core.js
++++ b/node_modules/lowlight/lib/core.js
+@@ -205,3 +205,6 @@ function toHtmlNoop() {
+ }
+ 
+ function noop() {}
++
++// ESM compatibility - add default export
++module.exports = exports

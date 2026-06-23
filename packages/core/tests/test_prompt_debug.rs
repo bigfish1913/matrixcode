@@ -21,6 +21,7 @@ fn test_print_full_system_prompt() {
         None,
         None,
         Some(&project_path),
+        None, // No LSP servers for this test
     );
 
     // Print the full prompt to see its structure

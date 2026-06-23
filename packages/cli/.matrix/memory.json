@@ -1,6 +1,171 @@
 {
   "entries": [
     {
+      "id": "struct-agent-core",
+      "created_at": "2026-06-06T09:30:00Z",
+      "last_referenced": "2026-06-06T09:30:00Z",
+      "category": "structure",
+      "content": "Agent 核心模块位于 packages/core/src/agent/。**Location:** run.rs 是 Agent 主循环入口，streaming.rs 处理流式响应，tools.rs 执行工具调用。**Purpose:** 实现 Agent 循环：接收消息 → 调用 API → 处理响应 → 执行工具 → 循环",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 85.0,
+      "tags": [
+        "agent",
+        "core",
+        "loop",
+        "streaming",
+        "project"
+      ],
+      "is_manual": true
+    },
+    {
+      "id": "struct-compress",
+      "created_at": "2026-06-06T09:30:00Z",
+      "last_referenced": "2026-06-06T09:30:00Z",
+      "category": "structure",
+      "content": "上下文压缩模块位于 packages/core/src/compress/。**Location:** compressor.rs:518-561 是 estimate_tokens 函数，compressor.rs 是压缩入口。**Purpose:** 计算上下文 token 数量，超过阈值时触发压缩节省 token",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "compress",
+        "context",
+        "token",
+        "optimization",
+        "project"
+      ],
+      "is_manual": true
+    },
+    {
+      "id": "struct-providers",
+      "created_at": "2026-06-06T09:30:00Z",
+      "last_referenced": "2026-06-06T09:30:00Z",
+      "category": "structure",
+      "content": "Provider 模块位于 packages/core/src/providers/。**Location:** mod.rs 定义 Provider trait，anthropic.rs 和 openai.rs 是具体实现。**Purpose:** 抽象 AI 提供商接口，统一消息格式和流式响应处理",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 75.0,
+      "tags": [
+        "providers",
+        "API",
+        "streaming",
+        "trait",
+        "project"
+      ],
+      "is_manual": true
+    },
+    {
+      "id": "struct-memory",
+      "created_at": "2026-06-06T09:30:00Z",
+      "last_referenced": "2026-06-06T09:30:00Z",
+      "category": "structure",
+      "content": "Memory 记忆模块位于 packages/core/src/memory/。**Location:** storage.rs 处理持久化，extractor.rs 提取记忆。**Purpose:** 跨会话记忆存储，保存项目结构、决策、偏好等信息",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "memory",
+        "storage",
+        "extraction",
+        "cross-session",
+        "project"
+      ],
+      "is_manual": true
+    },
+    {
+      "id": "struct-tools",
+      "created_at": "2026-06-06T09:30:00Z",
+      "last_referenced": "2026-06-06T09:30:00Z",
+      "category": "structure",
+      "content": "通过hook 调用的 我的问题是 CodeGraph  远不止我们这些已有的  还有其他的没有添加",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 80.0,
+      "tags": [
+        "tools",
+        "codegraph",
+        "bash",
+        "edit",
+        "project"
+      ],
+      "is_manual": true
+    },
+    {
+      "id": "struct-entry",
+      "created_at": "2026-06-06T09:30:00Z",
+      "last_referenced": "2026-06-06T09:30:00Z",
+      "category": "structure",
+      "content": "CLI 入口位于 packages/cli/src/main.rs。**Location:** main.rs 解析命令行参数，调用 core 库执行任务。TUI 入口在 packages/tui/src/lib.rs。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 60.0,
+      "tags": [
+        "entry",
+        "CLI",
+        "TUI",
+        "main",
+        "project"
+      ],
+      "is_manual": true
+    },
+    {
+      "id": "struct-workspace",
+      "created_at": "2026-06-06T09:30:00Z",
+      "last_referenced": "2026-06-06T09:30:00Z",
+      "category": "structure",
+      "content": "项目 Workspace 结构：packages/core 是核心库（Agent、Tools、Memory、Providers），packages/cli 是命令行入口，packages/tui 是终端 UI（ratatui）。技能文件在 skills/ 目录。",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 70.0,
+      "tags": [
+        "workspace",
+        "structure",
+        "packages",
+        "project"
+      ],
+      "is_manual": true
+    },
+    {
+      "id": "struct-prompt",
+      "created_at": "2026-06-06T09:30:00Z",
+      "last_referenced": "2026-06-06T09:30:00Z",
+      "category": "structure",
+      "content": "Prompt 系统提示构建位于 packages/core/src/prompt/。**Location:** mod.rs 是构建入口，constants.rs 是静态内容，context.rs 是上下文注入。**Purpose:** 组装 system prompt：profile + skills + overview + memory",
+      "source_session": null,
+      "project_path": "C:/Users/bigfish/Projects/matrixcode",
+      "reference_count": 0,
+      "importance": 65.0,
+      "tags": [
+        "prompt",
+        "system",
+        "assembly",
+        "project"
+      ],
+      "is_manual": true
+    },
+    {
+      "id": "c13b3a97-8593-4d43-8d22-cb4c2176bad7",
+      "created_at": "2026-05-31T11:53:19.578257500Z",
+      "last_referenced": "2026-05-31T11:53:19.578257500Z",
+      "category": "finding",
+      "content": "dejs\\cache\\_logs\\2026-05-31T11_49_10_571Z-debug-0",
+      "source_session": null,
+      "reference_count": 0,
+      "importance": 55.0,
+      "tags": [
+        "project",
+        "merged"
+      ],
+      "is_manual": false
+    },
+    {
       "id": "1a7dbf6e-7941-4deb-8333-a7b3d1ab375a",
       "created_at": "2026-05-23T05:56:05.492283400Z",
       "last_referenced": "2026-05-23T05:56:05.492283500Z",
@@ -9,7 +174,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 45.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -77,7 +244,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 55.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -89,7 +258,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 55.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -101,7 +272,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 45.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -113,7 +286,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 65.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -125,7 +300,9 @@
       "source_session": null,
       "reference_count": 0,
       "importance": 55.0,
-      "tags": [],
+      "tags": [
+        "project"
+      ],
       "is_manual": false
     },
     {
@@ -143,7 +320,8 @@
         "docs",
         "架构分析",
         "documentation",
-        "structure"
+        "structure",
+        "project"
       ],
       "is_manual": false
     },
@@ -164,7 +342,8 @@
         "弱关联",
         "session",
         "memory",
-        "bug"
+        "bug",
+        "project"
       ],
       "is_manual": false
     },
@@ -185,7 +364,8 @@
         "路径管理",
         "decision",
         "session",
-        "path"
+        "path",
+        "project"
       ],
       "is_manual": false
     },
@@ -205,7 +385,8 @@
         "P1",
         "P2",
         "solution",
-        "roadmap"
+        "roadmap",
+        "project"
       ],
       "is_manual": false
     },
@@ -225,7 +406,8 @@
         "持久化",
         "session",
         "memory",
-        "architecture"
+        "architecture",
+        "project"
       ],
       "is_manual": false
     }

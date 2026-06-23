@@ -1,10 +1,11 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { Sidebar, type ViewType } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { useSessionStore } from './stores/sessionStore';
 import { useChatStore } from './stores/chatStore';
 import { ServerStatusProvider } from './contexts/ServerStatusContext';
-import { ToastProvider } from './contexts/ToastContext';
+import { ToastProvider, useToastContext } from './contexts/ToastContext';
 import { PerformanceMonitor } from './components/PerformanceMonitor';
 import { CommandBar } from './components/CommandBar';
 import { ShortcutHelp } from './components/ShortcutHelp';
@@ -51,15 +52,23 @@ const CronTaskDialog = lazy(() =>
 const MemoryPanel = lazy(() =>
   import('./components/MemoryPanel').then(module => ({ default: module.MemoryPanel }))
 );
+const ToolsSkillsPanel = lazy(() =>
+  import('./components/ToolsSkillsPanel').then(module => ({ default: module.ToolsSkillsPanel }))
+);
 
 // Enhanced loading fallback component is imported from LoadingComponents.tsx
 
-function App() {
+// Inner component that uses toast context (must be inside ToastProvider)
+function AppContent() {
   const [currentView, setCurrentView] = useState<ViewType>('chat');
   const createSession = useSessionStore((s) => s.createSession);
   const clearMessages = useChatStore((s) => s.clearMessages);
+  const loadMessages = useChatStore((s) => s.loadMessages);
   const switchSession = useSessionStore((s) => s.switchSession);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
+
+  // Get toast at component level for panic handler (must be inside ToastProvider)
+  const toast = useToastContext();
 
   // Panel visibility states
   const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
@@ -74,12 +83,57 @@ function App() {
   const [showApproveModeDialog, setShowApproveModeDialog] = useState(false);
   const [showModelSwitcherDialog, setShowModelSwitcherDialog] = useState(false);
   const [showMemoryPanel, setShowMemoryPanel] = useState(false);
+  const [showToolsSkillsPanel, setShowToolsSkillsPanel] = useState(false);
 
   // Get loop/cron task state
   const loopTask = useChatStore((s) => s.loopTask);
   const cronTasks = useChatStore((s) => s.cronTasks);
   const stopLoopTask = useChatStore((s) => s.stopLoopTask);
   const stopCronTask = useChatStore((s) => s.stopCronTask);
+
+  // Global exception handling (P2 optimization - panic hook recovery)
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+
+    const setupPanicListener = async () => {
+      unlistenFn = await listen('backend-panic', (event) => {
+        console.error('Backend panic:', event.payload);
+
+        // Show error toast (using toast from component level)
+        toast.addToast({
+          type: 'error',
+          message: '后端异常，正在恢复应用状态...',
+          duration: 5000
+        });
+
+        // Re-initialize app state
+        createSession();
+        clearMessages();
+        setCurrentView('chat');
+
+        // Close all panels
+        setShowPerformanceMonitor(false);
+        setShowLspPanel(false);
+        setShowCodeGraphPanel(false);
+        setShowMcpPanel(false);
+        setShowCommandBar(false);
+        setShowShortcutHelp(false);
+        setShowSessionSwitcher(false);
+        setShowLoopTaskDialog(false);
+        setShowCronTaskDialog(false);
+        setShowApproveModeDialog(false);
+        setShowModelSwitcherDialog(false);
+        setShowMemoryPanel(false);
+        setShowToolsSkillsPanel(false);
+      });
+    };
+
+    setupPanicListener();
+
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, [createSession, clearMessages, toast]);
 
   // Global keyboard shortcuts (matching TUI key handling)
   useEffect(() => {
@@ -99,6 +153,11 @@ function App() {
         if (showMemoryPanel) {
           e.preventDefault();
           setShowMemoryPanel(false);
+          return;
+        }
+        if (showToolsSkillsPanel) {
+          e.preventDefault();
+          setShowToolsSkillsPanel(false);
           return;
         }
         if (showCronTaskDialog) {
@@ -149,7 +208,7 @@ function App() {
       }
 
       // Don't process other shortcuts when dialogs are open
-      if (showCommandBar || showShortcutHelp || showSessionSwitcher || showLoopTaskDialog || showCronTaskDialog || showApproveModeDialog || showModelSwitcherDialog || showMemoryPanel) {
+      if (showCommandBar || showShortcutHelp || showSessionSwitcher || showLoopTaskDialog || showCronTaskDialog || showApproveModeDialog || showModelSwitcherDialog || showMemoryPanel || showToolsSkillsPanel) {
         return;
       }
 
@@ -287,7 +346,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [createSession, clearMessages, showCommandBar, showShortcutHelp, showSessionSwitcher, showLoopTaskDialog, showCronTaskDialog, showApproveModeDialog, showModelSwitcherDialog, showMemoryPanel, showLspPanel, showCodeGraphPanel, showMcpPanel, showPerformanceMonitor]);
+  }, [createSession, clearMessages, showCommandBar, showShortcutHelp, showSessionSwitcher, showLoopTaskDialog, showCronTaskDialog, showApproveModeDialog, showModelSwitcherDialog, showMemoryPanel, showToolsSkillsPanel, showLspPanel, showCodeGraphPanel, showMcpPanel, showPerformanceMonitor]);
 
   const renderView = () => {
     switch (currentView) {
@@ -313,21 +372,20 @@ function App() {
   // Handle session switch
   const handleSessionSwitch = async (sessionId: string) => {
     await switchSession(sessionId);
-    clearMessages();  // Clear current messages
+    clearMessages();  // Clear current messages first
+    // Load messages from the new session after switching
+    await loadMessages();
     setCurrentView('chat');
   };
 
   return (
-    <ToastProvider>
-      <ServerStatusProvider>
-        <ErrorBoundary>
-          <div className="flex h-screen bg-background text-foreground">
-            <Sidebar currentView={currentView} onViewChange={setCurrentView} />
-            <main className="flex-1 flex flex-col min-w-0">
-              {renderView()}
-            </main>
+    <div className="flex h-screen bg-background text-foreground">
+      <Sidebar currentView={currentView} onViewChange={setCurrentView} />
+      <main className="flex-1 flex flex-col min-w-0">
+        {renderView()}
+      </main>
 
-            {/* Status panels (overlay) */}
+      {/* Status panels (overlay) */}
             {showLspPanel && (
               <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40">
                 <Suspense fallback={<DialogSkeleton />}>
@@ -387,6 +445,8 @@ function App() {
                     setShowModelSwitcherDialog(true);
                   } else if (cmd === '/memory') {
                     setShowMemoryPanel(true);
+                  } else if (cmd === '/tools' || cmd === '/skills') {
+                    setShowToolsSkillsPanel(true);
                   } else if (cmd === '/lsp') {
                     setShowLspPanel(true);
                   } else if (cmd === '/codegraph' || cmd === '/cg') {
@@ -399,9 +459,7 @@ function App() {
                 onShowCronDialog={() => setShowCronTaskDialog(true)}
                 onShowSessionSwitcher={() => setShowSessionSwitcher(true)}
                 onShowMemoryPanel={() => setShowMemoryPanel(true)}
-                onShowToolsSkillsPanel={() => {
-                  console.log('ToolsSkillsPanel not yet implemented');
-                }}
+                onShowToolsSkillsPanel={() => setShowToolsSkillsPanel(true)}
                 onClose={() => setShowCommandBar(false)}
               />
             )}
@@ -456,6 +514,15 @@ function App() {
               </DialogErrorBoundary>
             )}
 
+            {/* Tools & Skills panel */}
+            {showToolsSkillsPanel && (
+              <DialogErrorBoundary>
+                <Suspense fallback={<DialogSkeleton />}>
+                  <ToolsSkillsPanel onClose={() => setShowToolsSkillsPanel(false)} />
+                </Suspense>
+              </DialogErrorBoundary>
+            )}
+
             {/* Loop/Cron task indicator */}
             <LoopTaskIndicator
               loopTask={loopTask}
@@ -467,6 +534,16 @@ function App() {
             {/* Shortcut hint indicator */}
             <ShortcutHintIndicator onClick={() => setShowShortcutHelp(true)} />
           </div>
+  );
+}
+
+// Outer wrapper component that provides context
+function App() {
+  return (
+    <ToastProvider>
+      <ServerStatusProvider>
+        <ErrorBoundary>
+          <AppContent />
         </ErrorBoundary>
       </ServerStatusProvider>
     </ToastProvider>

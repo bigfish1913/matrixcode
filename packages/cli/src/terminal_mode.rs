@@ -445,6 +445,7 @@ async fn run_agent_task(
         project_overview.as_ref().map(|o| o.content.as_str()),
         if initial_memory_summary.is_empty() { None } else { Some(&initial_memory_summary) },
         project_path.as_ref(),
+        None, // No LSP servers in terminal mode
     );
 
     // Build agent with CodeGraph tools
@@ -485,9 +486,13 @@ async fn run_agent_task(
         use matrixcode_core::tools::codegraph::CodeGraphWatcher;
         let watcher = CodeGraphWatcher::new(pp.as_path());
         let watcher_cancel = cancel_token.clone();
-        if watcher.start(watcher_cancel).is_ok() {
-            log::info!("CodeGraph auto-sync watcher started for: {}", pp.display());
-        }
+        // Start watcher in background - don't block on result
+        tokio::spawn(async move {
+            if let Err(e) = watcher.start(watcher_cancel).await {
+                log::warn!("CodeGraph watcher error: {}", e);
+            }
+        });
+        log::info!("CodeGraph auto-sync watcher started for: {}", pp.display());
     }
 
     let mut turn_count: usize = 0;

@@ -88,7 +88,6 @@ pub fn render_markdown(text: &str, max_width: usize) -> Vec<Line<'static>> {
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
-    options.insert(Options::ENABLE_MATH);
 
     let parser = Parser::new_ext(text, options);
     let mut renderer = MarkdownRenderer::new(max_width);
@@ -250,6 +249,13 @@ impl MarkdownRenderer {
                             .push(Span::styled(code.to_string(), inline_code_style()));
                     }
                 }
+                Event::Html(html) => {
+                    if self.in_table_cell {
+                        self.current_cell_content.push_str(&html);
+                    } else {
+                        self.add_text(&html);
+                    }
+                }
                 Event::InlineMath(math) => {
                     // Inline math: $formula$
                     if self.in_table_cell {
@@ -264,13 +270,6 @@ impl MarkdownRenderer {
                     self.flush_line();
                     self.lines
                         .push(Line::styled(format!("  $${}$$", math), math_style()));
-                }
-                Event::Html(html) => {
-                    if self.in_table_cell {
-                        self.current_cell_content.push_str(&html);
-                    } else {
-                        self.add_text(&html);
-                    }
                 }
                 Event::InlineHtml(html) => {
                     if self.in_table_cell {
@@ -380,12 +379,13 @@ impl MarkdownRenderer {
             }
             Tag::FootnoteDefinition(_) => {}
             Tag::HtmlBlock => {}
-            Tag::DefinitionList => {}
-            Tag::DefinitionListTitle => {}
-            Tag::DefinitionListDefinition => {}
-            Tag::Superscript => self.push_style(Style::default().fg(Color::Gray)),
-            Tag::Subscript => self.push_style(Style::default().fg(Color::Gray)),
             Tag::MetadataBlock(_) => {}
+            // pulldown-cmark 0.13+ new tags - ignore for now
+            Tag::DefinitionList
+            | Tag::DefinitionListTitle
+            | Tag::DefinitionListDefinition
+            | Tag::Superscript
+            | Tag::Subscript => {}
         }
     }
 
@@ -465,12 +465,13 @@ impl MarkdownRenderer {
             }
             TagEnd::FootnoteDefinition => {}
             TagEnd::HtmlBlock => {}
-            TagEnd::DefinitionList => {}
-            TagEnd::DefinitionListTitle => {}
-            TagEnd::DefinitionListDefinition => {}
-            TagEnd::Superscript => self.pop_style(),
-            TagEnd::Subscript => self.pop_style(),
             TagEnd::MetadataBlock(_) => {}
+            // pulldown-cmark 0.13+ new tags - ignore for now
+            TagEnd::DefinitionList
+            | TagEnd::DefinitionListTitle
+            | TagEnd::DefinitionListDefinition
+            | TagEnd::Superscript
+            | TagEnd::Subscript => {}
         }
     }
 

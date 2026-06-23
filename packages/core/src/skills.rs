@@ -543,6 +543,7 @@ mod tests {
         let s = Skill {
             name: "demo".into(),
             description: "does stuff".into(),
+            trigger: None,
             dir: PathBuf::from("/tmp"),
             body: String::new(),
             source_file: PathBuf::from("/tmp/demo.md"),

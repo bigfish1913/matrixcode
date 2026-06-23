@@ -1,5 +1,6 @@
 import React, { type ReactNode, useState, useEffect, useMemo, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { ChatMessage } from '../stores/chatStore';
@@ -141,7 +142,7 @@ export const MessageBubble = memo(function MessageBubble({ message, isLast = fal
           </span>
         )}
       </summary>
-      <pre className="mt-2 text-xs bg-purple-50 dark:bg-purple-900/20 p-2 rounded overflow-auto max-h-60 text-purple-900 dark:text-purple-100 animate-fade-in relative">
+      <pre className="mt-2 text-xs bg-purple-50 dark:bg-purple-900/20 p-2 rounded overflow-x-hidden overflow-y-auto max-h-60 text-purple-900 dark:text-purple-100 animate-fade-in relative whitespace-pre-wrap break-words">
         <CopyButton text={message.thinking!} />
         {message.thinking}
       </pre>
@@ -156,22 +157,22 @@ export const MessageBubble = memo(function MessageBubble({ message, isLast = fal
         open={toolCallOpen || undefined}
         onToggle={(e) => setToolCallOpen(e.currentTarget.open)}
       >
-        <summary className="text-xs font-mono text-muted-foreground flex items-center gap-1.5 select-none">
+        <summary className="text-xs font-mono text-muted-foreground flex items-center gap-1.5 select-none bg-amber-50 dark:bg-amber-900/20 px-4 py-2 border-b border-amber-200 dark:border-amber-700/50 rounded-t-lg -mt-2.5">
           <span className="text-amber-500 group-open:rotate-90 transition-transform duration-200">▶</span>
           <span className="text-lg">{toolCallInfo.icon}</span>
-          <span className="text-amber-600 dark:text-amber-400">{toolCallInfo.displayName}</span>
+          <span className="text-amber-600 dark:text-amber-400 font-medium">{toolCallInfo.displayName}</span>
           {(() => {
             if (!message.toolInput) return null;
             if (typeof message.toolInput === 'object' && Object.keys(message.toolInput).length > 0) {
-              return <span className="text-xs text-muted-foreground ml-auto">{Object.keys(message.toolInput).length} 个参数</span>;
+              return <span className="text-xs text-muted-foreground ml-auto bg-amber-100 dark:bg-amber-800 px-1.5 py-0.5 rounded">{Object.keys(message.toolInput).length} 个参数</span>;
             }
             if (typeof message.toolInput === 'string' && message.toolInput.trim()) {
-              return <span className="text-xs text-muted-foreground ml-auto">{message.toolInput.split('\n').filter(l => l.trim()).length} 行输入</span>;
+              return <span className="text-xs text-muted-foreground ml-auto bg-amber-100 dark:bg-amber-800 px-1.5 py-0.5 rounded">{message.toolInput.split('\n').filter(l => l.trim()).length} 行输入</span>;
             }
             return null;
           })()}
         </summary>
-        <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-auto max-h-60 relative animate-fade-in">
+        <pre className="mt-0 text-xs bg-muted/50 p-2 rounded-b-lg overflow-x-hidden overflow-y-auto max-h-60 relative animate-fade-in whitespace-pre-wrap break-words border border-amber-200 dark:border-amber-700/30 border-t-0">
           <CopyButton text={toolInputJson} />
           {toolInputJson}
         </pre>
@@ -185,27 +186,32 @@ export const MessageBubble = memo(function MessageBubble({ message, isLast = fal
         open={toolResultOpen || undefined}
         onToggle={(e) => setToolResultOpen(e.currentTarget.open)}
       >
-        <summary className={`text-xs font-mono flex items-center gap-1.5 select-none ${
+        <summary className={`text-xs font-mono flex items-center gap-1.5 select-none px-4 py-2 border-b rounded-t-lg -mt-2.5 ${
           message.isError
-            ? 'text-red-500'
-            : 'text-muted-foreground'
+            ? 'bg-red-50 dark:bg-red-900/20 text-red-500 border-red-200 dark:border-red-700/50'
+            : 'bg-green-50 dark:bg-green-900/20 text-muted-foreground border-green-200 dark:border-green-700/50'
         }`}>
           <span className={`${message.isError ? 'text-red-500' : 'text-green-500'} group-open:rotate-90 transition-transform duration-200`}>▶</span>
           <span className="text-lg">{toolResultInfo.icon}</span>
-          <span className={message.isError ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}>
+          <span className={`font-medium ${message.isError ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
             {toolResultInfo.displayName} 结果
           </span>
           {message.isError && (
-            <span className="text-xs px-1.5 py-0.5 bg-red-500/10 rounded">错误</span>
+            <span className="text-xs px-1.5 py-0.5 bg-red-500/10 rounded border border-red-500/30">错误</span>
           )}
-          <span className="text-xs text-muted-foreground ml-auto">
+          <span className="text-xs text-muted-foreground ml-auto bg-muted px-1.5 py-0.5 rounded">
             {message.content.length} 字符
           </span>
+          {message.executionTime && (
+            <span className="text-xs text-muted-foreground ml-1">
+              {formatExecutionTime(message.executionTime)}
+            </span>
+          )}
         </summary>
-        <pre className={`mt-2 text-xs p-2 rounded overflow-auto max-h-60 relative animate-fade-in ${
+        <pre className={`mt-0 text-xs p-2 rounded-b-lg overflow-x-hidden overflow-y-auto max-h-60 relative animate-fade-in whitespace-pre-wrap break-words ${
           message.isError
-            ? 'bg-red-500/5 text-red-900 dark:text-red-100 border border-red-500/20'
-            : 'bg-muted'
+            ? 'bg-red-500/5 text-red-900 dark:text-red-100 border border-red-500/20 border-t-0'
+            : 'bg-muted/50 border border-green-200 dark:border-green-700/30 border-t-0'
         }`}>
           <CopyButton text={message.content} />
           {message.content}
@@ -217,18 +223,63 @@ export const MessageBubble = memo(function MessageBubble({ message, isLast = fal
   } else {
     // Assistant message with syntax-highlighted code blocks
     contentNode = (
-      <div className="prose prose-sm dark:prose-invert max-w-none">
+      <div className="prose prose-sm dark:prose-invert max-w-none min-w-0 overflow-x-hidden">
         <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
           components={{
+            // Handle paragraphs
+            p({ children }) {
+              return <p className="mb-2 last:mb-0">{children}</p>;
+            },
+            // Handle links
+            a({ href, children }) {
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline hover:text-primary/80"
+                >
+                  {children}
+                </a>
+              );
+            },
+            // Handle lists
+            ul({ children }) {
+              return <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>;
+            },
+            ol({ children }) {
+              return <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>;
+            },
+            li({ children }) {
+              return <li className="ml-2">{children}</li>;
+            },
+            // Handle headings
+            h1({ children }) {
+              return <h1 className="text-lg font-bold mb-2">{children}</h1>;
+            },
+            h2({ children }) {
+              return <h2 className="text-base font-bold mb-2">{children}</h2>;
+            },
+            h3({ children }) {
+              return <h3 className="text-sm font-bold mb-1">{children}</h3>;
+            },
+            // Handle blockquotes
+            blockquote({ children }) {
+              return <blockquote className="border-l-4 border-muted-foreground/30 pl-3 italic text-muted-foreground">{children}</blockquote>;
+            },
+            // Handle code blocks and inline code
             code({ className, children, ...props }) {
               const match = /language-(\w+)/.exec(className || '');
               const codeString = String(children).replace(/\n$/, '');
 
               if (match) {
+                // Code block with language
                 return (
-                  <div className="relative group/code">
+                  <div className="relative group/code overflow-x-auto my-2">
                     <div className="flex items-center justify-between text-xs text-muted-foreground bg-muted/50 px-3 py-1 rounded-t-lg border-b">
                       <span>{match[1]}</span>
+                      <CopyButton text={codeString} />
                     </div>
                     <SyntaxHighlighter
                       style={oneDark}
@@ -238,17 +289,22 @@ export const MessageBubble = memo(function MessageBubble({ message, isLast = fal
                         margin: 0,
                         borderRadius: '0 0 0.5rem 0.5rem',
                         fontSize: '0.8rem',
+                        maxWidth: '100%',
+                        overflowX: 'auto',
                       }}
                     >
                       {codeString}
                     </SyntaxHighlighter>
-                    <CopyButton text={codeString} />
                   </div>
                 );
               }
 
+              // Inline code - check if this is truly inline (inside a paragraph)
               return (
-                <code className={className} {...props}>
+                <code
+                  className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono"
+                  {...props}
+                >
                   {children}
                 </code>
               );
@@ -266,7 +322,7 @@ export const MessageBubble = memo(function MessageBubble({ message, isLast = fal
       className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
     >
       <div
-        className={`group max-w-[85%] rounded-lg px-4 py-2.5 text-sm ${
+        className={`group max-w-[85%] min-w-0 rounded-lg px-4 py-2.5 text-sm ${
           isError
             ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-700'
             : isUser
@@ -283,7 +339,9 @@ export const MessageBubble = memo(function MessageBubble({ message, isLast = fal
         )}
         {/* Thinking block for assistant messages */}
         {!isUser && !isTool && !isError && thinkingNode}
-        {contentNode}
+        <div className="min-w-0 overflow-x-hidden">
+          {contentNode}
+        </div>
         {message.isStreaming && isLast && (
           <span className="inline-block w-2 h-4 ml-1 bg-foreground/50 animate-pulse" />
         )}

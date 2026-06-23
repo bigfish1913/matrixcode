@@ -4,11 +4,34 @@ import { useToastContext } from '../contexts/ToastContext';
 
 interface LspServerInfo {
   name: string;
-  status: 'running' | 'stopped' | 'error';
-  language?: string;
-  command?: string;
-  error?: string;
+  language: string;
+  status: LspServerStatus;
 }
+
+// Backend returns enum LspServerStatus
+type LspServerStatus = 'NotStarted' | 'Starting' | 'Connected' | { Error: string } | string;
+
+// Convert backend status to frontend display status
+const toDisplayStatus = (status: LspServerStatus): 'running' | 'stopped' | 'starting' | 'error' => {
+  if (typeof status === 'string') {
+    switch (status) {
+      case 'Connected': return 'running';
+      case 'NotStarted': return 'stopped';
+      case 'Starting': return 'starting';
+      default: return 'stopped';
+    }
+  }
+  // Error variant is { Error: "message" }
+  return 'error';
+};
+
+// Get error message from status
+const getErrorMessage = (status: LspServerStatus): string | undefined => {
+  if (typeof status === 'object' && 'Error' in status) {
+    return status.Error;
+  }
+  return undefined;
+};
 
 export function LspStatusPanel({ onClose }: { onClose: () => void }) {
   const [lspServers, setLspServers] = useState<LspServerInfo[]>([]);
@@ -32,12 +55,15 @@ export function LspStatusPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
+  const getStatusColor = (status: LspServerStatus) => {
+    const displayStatus = toDisplayStatus(status);
+    switch (displayStatus) {
       case 'running':
         return 'text-green-500';
-      case 'stopped':
+      case 'starting':
         return 'text-yellow-500';
+      case 'stopped':
+        return 'text-gray-500';
       case 'error':
         return 'text-red-500';
       default:
@@ -45,10 +71,13 @@ export function LspStatusPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
+  const getStatusIcon = (status: LspServerStatus) => {
+    const displayStatus = toDisplayStatus(status);
+    switch (displayStatus) {
       case 'running':
         return '●';
+      case 'starting':
+        return '◐';
       case 'stopped':
         return '○';
       case 'error':
@@ -147,83 +176,79 @@ export function LspStatusPanel({ onClose }: { onClose: () => void }) {
             </div>
           ) : (
             <div className="space-y-3">
-              {lspServers.map((server, idx) => (
-                <div
-                  key={idx}
-                  className="border rounded-lg p-3 bg-background"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className={getStatusColor(server.status)}>
-                        {getStatusIcon(server.status)}
-                      </span>
-                      <span className="font-medium">{server.name}</span>
-                      {server.language && (
+              {lspServers.map((server, idx) => {
+                const displayStatus = toDisplayStatus(server.status);
+                const errorMessage = getErrorMessage(server.status);
+
+                return (
+                  <div
+                    key={idx}
+                    className="border rounded-lg p-3 bg-background"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className={getStatusColor(server.status)}>
+                          {getStatusIcon(server.status)}
+                        </span>
+                        <span className="font-medium">{server.name}</span>
                         <span className="text-sm text-muted-foreground px-2 py-0.5 bg-accent rounded">
                           {server.language}
                         </span>
+                      </div>
+                      <span className={`text-sm ${getStatusColor(server.status)}`}>
+                        {displayStatus}
+                      </span>
+                    </div>
+
+                    {errorMessage && (
+                      <div className="text-sm text-red-500 mt-2 p-2 bg-red-500/10 rounded">
+                        <span className="font-medium">Error: </span>
+                        {errorMessage}
+                      </div>
+                    )}
+
+                    {/* Lifecycle controls */}
+                    <div className="mt-3 flex gap-2">
+                      {(displayStatus === 'stopped' || displayStatus === 'starting') && (
+                        <button
+                          onClick={() => handleStartServer(server.language)}
+                          disabled={operating === server.language}
+                          className="px-3 py-1.5 text-xs bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded transition-colors disabled:opacity-50"
+                        >
+                          {operating === server.language ? '启动中...' : '启动'}
+                        </button>
+                      )}
+                      {displayStatus === 'running' && (
+                        <button
+                          onClick={() => handleStopServer(server.language)}
+                          disabled={operating === server.language}
+                          className="px-3 py-1.5 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded transition-colors disabled:opacity-50"
+                        >
+                          {operating === server.language ? '停止中...' : '停止'}
+                        </button>
+                      )}
+                      {displayStatus === 'error' && (
+                        <button
+                          onClick={() => handleRestartServer(server.language)}
+                          disabled={operating === server.language}
+                          className="px-3 py-1.5 text-xs bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded transition-colors disabled:opacity-50"
+                        >
+                          {operating === server.language ? '重启中...' : '重启'}
+                        </button>
+                      )}
+                      {displayStatus === 'running' && (
+                        <button
+                          onClick={() => handleRestartServer(server.language)}
+                          disabled={operating === server.language}
+                          className="px-3 py-1.5 text-xs bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded transition-colors disabled:opacity-50"
+                        >
+                          {operating === server.language ? '重启中...' : '重启'}
+                        </button>
                       )}
                     </div>
-                    <span className={`text-sm ${getStatusColor(server.status)}`}>
-                      {server.status}
-                    </span>
                   </div>
-                  {server.command && (
-                    <div className="text-sm text-muted-foreground mb-1">
-                      <span className="font-medium">Command: </span>
-                      <code className="bg-accent px-1 rounded text-xs">
-                        {server.command}
-                      </code>
-                    </div>
-                  )}
-                  {server.error && (
-                    <div className="text-sm text-red-500 mt-2 p-2 bg-red-500/10 rounded">
-                      <span className="font-medium">Error: </span>
-                      {server.error}
-                    </div>
-                  )}
-
-                  {/* Lifecycle controls */}
-                  <div className="mt-3 flex gap-2">
-                    {server.status === 'stopped' && (
-                      <button
-                        onClick={() => handleStartServer(server.name)}
-                        disabled={operating === server.name}
-                        className="px-3 py-1.5 text-xs bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded transition-colors disabled:opacity-50"
-                      >
-                        {operating === server.name ? '启动中...' : '启动'}
-                      </button>
-                    )}
-                    {server.status === 'running' && (
-                      <button
-                        onClick={() => handleStopServer(server.name)}
-                        disabled={operating === server.name}
-                        className="px-3 py-1.5 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded transition-colors disabled:opacity-50"
-                      >
-                        {operating === server.name ? '停止中...' : '停止'}
-                      </button>
-                    )}
-                    {server.status === 'error' && (
-                      <button
-                        onClick={() => handleRestartServer(server.name)}
-                        disabled={operating === server.name}
-                        className="px-3 py-1.5 text-xs bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded transition-colors disabled:opacity-50"
-                      >
-                        {operating === server.name ? '重启中...' : '重启'}
-                      </button>
-                    )}
-                    {server.status === 'running' && (
-                      <button
-                        onClick={() => handleRestartServer(server.name)}
-                        disabled={operating === server.name}
-                        className="px-3 py-1.5 text-xs bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 rounded transition-colors disabled:opacity-50"
-                      >
-                        {operating === server.name ? '重启中...' : '重启'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

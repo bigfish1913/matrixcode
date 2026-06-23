@@ -12,6 +12,7 @@ pub mod constants;
 pub mod debug;
 pub mod event;
 pub mod lsp;
+pub mod mcp;  // ← Add MCP module
 pub mod matrixrpc;
 pub mod memory;
 pub mod models;
@@ -19,6 +20,7 @@ pub mod overview;
 pub mod path_validator;
 pub mod prompt;
 pub mod providers;
+pub mod review;
 pub mod session;
 pub mod skills;
 pub mod tools;

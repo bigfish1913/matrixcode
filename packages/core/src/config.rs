@@ -604,6 +604,8 @@ mod tests {
             fast_model: None,
             approve_mode: None,
             extra_headers: None,
+            enable_lsp: false,
+            verify_strategy: None,
         };
         assert!(config.api_key.is_none());
         assert!(config.model.is_none());

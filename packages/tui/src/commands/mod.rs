@@ -21,7 +21,6 @@ impl CommandContext<'_> {
         self.app.push_message(Message {
             role: Role::System,
             content,
-            is_pending: false,
         });
     }
 
@@ -30,7 +29,6 @@ impl CommandContext<'_> {
         self.app.push_message(Message {
             role: Role::User,
             content,
-            is_pending: false,
         });
     }
 

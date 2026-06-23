@@ -506,17 +506,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (data && isThinkingData(data)) {
               const streamingId = get()._streamingMessageId;
               const deltaThinking = data.thinking?.delta || '';
-              set((s) => {
-                const msgs = [...s.messages];
-                const idx = streamingId ? msgs.findIndex(m => m.id === streamingId) : msgs.length - 1;
-                if (idx >= 0 && msgs[idx]?.isThinkingStreaming) {
-                  msgs[idx] = {
-                    ...msgs[idx],
-                    thinking: (msgs[idx].thinking || '') + deltaThinking,
-                  };
-                }
-                return { messages: msgs };
-              });
+
+              // IMPORTANT: If streamingId is null, don't append to last message (which could be old thinking)
+              // Instead, create a new message (should have been created by thinking_start, but handle race condition)
+              if (!streamingId) {
+                console.warn('[thinking_delta] No streamingId - creating new message (race condition handling)');
+                const msgId = nextId();
+                const msg: ChatMessage = {
+                  id: msgId,
+                  role: 'assistant',
+                  content: '',
+                  thinking: deltaThinking,
+                  isStreaming: true,
+                  isThinkingStreaming: true,
+                  timestamp: Date.now(),
+                };
+                set((s) => ({
+                  messages: [...s.messages, msg],
+                  _streamingMessageId: msgId,
+                }));
+              } else {
+                // Normal case: append delta to existing message
+                set((s) => {
+                  const msgs = [...s.messages];
+                  const idx = msgs.findIndex(m => m.id === streamingId);
+                  if (idx >= 0 && msgs[idx]?.isThinkingStreaming) {
+                    msgs[idx] = {
+                      ...msgs[idx],
+                      thinking: (msgs[idx].thinking || '') + deltaThinking,
+                    };
+                  } else {
+                    // Message not found or not streaming - log warning
+                    console.warn('[thinking_delta] Message not found or not streaming:', streamingId, idx);
+                  }
+                  return { messages: msgs };
+                });
+              }
             }
             break;
           }

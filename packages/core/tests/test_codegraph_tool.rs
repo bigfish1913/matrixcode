@@ -105,6 +105,7 @@ fn test_build_system_prompt_with_codegraph() {
         None,
         None,
         Some(&project_path),
+        None, // No LSP servers for this test
     );
 
     // Check if codegraph tools are mentioned in the prompt

@@ -8,6 +8,7 @@
     "packages/vscode"
   ],
   "scripts": {
+    "postinstall": "patch-package --patch-dir packages/gui/patches",
     "tauri:dev": "npm run tauri:dev -w packages/gui",
     "tauri:build": "npm run tauri:build -w packages/gui",
     "dev:gui": "npm run dev -w packages/gui",
@@ -24,5 +25,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/bigfish1913/matrixcode"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
   }
 }

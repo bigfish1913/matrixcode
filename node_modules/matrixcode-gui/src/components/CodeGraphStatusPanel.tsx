@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useToastContext } from '../contexts/ToastContext';
 
 interface CodeGraphStatus {
   initialized: boolean;
@@ -10,11 +11,14 @@ interface CodeGraphStatus {
   pending_files: string[];
   last_sync: string;
   error?: string;
+  watcher_running?: boolean;
 }
 
 export function CodeGraphStatusPanel({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<CodeGraphStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [operating, setOperating] = useState<string | null>(null);
+  const toast = useToastContext();
 
   useEffect(() => {
     loadCodeGraphStatus();
@@ -34,21 +38,68 @@ export function CodeGraphStatusPanel({ onClose }: { onClose: () => void }) {
 
   const initializeCodeGraph = async () => {
     try {
+      setOperating('init');
       await invoke('initialize_codegraph');
+      toast.addToast({ type: 'success', message: 'CodeGraph 已初始化' });
       setLoading(true);
       await loadCodeGraphStatus();
     } catch (e) {
-      console.error('Failed to initialize CodeGraph:', e);
+      toast.addToast({
+        type: 'error',
+        message: `初始化失败: ${e instanceof Error ? e.message : '未知错误'}`
+      });
+    } finally {
+      setOperating(null);
     }
   };
 
   const reindexCodeGraph = async () => {
     try {
+      setOperating('reindex');
       await invoke('reindex_codegraph');
+      toast.addToast({ type: 'success', message: 'CodeGraph 重新索引已启动' });
       setLoading(true);
       await loadCodeGraphStatus();
     } catch (e) {
-      console.error('Failed to reindex CodeGraph:', e);
+      toast.addToast({
+        type: 'error',
+        message: `重新索引失败: ${e instanceof Error ? e.message : '未知错误'}`
+      });
+    } finally {
+      setOperating(null);
+    }
+  };
+
+  // Watcher daemon management
+  const handleStartWatcher = async () => {
+    try {
+      setOperating('watcher');
+      await invoke('start_watcher');
+      toast.addToast({ type: 'success', message: 'CodeGraph 监控守护进程已启动' });
+      await loadCodeGraphStatus();
+    } catch (e) {
+      toast.addToast({
+        type: 'error',
+        message: `启动监控失败: ${e instanceof Error ? e.message : '未知错误'}`
+      });
+    } finally {
+      setOperating(null);
+    }
+  };
+
+  const handleStopWatcher = async () => {
+    try {
+      setOperating('watcher');
+      await invoke('stop_watcher');
+      toast.addToast({ type: 'success', message: 'CodeGraph 监控守护进程已停止' });
+      await loadCodeGraphStatus();
+    } catch (e) {
+      toast.addToast({
+        type: 'error',
+        message: `停止监控失败: ${e instanceof Error ? e.message : '未知错误'}`
+      });
+    } finally {
+      setOperating(null);
     }
   };
 
@@ -132,26 +183,62 @@ export function CodeGraphStatusPanel({ onClose }: { onClose: () => void }) {
               {/* Index Statistics */}
               {status.initialized && (
                 <div className="border rounded-lg p-4 bg-background">
-                  <h3 className="font-medium mb-3">Index Statistics</h3>
+                  <h3 className="font-medium mb-3">索引统计</h3>
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <span className="text-sm text-muted-foreground">Files</span>
+                      <span className="text-sm text-muted-foreground">文件</span>
                       <div className="mt-1 font-medium text-lg">
                         {status.files_indexed.toLocaleString()}
                       </div>
                     </div>
                     <div>
-                      <span className="text-sm text-muted-foreground">Symbols</span>
+                      <span className="text-sm text-muted-foreground">符号</span>
                       <div className="mt-1 font-medium text-lg">
                         {status.symbols_indexed.toLocaleString()}
                       </div>
                     </div>
                     <div>
-                      <span className="text-sm text-muted-foreground">Edges</span>
+                      <span className="text-sm text-muted-foreground">边</span>
                       <div className="mt-1 font-medium text-lg">
                         {status.edges_indexed.toLocaleString()}
                       </div>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Watcher Daemon Status */}
+              {status.initialized && (
+                <div className="border rounded-lg p-4 bg-background">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-medium flex items-center gap-2">
+                      监控守护进程
+                      {status.watcher_running ? (
+                        <span className="text-green-500">● 运行中</span>
+                      ) : (
+                        <span className="text-gray-400">○ 已停止</span>
+                      )}
+                    </h3>
+                  </div>
+                  <div className="flex gap-2">
+                    {!status.watcher_running && (
+                      <button
+                        onClick={handleStartWatcher}
+                        disabled={operating === 'watcher'}
+                        className="px-3 py-1.5 text-xs bg-green-500/10 text-green-500 hover:bg-green-500/20 rounded transition-colors disabled:opacity-50"
+                      >
+                        {operating === 'watcher' ? '启动中...' : '启动监控'}
+                      </button>
+                    )}
+                    {status.watcher_running && (
+                      <button
+                        onClick={handleStopWatcher}
+                        disabled={operating === 'watcher'}
+                        className="px-3 py-1.5 text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded transition-colors disabled:opacity-50"
+                      >
+                        {operating === 'watcher' ? '停止中...' : '停止监控'}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -195,24 +282,26 @@ export function CodeGraphStatusPanel({ onClose }: { onClose: () => void }) {
                 {!status.initialized && (
                   <button
                     onClick={initializeCodeGraph}
-                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                    disabled={operating === 'init'}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
                   >
-                    Initialize
+                    {operating === 'init' ? '初始化中...' : '初始化'}
                   </button>
                 )}
                 {status.initialized && !status.indexing && (
                   <button
                     onClick={reindexCodeGraph}
-                    className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/90 transition-colors"
+                    disabled={operating === 'reindex'}
+                    className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/90 transition-colors disabled:opacity-50"
                   >
-                    Reindex
+                    {operating === 'reindex' ? '索引中...' : '重新索引'}
                   </button>
                 )}
                 <button
                   onClick={loadCodeGraphStatus}
                   className="px-4 py-2 hover:bg-accent rounded-lg transition-colors"
                 >
-                  Refresh
+                  刷新
                 </button>
               </div>
             </div>

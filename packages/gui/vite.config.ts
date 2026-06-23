@@ -10,10 +10,11 @@ export default defineConfig({
   // Fix ESM compatibility for react-syntax-highlighter
   resolve: {
     alias: {
-      // Redirect deprecated import path to correct ESM path
+      // Redirect to regenerator/index.js (exports initialized runtime object with mark/wrap methods)
+      // NOT helpers/regeneratorRuntime.js (exports uninitialized function)
       '@babel/runtime/regenerator': path.resolve(
         __dirname,
-        'node_modules/@babel/runtime/helpers/regeneratorRuntime.js'
+        'node_modules/@babel/runtime/regenerator/index.js'
       ),
     },
   },
@@ -109,10 +110,7 @@ export default defineConfig({
       'zustand',
       'react-markdown',
       'lowlight',
-    ],
-    exclude: [
-      // Large dependencies that should be lazy loaded
-      'react-syntax-highlighter',
+      'react-syntax-highlighter', // Include entire package to handle internal imports (lowlight/lib/core)
     ],
   },
 

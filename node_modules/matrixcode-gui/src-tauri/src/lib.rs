@@ -2,11 +2,15 @@ use matrixcode_core::config::MatrixConfig;
 use matrixcode_core::event::AgentEvent;
 use matrixcode_core::providers::{create_provider_with_headers, Message, MessageContent};
 use matrixcode_core::session::SessionManager;
+use matrixcode_core::lsp::{LspManager, LspServerInfo, LspServerStatus};
+use matrixcode_core::mcp::McpToolRegistry;
+use matrixcode_core::skills::discover_skills;
+use matrixcode_core::tools::codegraph::CodeGraphManager;
 use matrixcode_core::AgentBuilder;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::Emitter;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
 // ---------------------------------------------------------------------------
 // AppState
@@ -15,12 +19,19 @@ use tokio::sync::{mpsc, Mutex};
 /// Application state shared across all windows.
 ///
 /// Holds core matrixcode components: session management, agent instances,
-/// and configuration. Events from the agent are forwarded to the Tauri
-/// frontend via an mpsc channel.
+/// configuration, LSP manager, MCP registry, and CodeGraph manager.
+/// Events from the agent are forwarded to the Tauri frontend via an mpsc channel.
+#[allow(dead_code)]
 pub struct AppState {
     config: Arc<Mutex<MatrixConfig>>,
     session_manager: Arc<Mutex<SessionManager>>,
     project_path: Arc<Mutex<Option<PathBuf>>>,
+    /// LSP manager for language server connections (status tracking)
+    lsp_manager: Arc<Mutex<LspManager>>,
+    /// MCP registry for MCP server connections (lazy loading)
+    mcp_registry: Arc<RwLock<McpToolRegistry>>,
+    /// CodeGraph manager for index operations (lazy initialization)
+    codegraph_manager: Arc<Mutex<Option<CodeGraphManager>>>,
 }
 
 impl AppState {
@@ -29,11 +40,16 @@ impl AppState {
         let session_manager = Arc::new(Mutex::new(
             SessionManager::new().expect("Failed to initialize SessionManager"),
         ));
+        let lsp_manager = Arc::new(Mutex::new(LspManager::new()));
+        let mcp_registry = Arc::new(RwLock::new(McpToolRegistry::new()));
 
         Self {
             config: Arc::new(Mutex::new(config)),
             session_manager,
             project_path: Arc::new(Mutex::new(None)),
+            lsp_manager,
+            mcp_registry,
+            codegraph_manager: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -161,7 +177,7 @@ async fn list_sessions(
 ) -> Result<Vec<SessionInfo>, String> {
     let mgr = state.session_manager.lock().await;
     let sessions = mgr.list_sessions();
-    let current_id = mgr.current_id();
+    let _current_id = mgr.current_id();
     let result = sessions
         .iter()
         .map(|m| SessionInfo {
@@ -267,6 +283,35 @@ async fn delete_session(
     mgr.delete_session(&id).map_err(|e| e.to_string())
 }
 
+/// Batch delete multiple sessions by IDs.
+/// Returns the number of successfully deleted sessions.
+#[tauri::command]
+async fn batch_delete_sessions(
+    ids: Vec<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<usize, String> {
+    let mut mgr = state.session_manager.lock().await;
+    let mut deleted_count = 0;
+    let mut errors = Vec::new();
+
+    for id in ids {
+        match mgr.delete_session(&id) {
+            Ok(_) => deleted_count += 1,
+            Err(e) => errors.push(format!("{}: {}", id[..8].to_string(), e)),
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(deleted_count)
+    } else if deleted_count > 0 {
+        // Partial success
+        Err(format!("Deleted {} sessions, but failed: {}", deleted_count, errors.join(", ")))
+    } else {
+        // All failed
+        Err(format!("Failed to delete all sessions: {}", errors.join(", ")))
+    }
+}
+
 /// Get messages for the current session.
 #[tauri::command]
 async fn get_messages(
@@ -336,7 +381,7 @@ async fn send_message(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     // Get config
-    let config = state.config.lock().await;
+    let config = state.config.lock().await.clone();
     let api_key = config
         .resolve_api_key()
         .ok_or("API key not configured")?;
@@ -358,15 +403,15 @@ async fn send_message(
             .map_err(|e| format!("Failed to create provider: {}", e))?;
 
     // Get project path
-    let project_path = state.project_path.lock().await.clone();
+    let _project_path = state.project_path.lock().await.clone();  // Mark as unused intentionally
 
     // Get session messages for conversation history
-    let session_manager = state.session_manager.lock().await;
-    let restored_messages: Vec<Message> = session_manager
-        .api_messages()
-        .map(|msgs| msgs.to_vec())
-        .unwrap_or_default();
-    drop(session_manager); // Release lock before agent.run()
+    let session_manager_guard = state.session_manager.lock().await;
+    let restored_messages: Vec<Message> = match session_manager_guard.api_messages() {
+        Some(msgs) => msgs.to_vec(),
+        None => Vec::new(),
+    };
+    drop(session_manager_guard); // Release lock before agent.run()
 
     // Drop config lock
     drop(config);
@@ -376,7 +421,7 @@ async fn send_message(
 
     // Build agent with tools
     let tools = matrixcode_core::tools::all_tools();
-    let mut builder = AgentBuilder::new(provider)
+    let builder = AgentBuilder::new(provider)
         .model_name(&model)
         .event_tx(agent_event_tx)
         .think(think)
@@ -414,9 +459,9 @@ async fn send_message(
 
     // Save updated messages back to session
     let updated_messages = agent.get_messages().to_vec();
-    let mut session_manager = state.session_manager.lock().await;
-    session_manager.set_messages(updated_messages);
-    session_manager.save_current().map_err(|e| {
+    let mut session_manager_guard = state.session_manager.lock().await;
+    session_manager_guard.set_messages(updated_messages);
+    session_manager_guard.save_current().map_err(|e| {
         eprintln!("Failed to save session: {}", e);
         e.to_string()
     })?;
@@ -443,7 +488,7 @@ async fn update_config(
     updates: std::collections::HashMap<String, serde_json::Value>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut config = state.config.lock().await;
+    let mut config = state.config.lock().await.clone();  // Clone to avoid holding lock
 
     // Validate and apply updates
     if let Some(serde_json::Value::String(v)) = updates.get("provider") {
@@ -505,8 +550,12 @@ async fn update_config(
         config.verify_strategy = Some(v.clone());
     }
 
-    // Persist the updated config
+    // Persist the updated config (use cloned config, don't hold lock)
     config.save().map_err(|e| format!("Failed to save config: {}", e))?;
+
+    // Update the actual state config
+    let mut state_config = state.config.lock().await;
+    *state_config = config;
 
     Ok(())
 }
@@ -573,25 +622,16 @@ async fn greet(name: &str) -> Result<String, String> {
 // Infrastructure Status Commands (LSP, CodeGraph)
 // ---------------------------------------------------------------------------
 
-/// LSP server info for frontend display
-#[derive(serde::Serialize)]
-struct LspServerInfo {
-    name: String,
-    status: String,  // "running", "stopped", "error"
-    language: Option<String>,
-    command: Option<String>,
-    error: Option<String>,
-}
-
 /// Get LSP server status
 #[tauri::command]
-async fn get_lsp_status() -> Result<Vec<LspServerInfo>, String> {
-    // TODO: Integrate with actual LSP manager from matrixcode-core
-    // For now, return placeholder data
-    Ok(vec![])
+async fn get_lsp_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<LspServerInfo>, String> {
+    let manager = state.lsp_manager.lock().await;
+    Ok(manager.server_infos())
 }
 
-/// CodeGraph index status for frontend display
+/// CodeGraph status for frontend display
 #[derive(serde::Serialize)]
 struct CodeGraphStatus {
     initialized: bool,
@@ -609,9 +649,55 @@ struct CodeGraphStatus {
 async fn get_codegraph_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<CodeGraphStatus>, String> {
-    // TODO: Integrate with actual CodeGraph from matrixcode-core tools::codegraph
-    // For now, return placeholder data
-    Ok(None)
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let manager = CodeGraphManager::new(&path);
+
+        if manager.is_initialized() {
+            match manager.status() {
+                Ok(status) => {
+                    Ok(Some(CodeGraphStatus {
+                        initialized: status.initialized,
+                        indexing: false,
+                        files_indexed: status.file_count as usize,
+                        symbols_indexed: status.node_count as usize,
+                        edges_indexed: status.edge_count as usize,
+                        pending_files: vec![],
+                        last_sync: "Recently".to_string(),
+                        error: None,
+                    }))
+                }
+                Err(e) => {
+                    Ok(Some(CodeGraphStatus {
+                        initialized: false,
+                        indexing: false,
+                        files_indexed: 0,
+                        symbols_indexed: 0,
+                        edges_indexed: 0,
+                        pending_files: vec![],
+                        last_sync: String::new(),
+                        error: Some(e.to_string()),
+                        
+                    }))
+                }
+            }
+        } else {
+            Ok(Some(CodeGraphStatus {
+                initialized: false,
+                indexing: false,
+                files_indexed: 0,
+                symbols_indexed: 0,
+                edges_indexed: 0,
+                pending_files: vec![],
+                last_sync: String::new(),
+                error: None,
+                
+            }))
+        }
+    } else {
+        Ok(None)
+    }
 }
 
 /// Initialize CodeGraph index
@@ -619,9 +705,16 @@ async fn get_codegraph_status(
 async fn initialize_codegraph(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    // TODO: Call matrixcode_core::tools::codegraph::init
-    // For now, return placeholder response
-    Ok(())
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let manager = CodeGraphManager::new(&path);
+        manager.init().await.map_err(|e| e.to_string())?;
+        log::info!("CodeGraph initialized for: {}", path.display());
+        Ok(())
+    } else {
+        Err("No project path set".to_string())
+    }
 }
 
 /// Reindex CodeGraph
@@ -629,9 +722,267 @@ async fn initialize_codegraph(
 async fn reindex_codegraph(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    // TODO: Call matrixcode_core::tools::codegraph::reindex
-    // For now, return placeholder response
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let manager = CodeGraphManager::new(&path);
+        manager.reinit().await.map_err(|e| e.to_string())?;
+        log::info!("CodeGraph reindexed for: {}", path.display());
+        Ok(())
+    } else {
+        Err("No project path set".to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LSP Lifecycle Commands
+// ---------------------------------------------------------------------------
+
+/// Start an LSP server for a specific language
+/// NOTE: LspManager doesn't have async start/stop methods yet
+#[tauri::command]
+async fn start_lsp_server(
+    language: String,
+) -> Result<(), String> {
+    // TODO: Implement actual LSP server startup
+    log::info!("LSP server start requested for: {}", language);
     Ok(())
+}
+
+/// Stop an LSP server for a specific language
+#[tauri::command]
+async fn stop_lsp_server(
+    language: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let lsp_manager = state.lsp_manager.lock().await;
+    lsp_manager.set_status(&language, LspServerStatus::NotStarted);
+    log::info!("LSP server stop requested for: {}", language);
+    Ok(())
+}
+
+/// Restart an LSP server for a specific language
+#[tauri::command]
+async fn restart_lsp_server(
+    language: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let lsp_manager = state.lsp_manager.lock().await;
+    lsp_manager.mark_starting(&language);
+    log::info!("LSP server restart requested for: {}", language);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// MCP Lifecycle Commands
+// ---------------------------------------------------------------------------
+
+/// MCP server info for frontend display
+#[derive(serde::Serialize)]
+struct McpServerInfo {
+    name: String,
+    status: String,
+    transport: Option<String>,
+    tools_count: Option<usize>,
+    resources_count: Option<usize>,
+    error: Option<String>,
+}
+
+/// Get MCP servers status
+#[tauri::command]
+async fn get_mcp_servers(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<McpServerInfo>, String> {
+    let registry = state.mcp_registry.read().await;
+    let statuses = registry.server_status().await;
+
+    let infos = statuses.iter().map(|(name, status)| {
+        McpServerInfo {
+            name: name.clone(),
+            status: if status.is_started { "started".to_string() } else { "stopped".to_string() },
+            transport: None,
+            tools_count: Some(status.tool_count),
+            resources_count: None,
+            error: None,
+        }
+    }).collect();
+
+    Ok(infos)
+}
+
+/// Start an MCP server
+#[tauri::command]
+async fn start_mcp_server(
+    server_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let registry = state.mcp_registry.read().await;
+
+    // Get the placeholder for this server
+    let placeholder = registry.get_server(&server_name)
+        .ok_or_else(|| format!("MCP server '{}' not found in registry", server_name))?;
+
+    // Try to start the server
+    match placeholder.start().await {
+        Ok(_) => {
+            log::info!("MCP server '{}' started successfully", server_name);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("Failed to start MCP server '{}': {}", server_name, e);
+            Err(format!("Failed to start MCP server '{}': {}", server_name, e))
+        }
+    }
+}
+
+/// Stop an MCP server
+#[tauri::command]
+async fn stop_mcp_server(
+    server_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let registry = state.mcp_registry.read().await;
+
+    // Get the placeholder for this server
+    let placeholder = registry.get_server(&server_name)
+        .ok_or_else(|| format!("MCP server '{}' not found in registry", server_name))?;
+
+    match placeholder.shutdown().await {
+        Ok(_) => {
+            log::info!("MCP server '{}' stopped", server_name);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("Failed to stop MCP server '{}': {}", server_name, e);
+            Err(format!("Failed to stop MCP server '{}': {}", server_name, e))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CodeGraph Watcher Commands
+// ---------------------------------------------------------------------------
+
+/// Check if CodeGraph watcher daemon is running
+#[tauri::command]
+async fn is_watcher_running(
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, String> {
+    // For now, check if CodeGraph is initialized (simplified)
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let manager = CodeGraphManager::new(&path);
+        Ok(manager.is_initialized())
+    } else {
+        Ok(false)
+    }
+}
+
+/// Start CodeGraph watcher daemon
+#[tauri::command]
+async fn start_watcher(
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        // Initialize CodeGraph if not already
+        let manager = CodeGraphManager::new(&path);
+        if !manager.is_initialized() {
+            manager.init().await.map_err(|e| e.to_string())?;
+        }
+        log::info!("Watcher started (simplified) for: {}", path.display());
+        Ok(())
+    } else {
+        Err("No project path set".to_string())
+    }
+}
+
+/// Stop CodeGraph watcher daemon
+#[tauri::command]
+async fn stop_watcher() -> Result<(), String> {
+    // Placeholder - would need watcher handle tracking
+    log::info!("Watcher stop requested (placeholder)");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tools & Skills Commands
+// ---------------------------------------------------------------------------
+
+/// Tool definition for frontend display
+#[derive(serde::Serialize)]
+struct ToolDefinition {
+    name: String,
+    description: String,
+    parameters: Option<serde_json::Value>,
+    is_priority: Option<bool>,
+}
+
+/// List available tools
+#[tauri::command]
+async fn list_tools() -> Result<Vec<ToolDefinition>, String> {
+    // Get all builtin tools from matrixcode-core
+    let tools = matrixcode_core::tools::all_tools();
+
+    let definitions = tools.iter().map(|tool| {
+        let def = tool.definition();
+        ToolDefinition {
+            name: def.name.clone(),
+            description: def.description.clone(),
+            parameters: Some(def.parameters.clone()),
+            is_priority: None, // TODO: Add priority info
+        }
+    }).collect();
+
+    Ok(definitions)
+}
+
+/// Skill info for frontend display
+#[derive(serde::Serialize)]
+struct SkillInfo {
+    name: String,
+    description: String,
+    trigger: Option<String>,
+    source_file: Option<String>,
+}
+
+/// List loaded skills
+#[tauri::command]
+async fn list_skills(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<SkillInfo>, String> {
+    // Get project path
+    let project_path = state.project_path.lock().await.clone();
+
+    // Discover skills from multiple roots
+    let mut roots = Vec::new();
+
+    // Project-local skills directory
+    if let Some(path) = project_path {
+        roots.push(path.join(".matrix").join("skills"));
+    }
+
+    // User-global skills directory
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home.join(".matrix").join("skills"));
+    }
+
+    // Load skills
+    let skills = discover_skills(&roots);
+
+    // Convert to SkillInfo
+    let infos = skills.iter().map(|skill| {
+        SkillInfo {
+            name: skill.name.clone(),
+            description: skill.description.clone(),
+            trigger: skill.trigger.clone(),
+            source_file: Some(skill.source_file.to_string_lossy().to_string()),
+        }
+    }).collect();
+
+    Ok(infos)
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +1007,7 @@ pub fn run() {
             rename_session,
             clear_session,
             delete_session,
+            batch_delete_sessions,
             get_messages,
             // Message / Agent commands
             send_message,
@@ -673,6 +1025,21 @@ pub fn run() {
             get_codegraph_status,
             initialize_codegraph,
             reindex_codegraph,
+            // LSP lifecycle commands
+            start_lsp_server,
+            stop_lsp_server,
+            restart_lsp_server,
+            // MCP lifecycle commands
+            get_mcp_servers,
+            start_mcp_server,
+            stop_mcp_server,
+            // CodeGraph watcher commands
+            is_watcher_running,
+            start_watcher,
+            stop_watcher,
+            // Tools & Skills commands
+            list_tools,
+            list_skills,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

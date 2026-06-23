@@ -8,6 +8,7 @@ use crate::approval::{ApproveMode, needs_approval};
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::providers::{ChatResponse, ContentBlock, Message, MessageContent, Role};
 use crate::truncate::truncate_with_suffix;
+use crate::review;
 
 use super::helpers::extract_tool_detail;
 use super::types::Agent;
@@ -296,6 +297,74 @@ impl Agent {
                             Some(answer) => return Ok(answer),
                             None => return Err(anyhow::anyhow!("Ask channel closed")),
                         }
+                    }
+                }
+            }
+
+            // Pre-write review for file modification tools
+            if matches!(name, "write" | "edit" | "multi_edit") {
+                self.emit(AgentEvent::progress(format!("Reviewing: {}", name), None))?;
+                
+                // Extract review input using helper
+                let review_input = review::PreWriteReviewInput::from_tool_input(name, &input)?;
+                
+                // Collect context from CodeGraph and other sources
+                let context = review::context::collect_context(
+                    &review_input.file_path,
+                    None, // TODO: Pass project_path from Agent config
+                );
+                
+                // Add memory context
+                let context = review::ReviewContext {
+                    memory_context: self.memory_summary.clone(),
+                    ..context
+                };
+                
+                let review_input = review_input.with_context(context);
+                
+                // Perform AI review
+                let review_result = review::ai_review::perform_review(self.provider.as_ref(), &review_input).await;
+                
+                match review_result {
+                    Ok(result) => {
+                        // Emit review result as progress event
+                        self.emit(AgentEvent::progress(
+                            format!("Review score: {} - {}", 
+                                result.overall_score,
+                                review::format_review_summary(&result)
+                            ),
+                            None
+                        ))?;
+                        
+                        // Check if review blocks write operation
+                        if !result.should_write() {
+                            // Block write operation
+                            return Err(anyhow::anyhow!(
+                                "Code review blocked write (score: {}). Issues:\n{}",
+                                result.overall_score,
+                                review::format_review_summary(&result)
+                            ));
+                        }
+                        
+                        // Warn if score is moderate (60-79)
+                        if result.overall_score < 80 {
+                            log::warn!(
+                                "Code review score is moderate ({}). Proceeding with caution.",
+                                result.overall_score
+                            );
+                            self.emit(AgentEvent::progress(
+                                format!("⚠️ Moderate quality ({}). Proceeding...", result.overall_score),
+                                None
+                            ))?;
+                        }
+                    }
+                    Err(e) => {
+                        // Review failed - log warning but proceed (fail-open)
+                        log::warn!("Code review failed: {}. Proceeding without review.", e);
+                        self.emit(AgentEvent::progress(
+                            format!("⚠️ Review failed: {}. Proceeding...", e),
+                            None
+                        ))?;
                     }
                 }
             }

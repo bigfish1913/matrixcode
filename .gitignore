@@ -57,3 +57,4 @@ target/
 # Other
 Cargo.lock
 .matrix/
+node_modules/

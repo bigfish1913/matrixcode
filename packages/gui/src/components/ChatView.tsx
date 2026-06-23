@@ -15,13 +15,13 @@ import { formatTokenCount } from '../utils/formatters';
 import { InputShortcuts } from './shared';
 import { useChatInput, useScrollManager } from '../hooks';
 
-// Loading spinner component for thinking state
+// Loading spinner component for thinking state (matching TUI spinner animation)
 function ThinkingIndicator({ message }: { message?: string | null }) {
   return (
     <div className="flex items-center gap-2 px-4 py-3 text-muted-foreground animate-fade-in">
       <div className="flex gap-1">
-        <span className="w-2 h-2 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
-        <span className="w-2 h-2 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+        <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '-0.3s' }} />
+        <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '-0.15s' }} />
         <span className="w-2 h-2 rounded-full bg-primary animate-bounce" />
       </div>
       <span className="text-sm">{message || '思考中...'}</span>
@@ -531,9 +531,11 @@ export function ChatView() {
             className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
             rows={2}
           />
-          <div className="flex justify-between items-center mt-2">
-            <InputShortcuts />
-            <div className="flex gap-2">
+          <div className="flex justify-between items-start mt-2 gap-4">
+            <div className="flex-1 min-w-0">
+              <InputShortcuts />
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
               {status === 'running' ? (
                 <button
                   onClick={stopAgent}

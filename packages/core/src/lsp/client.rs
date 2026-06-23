@@ -623,6 +623,7 @@ pub fn format_location(location: &Location) -> String {
 }
 
 /// Convert Url to file path
+#[allow(dead_code)]
 fn url_to_file_path(url: &Url) -> Result<PathBuf, ()> {
     if url.scheme() == "file" {
         url.to_file_path().map_err(|_| ())
