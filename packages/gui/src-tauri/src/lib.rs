@@ -986,6 +986,489 @@ async fn list_skills(
 }
 
 // ---------------------------------------------------------------------------
+// Memory System Commands (Phase 6 - GUI/TUI Alignment)
+// ---------------------------------------------------------------------------
+
+/// Memory entry structure
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MemoryEntry {
+    name: String,
+    description: String,
+    #[serde(rename = "type")]
+    entry_type: String, // user, feedback, project, reference
+    content: String,
+    metadata: serde_json::Value,
+}
+
+/// Load memory from project memory directory
+#[tauri::command]
+async fn load_memory(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<serde_json::Value>, String> {
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let memory_dir = path.join(".matrix").join("memory");
+        let memory_file = memory_dir.join("MEMORY.md");
+
+        if memory_file.exists() {
+            let content = std::fs::read_to_string(&memory_file)
+                .map_err(|e| format!("Failed to read memory file: {}", e))?;
+
+            // Parse MEMORY.md to extract entries
+            let entries = parse_memory_index(&content, &memory_dir);
+
+            return Ok(Some(serde_json::json!({
+                "entries": entries,
+                "summary": extract_summary(&content),
+            })));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Search memory entries
+#[tauri::command]
+async fn search_memory(
+    state: tauri::State<'_, AppState>,
+    query: String,
+) -> Result<Vec<MemoryEntry>, String> {
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let memory_dir = path.join(".matrix").join("memory");
+        let memory_file = memory_dir.join("MEMORY.md");
+
+        if memory_file.exists() {
+            let content = std::fs::read_to_string(&memory_file)
+                .map_err(|e| format!("Failed to read memory file: {}", e))?;
+
+            let entries = parse_memory_index(&content, &memory_dir);
+
+            // Filter entries by query
+            let filtered = entries.into_iter().filter(|entry| {
+                entry.name.contains(&query) ||
+                entry.description.contains(&query) ||
+                entry.content.contains(&query)
+            }).collect();
+
+            return Ok(filtered);
+        }
+    }
+
+    Ok(vec![])
+}
+
+/// Add new memory entry
+#[tauri::command]
+async fn add_memory(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    description: String,
+    entry_type: String,
+    content: String,
+) -> Result<(), String> {
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let memory_dir = path.join(".matrix").join("memory");
+        std::fs::create_dir_all(&memory_dir)
+            .map_err(|e| format!("Failed to create memory directory: {}", e))?;
+
+        // Create memory file
+        let memory_file = memory_dir.join(format!("{}.md", name));
+        let full_content = format!(
+            "---\nname: {}\ndescription: {}\nmetadata:\n  type: {}\n---\n\n{}",
+            name, description, entry_type, content
+        );
+
+        std::fs::write(&memory_file, full_content)
+            .map_err(|e| format!("Failed to write memory file: {}", e))?;
+
+        // Update MEMORY.md index
+        update_memory_index(&memory_dir, &name, &description)?;
+
+        return Ok(());
+    }
+
+    Err("No project path set".to_string())
+}
+
+/// Delete memory entry
+#[tauri::command]
+async fn delete_memory(
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<(), String> {
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let memory_dir = path.join(".matrix").join("memory");
+        let memory_file = memory_dir.join(format!("{}.md", name));
+
+        if memory_file.exists() {
+            std::fs::remove_file(&memory_file)
+                .map_err(|e| format!("Failed to delete memory file: {}", e))?;
+
+            // Update MEMORY.md index
+            remove_from_memory_index(&memory_dir, &name)?;
+
+            return Ok(());
+        }
+    }
+
+    Err("Memory entry not found".to_string())
+}
+
+/// Update memory entry
+#[tauri::command]
+async fn update_memory(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    content: String,
+) -> Result<(), String> {
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let memory_dir = path.join(".matrix").join("memory");
+        let memory_file = memory_dir.join(format!("{}.md", name));
+
+        if memory_file.exists() {
+            // Read existing file to preserve frontmatter
+            let existing = std::fs::read_to_string(&memory_file)
+                .map_err(|e| format!("Failed to read memory file: {}", e))?;
+
+            // Extract frontmatter and update content
+            let updated = if existing.starts_with("---") {
+                let parts: Vec<&str> = existing.splitn(3, "---").collect();
+                if parts.len() >= 3 {
+                    format!("{}---\n{}---\n\n{}", parts[0], parts[1], content)
+                } else {
+                    content
+                }
+            } else {
+                content
+            };
+
+            std::fs::write(&memory_file, updated)
+                .map_err(|e| format!("Failed to update memory file: {}", e))?;
+
+            return Ok(());
+        }
+    }
+
+    Err("Memory entry not found".to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Approval Mode Commands (Phase 6 - GUI/TUI Alignment)
+// ---------------------------------------------------------------------------
+
+/// Set approval mode (ask/auto/strict)
+#[tauri::command]
+async fn set_approve_mode(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+) -> Result<(), String> {
+    let valid_modes = vec!["ask", "auto", "strict"];
+    if !valid_modes.contains(&mode.as_str()) {
+        return Err(format!("Invalid approve_mode: {}. Must be one of: {}", mode, valid_modes.join(", ")));
+    }
+
+    let mut config = state.config.lock().await;
+    config.approve_mode = Some(mode.clone());
+
+    // Save to config file
+    let project_path = state.project_path.lock().await.clone();
+    if let Some(path) = project_path {
+        let config_file = path.join(".matrix").join("config.json");
+        if config_file.exists() {
+            let config_content = serde_json::to_string_pretty(&*config)
+                .map_err(|e| format!("Failed to serialize config: {}", e))?;
+            std::fs::write(&config_file, config_content)
+                .map_err(|e| format!("Failed to write config file: {}", e))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Get current approval mode
+#[tauri::command]
+async fn get_approve_mode(
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let config = state.config.lock().await;
+    let mode = config.approve_mode.clone().unwrap_or_else(|| "ask".to_string());
+    Ok(mode)
+}
+
+/// Approval request structure
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ApprovalRequest {
+    id: String,
+    tool: String,
+    input: serde_json::Value,
+    risk_level: String, // low, medium, high
+    timestamp: u64,
+}
+
+/// Approval record structure
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ApprovalRecord {
+    id: String,
+    tool: String,
+    action: String, // approved, rejected
+    timestamp: u64,
+    reason: Option<String>,
+}
+
+/// Get approval history
+#[tauri::command]
+async fn get_approval_history(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ApprovalRecord>, String> {
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let history_file = path.join(".matrix").join("approval_history.json");
+
+        if history_file.exists() {
+            let content = std::fs::read_to_string(&history_file)
+                .map_err(|e| format!("Failed to read approval history: {}", e))?;
+
+            let history: Vec<ApprovalRecord> = serde_json::from_str(&content)
+                .map_err(|e| format!("Failed to parse approval history: {}", e))?;
+
+            return Ok(history);
+        }
+    }
+
+    Ok(vec![])
+}
+
+/// Approve an action (placeholder - actual approval happens during agent execution)
+#[tauri::command]
+async fn approve_action(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let history_file = path.join(".matrix").join("approval_history.json");
+
+        // Load existing history
+        let mut history: Vec<ApprovalRecord> = if history_file.exists() {
+            let content = std::fs::read_to_string(&history_file).unwrap_or("[]".to_string());
+            serde_json::from_str(&content).unwrap_or(vec![])
+        } else {
+            vec![]
+        };
+
+        // Add approval record
+        history.push(ApprovalRecord {
+            id,
+            tool: "unknown".to_string(),
+            action: "approved".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            reason: None,
+        });
+
+        // Save history
+        let content = serde_json::to_string_pretty(&history)
+            .map_err(|e| format!("Failed to serialize approval history: {}", e))?;
+        std::fs::write(&history_file, content)
+            .map_err(|e| format!("Failed to write approval history: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Reject an action (placeholder - actual rejection happens during agent execution)
+#[tauri::command]
+async fn reject_action(
+    id: String,
+    reason: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let project_path = state.project_path.lock().await.clone();
+
+    if let Some(path) = project_path {
+        let history_file = path.join(".matrix").join("approval_history.json");
+
+        // Load existing history
+        let mut history: Vec<ApprovalRecord> = if history_file.exists() {
+            let content = std::fs::read_to_string(&history_file).unwrap_or("[]".to_string());
+            serde_json::from_str(&content).unwrap_or(vec![])
+        } else {
+            vec![]
+        };
+
+        // Add rejection record
+        history.push(ApprovalRecord {
+            id,
+            tool: "unknown".to_string(),
+            action: "rejected".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            reason,
+        });
+
+        // Save history
+        let content = serde_json::to_string_pretty(&history)
+            .map_err(|e| format!("Failed to serialize approval history: {}", e))?;
+        std::fs::write(&history_file, content)
+            .map_err(|e| format!("Failed to write approval history: {}", e))?;
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helper Functions for Memory System
+// ---------------------------------------------------------------------------
+
+/// Parse MEMORY.md index file to extract entries
+fn parse_memory_index(content: &str, memory_dir: &std::path::PathBuf) -> Vec<MemoryEntry> {
+    let mut entries = Vec::new();
+
+    // Simple parsing: look for markdown links in MEMORY.md
+    for line in content.lines() {
+        if line.starts_with("- [") {
+            // Extract name and file from markdown link
+            if let Some(name_end) = line.find("](") {
+                let name = line[3..name_end].to_string();
+                if let Some(file_start) = line.find(".md)") {
+                    let file_name = line[name_end + 2..file_start].to_string();
+                    let file_path = memory_dir.join(format!("{}.md", file_name));
+
+                    if file_path.exists() {
+                        if let Ok(file_content) = std::fs::read_to_string(&file_path) {
+                            let entry = parse_memory_file(&file_content, name);
+                            entries.push(entry);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    entries
+}
+
+/// Parse individual memory file
+fn parse_memory_file(content: &str, name: String) -> MemoryEntry {
+    let description = String::new();
+    let entry_type = "project".to_string();
+    let metadata = serde_json::json!({});
+
+    // Extract frontmatter
+    if content.starts_with("---") {
+        let parts: Vec<&str> = content.splitn(3, "---").collect();
+        if parts.len() >= 3 {
+            // Parse YAML frontmatter (simplified)
+            let frontmatter = parts[1];
+            let desc = frontmatter.lines()
+                .find(|l| l.starts_with("description:"))
+                .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
+                .unwrap_or_default();
+
+            let typ = frontmatter.lines()
+                .find(|l| l.contains("type:"))
+                .and_then(|l| l.split("type:").nth(1))
+                .map(|l| l.trim().to_string())
+                .unwrap_or("project".to_string());
+
+            return MemoryEntry {
+                name,
+                description: desc,
+                entry_type: typ,
+                content: parts[2].trim().to_string(),
+                metadata,
+            };
+        }
+    }
+
+    MemoryEntry {
+        name,
+        description,
+        entry_type,
+        content: content.to_string(),
+        metadata,
+    }
+}
+
+/// Extract summary from MEMORY.md
+fn extract_summary(content: &str) -> String {
+    // Find first paragraph before first list item
+    for line in content.lines() {
+        if line.starts_with("#") {
+            continue;
+        }
+        if line.starts_with("- [") {
+            break;
+        }
+        if !line.trim().is_empty() {
+            return line.to_string();
+        }
+    }
+    "Memory index".to_string()
+}
+
+/// Update MEMORY.md index
+fn update_memory_index(memory_dir: &std::path::PathBuf, name: &str, description: &str) -> Result<(), String> {
+    let index_file = memory_dir.join("MEMORY.md");
+
+    let existing = if index_file.exists() {
+        std::fs::read_to_string(&index_file).unwrap_or_default()
+    } else {
+        "# Memory Index\n\nThis file tracks all saved memories.\n\n".to_string()
+    };
+
+    // Add new entry link
+    let new_line = format!("- [{}]({}.md) — {}\n", name, name, description);
+
+    let updated = if existing.contains(&new_line) {
+        existing
+    } else {
+        format!("{}{}", existing, new_line)
+    };
+
+    std::fs::write(&index_file, updated)
+        .map_err(|e| format!("Failed to update memory index: {}", e))?;
+
+    Ok(())
+}
+
+/// Remove entry from MEMORY.md index
+fn remove_from_memory_index(memory_dir: &std::path::PathBuf, name: &str) -> Result<(), String> {
+    let index_file = memory_dir.join("MEMORY.md");
+
+    if index_file.exists() {
+        let content = std::fs::read_to_string(&index_file)
+            .map_err(|e| format!("Failed to read memory index: {}", e))?;
+
+        // Remove line containing the entry
+        let updated = content.lines()
+            .filter(|line| !line.contains(&format!("[{}]({}.md)", name, name)))
+            .collect::<Vec<&str>>()
+            .join("\n");
+
+        std::fs::write(&index_file, updated)
+            .map_err(|e| format!("Failed to update memory index: {}", e))?;
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Application entry point
 // ---------------------------------------------------------------------------
 
@@ -1040,6 +1523,18 @@ pub fn run() {
             // Tools & Skills commands
             list_tools,
             list_skills,
+            // Memory System commands (Phase 6)
+            load_memory,
+            search_memory,
+            add_memory,
+            delete_memory,
+            update_memory,
+            // Approval Mode commands (Phase 6)
+            set_approve_mode,
+            get_approve_mode,
+            get_approval_history,
+            approve_action,
+            reject_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
