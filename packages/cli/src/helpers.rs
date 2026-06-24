@@ -2,9 +2,12 @@
 //!
 //! Shared utilities for model resolution, skills loading, and prompt building.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use matrixcode_core::{Config, infer_provider_type, providers::ProviderType, skills::discover_skills, constants::MATRIX_DIR};
+use matrixcode_core::{
+    Config, infer_provider_type, providers::ProviderType, skills::discover_skills,
+    constants::MATRIX_DIR, mcp::McpServerConfig, lsp::{LspServerConfig, load_lsp_config},
+};
 
 use crate::constants::DEFAULT_MODEL;
 
@@ -162,4 +165,178 @@ pub fn build_quick_action_prompt(action: &str, file: Option<&String>) -> String 
             }
         }
     }
+}
+
+/// Prepare MCP servers from CLI params and config files
+///
+/// Priority:
+/// 1. CLI --mcp params (highest)
+/// 2. Project .matrix/mcp.toml or mcp.json
+/// 3. Global ~/.matrix/mcp.toml or mcp.json
+pub fn prepare_mcp_tools(
+    cli_mcp_specs: &[String],
+    no_mcp: bool,
+    project_path: Option<&PathBuf>,
+) -> Vec<(String, McpServerConfig)> {
+    if no_mcp {
+        return Vec::new();
+    }
+
+    let mut servers = Vec::new();
+
+    // 1. CLI params (highest priority)
+    for spec in cli_mcp_specs {
+        if let Some((name, config)) = parse_mcp_spec(spec) {
+            servers.push((name, config));
+        }
+    }
+
+    // 2. Project config
+    if let Some(path) = project_path {
+        let project_config = path.join(MATRIX_DIR).join("mcp.json");
+        if project_config.exists() {
+            if let Ok(content) = std::fs::read_to_string(&project_config) {
+                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(arr) = config.get("servers").and_then(|v| v.as_array()) {
+                        for server in arr {
+                            if let Some(obj) = server.as_object() {
+                                let name = obj.get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                let command = obj.get("command")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let args = obj.get("args")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| arr.iter()
+                                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                        .collect())
+                                    .unwrap_or_default();
+                                servers.push((name, McpServerConfig::stdio(command, args)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Global config
+    if let Some(home) = dirs::home_dir() {
+        let global_config = home.join(MATRIX_DIR).join("mcp.json");
+        if global_config.exists() {
+            if let Ok(content) = std::fs::read_to_string(&global_config) {
+                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(arr) = config.get("servers").and_then(|v| v.as_array()) {
+                        for server in arr {
+                            if let Some(obj) = server.as_object() {
+                                let name = obj.get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                let command = obj.get("command")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let args = obj.get("args")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| arr.iter()
+                                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                        .collect())
+                                    .unwrap_or_default();
+                                servers.push((name, McpServerConfig::stdio(command, args)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    servers
+}
+
+/// Parse MCP server spec from CLI --mcp parameter
+fn parse_mcp_spec(spec: &str) -> Option<(String, McpServerConfig)> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return None;
+    }
+
+    // Try name:command args format
+    if let Some((name, rest)) = spec.split_once(':') {
+        let name = name.trim().to_string();
+        let rest = rest.trim();
+        let parts: Vec<String> = rest.split_whitespace().map(|s| s.to_string()).collect();
+
+        if parts.is_empty() {
+            return None;
+        }
+
+        let command = parts[0].clone();
+        let args = parts[1..].to_vec();
+        return Some((name, McpServerConfig::stdio(command, args)));
+    }
+
+    // Try command args format (auto-generate name from command)
+    let parts: Vec<String> = spec.split_whitespace().map(|s| s.to_string()).collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let command = parts[0].clone();
+    let args = parts[1..].to_vec();
+    let name = command.split('/').last()
+        .unwrap_or(&command)
+        .split('@').next()
+        .unwrap_or(&command)
+        .to_string();
+
+    Some((name, McpServerConfig::stdio(command, args)))
+}
+
+/// Prepare LSP servers from config files
+///
+/// Checks .matrix/lsp.json in project and home directories
+pub fn prepare_lsp_servers(
+    _config: &Config,
+    project_path: Option<&Path>,
+    start_path: Option<&Path>,
+) -> Vec<(String, LspServerConfig)> {
+    let mut servers = Vec::new();
+
+    // Try to load from project config first
+    if let Some(path) = project_path {
+        let lsp_config = load_lsp_config(path);
+        for server_config in lsp_config.enabled_servers() {
+            servers.push((server_config.command.clone(), server_config.clone()));
+        }
+    }
+
+    // Try start_path if project_path didn't find anything
+    if servers.is_empty() && start_path.is_some() && start_path != project_path {
+        if let Some(path) = start_path {
+            let lsp_config = load_lsp_config(path);
+            for server_config in lsp_config.enabled_servers() {
+                servers.push((server_config.command.clone(), server_config.clone()));
+            }
+        }
+    }
+
+    // Try global config if nothing found
+    if servers.is_empty() {
+        if let Some(home) = dirs::home_dir() {
+            let global_config = home.join(MATRIX_DIR).join("lsp.json");
+            if global_config.exists() {
+                let lsp_config = load_lsp_config(&global_config);
+                for server_config in lsp_config.enabled_servers() {
+                    servers.push((server_config.command.clone(), server_config.clone()));
+                }
+            }
+        }
+    }
+
+    servers
 }

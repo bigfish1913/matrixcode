@@ -154,6 +154,7 @@ mod exit;
 mod help;
 mod history;
 mod init;
+mod lsp;
 mod r#loop;
 mod mcp;
 mod mode;
@@ -172,6 +173,7 @@ pub use exit::ExitCommand;
 pub use help::HelpCommand;
 pub use history::HistoryCommand;
 pub use init::InitCommand;
+pub use lsp::LspCommand;
 pub use r#loop::LoopCommand;
 pub use mcp::McpCommand;
 pub use mode::ModeCommand;
@@ -204,6 +206,7 @@ pub fn create_registry() -> CommandRegistry {
     registry.register(Box::new(CompactCommand));
     registry.register(Box::new(InitCommand));
     registry.register(Box::new(SessionCommand));
+    registry.register(Box::new(LspCommand));
 
     // Complex commands
     registry.register(Box::new(LoopCommand));

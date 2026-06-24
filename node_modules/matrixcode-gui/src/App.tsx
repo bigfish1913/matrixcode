@@ -55,6 +55,15 @@ const MemoryPanel = lazy(() =>
 const ToolsSkillsPanel = lazy(() =>
   import('./components/ToolsSkillsPanel').then(module => ({ default: module.ToolsSkillsPanel }))
 );
+const ClipboardHistoryPanel = lazy(() =>
+  import('./components/ClipboardHistoryPanel').then(module => ({ default: module.ClipboardHistoryPanel }))
+);
+const BatchOperationsDialog = lazy(() =>
+  import('./components/BatchOperationsDialog').then(module => ({ default: module.BatchOperationsDialog }))
+);
+const SearchPanel = lazy(() =>
+  import('./components/SearchPanel').then(module => ({ default: module.SearchPanel }))
+);
 
 // Enhanced loading fallback component is imported from LoadingComponents.tsx
 
@@ -84,6 +93,9 @@ function AppContent() {
   const [showModelSwitcherDialog, setShowModelSwitcherDialog] = useState(false);
   const [showMemoryPanel, setShowMemoryPanel] = useState(false);
   const [showToolsSkillsPanel, setShowToolsSkillsPanel] = useState(false);
+  const [showClipboardHistory, setShowClipboardHistory] = useState(false);
+  const [showBatchOperations, setShowBatchOperations] = useState(false);
+  const [showSearchPanel, setShowSearchPanel] = useState(false);
 
   // Get loop/cron task state
   const loopTask = useChatStore((s) => s.loopTask);
@@ -158,6 +170,21 @@ function AppContent() {
         if (showToolsSkillsPanel) {
           e.preventDefault();
           setShowToolsSkillsPanel(false);
+          return;
+        }
+        if (showClipboardHistory) {
+          e.preventDefault();
+          setShowClipboardHistory(false);
+          return;
+        }
+        if (showBatchOperations) {
+          e.preventDefault();
+          setShowBatchOperations(false);
+          return;
+        }
+        if (showSearchPanel) {
+          e.preventDefault();
+          setShowSearchPanel(false);
           return;
         }
         if (showCronTaskDialog) {
@@ -453,6 +480,12 @@ function AppContent() {
                     setShowCodeGraphPanel(true);
                   } else if (cmd === '/mcp') {
                     setShowMcpPanel(true);
+                  } else if (cmd === '/clipboard' || cmd === '/history') {
+                    setShowClipboardHistory(true);
+                  } else if (cmd === '/batch' || cmd === '/operations') {
+                    setShowBatchOperations(true);
+                  } else if (cmd === '/search' || cmd === '/find') {
+                    setShowSearchPanel(true);
                   }
                 }}
                 onShowLoopDialog={() => setShowLoopTaskDialog(true)}
@@ -519,6 +552,33 @@ function AppContent() {
               <DialogErrorBoundary>
                 <Suspense fallback={<DialogSkeleton />}>
                   <ToolsSkillsPanel onClose={() => setShowToolsSkillsPanel(false)} />
+                </Suspense>
+              </DialogErrorBoundary>
+            )}
+
+            {/* Clipboard history panel */}
+            {showClipboardHistory && (
+              <DialogErrorBoundary>
+                <Suspense fallback={<DialogSkeleton />}>
+                  <ClipboardHistoryPanel onClose={() => setShowClipboardHistory(false)} />
+                </Suspense>
+              </DialogErrorBoundary>
+            )}
+
+            {/* Batch operations dialog */}
+            {showBatchOperations && (
+              <DialogErrorBoundary>
+                <Suspense fallback={<DialogSkeleton />}>
+                  <BatchOperationsDialog onClose={() => setShowBatchOperations(false)} />
+                </Suspense>
+              </DialogErrorBoundary>
+            )}
+
+            {/* Search panel */}
+            {showSearchPanel && (
+              <DialogErrorBoundary>
+                <Suspense fallback={<DialogSkeleton />}>
+                  <SearchPanel onClose={() => setShowSearchPanel(false)} />
                 </Suspense>
               </DialogErrorBoundary>
             )}

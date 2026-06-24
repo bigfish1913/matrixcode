@@ -18,3 +18,6 @@ pub mod lsp_handler;
 pub mod memory_handler;
 pub mod commands;
 pub mod agent;
+
+// Re-export main functions for main.rs
+pub use setup::{run_terminal_mode, interactive_resume, list_sessions};

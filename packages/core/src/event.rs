@@ -44,6 +44,8 @@ pub enum EventType {
     ProxyToolResponse, // Proxy tool: external execution result
     DebugLog,    // Debug log entry for TUI debug panel
     CodeGraphStatus, // CodeGraph index status update
+    LspServerStatus, // LSP server status update
+    LspServerAdded,  // LSP server added event
 }
 
 /// Event data
@@ -137,6 +139,13 @@ pub enum EventData {
         file_count: u64,
         pending_changes: Option<serde_json::Value>,
     }, // CodeGraph status update
+    LspServerStatus {
+        servers: Vec<crate::lsp::LspServerInfo>,
+    }, // LSP server status update
+    LspServerAdded {
+        name: String,
+        language: String,
+    }, // LSP server added event
 }
 
 impl AgentEvent {
@@ -193,6 +202,23 @@ impl AgentEvent {
                 edge_count: status.edge_count as u64,
                 file_count: status.file_count as u64,
                 pending_changes: Some(serde_json::to_value(status.pending_changes).unwrap_or_default()),
+            },
+        )
+    }
+
+    pub fn lsp_server_status(servers: Vec<crate::lsp::LspServerInfo>) -> Self {
+        Self::with_data(
+            EventType::LspServerStatus,
+            EventData::LspServerStatus { servers },
+        )
+    }
+
+    pub fn lsp_server_added(name: impl Into<String>, language: impl Into<String>) -> Self {
+        Self::with_data(
+            EventType::LspServerAdded,
+            EventData::LspServerAdded {
+                name: name.into(),
+                language: language.into(),
             },
         )
     }

@@ -44,6 +44,14 @@ pub struct Cli {
     #[arg(long, default_value_t = DEFAULT_MAX_TOKENS)]
     pub max_tokens: u32,
 
+    /// MCP server specs (format: name:command args or command args)
+    #[arg(long)]
+    pub mcp: Vec<String>,
+
+    /// Disable MCP servers
+    #[arg(long)]
+    pub no_mcp: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

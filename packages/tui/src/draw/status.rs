@@ -177,6 +177,48 @@ impl TuiApp {
             Style::default().fg(status_color),
         ));
 
+        // Server status indicators (MCP/LSP) - show after status
+        if width >= 100 {
+            spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+
+            // MCP status
+            let mcp_connected = !self.mcp_servers.is_empty()
+                && self.mcp_servers.iter().any(|s| s.is_started);
+            let mcp_color = if mcp_connected {
+                Color::Green
+            } else {
+                Color::DarkGray
+            };
+            spans.push(Span::styled(
+                format!(" {}MCP ", if mcp_connected { "●" } else { "○" }),
+                Style::default().fg(mcp_color),
+            ));
+
+            // LSP status
+            let lsp_connected = !self.lsp_servers.is_empty()
+                && self.lsp_servers.iter().any(|s| matches!(s.status, crate::app::LspServerStatus::Connected));
+            let lsp_starting = !self.lsp_servers.is_empty()
+                && self.lsp_servers.iter().any(|s| matches!(s.status, crate::app::LspServerStatus::Starting));
+            let lsp_error = !self.lsp_servers.is_empty()
+                && self.lsp_servers.iter().any(|s| matches!(s.status, crate::app::LspServerStatus::Error(_)));
+
+            let (lsp_symbol, lsp_color) = if lsp_connected {
+                ("●", Color::Green)
+            } else if lsp_error {
+                ("✗", Color::Red)
+            } else if lsp_starting {
+                ("◐", Color::Yellow)
+            } else if self.lsp_servers.is_empty() {
+                ("○", Color::DarkGray)
+            } else {
+                ("○", Color::DarkGray)
+            };
+            spans.push(Span::styled(
+                format!(" {}LSP ", lsp_symbol),
+                Style::default().fg(lsp_color),
+            ));
+        }
+
         f.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 }

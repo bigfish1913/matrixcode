@@ -13,13 +13,127 @@ use std::sync::{Arc, Mutex};
 
 use crate::constants::{
     EVENT_CHANNEL_BUFFER, TASK_CHANNEL_BUFFER, ASK_CHANNEL_BUFFER,
-    CLEANUP_TIMEOUT_MS,
+    CLEANUP_TIMEOUT_MS, DEFAULT_MAX_TOKENS,
 };
 use crate::helpers::{resolve_provider, resolve_model, resolve_base_url, load_skills, prepare_mcp_tools, prepare_lsp_servers};
 use crate::types::Cli;
 
 use super::watcher::{start_watcher_if_needed, cleanup_watcher};
 use super::agent::{run_agent_task, AgentContext};
+
+/// Interactive session resume - list sessions and let user select
+pub fn interactive_resume() -> Result<()> {
+    use std::io::{self, Write};
+
+    let _ = matrixcode_tui::crossterm::terminal::disable_raw_mode();
+
+    let mgr = SessionManager::new()?;
+    let sessions = mgr.list_sessions();
+
+    if sessions.is_empty() {
+        println!("No sessions found.");
+        println!("\nTip: Use 'matrixcode' to start a new session.");
+        return Ok(());
+    }
+
+    println!("📚 Sessions:\n");
+    for (i, session) in sessions.iter().enumerate() {
+        let is_current = mgr.has_current() && mgr.current_id() == Some(session.id.as_str());
+        println!("  {}. {}", i + 1, session.format_line(is_current));
+    }
+
+    println!("\nSelect session to resume (1-{}), or 'q' to quit:", sessions.len());
+    print!("> ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let selection = input.trim().to_string();
+
+    if matches!(selection.as_str(), "q" | "quit" | "exit" | "") {
+        println!("Cancelled.");
+        return Ok(());
+    }
+
+    // Try to parse as number
+    if let Ok(num) = selection.parse::<usize>()
+        && num > 0
+        && num <= sessions.len()
+    {
+        let session = &sessions[num - 1];
+        println!("\n✓ Resuming session: {}", session.short_id());
+        println!("  Project: {}", session.project_path.as_deref().unwrap_or("unknown"));
+        println!("  Messages: {}", session.message_count);
+        println!("\nStarting matrixcode with resumed session...\n");
+
+        let cli = Cli {
+            mode: "terminal".to_string(),
+            continue_session: false,
+            resume: false,
+            resume_id: Some(session.id.clone()),
+            list_sessions: false,
+            skills_dir: None,
+            think: Some(true),
+            max_tokens: DEFAULT_MAX_TOKENS,
+            command: None,
+        };
+        return run_terminal_mode(cli);
+    }
+
+    // Try to match by short_id or full id
+    for session in sessions.iter() {
+        if session.short_id() == selection || session.id == selection || session.id.starts_with(&selection) {
+            println!("\n✓ Resuming session: {}", session.short_id());
+            println!("  Project: {}", session.project_path.as_deref().unwrap_or("unknown"));
+            println!("  Messages: {}", session.message_count);
+            println!("\nStarting matrixcode with resumed session...\n");
+
+            let cli = Cli {
+                mode: "terminal".to_string(),
+                continue_session: false,
+                resume: false,
+                resume_id: Some(session.id.clone()),
+                list_sessions: false,
+                skills_dir: None,
+                think: Some(true),
+                max_tokens: DEFAULT_MAX_TOKENS,
+                command: None,
+            };
+            return run_terminal_mode(cli);
+        }
+    }
+
+    println!("Unknown session: {}", selection);
+    Ok(())
+}
+
+/// List sessions
+pub fn list_sessions() {
+    let mgr = SessionManager::new().ok();
+    if let Some(mgr) = mgr {
+        let sessions = mgr.list_sessions();
+        if sessions.is_empty() {
+            println!("No sessions found.");
+            println!("\nTip: Use 'matrixcode' to start a new session.");
+        } else {
+            println!("Sessions:\n");
+            for (i, session) in sessions.iter().enumerate() {
+                let status = if mgr.has_current() && mgr.current_id() == Some(session.id.as_str()) {
+                    " [current]"
+                } else {
+                    ""
+                };
+                let project = session.project_path.as_deref().unwrap_or("unknown");
+                println!("  {}. {} ({}){}", i + 1, session.short_id(), project, status);
+            }
+            println!("\nTotal: {} sessions", sessions.len());
+            println!("\nResume: matrixcode --resume <id>");
+        }
+    } else {
+        println!("No session manager available.");
+        println!("Sessions directory: ~/.matrix/sessions/");
+    }
+}
 
 /// Terminal mode with TUI
 pub fn run_terminal_mode(cli: Cli) -> Result<()> {
@@ -70,8 +184,6 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(EVENT_CHANNEL_BUFFER);
     let (task_tx, task_rx) = tokio::sync::mpsc::channel::<String>(TASK_CHANNEL_BUFFER);
     let (ask_tx, ask_rx) = tokio::sync::mpsc::channel::<String>(ASK_CHANNEL_BUFFER);
-    let (pending_input_tx, pending_input_rx) =
-        tokio::sync::mpsc::channel::<String>(TASK_CHANNEL_BUFFER);
 
     // Set debug event sender for TUI debug panel
     matrixcode_core::set_debug_event_sender(event_tx.clone());
@@ -148,7 +260,6 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
             event_tx: agent_event_tx,
             task_rx,
             ask_rx,
-            pending_input_rx,
             api_key: agent_api_key,
             model: agent_model,
             base_url: agent_base_url,
@@ -190,7 +301,6 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let mut app = TuiApp::new(task_tx, event_rx, cancel_token.clone())
         .with_ask_channel(ask_tx)
         .with_shared_approve_mode(shared_approve_mode)
-        .with_pending_input_tx(pending_input_tx)
         .with_config(
             &model,
             cli.think.unwrap_or(config.think),

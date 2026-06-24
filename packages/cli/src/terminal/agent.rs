@@ -28,7 +28,6 @@ pub struct AgentContext {
     pub event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
     pub task_rx: tokio::sync::mpsc::Receiver<String>,
     pub ask_rx: tokio::sync::mpsc::Receiver<String>,
-    pub pending_input_rx: tokio::sync::mpsc::Receiver<String>,
     pub api_key: String,
     pub model: String,
     pub base_url: String,
@@ -191,7 +190,6 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
             matrixcode_tui::image_search::get_default_proxy_tools()
         )
         .mcp_registry(mcp_manager.registry())
-        .pending_input_rx(ctx.pending_input_rx)
         .build();
 
     agent.set_approve_mode_shared(ctx.shared_approve_mode.clone());

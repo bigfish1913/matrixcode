@@ -7,10 +7,12 @@ use matrixcode_core::{
     AgentEvent, Config, SessionManager, agent::AgentBuilder, cancel::CancellationToken,
     create_provider_with_headers, infer_provider_type, providers::Provider,
     tools::all_tools_full, approval::ApproveMode,
+    lsp::{LspClientRegistry, LspServerInfo, LoggingProgressCallback, SERVER_INIT_TIMEOUT},
 };
 use matrixcode_tui::{TuiApp, restore_terminal, setup_terminal};
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::time::timeout;
 
 use crate::commands::{handle_init_command, InitCommandResult};
 use crate::constants::{
@@ -20,7 +22,7 @@ use crate::constants::{
     MEMORY_TURN_CLEANUP_INTERVAL, MEMORY_EXTRACTION_INTERVAL, MEMORY_MIN_ENTRIES_FOR_AI_SELECTION,
     DISPLAY_OVERVIEW_CHARS_LIMIT, DISPLAY_MEMORY_SEARCH_LIMIT,
 };
-use crate::helpers::{resolve_provider, resolve_model, resolve_base_url, load_skills};
+use crate::helpers::{resolve_provider, resolve_model, resolve_base_url, load_skills, prepare_lsp_servers};
 use crate::types::Cli;
 
 /// Interactive session resume - list sessions and let user select
@@ -77,6 +79,8 @@ pub fn interactive_resume() -> Result<()> {
             skills_dir: None,
             think: Some(true),
             max_tokens: DEFAULT_MAX_TOKENS,
+            mcp: Vec::new(),
+            no_mcp: false,
             command: None,
         };
         return run_terminal_mode(cli);
@@ -99,6 +103,8 @@ pub fn interactive_resume() -> Result<()> {
                 skills_dir: None,
                 think: Some(true),
                 max_tokens: DEFAULT_MAX_TOKENS,
+                mcp: Vec::new(),
+                no_mcp: false,
                 command: None,
             };
             return run_terminal_mode(cli);
@@ -438,6 +444,75 @@ async fn run_agent_task(
         matrixcode_core::debug::debug_log().log("overview", &format!("Loaded project overview: {} chars", overview.content.len()));
     }
 
+    // Load and start LSP servers
+    let lsp_registry = Arc::new(LspClientRegistry::new());
+    let lsp_servers_config = prepare_lsp_servers(&config, project_path_ref, project_path_ref);
+    let mut lsp_servers_info: Vec<LspServerInfo> = Vec::new();
+
+    if !lsp_servers_config.is_empty() {
+        log::info!("Agent task: starting {} LSP servers", lsp_servers_config.len());
+        matrixcode_core::debug::debug_log().log("lsp", &format!("Starting {} LSP servers", lsp_servers_config.len()));
+
+        // Mark servers as starting
+        for (_name, config) in &lsp_servers_config {
+            lsp_servers_info.push(LspServerInfo::new(&config.command, &config.language).with_status(matrixcode_core::lsp::LspServerStatus::Starting));
+        }
+
+        // Send initial status
+        let _ = event_tx.send(AgentEvent::with_data(
+            matrixcode_core::EventType::LspServerStatus,
+            matrixcode_core::EventData::LspServerStatus {
+                servers: lsp_servers_info.clone(),
+            },
+        )).await;
+
+        // Start each server in background
+        for (_name, server_config) in lsp_servers_config {
+            let registry_clone = lsp_registry.clone();
+            let event_tx_clone = event_tx.clone();
+            let project_root = project_path.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let _language = server_config.language.clone();
+            let command = server_config.command.clone();
+
+            tokio::spawn(async move {
+                matrixcode_core::debug::debug_log().log("lsp", &format!("Background: starting '{}'...", command));
+
+                let progress_callback = Arc::new(LoggingProgressCallback);
+                let start_result = timeout(
+                    SERVER_INIT_TIMEOUT,
+                    registry_clone.register_with_progress(&server_config, &project_root, progress_callback)
+                ).await;
+
+                // Update status after startup
+                let status = match start_result {
+                    Ok(Ok(_)) => {
+                        matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' started OK", command));
+                        matrixcode_core::lsp::LspServerStatus::Connected
+                    }
+                    Ok(Err(e)) => {
+                        matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' failed: {}", command, e));
+                        matrixcode_core::lsp::LspServerStatus::Error(e.to_string())
+                    }
+                    Err(_) => {
+                        matrixcode_core::debug::debug_log().log("lsp", &format!("Background: '{}' timeout", command));
+                        matrixcode_core::lsp::LspServerStatus::Error(format!("Timeout after {}s", SERVER_INIT_TIMEOUT.as_secs()))
+                    }
+                };
+
+                // Send status update
+                // Note: We don't send individual server status here, as we don't have access to the full list
+                // The status will be visible when the user calls /lsp command
+                let _ = event_tx_clone.send(AgentEvent::progress(
+                    format!("LSP server '{}' status: {}", command, status.label()),
+                    None,
+                )).await;
+            });
+        }
+
+        log::info!("Agent task: LSP servers started in background");
+        matrixcode_core::debug::debug_log().log("lsp", "LSP servers started in background");
+    }
+
     // Build system prompt
     let system_prompt = matrixcode_core::prompt::build_system_prompt_with_workflows(
         &matrixcode_core::prompt::PromptProfile::Default,
@@ -445,7 +520,7 @@ async fn run_agent_task(
         project_overview.as_ref().map(|o| o.content.as_str()),
         if initial_memory_summary.is_empty() { None } else { Some(&initial_memory_summary) },
         project_path.as_ref(),
-        None, // No LSP servers in terminal mode
+        Some(&lsp_servers_info),
     );
 
     // Build agent with CodeGraph tools

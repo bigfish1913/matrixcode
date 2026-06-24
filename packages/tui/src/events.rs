@@ -442,6 +442,49 @@ impl TuiApp {
                     }
                 }
             }
+            EventType::LspServerStatus => {
+                if let Some(EventData::LspServerStatus { servers }) = e.data {
+                    log::info!("TUI received LspServerStatus event: {} servers", servers.len());
+                    for server in &servers {
+                        log::info!("  - {} ({}) {:?}", server.name, server.language, server.status);
+                    }
+                    self.lsp_servers = servers
+                        .iter()
+                        .map(|s| crate::app::LspServerInfo {
+                            name: s.name.clone(),
+                            language: s.language.clone(),
+                            status: match &s.status {
+                                matrixcode_core::lsp::LspServerStatus::NotStarted => {
+                                    crate::app::LspServerStatus::NotStarted
+                                }
+                                matrixcode_core::lsp::LspServerStatus::Starting => {
+                                    crate::app::LspServerStatus::Starting
+                                }
+                                matrixcode_core::lsp::LspServerStatus::Connected => {
+                                    crate::app::LspServerStatus::Connected
+                                }
+                                matrixcode_core::lsp::LspServerStatus::Error(msg) => {
+                                    crate::app::LspServerStatus::Error(msg.clone())
+                                }
+                            },
+                        })
+                        .collect();
+                    log::info!("TUI lsp_servers updated: {} servers", self.lsp_servers.len());
+                    self.dirty.set(true); // Mark as dirty to redraw
+                }
+            }
+            EventType::LspServerAdded => {
+                if let Some(EventData::LspServerAdded { name, language }) = e.data {
+                    log::info!("TUI received LspServerAdded event: {} ({})", name, language);
+                    // Add new server with NotStarted status
+                    self.lsp_servers.push(crate::app::LspServerInfo {
+                        name,
+                        language,
+                        status: crate::app::LspServerStatus::NotStarted,
+                    });
+                    self.dirty.set(true);
+                }
+            }
             _ => {}
         }
     }

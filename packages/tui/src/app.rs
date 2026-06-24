@@ -104,6 +104,8 @@ pub struct TuiApp {
     pub(crate) last_workflow_refresh: Instant,
     // MCP server status (for /mcp command)
     pub(crate) mcp_servers: Vec<McpServerInfo>,
+    // LSP server status (for /lsp command)
+    pub(crate) lsp_servers: Vec<LspServerInfo>,
     // Session selector state (for /session command)
     pub(crate) waiting_for_session: bool,
     pub(crate) session_selected_index: usize,
@@ -116,6 +118,23 @@ pub struct McpServerInfo {
     pub name: String,
     pub is_started: bool,
     pub tool_count: usize,
+}
+
+/// LSP server info for status display
+#[derive(Clone)]
+pub struct LspServerInfo {
+    pub name: String,
+    pub language: String,
+    pub status: LspServerStatus,
+}
+
+/// LSP server status
+#[derive(Clone)]
+pub enum LspServerStatus {
+    NotStarted,
+    Starting,
+    Connected,
+    Error(String),
 }
 
 /// Session info for interactive selector
@@ -226,6 +245,7 @@ impl TuiApp {
             workflow_state: crate::workflow::WorkflowViewState::default(),
             last_workflow_refresh: Instant::now(),
             mcp_servers: Vec::new(),
+            lsp_servers: Vec::new(),
             waiting_for_session: false,
             session_selected_index: 0,
             session_list: Vec::new(),
