@@ -10,17 +10,23 @@ interface SidebarProps {
   onViewChange: (view: ViewType) => void;
 }
 
-// Inline editable session name with delete button
+// Inline editable session name with delete button and selection checkbox
 function SessionNameEdit({
   session,
   isSelected,
+  isSelectionMode,
+  isChecked,
   onSelect,
   onDelete,
+  onToggleCheck,
 }: {
   session: SessionInfo;
   isSelected: boolean;
+  isSelectionMode: boolean;
+  isChecked: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  onToggleCheck: () => void;
 }) {
   const renameSession = useSessionStore((s) => s.renameSession);
   const [isEditing, setIsEditing] = useState(false);
@@ -45,13 +51,17 @@ function SessionNameEdit({
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent triggering parent button's onClick
-    onSelect();
+    e.stopPropagation();
+    if (isSelectionMode) {
+      onToggleCheck();
+    } else {
+      onSelect();
+    }
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isSelected) {
+    if (!isSelectionMode && isSelected) {
       setIsEditing(true);
     }
   };
@@ -80,18 +90,28 @@ function SessionNameEdit({
 
   return (
     <div
-      className="truncate cursor-pointer flex items-center gap-1 group"
+      className="truncate cursor-pointer flex items-center gap-2 group"
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onMouseEnter={() => setShowDelete(true)}
       onMouseLeave={() => setShowDelete(false)}
-      title={isSelected ? '双击编辑标题' : session.name}
+      title={isSelectionMode ? '点击选择' : (isSelected ? '双击编辑标题' : session.name)}
     >
+      {/* Checkbox in selection mode */}
+      {isSelectionMode && (
+        <input
+          type="checkbox"
+          checked={isChecked}
+          onChange={onToggleCheck}
+          onClick={(e) => e.stopPropagation()}
+          className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+        />
+      )}
       <span className="flex-1 truncate">
         {session.name || `Session ${session.id.slice(0, 8)}`}
       </span>
-      {/* Delete button - visible on hover */}
-      {showDelete && (
+      {/* Delete button - visible on hover (only in non-selection mode) */}
+      {!isSelectionMode && showDelete && (
         <button
           onClick={handleDeleteClick}
           className="text-xs px-1 py-0.5 text-red-500 hover:bg-red-500/10 rounded opacity-0 group-hover:opacity-100 transition-opacity"
@@ -116,6 +136,13 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
   const continueLast = useSessionStore((s) => s.continueLast);
   const switchSession = useSessionStore((s) => s.switchSession);
   const deleteSession = useSessionStore((s) => s.deleteSession);
+  const batchDeleteSessions = useSessionStore((s) => s.batchDeleteSessions);
+  const selectionMode = useSessionStore((s) => s.selectionMode);
+  const selectedIds = useSessionStore((s) => s.selectedIds);
+  const toggleSelectionMode = useSessionStore((s) => s.toggleSelectionMode);
+  const toggleSelection = useSessionStore((s) => s.toggleSelection);
+  const selectAll = useSessionStore((s) => s.selectAll);
+  const clearSelection = useSessionStore((s) => s.clearSelection);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const loadMessages = useChatStore((s) => s.loadMessages);
   const [collapsed, setCollapsed] = useState(false);
@@ -180,6 +207,24 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
     setIsOperating(true);
     try {
       await deleteSession(id);
+    } finally {
+      setIsOperating(false);
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    
+    const confirmMsg = ids.length === 1 
+      ? `确定删除选中的会话？`
+      : `确定删除 ${ids.length} 个会话？`;
+    
+    if (!confirm(confirmMsg)) return;
+    
+    setIsOperating(true);
+    try {
+      await batchDeleteSessions(ids);
     } finally {
       setIsOperating(false);
     }
@@ -286,47 +331,110 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
 
       {/* Session list (only shown in chat view) */}
       {currentView === 'chat' && (
-        <div ref={sessionListRef} className="flex-1 overflow-y-auto">
-          {loading && (
-            <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
-              <span className="animate-pulse">加载中...</span>
-            </div>
-          )}
-          {!loading && error && sessions.length === 0 && (
-            <div className="text-xs text-red-500 p-3 flex flex-col gap-2">
-              <span>加载失败</span>
-              <button onClick={loadSessions} className="text-xs underline hover:no-underline">
-                重试
+        <>
+          {/* Selection mode toolbar */}
+          {selectionMode && (
+            <div className="p-2 border-b bg-accent/50 flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                已选择 {selectedIds.size} / {sessions.length}
+              </span>
+              <button
+                onClick={selectAll}
+                disabled={sessions.length === 0}
+                className="text-xs px-2 py-1 border rounded hover:bg-accent disabled:opacity-50"
+                title="全选"
+              >
+                全选
+              </button>
+              <button
+                onClick={clearSelection}
+                disabled={selectedIds.size === 0}
+                className="text-xs px-2 py-1 border rounded hover:bg-accent disabled:opacity-50"
+                title="取消选择"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedIds.size === 0 || isOperating}
+                className="text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="删除选中"
+              >
+                {isOperating ? '删除中...' : `删除 (${selectedIds.size})`}
+              </button>
+              <button
+                onClick={toggleSelectionMode}
+                className="text-xs px-2 py-1 border rounded hover:bg-accent ml-auto"
+                title="退出选择模式"
+              >
+                完成
               </button>
             </div>
           )}
-          {!loading && !error && sessions.length === 0 && (
-            <p className="text-xs text-muted-foreground p-3">暂无会话</p>
+          
+          {/* Selection mode toggle button */}
+          {!selectionMode && (
+            <div className="px-3 py-1 border-b">
+              <button
+                onClick={toggleSelectionMode}
+                disabled={sessions.length === 0}
+                className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                title="批量管理"
+              >
+                🗑️ 批量管理
+              </button>
+            </div>
           )}
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              data-session-id={s.id}
-              onClick={() => handleSelect(s)}
-              disabled={isOperating}
-              className={`w-full text-left px-3 py-2 text-sm border-b hover:bg-accent transition-colors disabled:opacity-50 ${
-                s.id === currentSessionId
-                  ? 'bg-accent font-medium'
-                  : ''
-              }`}
-            >
-              <SessionNameEdit
-                session={s}
-                isSelected={s.id === currentSessionId}
-                onSelect={() => handleSelect(s)}
-                onDelete={() => handleDelete(s.id)}
-              />
-              <div className="text-xs text-muted-foreground">
-                {s.message_count} 条消息 · {s.created_at}
+        
+          <div ref={sessionListRef} className="flex-1 overflow-y-auto">
+            {loading && (
+              <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
+                <span className="animate-pulse">加载中...</span>
               </div>
-            </button>
-          ))}
-        </div>
+            )}
+            {!loading && error && sessions.length === 0 && (
+              <div className="text-xs text-red-500 p-3 flex flex-col gap-2">
+                <span>加载失败</span>
+                <button onClick={loadSessions} className="text-xs underline hover:no-underline">
+                  重试
+                </button>
+              </div>
+            )}
+            {!loading && !error && sessions.length === 0 && (
+              <p className="text-xs text-muted-foreground p-3">暂无会话</p>
+            )}
+            {sessions.map((s) => (
+              <button
+                key={s.id}
+                data-session-id={s.id}
+                onClick={() => selectionMode ? toggleSelection(s.id) : handleSelect(s)}
+                disabled={isOperating && !selectionMode}
+                className={`w-full text-left px-3 py-2 text-sm border-b hover:bg-accent transition-colors disabled:opacity-50 ${
+                  selectionMode && selectedIds.has(s.id)
+                    ? 'bg-primary/10 border-l-2 border-l-primary'
+                    : ''
+                } ${
+                  !selectionMode && s.id === currentSessionId
+                    ? 'bg-accent font-medium'
+                    : ''
+                }`}
+              >
+                <SessionNameEdit
+                  session={s}
+                  isSelected={s.id === currentSessionId}
+                  isSelectionMode={selectionMode}
+                  isChecked={selectedIds.has(s.id)}
+                  onSelect={() => handleSelect(s)}
+                  onDelete={() => handleDelete(s.id)}
+                  onToggleCheck={() => toggleSelection(s.id)}
+                />
+                <div className="text-xs text-muted-foreground">
+                  {s.message_count} 条消息 · {s.created_at}
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
       {currentView !== 'chat' && (

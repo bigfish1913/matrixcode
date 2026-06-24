@@ -17,6 +17,8 @@ interface SessionState {
   loading: boolean;
   error: string | null;
   searchQuery: string;
+  selectedIds: Set<string>;
+  selectionMode: boolean;
 
   loadSessions: () => Promise<void>;
   createSession: (name?: string) => Promise<string>;
@@ -26,9 +28,15 @@ interface SessionState {
   renameSession: (newName: string) => Promise<void>;
   clearSession: () => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
+  batchDeleteSessions: (ids: string[]) => Promise<number>;
   searchSessions: (query: string) => void;
   setCurrentSession: (id: string | null) => void;
   clearError: () => void;
+  // Selection mode methods
+  toggleSelectionMode: () => void;
+  toggleSelection: (id: string) => void;
+  selectAll: () => void;
+  clearSelection: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -37,6 +45,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   loading: false,
   error: null,
   searchQuery: '',
+  selectedIds: new Set<string>(),
+  selectionMode: false,
 
   loadSessions: async () => {
     set({ loading: true, error: null });
@@ -155,6 +165,27 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
+  batchDeleteSessions: async (ids: string[]) => {
+    if (ids.length === 0) return 0;
+    set({ loading: true, error: null });
+    try {
+      const deletedCount = await invoke<number>('batch_delete_sessions', { ids });
+      // If any deleted session was current, clear currentSessionId
+      const currentId = get().currentSessionId;
+      if (currentId && ids.includes(currentId)) {
+        set({ currentSessionId: null });
+      }
+      // Clear selection
+      set({ loading: false, selectedIds: new Set(), selectionMode: false });
+      await get().loadSessions();
+      return deletedCount;
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : '批量删除会话失败';
+      set({ loading: false, error: errorMsg });
+      throw e;
+    }
+  },
+
   searchSessions: (query: string) => {
     set({ searchQuery: query });
     // Filter is done in the component, not here
@@ -166,5 +197,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   clearError: () => {
     set({ error: null });
+  },
+
+  // Selection mode methods
+  toggleSelectionMode: () => {
+    const currentMode = get().selectionMode;
+    set({
+      selectionMode: !currentMode,
+      selectedIds: new Set(),
+    });
+  },
+
+  toggleSelection: (id: string) => {
+    const selectedIds = new Set(get().selectedIds);
+    if (selectedIds.has(id)) {
+      selectedIds.delete(id);
+    } else {
+      selectedIds.add(id);
+    }
+    set({ selectedIds });
+  },
+
+  selectAll: () => {
+    const allIds = new Set(get().sessions.map(s => s.id));
+    set({ selectedIds: allIds });
+  },
+
+  clearSelection: () => {
+    set({ selectedIds: new Set() });
   },
 }));

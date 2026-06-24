@@ -72,7 +72,7 @@ fn collect_codegraph_context(file_path: &Path, project_path: &Path) -> Result<Co
         }
         
         // Find callees (what this symbol depends on)
-        if let Ok(callees_nodes) = manager.caller(&sym.name, 5) {
+        if let Ok(callees_nodes) = manager.callees(&sym.name, 5) {
             for node in callees_nodes {
                 let callee_info = format!("{} ({})", node.name, node.file_path);
                 if !callees.contains(&callee_info) {
@@ -91,8 +91,9 @@ fn collect_codegraph_context(file_path: &Path, project_path: &Path) -> Result<Co
 }
 
 /// Collect symbols defined in a specific file.
-fn collect_file_symbols(manager: &CodeGraphManager, file_path: &str) -> Result<Vec<SymbolInfo>> {
+fn collect_file_symbols(manager: &crate::tools::codegraph::CodeGraphManager, file_path: &str) -> Result<Vec<SymbolInfo>> {
     use crate::tools::codegraph::Node;
+    use rusqlite::Row;
     
     // Query symbols in this file
     let conn = manager.connect()?;
@@ -108,7 +109,7 @@ fn collect_file_symbols(manager: &CodeGraphManager, file_path: &str) -> Result<V
     
     let pattern = format!("%{}%", file_path);
     let nodes = stmt
-        .query_map(rusqlite::params![&pattern], |row| {
+        .query_map(rusqlite::params![&pattern], |row: &Row| {
             Ok(Node {
                 id: row.get(0)?,
                 kind: row.get(1)?,
