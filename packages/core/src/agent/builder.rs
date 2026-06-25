@@ -28,6 +28,7 @@ impl AgentBuilder {
             profile: PromptProfile::Default,
             project_overview: None,
             memory_summary: None,
+            initial_messages: Vec::new(),
             proxy_tool_defs: Vec::new(),
             proxy_executor: None,
         }
@@ -102,6 +103,12 @@ impl AgentBuilder {
     /// Set memory summary
     pub fn memory(mut self, summary: impl Into<String>) -> Self {
         self.memory_summary = Some(summary.into());
+        self
+    }
+
+    /// Set initial messages (from session restore)
+    pub fn initial_messages(mut self, messages: Vec<crate::providers::Message>) -> Self {
+        self.initial_messages = messages;
         self
     }
 

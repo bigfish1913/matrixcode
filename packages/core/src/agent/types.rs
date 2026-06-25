@@ -1,7 +1,7 @@
 //! Agent type definitions.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU64};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64};
 use tokio::sync::mpsc;
 
 use crate::cancel::CancellationToken;
@@ -49,7 +49,10 @@ pub struct Agent {
     pub(crate) provider: Box<dyn Provider>,
     pub(crate) model_name: String,
     pub(crate) tools: Vec<Arc<dyn Tool>>,
+    /// Compressed messages for API requests (Agent uses this).
     pub(crate) messages: Vec<Message>,
+    /// Full message history for display and session storage (TUI shows this).
+    pub(crate) full_messages: Vec<Message>,
     pub(crate) system_prompt: String,
     pub(crate) max_tokens: u32,
     pub(crate) think: bool,
@@ -65,6 +68,10 @@ pub struct Agent {
     pub(crate) cancel_token: Option<CancellationToken>,
     pub(crate) compression_config: CompressionConfig,
     pub(crate) ask_rx: Option<mpsc::Receiver<String>>,
+    /// Compression statistics: number of compressions performed
+    pub(crate) compression_count: AtomicU32,
+    /// Compression statistics: total tokens saved
+    pub(crate) compression_tokens_saved: AtomicU64,
     /// 代理工具定义列表（发送给 LLM）
     pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
     /// 代理工具执行器
@@ -85,6 +92,8 @@ pub struct AgentBuilder {
     pub(crate) profile: PromptProfile,
     pub(crate) project_overview: Option<String>,
     pub(crate) memory_summary: Option<String>,
+    /// Initial messages to restore (from session)
+    pub(crate) initial_messages: Vec<Message>,
     /// 代理工具定义列表
     pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
     /// 代理工具执行器

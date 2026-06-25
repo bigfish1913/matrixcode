@@ -190,14 +190,14 @@ pub async fn run_agent_task(mut ctx: AgentContext) {
             matrixcode_tui::image_search::get_default_proxy_tools()
         )
         .mcp_registry(mcp_manager.registry())
+        .initial_messages(ctx.restored_messages.clone())
         .build();
 
     agent.set_approve_mode_shared(ctx.shared_approve_mode.clone());
 
-    // Restore messages
+    // Messages are already restored via initial_messages
     if !ctx.restored_messages.is_empty() {
-        log::info!("Agent task: restoring {} messages", ctx.restored_messages.len());
-        agent.set_messages(ctx.restored_messages);
+        log::info!("Agent task: restored {} messages via builder", ctx.restored_messages.len());
     }
 
     log::info!("Agent task: messages restored, entering receive loop");

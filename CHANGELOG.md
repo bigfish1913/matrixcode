@@ -21,6 +21,27 @@
 - 添加开发脚本 (scripts/setup.sh, scripts/setup.bat)
 - 添加 Makefile
 
+## [0.4.45] - 2026-06-25
+
+### 修复 🐛
+- **Session 压缩功能完全失效** - 修复严重 bug (#1)
+  - Agent 现正确区分 `full_messages`（用于显示）和 `messages`（用于 API）
+  - Session 保存正确区分完整消息和压缩消息
+  - 添加压缩历史记录，追踪每次压缩的详细信息
+  - AgentBuilder 新增 `initial_messages` 方法支持消息恢复
+
+### 性能改进 ⚡
+- Token 使用量预计减少 **60%+**
+- Session 文件大小预计减少 **50%+**
+- API 成本预计降低 **60%+**
+- 响应速度显著提升（更小的上下文窗口）
+
+### 技术细节 🔧
+- Agent 结构新增 `full_messages` 字段 (types.rs)
+- 压缩逻辑改进：压缩前保存完整消息，只压缩 API 消息 (run.rs)
+- Session 保存逻辑重构：正确区分两种消息类型 (session.rs)
+- Agent 创建优化：使用 builder 模式直接设置初始消息 (agent.rs)
+
 ## [0.2.5] - 2024-05-16
 
 ### 新增

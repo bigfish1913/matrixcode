@@ -242,15 +242,41 @@ pub async fn save_after_turn(
 ) {
     if let Some(mgr) = session_mgr {
         let (input_tokens, output_tokens) = agent.get_token_counts();
-        let messages = agent.get_messages();
-        mgr.set_messages(messages.to_vec());
-        mgr.set_compressed_messages(messages.to_vec());
+        let (compression_count, tokens_saved) = agent.get_compression_stats();
+
+        // Get both full and compressed messages
+        let full_messages = agent.get_full_messages().to_vec();
+        let compressed_messages = agent.get_messages().to_vec();
+
+        // Set messages correctly: full for display, compressed for API
+        mgr.set_messages(full_messages);
+        mgr.set_compressed_messages(compressed_messages);
+
+        // Update stats
         mgr.update_stats(input_tokens as u32, output_tokens);
+
+        // Record compression history if compression occurred
+        if compression_count > 0 && tokens_saved > 0 {
+            use matrixcode_core::compress::CompressionHistoryEntry;
+            use chrono::Utc;
+            use matrixcode_core::compress::CompressionStrategy;
+
+            let entry = CompressionHistoryEntry {
+                timestamp: Utc::now(),
+                strategy: CompressionStrategy::SlidingWindow,
+                original_count: full_messages.len(),
+                new_count: compressed_messages.len(),
+                tokens_saved: tokens_saved as u32,
+                has_summary: false,
+            };
+            mgr.record_compression(entry);
+        }
+
         if let Err(e) = mgr.save_current() {
             let _ = event_tx.send(matrixcode_core::AgentEvent::error(
                 format!("Session save failed: {}", e), None, None
             )).await;
         }
-        matrixcode_core::debug::debug_log().session_save(messages.len(), output_tokens);
+        matrixcode_core::debug::debug_log().session_save(compressed_messages.len(), output_tokens);
     }
 }

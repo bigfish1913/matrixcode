@@ -25,11 +25,15 @@ impl Agent {
             tx
         });
 
+        // Initialize messages: use initial_messages if provided, otherwise empty
+        let initial_messages = builder.initial_messages.clone();
+
         Self {
             provider: builder.provider,
             model_name: builder.model_name,
             tools: builder.tools,
-            messages: Vec::new(),
+            messages: initial_messages.clone(),
+            full_messages: initial_messages,
             system_prompt: builder.system_prompt,
             max_tokens: builder.max_tokens,
             think: builder.think,
@@ -45,6 +49,8 @@ impl Agent {
             cancel_token: None,
             compression_config: crate::compress::CompressionConfig::default(),
             ask_rx: None,
+            compression_count: std::sync::atomic::AtomicU32::new(0),
+            compression_tokens_saved: std::sync::atomic::AtomicU64::new(0),
             proxy_tool_defs: builder.proxy_tool_defs,
             proxy_executor: builder.proxy_executor,
         }
@@ -146,6 +152,11 @@ impl Agent {
             if should_compress(estimated_tokens, context_size, &self.compression_config) {
                 self.emit(AgentEvent::progress("⚠️ 上下文过大，正在预压缩...", None))?;
 
+                // Save full messages before compression (for display and session storage)
+                if self.full_messages.is_empty() {
+                    self.full_messages = self.messages.clone();
+                }
+
                 match compress_messages(
                     &self.messages,
                     CompressionStrategy::SlidingWindow,
@@ -153,7 +164,13 @@ impl Agent {
                 ) {
                     Ok(compressed) => {
                         let compressed_tokens = estimate_total_tokens(&compressed);
+                        let tokens_saved = estimated_tokens.saturating_sub(compressed_tokens);
                         self.messages = compressed;
+
+                        // Update compression statistics
+                        self.compression_count.fetch_add(1, Ordering::Relaxed);
+                        self.compression_tokens_saved.fetch_add(tokens_saved as u64, Ordering::Relaxed);
+
                         crate::debug::debug_log().compression(
                             estimated_tokens,
                             compressed_tokens,
@@ -267,6 +284,11 @@ impl Agent {
 
                 let original_tokens = current_tokens;
 
+                // Save full messages before compression (for display and session storage)
+                if self.full_messages.is_empty() {
+                    self.full_messages = self.messages.clone();
+                }
+
                 match compress_messages(
                     &self.messages,
                     CompressionStrategy::SlidingWindow,
@@ -274,11 +296,16 @@ impl Agent {
                 ) {
                     Ok(compressed) => {
                         let compressed_tokens = estimate_total_tokens(&compressed);
+                        let tokens_saved = original_tokens.saturating_sub(compressed_tokens);
                         self.messages = compressed;
                         self.total_input_tokens
                             .store(compressed_tokens as u64, Ordering::Relaxed);
                         self.last_input_tokens
                             .store(compressed_tokens as u64, Ordering::Relaxed);
+
+                        // Update compression statistics
+                        self.compression_count.fetch_add(1, Ordering::Relaxed);
+                        self.compression_tokens_saved.fetch_add(tokens_saved as u64, Ordering::Relaxed);
 
                         let ratio = compressed_tokens as f32 / original_tokens as f32;
                         crate::debug::debug_log().compression(
@@ -331,12 +358,18 @@ impl Agent {
 
     /// Restore message history (for session continue/resume)
     pub fn set_messages(&mut self, messages: Vec<Message>) {
-        self.messages = messages;
+        self.messages = messages.clone();
+        self.full_messages = messages;
     }
 
-    /// Get current messages (for session saving)
+    /// Get compressed messages (for API calls)
     pub fn get_messages(&self) -> &[Message] {
         &self.messages
+    }
+
+    /// Get full messages (for display and session storage)
+    pub fn get_full_messages(&self) -> &[Message] {
+        &self.full_messages
     }
 
     /// Get current token counts
@@ -344,6 +377,14 @@ impl Agent {
         (
             self.total_input_tokens.load(Ordering::Relaxed),
             self.total_output_tokens.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Get compression statistics (count, tokens saved)
+    pub fn get_compression_stats(&self) -> (u32, u64) {
+        (
+            self.compression_count.load(Ordering::Relaxed),
+            self.compression_tokens_saved.load(Ordering::Relaxed),
         )
     }
 
