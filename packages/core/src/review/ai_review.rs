@@ -126,7 +126,7 @@ fn build_review_prompt(input: &PreWriteReviewInput) -> String {
     prompt_parts.push(r#"{
   "overall_score": 85,
   "issues": [
-    {"level": "Warning", "category": "Quality", "message": "Generic function name", "location": "line 10", "fix_example": null}
+    {"level": "warning", "category": "Quality", "message": "Generic function name", "location": "line 10", "fix_example": null}
   ],
   "impact_analysis": {
     "affected_modules": [],
@@ -135,13 +135,17 @@ fn build_review_prompt(input: &PreWriteReviewInput) -> String {
   },
   "suggestions": ["Add unit tests"]
 }"#.to_string());
-    
+
     prompt_parts.push("\n\n📊 Score Guidelines:".to_string());
     prompt_parts.push("  - 90-100: Excellent, ready to write".to_string());
     prompt_parts.push("  - 70-89: Good with minor issues".to_string());
     prompt_parts.push("  - 60-69: Acceptable with warnings".to_string());
     prompt_parts.push("  - Below 60: Needs improvement".to_string());
     prompt_parts.push("\n⚠️ Critical issues (security, breaking changes) block write operation.".to_string());
+    prompt_parts.push("\n📋 Issue Level Guidelines (use lowercase):".to_string());
+    prompt_parts.push("  - \"critical\": Security issues, breaking changes, data loss risks".to_string());
+    prompt_parts.push("  - \"warning\": Code quality issues, potential bugs, performance concerns".to_string());
+    prompt_parts.push("  - \"suggestion\": Style improvements, documentation, best practices".to_string());
     
     prompt_parts.join("\n")
 }

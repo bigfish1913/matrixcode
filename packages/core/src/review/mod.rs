@@ -142,9 +142,11 @@ pub struct ReviewIssue {
 
 /// Issue severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum IssueLevel {
     Critical,
     Warning,
+    #[serde(alias = "info")]
     Suggestion,
 }
 
