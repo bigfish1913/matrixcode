@@ -264,7 +264,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
         .approve_mode
         .as_ref()
         .map(|m| ApproveMode::parse(m))
-        .unwrap_or(ApproveMode::Ask);
+        .unwrap_or(ApproveMode::Auto);
 
     let agent_provider = resolve_provider(&config, &agent_model);
 

@@ -333,7 +333,7 @@ fn extract_memory_content(text: &str, keyword: &str) -> String {
     let sentence = text[start..end].trim();
 
     if sentence.len() > MAX_MEMORY_CONTENT_LENGTH {
-        sentence[..MAX_MEMORY_CONTENT_LENGTH].to_string()
+        truncate_chars(sentence, MAX_MEMORY_CONTENT_LENGTH)
     } else {
         sentence.to_string()
     }

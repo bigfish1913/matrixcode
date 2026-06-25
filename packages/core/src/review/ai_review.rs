@@ -5,6 +5,19 @@ use tokio::time::{timeout, Duration};
 use crate::providers::{Provider, ChatRequest, ChatResponse, Message, MessageContent, Role, ContentBlock};
 use super::{ImpactAnalysis, PreWriteReviewInput, PreWriteReviewResult, ReviewContext};
 
+/// Safely truncate string at char boundary
+fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    // Find the last char boundary before max_bytes
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 const REVIEW_TIMEOUT_SECS: u64 = 30;
 
 pub async fn perform_review(
@@ -214,9 +227,9 @@ fn add_memory_context(parts: &mut Vec<String>, context: &ReviewContext) {
     if let Some(memory) = &context.memory_context {
         if !memory.is_empty() {
             parts.push("\n🧠 Project Memory:".to_string());
-            // Limit memory context to prevent overwhelming
+            // Limit memory context to prevent overwhelming (use safe truncate)
             let memory_preview = if memory.len() > 1000 {
-                format!("{}...\n(truncated)", &memory[..1000])
+                format!("{}...\n(truncated)", safe_truncate(memory, 1000))
             } else {
                 memory.clone()
             };
