@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use crate::approval::ApproveMode;
 use crate::cancel::CancellationToken;
 use crate::compress::{
-    CompressionStrategy, compress_messages, estimate_total_tokens, should_compress,
+    CompressionStrategy, compress_messages_with_truncation, estimate_total_tokens, should_compress,
 };
 use crate::event::{AgentEvent, EventData, EventType};
 use crate::prompt;
@@ -157,7 +157,7 @@ impl Agent {
                     self.full_messages = self.messages.clone();
                 }
 
-                match compress_messages(
+                match compress_messages_with_truncation(
                     &self.messages,
                     CompressionStrategy::SlidingWindow,
                     &self.compression_config,
@@ -289,7 +289,7 @@ impl Agent {
                     self.full_messages = self.messages.clone();
                 }
 
-                match compress_messages(
+                match compress_messages_with_truncation(
                     &self.messages,
                     CompressionStrategy::SlidingWindow,
                     &self.compression_config,

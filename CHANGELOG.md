@@ -21,6 +21,21 @@
 - 添加开发脚本 (scripts/setup.sh, scripts/setup.bat)
 - 添加 Makefile
 
+## [0.4.50] - 2026-06-25
+
+### 修复 🐛
+- **解决"问题发散" - 工具结果截断** 
+  - 新增工具结果截断逻辑，限制每个 tool result 为 2000 tokens
+  - 防止文件读取等大工具结果导致 token 爆炸
+  - 添加 `compress_messages_with_truncation` 函数，在压缩时截断工具结果
+  - 新增配置项 `max_tool_result_tokens` 和 `replace_old_tool_results`
+
+### 技术细节 🔧
+- 在 `compressor.rs` 添加 `truncate_tool_results()` 函数
+- 在 `compressor.rs` 添加 `replace_old_tool_results()` 函数
+- 在 `config.rs` 添加工具结果截断常量
+- 修改 Agent 压缩调用，使用新的带截断功能的压缩函数
+
 ## [0.4.49] - 2026-06-25
 
 ### 修复 🐛

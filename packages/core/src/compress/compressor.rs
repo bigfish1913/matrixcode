@@ -8,7 +8,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashSet;
 
-use super::config::{CompressionBias, CompressionConfig};
+use super::config::{CompressionBias, CompressionConfig, TOOL_RESULT_TRUNCATED_SUFFIX, TOOL_RESULT_REPLACEMENT_MSG};
 use super::types::{CompressionStrategy, SummarizedSegment};
 
 // ============================================================================
@@ -597,6 +597,86 @@ pub fn score_messages_only(
 ) -> Vec<super::types::ScoredMessage> {
     let pipeline = CompressionPipeline::new_rule_only(config.clone());
     pipeline.score_only(messages)
+}
+
+// ============================================================================
+// Tool Result Truncation (NEW - Fix token bloat from tool results)
+// ============================================================================
+
+/// Truncate tool result content to prevent token bloat.
+/// This is the key fix for "问题发散" - tool results like file reads
+/// can be very large, causing token explosion.
+pub fn truncate_tool_results(messages: &mut [Message], max_tokens: u32) {
+    let max_chars = (max_tokens as f64 * 4.0) as usize; // Approximate: 1 token ≈ 4 chars
+
+    for message in messages.iter_mut() {
+        if let MessageContent::Blocks(blocks) = &mut message.content {
+            for block in blocks.iter_mut() {
+                if let ContentBlock::ToolResult { content, .. } = block {
+                    if content.len() > max_chars {
+                        // Truncate content and add suffix
+                        let truncate_len = max_chars.saturating_sub(TOOL_RESULT_TRUNCATED_SUFFIX.len());
+                        let truncated = format!(
+                            "{}{}",
+                            &content[..truncate_len],
+                            TOOL_RESULT_TRUNCATED_SUFFIX
+                        );
+                        *content = truncated;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Replace old tool results with a summary message.
+/// This is used in aggressive compression mode.
+pub fn replace_old_tool_results(messages: &mut [Message], keep_recent: usize) {
+    let total = messages.len();
+    for (idx, message) in messages.iter_mut().enumerate() {
+        // Skip recent messages
+        if idx + keep_recent >= total {
+            continue;
+        }
+
+        // Replace old tool results
+        if let MessageContent::Blocks(blocks) = &mut message.content {
+            for block in blocks.iter_mut() {
+                if let ContentBlock::ToolResult { content, .. } = block {
+                    if content.len() > 100 {
+                        *content = TOOL_RESULT_REPLACEMENT_MSG.to_string();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Compress messages with tool result truncation.
+/// This is the main entry point that applies all compression strategies
+/// including the new tool result truncation.
+pub fn compress_messages_with_truncation(
+    messages: &[Message],
+    strategy: CompressionStrategy,
+    config: &CompressionConfig,
+) -> Result<Vec<Message>> {
+    // First apply sliding window or other message selection
+    let mut compressed = match strategy {
+        CompressionStrategy::Truncate => truncate_compress(messages, config)?,
+        CompressionStrategy::SlidingWindow => sliding_window_compress(messages, config)?,
+        CompressionStrategy::Summarize => sliding_window_compress(messages, config)?,
+        CompressionStrategy::BiasBased => compress_with_bias(messages, config)?,
+    };
+
+    // Then apply tool result truncation to prevent token bloat
+    truncate_tool_results(&mut compressed, config.max_tool_result_tokens);
+
+    // Optionally replace old tool results with summary
+    if config.replace_old_tool_results {
+        replace_old_tool_results(&mut compressed, config.min_preserve_messages);
+    }
+
+    Ok(compressed)
 }
 
 // ============================================================================

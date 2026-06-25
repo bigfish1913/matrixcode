@@ -248,8 +248,19 @@ impl CompressionBias {
 }
 
 // ============================================================================
-// Compression Configuration
+// Tool Result Truncation Constants (NEW - Fix token bloat from tool results)
 // ============================================================================
+
+/// Maximum tokens per tool result content (to prevent file read bloat).
+/// Tool results like file reads can be very large, causing token explosion.
+/// This limits each tool result to ~2K tokens (about 8K characters).
+pub const MAX_TOOL_RESULT_TOKENS: u32 = 2000;
+
+/// Suffix to indicate content was truncated.
+pub const TOOL_RESULT_TRUNCATED_SUFFIX: &str = "\n\n[Content truncated - use grep/read to view specific parts]";
+
+/// Message to replace old tool results in aggressive mode.
+pub const TOOL_RESULT_REPLACEMENT_MSG: &str = "[Previous tool result summarized - refer to conversation history]";
 
 /// Configuration for context compression.
 #[derive(Debug, Clone)]
@@ -266,6 +277,10 @@ pub struct CompressionConfig {
     pub compressor_model: Option<String>,
     /// Compression bias.
     pub bias: CompressionBias,
+    /// Maximum tokens per tool result (to prevent file read bloat).
+    pub max_tool_result_tokens: u32,
+    /// Whether to replace old tool results with summary.
+    pub replace_old_tool_results: bool,
 }
 
 impl Default for CompressionConfig {
@@ -277,6 +292,8 @@ impl Default for CompressionConfig {
             use_summarization: true,
             compressor_model: None,
             bias: CompressionBias::balanced(),
+            max_tool_result_tokens: MAX_TOOL_RESULT_TOKENS,
+            replace_old_tool_results: true,
         }
     }
 }

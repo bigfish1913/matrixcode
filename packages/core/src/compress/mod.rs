@@ -31,3 +31,7 @@ pub use scorer::*;
 pub use summarizer::*;
 pub use tool_compressor::*;
 pub use pipeline::*;
+
+// Re-export tool result truncation constants and functions
+pub use config::{MAX_TOOL_RESULT_TOKENS, TOOL_RESULT_TRUNCATED_SUFFIX, TOOL_RESULT_REPLACEMENT_MSG};
+pub use compressor::{truncate_tool_results, replace_old_tool_results, compress_messages_with_truncation};
