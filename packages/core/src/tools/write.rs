@@ -58,7 +58,13 @@ async fn validate_rust_syntax(content: &str) -> Result<(), String> {
                     let first_error = stderr.lines()
                         .find(|l| l.contains("error"))
                         .unwrap_or("Rust syntax error detected");
-                    return Err(format!("Code gate blocked: Rust syntax error\n{}\n\nPlease fix before writing.", first_error));
+                    return Err(format!(
+                        "❌ WRITE BLOCKED - Code quality gate failed\n\n\
+                        Error: {}\n\n\
+                        The code has syntax errors and was NOT written to the file. \
+                        Please analyze the error above, fix the code, and try writing again.",
+                        first_error
+                    ));
                 }
             }
             Ok(())
@@ -77,7 +83,11 @@ async fn validate_js_syntax(content: &str) -> Result<(), String> {
     let close_braces = content.matches('}').count();
     if open_braces != close_braces {
         return Err(format!(
-            "Code gate blocked: Unbalanced braces\nOpen: {}, Close: {}\n\nPlease fix before writing.",
+            "❌ WRITE BLOCKED - Code quality gate failed\n\n\
+            Error: Unbalanced braces (mismatched curly brackets)\n\
+            Open: {}, Close: {}\n\n\
+            The code has syntax errors and was NOT written to the file. \
+            Please check that all opening braces '{{' have matching closing braces '}}' and try again.",
             open_braces, close_braces
         ));
     }
@@ -87,7 +97,11 @@ async fn validate_js_syntax(content: &str) -> Result<(), String> {
     let close_parens = content.matches(')').count();
     if open_parens != close_parens {
         return Err(format!(
-            "Code gate blocked: Unbalanced parentheses\nOpen: {}, Close: {}\n\nPlease fix before writing.",
+            "❌ WRITE BLOCKED - Code quality gate failed\n\n\
+            Error: Unbalanced parentheses (mismatched brackets)\n\
+            Open: {}, Close: {}\n\n\
+            The code has syntax errors and was NOT written to the file. \
+            Please check that all opening parentheses '(' have matching closing parentheses ')' and try again.",
             open_parens, close_parens
         ));
     }
@@ -125,7 +139,10 @@ async fn validate_python_syntax(content: &str) -> Result<(), String> {
             if !o.status.success() {
                 let stderr = String::from_utf8_lossy(&o.stderr);
                 return Err(format!(
-                    "Code gate blocked: Python syntax error\n{}\n\nPlease fix before writing.",
+                    "❌ WRITE BLOCKED - Code quality gate failed\n\n\
+                    Error: Python syntax error\n{}\n\n\
+                    The code has syntax errors and was NOT written to the file. \
+                    Please analyze the error above, fix the Python code, and try writing again.",
                     stderr.lines().next().unwrap_or("Syntax error detected")
                 ));
             }
