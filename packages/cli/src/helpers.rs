@@ -173,6 +173,7 @@ pub fn build_quick_action_prompt(action: &str, file: Option<&String>) -> String 
 /// 1. CLI --mcp params (highest)
 /// 2. Project .matrix/mcp.toml or mcp.json
 /// 3. Global ~/.matrix/mcp.toml or mcp.json
+#[allow(dead_code)]
 pub fn prepare_mcp_tools(
     cli_mcp_specs: &[String],
     no_mcp: bool,
@@ -259,6 +260,7 @@ pub fn prepare_mcp_tools(
 }
 
 /// Parse MCP server spec from CLI --mcp parameter
+#[allow(dead_code)]
 fn parse_mcp_spec(spec: &str) -> Option<(String, McpServerConfig)> {
     let spec = spec.trim();
     if spec.is_empty() {

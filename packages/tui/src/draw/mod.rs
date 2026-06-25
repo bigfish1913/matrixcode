@@ -201,14 +201,15 @@ impl TuiApp {
 
     /// Calculate required input area height based on current state
     pub(crate) fn calculate_input_height(&self) -> u16 {
-        let base_height: u16 = 2; // Default for single line input
+        // Base height: 1 (top border) + 1 (content) + 1 (bottom border) = 3 minimum
+        let base_height: u16 = 3;
 
-        // Ask mode with options needs 2 lines (prompt + options)
+        // Ask mode with options needs 2 lines (prompt + options) + 2 borders = 4
         if self.activity == crate::types::Activity::Asking && self.waiting_for_ask && !self.ask_options.is_empty() {
-            return 2;
+            return 4;
         }
 
-        // Multiline input: calculate based on line count
+        // Multiline input: calculate based on line count + 2 for borders
         if self.input.contains('\n') {
             let line_count = self.input.lines().count() as u16;
             // Add 1 for char count line if needed
@@ -217,8 +218,8 @@ impl TuiApp {
             } else {
                 0
             };
-            // Cap at reasonable max (leave room for messages)
-            return (line_count + extra).min(6).max(base_height);
+            // Cap at reasonable max (leave room for messages), include 2 for borders
+            return (line_count + extra + 2).min(8).max(base_height);
         }
 
         base_height

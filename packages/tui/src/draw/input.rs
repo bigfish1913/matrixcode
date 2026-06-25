@@ -40,6 +40,29 @@ impl TuiApp {
     }
 
     pub(crate) fn draw_input(&self, f: &mut ratatui::Frame, area: Rect) {
+        // Draw top and bottom border lines
+        let frame_style = Style::default().fg(Color::DarkGray);
+        let border = "─".repeat(area.width as usize);
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(border.clone(), frame_style))),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(border, frame_style))),
+            Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1),
+        );
+
+        // Adjust area for content (excluding borders)
+        let area = Rect::new(
+            area.x,
+            area.y.saturating_add(1),
+            area.width,
+            area.height.saturating_sub(2),
+        );
+        if area.height == 0 {
+            return;
+        }
+
         let (prompt, prompt_color) = match self.activity {
             Activity::Idle => ("❯ ", Color::Yellow),
             Activity::Asking => ("⚡ ", Color::Red),

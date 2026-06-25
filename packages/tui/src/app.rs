@@ -144,9 +144,13 @@ pub enum LspServerStatus {
 #[derive(Clone)]
 pub struct CodeGraphStatusInfo {
     pub initialized: bool,
+    #[allow(dead_code)]
     pub node_count: u64,
+    #[allow(dead_code)]
     pub edge_count: u64,
+    #[allow(dead_code)]
     pub file_count: u64,
+    #[allow(dead_code)]
     pub pending_changes: Option<serde_json::Value>,
 }
 

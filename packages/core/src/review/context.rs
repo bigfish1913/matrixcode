@@ -38,7 +38,7 @@ struct CodegraphContext {
 
 /// Collect CodeGraph context for a file.
 fn collect_codegraph_context(file_path: &Path, project_path: &Path) -> Result<CodegraphContext> {
-    use crate::tools::codegraph::{CodeGraphManager, Node};
+    use crate::tools::codegraph::CodeGraphManager;
     
     let manager = CodeGraphManager::new(project_path);
     
