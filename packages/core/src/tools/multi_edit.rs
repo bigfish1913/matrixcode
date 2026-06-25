@@ -56,7 +56,11 @@ impl Tool for MultiEditTool {
         // Show spinner while editing - RAII guard ensures cleanup on error
         // let mut spinner = ToolSpinner::new(&format!("multi-editing {} ({} edits)", path, edits.len()));
 
-        let mut content = tokio::fs::read_to_string(path).await?;
+        let content = tokio::fs::read_to_string(path).await?;
+
+        // Normalize line endings for matching (handle Windows \r\n)
+        let is_crlf = content.contains("\r\n");
+        let mut normalized_content = content.replace("\r\n", "\n");
 
         for (idx, edit) in edits.iter().enumerate() {
             let old_string = edit["old_string"]
@@ -71,7 +75,10 @@ impl Tool for MultiEditTool {
                 anyhow::bail!("edit {}: 'old_string' must not be empty", idx);
             }
 
-            let count = content.matches(old_string).count();
+            let normalized_old = old_string.replace("\r\n", "\n");
+            let normalized_new = new_string.replace("\r\n", "\n");
+
+            let count = normalized_content.matches(&normalized_old).count();
             if count == 0 {
                 // spinner.finish_error(&format!("edit {} not found", idx));
                 anyhow::bail!("edit {}: old_string not found", idx);
@@ -85,10 +92,17 @@ impl Tool for MultiEditTool {
                 );
             }
 
-            content = content.replacen(old_string, new_string, 1);
+            normalized_content = normalized_content.replacen(&normalized_old, &normalized_new, 1);
         }
 
-        tokio::fs::write(path, &content).await?;
+        // Restore original line endings if file was CRLF
+        let final_content = if is_crlf {
+            normalized_content.replace("\n", "\r\n").replace("\r\r\n", "\r\n")
+        } else {
+            normalized_content
+        };
+
+        tokio::fs::write(path, &final_content).await?;
 
         // Return diff-style output
         let mut diff = format!("Applied {} edit(s) to {}\n", edits.len(), path);

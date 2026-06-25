@@ -66,7 +66,11 @@ impl Tool for EditTool {
 
         let content = tokio::fs::read_to_string(path).await?;
 
-        let count = content.matches(old_string).count();
+        // Normalize line endings for matching (handle Windows \r\n)
+        let normalized_content = content.replace("\r\n", "\n");
+        let normalized_old = old_string.replace("\r\n", "\n");
+
+        let count = normalized_content.matches(&normalized_old).count();
         if count == 0 {
             anyhow::bail!("old_string not found in {}", path);
         }
@@ -78,7 +82,17 @@ impl Tool for EditTool {
             );
         }
 
-        let new_content = content.replacen(old_string, new_string, 1);
+        // Perform replacement on normalized content
+        let normalized_new = new_string.replace("\r\n", "\n");
+        let mut new_content = normalized_content.replacen(&normalized_old, &normalized_new, 1);
+
+        // Restore original line endings if file was CRLF
+        if content.contains("\r\n") {
+            new_content = new_content.replace("\n", "\r\n");
+            // Fix: don't double-convert the \r\r\n that would occur
+            new_content = new_content.replace("\r\r\n", "\r\n");
+        }
+
         tokio::fs::write(path, &new_content).await?;
 
         // Return diff-style output

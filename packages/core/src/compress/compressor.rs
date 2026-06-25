@@ -614,11 +614,17 @@ pub fn truncate_tool_results(messages: &mut [Message], max_tokens: u32) {
             for block in blocks.iter_mut() {
                 if let ContentBlock::ToolResult { content, .. } = block {
                     if content.len() > max_chars {
-                        // Truncate content and add suffix
-                        let truncate_len = max_chars.saturating_sub(TOOL_RESULT_TRUNCATED_SUFFIX.len());
+                        // Find safe truncation point at char boundary
+                        let target_len = max_chars.saturating_sub(TOOL_RESULT_TRUNCATED_SUFFIX.len());
+                        let truncate_len = content.char_indices()
+                            .take_while(|(i, _)| *i <= target_len)
+                            .last()
+                            .map(|(i, ch)| i + ch.len_utf8())
+                            .unwrap_or(target_len);
+
                         let truncated = format!(
                             "{}{}",
-                            &content[..truncate_len],
+                            &content[..truncate_len.min(content.len())],
                             TOOL_RESULT_TRUNCATED_SUFFIX
                         );
                         *content = truncated;
