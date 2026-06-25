@@ -141,9 +141,9 @@ impl TuiApp {
         }
 
         let line = if self.activity == Activity::Thinking {
-            // Show real-time token count during thinking
-            let token_display = if self.current_request_tokens > 0 {
-                format!(" {}tok", fmt_tokens(self.current_request_tokens))
+            // Show real-time token count during thinking (animated like elapsed time)
+            let token_display = if self.animated_token_count > 0 {
+                format!(" {}tok", fmt_tokens(self.animated_token_count))
             } else {
                 String::new()
             };

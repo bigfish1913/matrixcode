@@ -62,8 +62,8 @@ impl TuiApp {
             } else {
                 self.activity.label().to_string()
             }
-        } else if self.current_request_tokens > 0 {
-            format!("{} tok", fmt_tokens(self.current_request_tokens))
+        } else if self.animated_token_count > 0 {
+            format!("{} tok", fmt_tokens(self.animated_token_count))
         } else {
             "...".to_string()
         };
@@ -216,6 +216,18 @@ impl TuiApp {
             spans.push(Span::styled(
                 format!(" {}LSP ", lsp_symbol),
                 Style::default().fg(lsp_color),
+            ));
+
+            // CodeGraph status
+            let cg_initialized = self.codegraph_status.as_ref().map(|s| s.initialized).unwrap_or(false);
+            let cg_color = if cg_initialized {
+                Color::Green
+            } else {
+                Color::DarkGray
+            };
+            spans.push(Span::styled(
+                format!(" {}CG ", if cg_initialized { "●" } else { "○" }),
+                Style::default().fg(cg_color),
             ));
         }
 

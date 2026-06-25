@@ -485,6 +485,19 @@ impl TuiApp {
                     self.dirty.set(true);
                 }
             }
+            EventType::CodeGraphStatus => {
+                if let Some(EventData::CodeGraphStatus { initialized, node_count, edge_count, file_count, pending_changes }) = e.data {
+                    log::info!("TUI received CodeGraphStatus event: initialized={}, files={}", initialized, file_count);
+                    self.codegraph_status = Some(crate::app::CodeGraphStatusInfo {
+                        initialized,
+                        node_count,
+                        edge_count,
+                        file_count,
+                        pending_changes,
+                    });
+                    self.dirty.set(true);
+                }
+            }
             _ => {}
         }
     }

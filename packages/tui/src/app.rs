@@ -30,6 +30,7 @@ pub struct TuiApp {
     pub(crate) tokens_out: u64,
     pub(crate) session_total_out: u64,
     pub(crate) current_request_tokens: u64, // Tokens for current request (real-time)
+    pub(crate) animated_token_count: u64, // Animated token count for display (like elapsed time)
     pub(crate) cache_read: u64,
     pub(crate) cache_created: u64,
     pub(crate) context_size: u64,
@@ -106,6 +107,8 @@ pub struct TuiApp {
     pub(crate) mcp_servers: Vec<McpServerInfo>,
     // LSP server status (for /lsp command)
     pub(crate) lsp_servers: Vec<LspServerInfo>,
+    // CodeGraph status (for status bar display)
+    pub(crate) codegraph_status: Option<CodeGraphStatusInfo>,
     // Session selector state (for /session command)
     pub(crate) waiting_for_session: bool,
     pub(crate) session_selected_index: usize,
@@ -135,6 +138,16 @@ pub enum LspServerStatus {
     Starting,
     Connected,
     Error(String),
+}
+
+/// CodeGraph status info for status display
+#[derive(Clone)]
+pub struct CodeGraphStatusInfo {
+    pub initialized: bool,
+    pub node_count: u64,
+    pub edge_count: u64,
+    pub file_count: u64,
+    pub pending_changes: Option<serde_json::Value>,
 }
 
 /// Session info for interactive selector
@@ -195,6 +208,7 @@ impl TuiApp {
             tokens_out: 0,
             session_total_out: 0,
             current_request_tokens: 0,
+            animated_token_count: 0,
             cache_read: 0,
             cache_created: 0,
             context_size: 200_000,
@@ -246,6 +260,7 @@ impl TuiApp {
             last_workflow_refresh: Instant::now(),
             mcp_servers: Vec::new(),
             lsp_servers: Vec::new(),
+            codegraph_status: None,
             waiting_for_session: false,
             session_selected_index: 0,
             session_list: Vec::new(),
@@ -480,6 +495,13 @@ impl TuiApp {
                 self.dirty.set(true);
                 // Advance workflow spinner frame
                 self.workflow_state.advance_spinner();
+
+                // Animate token count like elapsed time (increment every 80ms during thinking)
+                if self.activity == Activity::Thinking {
+                    self.animated_token_count += 1;
+                } else {
+                    self.animated_token_count = 0;
+                }
             }
 
             // Workflow state refresh - every 500ms when panel is visible

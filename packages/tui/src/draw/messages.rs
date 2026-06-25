@@ -855,8 +855,8 @@ impl TuiApp {
             }
             // Show realtime token count during streaming (debug mode)
             if self.debug_mode {
-                let token_display = if self.current_request_tokens > 0 {
-                    format!("({}tok)", fmt_tokens(self.current_request_tokens))
+                let token_display = if self.animated_token_count > 0 {
+                    format!("({}tok)", fmt_tokens(self.animated_token_count))
                 } else {
                     "(0tok)".to_string()
                 };
