@@ -125,6 +125,7 @@ impl TuiApp {
             widgets::Paragraph,
         };
         use crate::SPINNER;
+        use crate::utils::fmt_tokens;
 
         let elapsed = self
             .request_start
@@ -140,6 +141,12 @@ impl TuiApp {
         }
 
         let line = if self.activity == Activity::Thinking {
+            // Show real-time token count during thinking
+            let token_display = if self.current_request_tokens > 0 {
+                format!(" {}tok", fmt_tokens(self.current_request_tokens))
+            } else {
+                String::new()
+            };
             Line::from(vec![
                 Span::styled(
                     format!("{} ", SPINNER[spinner_frame]),
@@ -147,9 +154,10 @@ impl TuiApp {
                 ),
                 Span::styled("💭 ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    format!("Thinking{}", elapsed),
-                    Style::default().fg(Color::DarkGray),
+                    format!("Thinking{}", token_display),
+                    Style::default().fg(Color::Cyan),
                 ),
+                Span::styled(elapsed, Style::default().fg(Color::DarkGray)),
             ])
         } else if self.is_tool_activity() {
             let tool_icon = match self.activity {

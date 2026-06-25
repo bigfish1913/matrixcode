@@ -957,26 +957,36 @@ impl TuiApp {
             }
         }
 
-        // Scroll
-        let total_lines = lines.len() as u16;
-        let visible_height = area.height;
-        let max_scroll = if total_lines > visible_height {
-            total_lines.saturating_sub(visible_height)
+        // Scroll calculation - must account for indicator height when visible
+        let total_lines = lines.len();
+        let has_indicator = !self.auto_scroll && total_lines > 0;
+        let visible_height = if has_indicator {
+            area.height.saturating_sub(1) as usize  // Account for indicator line
+        } else {
+            area.height as usize
+        };
+
+        // Prevent overflow: limit total_lines to reasonable maximum
+        const MAX_DISPLAY_LINES: usize = 100_000;  // More than u16::MAX to avoid overflow
+        let display_lines = total_lines.min(MAX_DISPLAY_LINES);
+
+        let max_scroll = if display_lines > visible_height {
+            display_lines.saturating_sub(visible_height)
         } else {
             0
         };
-        self.max_scroll.set(max_scroll);
+        self.max_scroll.set(max_scroll as u16);  // Safe conversion since max_scroll <= display_lines <= 100_000
 
         // Respect user's auto_scroll setting - no force auto scroll
         // User can scroll to bottom to re-enable auto_scroll
         let scroll_offset = if self.auto_scroll {
             max_scroll
         } else {
-            self.scroll_offset.min(max_scroll)
+            self.scroll_offset.min(max_scroll as u16) as usize
         };
 
         // Render with scroll indicator
-        if !self.auto_scroll && max_scroll > 0 {
+        if has_indicator && max_scroll > 0 {
             let pct = (scroll_offset as f64 / max_scroll as f64 * 100.0) as u16;
             // Show notification if new message arrived while scrolled
             let notification = if self.new_message_while_scrolled.get() {
@@ -1001,11 +1011,11 @@ impl TuiApp {
                 area.width,
                 area.height.saturating_sub(1),
             );
-            f.render_widget(Paragraph::new(lines).scroll((scroll_offset, 0)), msg_area);
+            f.render_widget(Paragraph::new(lines).scroll((scroll_offset as u16, 0)), msg_area);
         } else {
             // Clear notification when auto_scroll is restored
             self.new_message_while_scrolled.set(false);
-            f.render_widget(Paragraph::new(lines).scroll((scroll_offset, 0)), area);
+            f.render_widget(Paragraph::new(lines).scroll((scroll_offset as u16, 0)), area);
         }
     }
 }

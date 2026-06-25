@@ -1,6 +1,7 @@
 use serde_json::Value;
 
-/// Truncate string at char boundary
+/// Truncate string at char boundary (for fixed-width contexts like JSON keys)
+/// WARNING: This does NOT respect visual width - use truncate_visual for display text
 pub fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         s.into()

@@ -1234,6 +1234,23 @@ async fn save_session_after_turn(
         mgr.set_messages(messages.to_vec());
         mgr.set_compressed_messages(messages.to_vec());
         mgr.update_stats(input_tokens as u32, output_tokens);
+
+        // Record compression history if any compressions occurred
+        let (compression_count, tokens_saved) = agent.get_compression_stats();
+        if compression_count > 0 {
+            use matrixcode_core::compress::{CompressionHistoryEntry, CompressionStrategy};
+            use chrono::Utc;
+            let entry = CompressionHistoryEntry {
+                timestamp: Utc::now(),
+                strategy: CompressionStrategy::SlidingWindow,
+                original_count: messages.len(),
+                new_count: messages.len(),
+                tokens_saved: tokens_saved as u32,
+                has_summary: false,
+            };
+            mgr.record_compression(entry);
+        }
+
         if let Err(e) = mgr.save_current() {
             let _ = event_tx.send(AgentEvent::error(
                 format!("Session save failed: {}", e),
