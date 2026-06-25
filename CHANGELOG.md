@@ -21,7 +21,7 @@
 - 添加开发脚本 (scripts/setup.sh, scripts/setup.bat)
 - 添加 Makefile
 
-## [0.4.46] - 2026-06-25
+## [0.4.49] - 2026-06-25
 
 ### 修复 🐛
 - **Session 压缩功能完全失效** - 修复严重 bug (#1)
