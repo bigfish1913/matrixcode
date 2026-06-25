@@ -39,6 +39,7 @@ lsp-types = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = "0.1"  # ← Add tracing dependency (required by MCP module)
 shell-words = "1.1"  # ← Add shell-words dependency (required by MCP module for command parsing)
+tempfile = { workspace = true }  # ← Required for code quality hook temp files
 
 [dev-dependencies]
 mockito = { workspace = true }

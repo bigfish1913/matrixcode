@@ -1,6 +1,7 @@
 pub mod ask;
 pub mod bash;
 pub mod codegraph;
+pub mod code_quality_hook;  // 代码质量门禁
 pub mod edit;
 pub mod glob;
 pub mod grep;
@@ -9,12 +10,14 @@ pub mod monitor;
 pub mod multi_edit;
 pub mod plan_mode;
 pub mod toolproxy;  // 代理工具模块
+pub mod tool_hooks; // 工具钩子系统
 pub mod read;
 pub mod registry;  // 工具注册中心
 pub mod search;
 pub mod skill;
 pub mod task;
 pub mod todo_write;
+pub mod verify; // 项目验证
 pub mod webfetch;
 pub mod websearch;
 pub mod workflow;
@@ -22,6 +25,10 @@ pub mod write;
 
 // Re-export proxy types for convenience
 pub use toolproxy::{ProxyToolExecutor, ProxyToolDef, ProxyMetadata, ProxyTool, ProxyToolResponse, ProxyToolRequest};
+
+// Re-export code quality hook and tool hooks
+pub use code_quality_hook::{CodeQualityHook, VerificationStrategy};
+pub use tool_hooks::{ToolHook, HookResult, HookRegistry};
 
 use std::sync::Arc;
 
