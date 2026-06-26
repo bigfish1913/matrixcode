@@ -301,6 +301,25 @@ impl Agent {
                 }
             }
 
+            // Write gate: Must read before write (prevent accidental overwrite)
+            if name == "write" || name == "edit" || name == "multi_edit" {
+                let path_str = input["path"].as_str().unwrap_or("");
+                let file_path = std::path::PathBuf::from(path_str);
+
+                // Only check if file exists (new files don't need read)
+                if file_path.exists() && !self.read_files.contains(&file_path) {
+                    return Err(anyhow::anyhow!(
+                        "❌ WRITE BLOCKED - Must read before write\n\n\
+                        File '{}' exists but has not been read in this session.\n\
+                        To prevent accidental overwrites, you must:\n\
+                        1. Use the 'read' tool to read the file first\n\
+                        2. Then use 'write' or 'edit' to modify it\n\n\
+                        This rule ensures you understand existing content before modifying it.",
+                        path_str
+                    ));
+                }
+            }
+
             // Pre-write review for file modification tools
             if matches!(name, "write" | "edit" | "multi_edit") {
                 self.emit(AgentEvent::progress(format!("Reviewing: {}", name), None))?;
@@ -370,7 +389,18 @@ impl Agent {
             }
 
             self.emit(AgentEvent::progress(format!("Executing: {}", name), None))?;
-            tool.execute(input).await
+            let result = tool.execute(input.clone()).await;
+
+            // Track read files for "must read before write" rule
+            if name == "read" && result.is_ok() {
+                if let Some(path_str) = input["file_path"].as_str() {
+                    let file_path = std::path::PathBuf::from(path_str);
+                    self.read_files.insert(file_path);
+                    log::debug!("Tracked read file: {}", path_str);
+                }
+            }
+
+            result
         } else {
             Err(anyhow::anyhow!("Tool '{}' not found", name))
         }

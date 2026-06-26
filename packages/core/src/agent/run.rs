@@ -53,6 +53,7 @@ impl Agent {
             compression_tokens_saved: std::sync::atomic::AtomicU64::new(0),
             proxy_tool_defs: builder.proxy_tool_defs,
             proxy_executor: builder.proxy_executor,
+            read_files: std::collections::HashSet::new(),
         }
     }
 

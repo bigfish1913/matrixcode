@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64};
+use std::collections::HashSet;
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::cancel::CancellationToken;
@@ -76,6 +78,8 @@ pub struct Agent {
     pub(crate) proxy_tool_defs: Vec<crate::tools::toolproxy::ProxyToolDef>,
     /// 代理工具执行器
     pub(crate) proxy_executor: Option<Arc<dyn crate::tools::toolproxy::ProxyToolExecutor>>,
+    /// 已读取的文件路径集合（用于写入前必须读取规则）
+    pub(crate) read_files: HashSet<PathBuf>,
 }
 
 /// Agent builder
