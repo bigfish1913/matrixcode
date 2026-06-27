@@ -14,6 +14,9 @@ use terminal_mode::{run_terminal_mode, interactive_resume, list_sessions};
 use types::Cli;
 
 fn main() -> Result<()> {
+    // Initialize logger
+    env_logger::init();
+
     // Load .env file with multiple paths
     let current_dir = std::env::current_dir().unwrap_or_default();
 

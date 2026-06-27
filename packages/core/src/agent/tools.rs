@@ -116,8 +116,25 @@ impl Agent {
             });
         }
 
-        for msg in tool_results {
-            self.messages.push(msg);
+        // Merge all tool results into a single User message (saves tokens, better semantics)
+        // Anthropic API prefers: User → Assistant → User(all_tool_results) → Assistant
+        if !tool_results.is_empty() {
+            let all_result_blocks: Vec<ContentBlock> = tool_results
+                .into_iter()
+                .filter_map(|m| {
+                    if let MessageContent::Blocks(blocks) = m.content {
+                        Some(blocks)
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+                .collect();
+
+            self.messages.push(Message {
+                role: Role::User,
+                content: MessageContent::Blocks(all_result_blocks),
+            });
         }
 
         Ok(has_tool_use)

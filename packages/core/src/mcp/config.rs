@@ -307,7 +307,16 @@ pub const MCP_CONFIG_FILENAMES: &[&str] = &["mcp.toml", "mcp.json", ".mcp.toml",
 
 /// 查找工作目录中的 MCP 配置文件
 pub fn find_mcp_config(start_dir: &Path) -> Option<std::path::PathBuf> {
-    // 1. 项目级配置（优先）
+    // 1. 项目级 .matrix 目录（优先）
+    let matrix_dir = start_dir.join(".matrix");
+    for filename in MCP_CONFIG_FILENAMES {
+        let path = matrix_dir.join(filename);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // 2. 项目级配置（次优先）
     for filename in MCP_CONFIG_FILENAMES {
         let path = start_dir.join(filename);
         if path.exists() {
@@ -315,7 +324,7 @@ pub fn find_mcp_config(start_dir: &Path) -> Option<std::path::PathBuf> {
         }
     }
 
-    // 2. 用户级配置目录 (~/.matrixcode/)
+    // 3. 用户级配置目录 (~/.matrixcode/)
     if let Some(home) = dirs::home_dir() {
         let matrixcode_dir = home.join(".matrixcode");
         for filename in MCP_CONFIG_FILENAMES {
@@ -325,7 +334,7 @@ pub fn find_mcp_config(start_dir: &Path) -> Option<std::path::PathBuf> {
             }
         }
 
-        // 3. 用户主目录 (~/.mcp.toml)
+        // 4. 用户主目录 (~/.mcp.toml)
         for filename in MCP_CONFIG_FILENAMES {
             let path = home.join(filename);
             if path.exists() {
@@ -369,15 +378,12 @@ pub fn load_mcp_config(start_dir: &Path) -> McpConfig {
         }
     }
 
-    // 2. 加载项目级配置（覆盖）
-    for filename in MCP_CONFIG_FILENAMES {
-        let path = start_dir.join(filename);
-        if path.exists()
-            && let Ok(project_config) = McpConfig::from_file(&path) {
-                tracing::info!("Loaded project-level MCP config from {:?}", path);
-                config = config.merge(project_config);
-                break;
-            }
+    // 2. 加载项目级配置（覆盖）- 使用 find_mcp_config 支持 .matrix/ 目录
+    if let Some(config_path) = find_mcp_config(start_dir) {
+        if let Ok(project_config) = McpConfig::from_file(&config_path) {
+            tracing::info!("Loaded project-level MCP config from {:?}", config_path);
+            config = config.merge(project_config);
+        }
     }
 
     config

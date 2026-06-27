@@ -309,6 +309,223 @@ impl Tool for CodeGraphFilesTool {
     }
 }
 
+/// Tool for exploring an area: relevant symbols' source + call paths.
+pub struct CodeGraphExploreTool {
+    manager: Arc<CodeGraphManager>,
+}
+
+impl CodeGraphExploreTool {
+    pub fn new(project_path: &Path) -> Self {
+        Self {
+            manager: Arc::new(CodeGraphManager::new(project_path)),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for CodeGraphExploreTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "code_explore".to_string(),
+            description: "探索代码区域：一次调用获取相关符号源码+调用路径。比多次 search+callers+Read 更高效。用于理解一个模块/功能/类族的完整上下文。返回带行号的源码片段，可直接使用无需再 Read。".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "探索查询（符号名、文件路径、或关键词）"
+                    },
+                    "max_files": {
+                        "type": "integer",
+                        "description": "包含源码的最大文件数（默认 5）",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }),
+            is_priority: true,
+        }
+    }
+
+    async fn execute(&self, args: Value) -> Result<String> {
+        let query = args["query"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing query parameter"))?;
+        let max_files = args.get("max_files").and_then(|v| v.as_u64()).map(|n| n as usize);
+
+        let result = self.manager.explore(query, max_files).await?;
+        Ok(result)
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Safe
+    }
+}
+
+/// Tool for getting one symbol's source + caller/callee trail.
+pub struct CodeGraphNodeTool {
+    manager: Arc<CodeGraphManager>,
+}
+
+impl CodeGraphNodeTool {
+    pub fn new(project_path: &Path) -> Self {
+        Self {
+            manager: Arc::new(CodeGraphManager::new(project_path)),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for CodeGraphNodeTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "code_node".to_string(),
+            description: "获取单个符号详情：源码+调用者/被调用者追踪链。比 search+node 更高效，一次调用返回完整上下文。返回带行号的源码，可直接使用无需再 Read。".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "符号名称（函数、类、方法等）"
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": "文件路径（用于区分同名符号）"
+                    }
+                },
+                "required": ["name"]
+            }),
+            is_priority: true,
+        }
+    }
+
+    async fn execute(&self, args: Value) -> Result<String> {
+        let name = args["name"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing name parameter"))?;
+        let file = args.get("file").and_then(|v| v.as_str());
+
+        let result = self.manager.node(name, file).await?;
+        Ok(result)
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Safe
+    }
+}
+
+/// Tool for analyzing change impact.
+pub struct CodeGraphImpactTool {
+    manager: Arc<CodeGraphManager>,
+}
+
+impl CodeGraphImpactTool {
+    pub fn new(project_path: &Path) -> Self {
+        Self {
+            manager: Arc::new(CodeGraphManager::new(project_path)),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for CodeGraphImpactTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "code_impact".to_string(),
+            description: "变更影响分析：修改某个符号会影响什么代码。返回受影响的符号列表（按文件分组），帮助评估重构风险。修改代码前必须使用此工具检查影响范围。".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "要分析的符号名称"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "遍历深度（默认 2）",
+                        "default": 2
+                    }
+                },
+                "required": ["symbol"]
+            }),
+            is_priority: true,
+        }
+    }
+
+    async fn execute(&self, args: Value) -> Result<String> {
+        let symbol = args["symbol"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing symbol parameter"))?;
+        let depth = args.get("depth").and_then(|v| v.as_u64()).map(|n| n as usize);
+
+        let result = self.manager.impact(symbol, depth).await?;
+        Ok(result)
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Safe
+    }
+}
+
+/// Tool for finding affected test files.
+pub struct CodeGraphAffectedTool {
+    manager: Arc<CodeGraphManager>,
+}
+
+impl CodeGraphAffectedTool {
+    pub fn new(project_path: &Path) -> Self {
+        Self {
+            manager: Arc::new(CodeGraphManager::new(project_path)),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for CodeGraphAffectedTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "code_affected".to_string(),
+            description: "测试文件影响分析：修改源文件后哪些测试需要运行。返回受影响的测试文件列表。修改代码后运行测试前必须使用此工具确定测试范围。".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "修改的源文件路径列表"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "依赖遍历深度（默认 5）",
+                        "default": 5
+                    }
+                },
+                "required": ["files"]
+            }),
+            is_priority: true,
+        }
+    }
+
+    async fn execute(&self, args: Value) -> Result<String> {
+        let files = args["files"]
+            .as_array()
+            .and_then(|arr| {
+                arr.iter()
+                    .map(|v| v.as_str())
+                    .collect::<Option<Vec<_>>>()
+            })
+            .ok_or_else(|| anyhow::anyhow!("Missing or invalid files parameter"))?;
+        let depth = args.get("depth").and_then(|v| v.as_u64()).map(|n| n as usize);
+
+        let result = self.manager.affected(&files, depth).await?;
+        Ok(result)
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Safe
+    }
+}
+
 /// Create CodeGraph tools for a project path.
 pub fn codegraph_tools(project_path: &Path) -> Vec<Box<dyn Tool>> {
     vec![
@@ -318,6 +535,10 @@ pub fn codegraph_tools(project_path: &Path) -> Vec<Box<dyn Tool>> {
         Box::new(CodeGraphStatusTool::new(project_path)),
         Box::new(CodeGraphSyncTool::new(project_path)),
         Box::new(CodeGraphFilesTool::new(project_path)),
+        Box::new(CodeGraphExploreTool::new(project_path)),
+        Box::new(CodeGraphNodeTool::new(project_path)),
+        Box::new(CodeGraphImpactTool::new(project_path)),
+        Box::new(CodeGraphAffectedTool::new(project_path)),
     ]
 }
 

@@ -171,19 +171,39 @@ impl Default for LspManager {
 
 /// 查找 LSP 配置文件
 ///
-/// 在当前目录或用户主目录查找 `lsp.toml`
+/// 在项目目录或用户主目录查找配置文件（支持 .json 和 .toml）
 pub fn find_lsp_config(start_dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    // 当前目录
-    let local_config = start_dir.join("lsp.toml");
-    if local_config.exists() {
-        return Some(local_config);
+    // 优先级 1: .matrix/lsp.json (项目配置)
+    let matrix_json = start_dir.join(".matrix").join("lsp.json");
+    if matrix_json.exists() {
+        return Some(matrix_json);
     }
 
-    // 用户主目录
+    // 优先级 2: .matrix/lsp.toml (项目配置)
+    let matrix_toml = start_dir.join(".matrix").join("lsp.toml");
+    if matrix_toml.exists() {
+        return Some(matrix_toml);
+    }
+
+    // 优先级 3: lsp.toml (项目目录根)
+    let local_toml = start_dir.join("lsp.toml");
+    if local_toml.exists() {
+        return Some(local_toml);
+    }
+
+    // 优先级 4: ~/.config/matrixcode/lsp.toml (全局配置)
     if let Some(home) = dirs::home_dir() {
         let home_config = home.join(".config").join("matrixcode").join("lsp.toml");
         if home_config.exists() {
             return Some(home_config);
+        }
+    }
+
+    // 优先级 5: ~/.matrix/lsp.json (全局配置)
+    if let Some(home) = dirs::home_dir() {
+        let home_matrix = home.join(".matrix").join("lsp.json");
+        if home_matrix.exists() {
+            return Some(home_matrix);
         }
     }
 

@@ -403,3 +403,15 @@ mod tests {
         assert_eq!(tool.name, "browser_navigate");
     }
 }
+
+// ============================================================================
+// Server Status (for TUI/GUI status display)
+// ============================================================================
+
+/// MCP server info for status display (matching TUI McpServerInfo)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct McpServerInfo {
+    pub name: String,
+    pub is_started: bool,
+    pub tool_count: usize,
+}

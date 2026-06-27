@@ -146,13 +146,18 @@ impl LspConfig {
         Self::default()
     }
 
-    /// 从 TOML 文件加载
+    /// 从文件加载（支持 TOML 和 JSON）
     pub fn from_file(path: &std::path::Path) -> anyhow::Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
         }
         let content = std::fs::read_to_string(path)?;
-        let config: Self = toml::from_str(&content)?;
+
+        // 根据文件扩展名决定解析方式
+        let config: Self = match path.extension().and_then(|e| e.to_str()) {
+            Some("json") => serde_json::from_str(&content)?,
+            _ => toml::from_str(&content)?,  // 默认 TOML
+        };
         Ok(config)
     }
 

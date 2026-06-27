@@ -147,6 +147,7 @@ impl Default for CommandRegistry {
 // Built-in commands
 mod backend;
 mod clear;
+mod codegraph;
 mod compact;
 mod cron;
 mod debug;
@@ -166,6 +167,7 @@ mod shortcuts;
 mod workflow;
 
 pub use clear::ClearCommand;
+pub use codegraph::CodeGraphCommand;
 pub use compact::CompactCommand;
 pub use cron::CronCommand;
 pub use debug::DebugCommand;
@@ -207,6 +209,7 @@ pub fn create_registry() -> CommandRegistry {
     registry.register(Box::new(InitCommand));
     registry.register(Box::new(SessionCommand));
     registry.register(Box::new(LspCommand));
+    registry.register(Box::new(CodeGraphCommand));
 
     // Complex commands
     registry.register(Box::new(LoopCommand));

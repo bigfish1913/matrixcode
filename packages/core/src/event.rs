@@ -46,6 +46,7 @@ pub enum EventType {
     CodeGraphStatus, // CodeGraph index status update
     LspServerStatus, // LSP server status update
     LspServerAdded,  // LSP server added event
+    McpServerStatus, // MCP server status update
 }
 
 /// Event data
@@ -146,6 +147,9 @@ pub enum EventData {
         name: String,
         language: String,
     }, // LSP server added event
+    McpServerStatus {
+        servers: Vec<crate::mcp::McpServerInfo>,
+    }, // MCP server status update
 }
 
 impl AgentEvent {
@@ -210,6 +214,13 @@ impl AgentEvent {
         Self::with_data(
             EventType::LspServerStatus,
             EventData::LspServerStatus { servers },
+        )
+    }
+
+    pub fn mcp_server_status(servers: Vec<crate::mcp::McpServerInfo>) -> Self {
+        Self::with_data(
+            EventType::McpServerStatus,
+            EventData::McpServerStatus { servers },
         )
     }
 

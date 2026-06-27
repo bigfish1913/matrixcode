@@ -12,26 +12,31 @@ const VERSION = '0.4.48';
 // Server status indicator (matching TUI mcp/lsp/codegraph status)
 interface ServerStatusProps {
   name: string;
-  status: 'connected' | 'disconnected' | 'initializing' | 'error' | 'disabled';
+  status: 'connected' | 'disconnected' | 'initializing' | 'error' | 'disabled' | 'configured';
   icon?: string;
+  count?: number;  // Show count (tool count for MCP, server count for LSP, pending count for CG)
 }
 
-function ServerStatus({ name, status, icon }: ServerStatusProps) {
+function ServerStatus({ name, status, icon, count }: ServerStatusProps) {
   const statusConfig = {
     connected: { color: 'text-green-500', icon: '●' },
     disconnected: { color: 'text-gray-400', icon: '○' },
     initializing: { color: 'text-yellow-500 animate-pulse', icon: '◐' },
     error: { color: 'text-red-500', icon: '✗' },
     disabled: { color: 'text-gray-300', icon: '◌' },
+    configured: { color: 'text-yellow-500', icon: '◐' },  // Configured but not started (yellow warning)
   };
 
   const config = statusConfig[status];
+
+  // Format display text with count (matching TUI: ●MCP(N), ●LSP(N), ●CG(N))
+  const displayText = count && count > 0 ? `${name}(${count})` : name;
 
   return (
     <span className={`flex items-center gap-1 ${config.color}`}>
       {icon && <span className="text-xs">{icon}</span>}
       <span className="text-xs">{config.icon}</span>
-      <span className="text-xs font-medium">{name}</span>
+      <span className="text-xs font-medium">{displayText}</span>
     </span>
   );
 }
@@ -281,45 +286,98 @@ export function StatusBar({ onOpenModelSwitcher, onOpenSettings, onOpenMcpPanel,
 
         {/* MCP/LSP/CodeGraph status (from ServerStatusContext) - clickable */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => onOpenMcpPanel?.()}
-            className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!onOpenMcpPanel}
-            title={onOpenMcpPanel ? "点击查看 MCP 详情" : "MCP 详情不可用"}
-            aria-label={`MCP server status: ${mcpStatus.connected ? 'connected' : 'disconnected'}. ${onOpenMcpPanel ? 'Click to view details.' : 'Details not available.'}`}
-          >
-            <ServerStatus
-              name="MCP"
-              status={mcpStatus.connected ? 'connected' : 'disconnected'}
-              icon="🔌"
-            />
-          </button>
-          <button
-            onClick={() => onOpenLspPanel?.()}
-            className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!onOpenLspPanel}
-            title={onOpenLspPanel ? "点击查看 LSP 详情" : "LSP 详情不可用"}
-            aria-label={`LSP server status: ${lspStatus.connected ? 'connected' : 'disconnected'}. ${onOpenLspPanel ? 'Click to view details.' : 'Details not available.'}`}
-          >
-            <ServerStatus
-              name="LSP"
-              status={lspStatus.connected ? 'connected' : 'disconnected'}
-              icon="📝"
-            />
-          </button>
-          <button
-            onClick={() => onOpenCodeGraphPanel?.()}
-            className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!onOpenCodeGraphPanel}
-            title={onOpenCodeGraphPanel ? "点击查看 CodeGraph 详情" : "CodeGraph 详情不可用"}
-            aria-label={`CodeGraph status: ${codegraphStatus.initialized ? 'initialized' : codegraphStatus.indexing ? 'indexing' : 'not initialized'}. ${onOpenCodeGraphPanel ? 'Click to view details.' : 'Details not available.'}`}
-          >
-            <ServerStatus
-              name="CG"
-              status={codegraphStatus.initialized ? 'connected' : codegraphStatus.indexing ? 'initializing' : 'disconnected'}
-              icon="📊"
-            />
-          </button>
+          {/* MCP status - show tool count and configured-but-not-started warning */}
+          {(() => {
+            // Calculate total tool count from started servers (matching TUI)
+            const mcpToolCount = mcpStatus.servers
+              .filter(s => s.status === 'running' || s.status === 'connected')
+              .reduce((sum, s) => sum + (s.tools?.length || 0), 0);
+
+            // Determine status (matching TUI logic)
+            const mcpHasConfigured = mcpStatus.servers.length > 0;
+            const mcpHasStarted = mcpStatus.servers.some(s => s.status === 'running' || s.status === 'connected');
+            const mcpStatusType = mcpHasStarted ? 'connected' : mcpHasConfigured ? 'configured' : 'disconnected';
+
+            return (
+              <button
+                onClick={() => onOpenMcpPanel?.()}
+                className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!onOpenMcpPanel}
+                title={onOpenMcpPanel ? "点击查看 MCP 详情" : "MCP 详情不可用"}
+                aria-label={`MCP server status: ${mcpStatusType}. ${onOpenMcpPanel ? 'Click to view details.' : 'Details not available.'}`}
+              >
+                <ServerStatus
+                  name="MCP"
+                  status={mcpStatusType}
+                  icon="🔌"
+                  count={mcpToolCount}
+                />
+              </button>
+            );
+          })()}
+
+          {/* LSP status - show connected server count */}
+          {(() => {
+            // Calculate connected server count (matching TUI)
+            const lspConnectedCount = lspStatus.servers
+              .filter(s => s.status === 'connected' || s.status === 'running')
+              .length;
+
+            // Check for starting/error status (matching TUI priority)
+            const lspStarting = lspStatus.servers.some(s => s.status === 'starting' || s.status === 'initializing');
+            const lspError = lspStatus.servers.some(s => s.status === 'error');
+
+            const lspStatusType = lspError ? 'error' : lspStarting ? 'initializing' : lspConnectedCount > 0 ? 'connected' : lspStatus.servers.length > 0 ? 'configured' : 'disconnected';
+
+            // Only show count if > 1 (matching TUI)
+            const showCount = lspConnectedCount > 1 ? lspConnectedCount : undefined;
+
+            return (
+              <button
+                onClick={() => onOpenLspPanel?.()}
+                className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!onOpenLspPanel}
+                title={onOpenLspPanel ? "点击查看 LSP 详情" : "LSP 详情不可用"}
+                aria-label={`LSP server status: ${lspStatusType}. ${onOpenLspPanel ? 'Click to view details.' : 'Details not available.'}`}
+              >
+                <ServerStatus
+                  name="LSP"
+                  status={lspStatusType}
+                  icon="📝"
+                  count={showCount}
+                />
+              </button>
+            );
+          })()}
+
+          {/* CodeGraph status - show pending files count */}
+          {(() => {
+            // Show pending files count (matching TUI)
+            const cgPendingCount = codegraphStatus.pendingFiles;
+
+            // Determine status (matching TUI logic)
+            const cgStatusType = cgPendingCount > 0 ? 'connected' : codegraphStatus.indexing ? 'initializing' : codegraphStatus.initialized ? 'connected' : 'disconnected';
+
+            // Yellow warning when pending > 0 (matching TUI)
+            const cgColorOverride = cgPendingCount > 0 ? 'configured' : cgStatusType;
+
+            return (
+              <button
+                onClick={() => onOpenCodeGraphPanel?.()}
+                className="flex items-center gap-1 hover:opacity-80 transition-opacity cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!onOpenCodeGraphPanel}
+                title={onOpenCodeGraphPanel ? "点击查看 CodeGraph 详情" : "CodeGraph 详情不可用"}
+                aria-label={`CodeGraph status: ${cgStatusType}. ${onOpenCodeGraphPanel ? 'Click to view details.' : 'Details not available.'}`}
+              >
+                <ServerStatus
+                  name="CG"
+                  status={cgPendingCount > 0 ? 'configured' : cgStatusType}
+                  icon="📊"
+                  count={cgPendingCount}
+                />
+              </button>
+            );
+          })()}
         </div>
       </div>
     </div>

@@ -498,6 +498,17 @@ impl TuiApp {
                     self.dirty.set(true);
                 }
             }
+            EventType::McpServerStatus => {
+                if let Some(EventData::McpServerStatus { servers }) = e.data {
+                    log::info!("TUI received McpServerStatus event: {} servers", servers.len());
+                    self.mcp_servers = servers.iter().map(|s| crate::app::McpServerInfo {
+                        name: s.name.clone(),
+                        is_started: s.is_started,
+                        tool_count: s.tool_count,
+                    }).collect();
+                    self.dirty.set(true);
+                }
+            }
             _ => {}
         }
     }

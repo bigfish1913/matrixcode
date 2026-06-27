@@ -356,4 +356,102 @@ impl CodeGraphManager {
 
         Ok(files)
     }
+
+    // ========================================================================
+    // CLI-Based Query Methods (explore, node, impact, affected)
+    // ========================================================================
+
+    /// Explore an area: relevant symbols' source + call paths.
+    /// Returns Markdown output from CodeGraph CLI.
+    pub async fn explore(&self, query: &str, max_files: Option<usize>) -> Result<String> {
+        if let Some(max) = max_files {
+            let max_str = max.to_string();
+            self.run_cli_command_output(&["explore", query, "--max-files", &max_str]).await
+        } else {
+            self.run_cli_command_output(&["explore", query]).await
+        }
+    }
+
+    /// Get one symbol's source + caller/callee trail.
+    /// Returns Markdown output from CodeGraph CLI.
+    pub async fn node(&self, name: &str, file: Option<&str>) -> Result<String> {
+        if let Some(f) = file {
+            self.run_cli_command_output(&["node", name, "-f", f]).await
+        } else {
+            self.run_cli_command_output(&["node", name]).await
+        }
+    }
+
+    /// Analyze what code is affected by changing a symbol.
+    /// Returns ANSI-colored output from CodeGraph CLI.
+    pub async fn impact(&self, symbol: &str, depth: Option<usize>) -> Result<String> {
+        if let Some(d) = depth {
+            let depth_str = d.to_string();
+            self.run_cli_command_output(&["impact", symbol, "-d", &depth_str]).await
+        } else {
+            self.run_cli_command_output(&["impact", symbol]).await
+        }
+    }
+
+    /// Find test files affected by changed source files.
+    /// Returns plain text output from CodeGraph CLI.
+    pub async fn affected(&self, files: &[&str], depth: Option<usize>) -> Result<String> {
+        // Build args as String to avoid lifetime issues
+        let mut args: Vec<String> = vec!["affected".to_string()];
+        if let Some(d) = depth {
+            args.push("-d".to_string());
+            args.push(d.to_string());
+        }
+        for f in files {
+            args.push(f.to_string());
+        }
+
+        // Convert to Vec<&str> for the CLI call
+        let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        self.run_cli_command_output(&args_refs).await
+    }
+
+    /// Run CodeGraph CLI command and capture output.
+    async fn run_cli_command_output(&self, args: &[&str]) -> Result<String> {
+        let codegraph_path =
+            get_codegraph_path().ok_or_else(|| anyhow::anyhow!("CodeGraph CLI not installed"))?;
+
+        timeout(Duration::from_secs(CODEGRAPH_CLI_TIMEOUT_SECS), async {
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+                let mut std_cmd = std::process::Command::new(&codegraph_path);
+                std_cmd
+                    .args(args)
+                    .current_dir(&self.project_path)
+                    .creation_flags(CREATE_NO_WINDOW);
+
+                let result = std_cmd.output()?;
+                if !result.status.success() {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    return Err(anyhow::anyhow!("CodeGraph command failed: {}", stderr));
+                }
+                Ok::<_, anyhow::Error>(String::from_utf8_lossy(&result.stdout).to_string())
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let result = Command::new(&codegraph_path)
+                    .args(args)
+                    .current_dir(&self.project_path)
+                    .output()
+                    .await?;
+
+                if !result.status.success() {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    return Err(anyhow::anyhow!("CodeGraph command failed: {}", stderr));
+                }
+                Ok::<_, anyhow::Error>(String::from_utf8_lossy(&result.stdout).to_string())
+            }
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("CodeGraph CLI timeout"))?
+    }
 }

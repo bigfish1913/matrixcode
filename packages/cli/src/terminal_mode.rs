@@ -383,6 +383,14 @@ async fn run_agent_task(
 ) {
     log::info!("Agent task: starting");
 
+    // Send a test event immediately to verify event channel works
+    log::info!("Agent task: sending test progress event");
+    if let Err(e) = event_tx.send(AgentEvent::progress("Agent task started", None)).await {
+        log::error!("Agent task: failed to send test event: {}", e);
+    } else {
+        log::info!("Agent task: test event sent successfully");
+    }
+
     // Create provider
     let provider = match create_provider_with_headers(
         provider_type,
@@ -446,8 +454,16 @@ async fn run_agent_task(
 
     // Load and start LSP servers
     let lsp_registry = Arc::new(LspClientRegistry::new());
-    let lsp_servers_config = prepare_lsp_servers(&config, project_path_ref, project_path_ref);
+    // Use project root for LSP config lookup
+    let lsp_project_path = project_path_ref.map(|p| {
+        use matrixcode_core::tools::codegraph::find_project_root;
+        find_project_root(p)
+    });
+    let lsp_servers_config = prepare_lsp_servers(&config, lsp_project_path.as_deref(), lsp_project_path.as_deref());
     let mut lsp_servers_info: Vec<LspServerInfo> = Vec::new();
+
+    log::info!("Agent task: LSP config lookup path = {:?}", lsp_project_path);
+    log::info!("Agent task: LSP servers config count = {}", lsp_servers_config.len());
 
     if !lsp_servers_config.is_empty() {
         log::info!("Agent task: starting {} LSP servers", lsp_servers_config.len());
@@ -556,18 +572,84 @@ async fn run_agent_task(
     agent.set_cancel_token(cancel_token.clone());
     agent.set_ask_channel(ask_rx);
 
-    // Start CodeGraph watcher for auto-sync
+    log::info!("Agent task: project_path = {:?}", project_path);
+
+    // Send CodeGraph initial status (if initialized)
     if let Some(ref pp) = project_path {
-        use matrixcode_core::tools::codegraph::CodeGraphWatcher;
-        let watcher = CodeGraphWatcher::new(pp.as_path());
-        let watcher_cancel = cancel_token.clone();
-        // Start watcher in background - don't block on result
-        tokio::spawn(async move {
-            if let Err(e) = watcher.start(watcher_cancel).await {
-                log::warn!("CodeGraph watcher error: {}", e);
+        use matrixcode_core::tools::codegraph::{CodeGraphManager, find_project_root};
+        // Find the real project root (where .codegraph/ lives)
+        let project_root = find_project_root(pp.as_path());
+        log::info!("Agent task: using project_root = {} (from pp = {})", project_root.display(), pp.display());
+        let manager = CodeGraphManager::new(project_root.as_path());
+        let db_exists = project_root.join(".codegraph").join("codegraph.db").exists();
+        log::info!("Agent task: CodeGraph db exists = {}", db_exists);
+        if manager.is_initialized() {
+            match manager.status() {
+                Ok(status) => {
+                    log::info!("Agent task: sending CodeGraph initial status (nodes: {}, pending: {})",
+                        status.node_count, status.pending_changes.added);
+                    if let Err(e) = event_tx.send(AgentEvent::codegraph_status(status)).await {
+                        log::error!("Agent task: failed to send CodeGraph status: {}", e);
+                    } else {
+                        log::info!("Agent task: CodeGraph status sent successfully");
+                    }
+                }
+                Err(e) => {
+                    log::error!("Agent task: failed to get CodeGraph status: {} - path: {}", e, project_root.display());
+                }
             }
-        });
-        log::info!("CodeGraph auto-sync watcher started for: {}", pp.display());
+        } else {
+            log::info!("Agent task: CodeGraph not initialized for {}", project_root.display());
+        }
+    } else {
+        log::info!("Agent task: project_path is None, skipping CodeGraph status");
+    }
+
+    // Start CodeGraph watcher for auto-sync with status updates
+    if let Some(ref pp) = project_path {
+        use matrixcode_core::tools::codegraph::{CodeGraphWatcher, find_project_root};
+        let project_root = find_project_root(pp.as_path());
+        let watcher = CodeGraphWatcher::new(project_root.as_path());
+        let watcher_cancel = cancel_token.clone();
+        let watcher_event_tx = event_tx.clone();
+        // Start watcher with status updates to TUI
+        watcher.start_with_status_updates(watcher_cancel, watcher_event_tx);
+        log::info!("CodeGraph auto-sync watcher started for: {}", project_root.display());
+    }
+
+    // Send MCP initial status (if configured)
+    log::info!("Agent task: project_path_ref = {:?}", project_path_ref);
+    if let Some(path) = project_path_ref {
+        use matrixcode_core::tools::codegraph::find_project_root;
+        let project_root = find_project_root(path);
+        let mcp_config = matrixcode_core::mcp::load_mcp_config(project_root.as_path());
+        let enabled = mcp_config.enabled_servers();
+        log::info!("Agent task: MCP enabled_servers count = {} (path: {})", enabled.len(), project_root.display());
+        let mcp_servers_info: Vec<matrixcode_core::mcp::McpServerInfo> = enabled
+            .iter()
+            .map(|(key, server)| {
+                let name = server.get_name(key);
+                log::info!("Agent task: MCP server '{}' configured", name);
+                matrixcode_core::mcp::McpServerInfo {
+                    name,
+                    is_started: false,  // Not started yet (will show as yellow ◐)
+                    tool_count: 0,
+                }
+            })
+            .collect();
+
+        if !mcp_servers_info.is_empty() {
+            log::info!("Agent task: sending MCP initial status with {} configured servers", mcp_servers_info.len());
+            if let Err(e) = event_tx.send(AgentEvent::mcp_server_status(mcp_servers_info)).await {
+                log::error!("Agent task: failed to send MCP status: {}", e);
+            } else {
+                log::info!("Agent task: MCP status sent successfully");
+            }
+        } else {
+            log::info!("Agent task: no MCP servers configured");
+        }
+    } else {
+        log::info!("Agent task: project_path_ref is None, skipping MCP status");
     }
 
     let mut turn_count: usize = 0;
