@@ -28,3 +28,4 @@ chrono = { workspace = true }
 dirs = { workspace = true }
 uuid = { workspace = true }
 termimad = { workspace = true }
+thiserror = { workspace = true }

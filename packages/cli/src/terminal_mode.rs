@@ -25,6 +25,246 @@ use crate::constants::{
 use crate::helpers::{resolve_provider, resolve_model, resolve_base_url, load_skills, prepare_lsp_servers};
 use crate::types::Cli;
 
+/// Agent task context - encapsulates all parameters for the agent task
+struct AgentTaskContext {
+    cancel_token: CancellationToken,
+    event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
+    api_key: String,
+    model: String,
+    base_url: String,
+    think: bool,
+    max_tokens: u32,
+    restored_messages: Vec<matrixcode_core::providers::Message>,
+    project_path: Option<PathBuf>,
+    approve_mode: ApproveMode,
+    provider_type: matrixcode_core::providers::ProviderType,
+    fast_model: Option<String>,
+    extra_headers: Option<std::collections::HashMap<String, String>>,
+    config: Config,
+    skills: Vec<matrixcode_core::skills::Skill>,
+    shared_approve_mode: Arc<std::sync::atomic::AtomicU8>,
+    session_mgr: Option<SessionManager>,
+    task_rx: tokio::sync::mpsc::Receiver<String>,
+    ask_rx: tokio::sync::mpsc::Receiver<String>,
+}
+
+/// Builder for AgentTaskContext with validation
+pub struct AgentTaskContextBuilder {
+    cancel_token: Option<CancellationToken>,
+    event_tx: Option<tokio::sync::mpsc::Sender<AgentEvent>>,
+    api_key: Option<String>,
+    model: Option<String>,
+    base_url: Option<String>,
+    think: Option<bool>,
+    max_tokens: Option<u32>,
+    restored_messages: Option<Vec<matrixcode_core::providers::Message>>,
+    project_path: Option<PathBuf>,
+    approve_mode: Option<ApproveMode>,
+    provider_type: Option<matrixcode_core::providers::ProviderType>,
+    fast_model: Option<String>,
+    extra_headers: Option<std::collections::HashMap<String, String>>,
+    config: Option<Config>,
+    skills: Option<Vec<matrixcode_core::skills::Skill>>,
+    shared_approve_mode: Option<Arc<std::sync::atomic::AtomicU8>>,
+    session_mgr: Option<SessionManager>,
+    task_rx: Option<tokio::sync::mpsc::Receiver<String>>,
+    ask_rx: Option<tokio::sync::mpsc::Receiver<String>>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AgentTaskContextError {
+    #[error("Missing required field: {0}")]
+    MissingField(&'static str),
+    #[error("Invalid configuration: {0}")]
+    InvalidConfig(String),
+}
+
+impl AgentTaskContextBuilder {
+    /// Create a new builder with all fields unset
+    pub fn new() -> Self {
+        Self {
+            cancel_token: None,
+            event_tx: None,
+            api_key: None,
+            model: None,
+            base_url: None,
+            think: None,
+            max_tokens: None,
+            restored_messages: None,
+            project_path: None,
+            approve_mode: None,
+            provider_type: None,
+            fast_model: None,
+            extra_headers: None,
+            config: None,
+            skills: None,
+            shared_approve_mode: None,
+            session_mgr: None,
+            task_rx: None,
+            ask_rx: None,
+        }
+    }
+
+    // Builder setters
+    pub fn cancel_token(mut self, value: CancellationToken) -> Self {
+        self.cancel_token = Some(value);
+        self
+    }
+
+    pub fn event_tx(mut self, value: tokio::sync::mpsc::Sender<AgentEvent>) -> Self {
+        self.event_tx = Some(value);
+        self
+    }
+
+    pub fn api_key(mut self, value: String) -> Self {
+        self.api_key = Some(value);
+        self
+    }
+
+    pub fn model(mut self, value: String) -> Self {
+        self.model = Some(value);
+        self
+    }
+
+    pub fn base_url(mut self, value: String) -> Self {
+        self.base_url = Some(value);
+        self
+    }
+
+    pub fn think(mut self, value: bool) -> Self {
+        self.think = Some(value);
+        self
+    }
+
+    pub fn max_tokens(mut self, value: u32) -> Self {
+        self.max_tokens = Some(value);
+        self
+    }
+
+    pub fn restored_messages(mut self, value: Vec<matrixcode_core::providers::Message>) -> Self {
+        self.restored_messages = Some(value);
+        self
+    }
+
+    pub fn project_path(mut self, value: Option<PathBuf>) -> Self {
+        self.project_path = value;
+        self
+    }
+
+    pub fn approve_mode(mut self, value: ApproveMode) -> Self {
+        self.approve_mode = Some(value);
+        self
+    }
+
+    pub fn provider_type(mut self, value: matrixcode_core::providers::ProviderType) -> Self {
+        self.provider_type = Some(value);
+        self
+    }
+
+    pub fn fast_model(mut self, value: Option<String>) -> Self {
+        self.fast_model = value;
+        self
+    }
+
+    pub fn extra_headers(mut self, value: Option<std::collections::HashMap<String, String>>) -> Self {
+        self.extra_headers = value;
+        self
+    }
+
+    pub fn config(mut self, value: Config) -> Self {
+        self.config = Some(value);
+        self
+    }
+
+    pub fn skills(mut self, value: Vec<matrixcode_core::skills::Skill>) -> Self {
+        self.skills = Some(value);
+        self
+    }
+
+    pub fn shared_approve_mode(mut self, value: Arc<std::sync::atomic::AtomicU8>) -> Self {
+        self.shared_approve_mode = Some(value);
+        self
+    }
+
+    pub fn session_mgr(mut self, value: Option<SessionManager>) -> Self {
+        self.session_mgr = value;
+        self
+    }
+
+    pub fn task_rx(mut self, value: tokio::sync::mpsc::Receiver<String>) -> Self {
+        self.task_rx = Some(value);
+        self
+    }
+
+    pub fn ask_rx(mut self, value: tokio::sync::mpsc::Receiver<String>) -> Self {
+        self.ask_rx = Some(value);
+        self
+    }
+
+    /// Build the context with validation
+    #[allow(private_interfaces)]
+    pub fn build(self) -> Result<AgentTaskContext, AgentTaskContextError> {
+        // Validate required fields
+        let cancel_token = self.cancel_token.ok_or(AgentTaskContextError::MissingField("cancel_token"))?;
+        let event_tx = self.event_tx.ok_or(AgentTaskContextError::MissingField("event_tx"))?;
+        let api_key = self.api_key.ok_or(AgentTaskContextError::MissingField("api_key"))?;
+        let model = self.model.ok_or(AgentTaskContextError::MissingField("model"))?;
+        let base_url = self.base_url.ok_or(AgentTaskContextError::MissingField("base_url"))?;
+        let think = self.think.ok_or(AgentTaskContextError::MissingField("think"))?;
+        let max_tokens = self.max_tokens.ok_or(AgentTaskContextError::MissingField("max_tokens"))?;
+        let restored_messages = self.restored_messages.ok_or(AgentTaskContextError::MissingField("restored_messages"))?;
+        let approve_mode = self.approve_mode.ok_or(AgentTaskContextError::MissingField("approve_mode"))?;
+        let provider_type = self.provider_type.ok_or(AgentTaskContextError::MissingField("provider_type"))?;
+        let config = self.config.ok_or(AgentTaskContextError::MissingField("config"))?;
+        let skills = self.skills.ok_or(AgentTaskContextError::MissingField("skills"))?;
+        let shared_approve_mode = self.shared_approve_mode.ok_or(AgentTaskContextError::MissingField("shared_approve_mode"))?;
+        let task_rx = self.task_rx.ok_or(AgentTaskContextError::MissingField("task_rx"))?;
+        let ask_rx = self.ask_rx.ok_or(AgentTaskContextError::MissingField("ask_rx"))?;
+
+        // Business validation
+        if api_key.is_empty() {
+            return Err(AgentTaskContextError::InvalidConfig("api_key cannot be empty".to_string()));
+        }
+        if model.is_empty() {
+            return Err(AgentTaskContextError::InvalidConfig("model cannot be empty".to_string()));
+        }
+        if base_url.is_empty() {
+            return Err(AgentTaskContextError::InvalidConfig("base_url cannot be empty".to_string()));
+        }
+        if max_tokens == 0 {
+            return Err(AgentTaskContextError::InvalidConfig("max_tokens must be greater than 0".to_string()));
+        }
+
+        Ok(AgentTaskContext {
+            cancel_token,
+            event_tx,
+            api_key,
+            model,
+            base_url,
+            think,
+            max_tokens,
+            restored_messages,
+            project_path: self.project_path,
+            approve_mode,
+            provider_type,
+            fast_model: self.fast_model,
+            extra_headers: self.extra_headers,
+            config,
+            skills,
+            shared_approve_mode,
+            session_mgr: self.session_mgr,
+            task_rx,
+            ask_rx,
+        })
+    }
+}
+
+impl Default for AgentTaskContextBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Interactive session resume - list sessions and let user select
 pub fn interactive_resume() -> Result<()> {
     use std::io::{self, Write};
@@ -202,7 +442,7 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     // Load session BEFORE spawning agent task so TUI can also display restored messages
     let current_dir = std::env::current_dir().ok();
     let (full_messages, api_messages, session_mgr_state, session_metadata, effective_project_path) = {
-        let mut mgr = SessionManager::new().ok();
+        let mut mgr: Option<SessionManager> = SessionManager::new().ok();
         let mut full = Vec::new();
         let mut api = Vec::new();
         let mut metadata = None;
@@ -281,29 +521,37 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
     let agent_skills = skills.clone();
     let agent_shared_approve_mode = shared_approve_mode.clone();
 
-    // Spawn Agent task
+    // Spawn Agent task with builder pattern
     let agent_task = rt.spawn(async move {
-        run_agent_task(
-            agent_cancel,
-            agent_event_tx,
-            agent_api_key,
-            agent_model,
-            agent_base_url,
-            agent_think,
-            agent_max_tokens,
-            agent_restored_messages,
-            agent_project_path,
-            agent_approve_mode,
-            agent_provider,
-            agent_fast_model,
-            agent_extra_headers,
-            agent_config,
-            agent_skills,
-            agent_shared_approve_mode,
-            session_mgr_state,
-            task_rx,
-            ask_rx,
-        ).await;
+        let ctx_result: std::prelude::v1::Result<AgentTaskContext, AgentTaskContextError> = AgentTaskContextBuilder::new()
+            .cancel_token(agent_cancel)
+            .event_tx(agent_event_tx)
+            .api_key(agent_api_key)
+            .model(agent_model)
+            .base_url(agent_base_url)
+            .think(agent_think)
+            .max_tokens(agent_max_tokens)
+            .restored_messages(agent_restored_messages)
+            .project_path(agent_project_path)
+            .approve_mode(agent_approve_mode)
+            .provider_type(agent_provider)
+            .fast_model(agent_fast_model)
+            .extra_headers(agent_extra_headers)
+            .config(agent_config)
+            .skills(agent_skills)
+            .shared_approve_mode(agent_shared_approve_mode)
+            .session_mgr(session_mgr_state)
+            .task_rx(task_rx)
+            .ask_rx(ask_rx)
+            .build();
+
+        match ctx_result {
+            Ok(ctx) => run_agent_task(ctx).await,
+            Err(e) => {
+                log::error!("Failed to build AgentTaskContext: {}", e);
+                eprintln!("Configuration error: {}", e);
+            }
+        }
     });
 
     // Enter runtime context
@@ -359,28 +607,29 @@ pub fn run_terminal_mode(cli: Cli) -> Result<()> {
 }
 
 /// Run the agent task (async portion)
-#[allow(clippy::too_many_arguments)]
-async fn run_agent_task(
-    cancel_token: CancellationToken,
-    event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
-    api_key: String,
-    model: String,
-    base_url: String,
-    think: bool,
-    max_tokens: u32,
-    restored_messages: Vec<matrixcode_core::providers::Message>,
-    project_path: Option<PathBuf>,
-    approve_mode: ApproveMode,
-    provider_type: matrixcode_core::providers::ProviderType,
-    fast_model: Option<String>,
-    extra_headers: Option<std::collections::HashMap<String, String>>,
-    config: Config,
-    skills: Vec<matrixcode_core::skills::Skill>,
-    shared_approve_mode: Arc<std::sync::atomic::AtomicU8>,
-    mut session_mgr: Option<SessionManager>,
-    mut task_rx: tokio::sync::mpsc::Receiver<String>,
-    ask_rx: tokio::sync::mpsc::Receiver<String>,
-) {
+async fn run_agent_task(ctx: AgentTaskContext) {
+    // Destructure context for easier access
+    let AgentTaskContext {
+        cancel_token,
+        event_tx,
+        api_key,
+        model,
+        base_url,
+        think,
+        max_tokens,
+        restored_messages,
+        project_path,
+        approve_mode,
+        provider_type,
+        fast_model,
+        extra_headers,
+        config,
+        skills,
+        shared_approve_mode,
+        mut session_mgr,
+        mut task_rx,
+        ask_rx,
+    } = ctx;
     log::info!("Agent task: starting");
 
     // Send a test event immediately to verify event channel works
