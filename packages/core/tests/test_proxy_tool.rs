@@ -5,7 +5,6 @@ use matrixcode_core::{
     tools::{
         toolproxy::{ProxyMetadata, ProxyTool, ProxyToolRequest, ProxyToolResponse},
         ToolDefinition,
-        Tool,
     },
 };
 use serde_json::json;

@@ -66,7 +66,7 @@ pub struct SymbolInfo {
 }
 
 /// Symbol kind
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
     Function,
     Class,

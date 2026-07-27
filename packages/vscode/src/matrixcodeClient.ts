@@ -115,11 +115,8 @@ export class MatrixCodeClient {
       throw new Error('Daemon process not running');
     }
 
-    return new Promise((resolve, reject) => {
-      const requestId = Date.now().toString();
-      
+    return new Promise((resolve) => {
       // Store resolver
-      const eventBuffer: AgentEvent[] = [];
       const handler = (events: AgentEvent[]) => {
         resolve(events);
       };

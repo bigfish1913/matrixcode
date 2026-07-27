@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import { MatrixCodeClient, RequestContext } from './matrixcodeClient';
 import { SessionManager, Session } from './sessionManager';
 import { ConfigManager } from './configManager';
-import { ChatMessage, ToolUse, CodeBlock, DiffInfo, EditorContext, StreamEvent } from './types';
+import { ChatMessage, ToolUse, EditorContext, StreamEvent } from './types';
 
 /**
  * ChatPanelProvider manages the webview panel that displays the chat interface.
@@ -162,7 +162,7 @@ export class ChatPanelProvider implements vscode.Disposable {
 
             // Open the file
             const doc = await vscode.workspace.openTextDocument(absolutePath);
-            const editor = await vscode.window.showTextDocument(doc, {
+            await vscode.window.showTextDocument(doc, {
                 preview: false,
                 selection: new vscode.Range(
                     new vscode.Position(startLine, 0),
@@ -310,7 +310,7 @@ export class ChatPanelProvider implements vscode.Disposable {
                 }
                 break;
                 
-            case 'tool_use':
+            case 'tool_use': {
                 const toolUse: ToolUse = {
                     id: event.id || '',
                     name: event.name || '',
@@ -325,8 +325,9 @@ export class ChatPanelProvider implements vscode.Disposable {
                     value: this.currentAssistantMessage.toolUses
                 });
                 break;
-                
-            case 'tool_result':
+            }
+
+            case 'tool_result': {
                 const lastToolUse = this.currentAssistantMessage.toolUses?.[
                     this.currentAssistantMessage.toolUses?.length - 1 || 0
                 ];
@@ -341,6 +342,7 @@ export class ChatPanelProvider implements vscode.Disposable {
                     });
                 }
                 break;
+            }
                 
             case 'done':
                 if (this.currentAssistantMessage) {
